@@ -81,7 +81,7 @@ Foreground `run` is enough. On systemd hosts an operator can separately choose:
 
 Back in Camp, distinguish **installed, connected, execution ready, model configured and first task succeeded**. Run First Task explicitly creates/shares an owned Agent and requests model-backed file work on the chosen Room. Self-test and fixture success cannot substitute for recorded native task success. Configure Agent targets, grants and personal/team defaults in Agents/Runners; no machine choice is needed for each ordinary message.
 
-An operator can add `--source notes=/absolute/notes` during initial setup. Library selects the alias, captures a new Room snapshot and never writes back to that directory. Quiesce edits when capture must be consistent. See [source-import boundaries](architecture.md#file-and-publication-ownership).
+An operator can add `--source notes=/absolute/notes` during initial setup. Repeating setup accepts identical source flags but rejects a different source map. To change an existing Runner's sources, stop it, preserve a private backup of `daemon.json`, edit only its `sources` map from aliases to absolute directories, then restart with the same data directory. Keep identity, credentials and journal unchanged. Library selects the alias, captures a new Room snapshot and never writes back to that directory. Quiesce edits when capture must be consistent. See [source-import boundaries](architecture.md#file-and-publication-ownership).
 
 ## Data, upgrades and backup
 

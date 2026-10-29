@@ -19,6 +19,43 @@ import (
 
 type unexpectedInput struct{ t *testing.T }
 
+func TestRepeatSetupRejectsChangedSourcesWithoutReplacingIdentity(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		_ = json.NewEncoder(w).Encode(p.Joined{RunnerID: "source-runner"})
+	}))
+	defer server.Close()
+	directory := t.TempDir()
+	source := t.TempDir()
+	args := []string{"setup", "--executor", "fixture", "--server", server.URL, "--name", "Sources", "--data-dir", directory, "--source", "notes=" + source, "--code-file", "-"}
+	input := runnerInput{reader: strings.NewReader("private-code\n"), isTerminal: func(io.Reader) bool { return false }, readSecret: readConnectionCode}
+	if err := runRunnerWithInput(context.Background(), args, io.Discard, input); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(directory, "daemon.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.reader = unexpectedInput{t}
+	if err := runRunnerWithInput(context.Background(), args, io.Discard, input); err != nil {
+		t.Fatal("Identical setup was not idempotent", err)
+	}
+	changed := append([]string{}, args...)
+	for i, value := range changed {
+		if value == "notes="+source {
+			changed[i] = "notes=" + t.TempDir()
+		}
+	}
+	if err := runRunnerWithInput(context.Background(), changed, io.Discard, input); err == nil || !strings.Contains(err.Error(), "--source is for initial setup") {
+		t.Fatal("Conflicting source configuration was silently ignored", err)
+	}
+	after, err := os.ReadFile(filepath.Join(directory, "daemon.json"))
+	if err != nil || !bytes.Equal(before, after) || requests != 1 {
+		t.Fatal("Source retry changed identity/configuration or enrolled again", err, requests)
+	}
+}
+
 func (r unexpectedInput) Read([]byte) (int, error) {
 	r.t.Error("Setup attempted an unrequested read from stdin")
 	return 0, io.EOF

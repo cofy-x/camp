@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -200,6 +201,9 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 	}
 	if runtimeSource != "" && runtimeSource != "github" && runtimeSource != "server" {
 		return errors.New("Runtime source must be github or server")
+	}
+	if loadErr == nil && len(sources) > 0 && !maps.Equal(map[string]string(sources), previous.Sources) {
+		return errors.New("Source aliases differ from this Runner's saved configuration. --source is for initial setup; stop this Runner and edit the sources map in its private daemon.json, then restart with the same data directory. Do not replace its identity or journal")
 	}
 	needsCode := loadErr != nil || (previous.PendingToken == "" && previous.RunnerID == "")
 	if needsCode && !interactive && !explicitCode {
