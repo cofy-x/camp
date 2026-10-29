@@ -64,6 +64,7 @@ test('a saved avatar stays stable and updates an existing conversation in anothe
   const receipt = await message.json();
   const other = await context.newPage();
   await other.goto('/');
+  await expect(workspace(other)).toBeVisible();
   const roomPicker = workspace(other).getByLabel('Room', { exact: true });
   if (await roomPicker.isVisible()) await roomPicker.selectOption(room.id);
   else
