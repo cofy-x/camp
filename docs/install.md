@@ -20,6 +20,18 @@ Early releases use numbered `alpha`, `beta` and `rc` versions. Alpha/beta versio
 
 ## Start Server
 
+### Go installation
+
+Releases containing the root Go entrypoint support `go install github.com/cofy-x/camp@<version>` with a fixed published version and the [pinned Go toolchain](../README.md#local-development). The original `v0.1.0-alpha.1` has no root command and must be installed from its archives. Put Go's binary installation directory on PATH, then run `camp`. This entrypoint downloads the same complete Server archive as a manual installation; it does not compile an API-only development Server or require Node/pnpm. `camp runner ...` selects the matching Linux Runner installer instead.
+
+The launcher derives its immutable version from Go's build information. It never selects `latest`, substitutes another platform or advances an existing installation. Downloads use system TLS and only GitHub release redirects, without Camp credentials. Archive/checksum names are fixed by version, role and platform. Checksums establish release-channel integrity, not a separate publisher signature.
+
+Complete packages, including licenses, live under the OS user cache directory's `camp/releases/<version>/`. Installation uses a private staging directory and lock; only a bounded, checksum-verified archive with safe regular files can become runnable. Subsequent invocations verify the cached executable without a network request. Missing or damaged cache files trigger repair of that same version; failed transfers retain the prior cache and are retried by repeating the command. Server data and Runner identity/journals remain outside this cache. Deleting a release cache does not delete team data, but stop any service using that cached executable before removing it.
+
+`camp help` and `camp version` work without downloads or private configuration. A source/pseudo-version entrypoint refuses to guess a public release: developers use `make build`. Downloads support cancellation and report controlled network errors without signed URLs or transport credentials. Offline hosts use the standalone archives; this launcher is an online installation channel.
+
+### Standalone Server
+
 Extract `camp-server-linux-amd64.tar.gz` and run its `camp`, or build locally with `make build` and use `dist/camp`. The published image contains the same Server binary and dependency licenses. It needs a persistent `/data` mount and explicit port/TLS configuration; it does not include a Runner. For a binary deployment with remote access, provide TLS:
 
 ```sh

@@ -40,6 +40,8 @@ Choose a fixed version from [GitHub Releases](https://github.com/cofy-x/camp/rel
 
 Check [supported Runner hosts and prerequisites](docs/install.md#supported-deployment) before connecting a machine. Server and Runner remain independent processes even on one host. For local protocol and recovery development with two simulated machines, use the [Docker Compose harness](tools/remote-dev/README.md).
 
+The repository root also provides the Go-installable `camp` entrypoint. Install a fixed version that includes it with `go install github.com/cofy-x/camp@<version>`; see [Go installation](docs/install.md#go-installation) for its first-download, cache and platform behavior. The existing `v0.1.0-alpha.1` predates this entrypoint; use its published archives.
+
 ## Local development
 
 Use Go **1.27.3**, Node **24.16.0** and pnpm **12.11.2**, as pinned in [go.mod](go.mod), [.node-version](.node-version) and [package.json](package.json). Run commands from this repository root. The Makefile invokes fixed pnpm via `npx`.
