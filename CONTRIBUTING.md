@@ -4,7 +4,7 @@ Follow the [cofy-x contribution guidelines](https://github.com/cofy-x/.github/bl
 
 ## Development
 
-Fork the repository and create a branch for your change. Follow [AGENTS.md](AGENTS.md) for development constraints and the owning contracts. [README](README.md#local-development) owns toolchain versions, setup and validation commands; [installation](docs/install.md#supported-deployment) owns deployment support. A source checkout can run the Server and ordinary tests without native Runner dependencies or model credentials.
+Fork the repository and create a branch for your change. Follow [AGENTS.md](AGENTS.md) for development constraints and the owning contracts. [README](README.md#local-development) owns toolchain versions and setup; its [checks table](README.md#checks-and-maintenance) owns test prerequisites and commands. [Installation](docs/install.md#supported-deployment) owns deployment support. A source checkout can run the Server without native Runner dependencies or model credentials.
 
 Keep changes focused, preserve existing data, and update the owning documentation when behavior changes. Add tests for meaningful behavior and failure cases. Keep secrets, personal team data and generated runtime files out of patches and issue attachments. Shared dependency checkouts are references; integrate through public interfaces and pinned dependencies.
 

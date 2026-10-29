@@ -58,6 +58,8 @@ The executable embeds Web/API; development and ordinary Go tests do not need gen
 
 Choose checks for the affected contract. These commands describe available checks, not a record of a completed run.
 
+On Linux, ordinary Go tests require Bubblewrap (`bwrap`) on PATH to validate execution command construction. Install it through the host package manager before running those tests. Native integration cases have additional prerequisites and remain opt-in.
+
 | Command | Scope and prerequisites |
 | --- | --- |
 | `make test-go-race` | SQL generation consistency and Go tests with race detection; opt-in native cases can skip |
