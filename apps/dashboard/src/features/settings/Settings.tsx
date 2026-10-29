@@ -567,7 +567,10 @@ export function Settings(props: AppWindowProps) {
     user.role === 'admin' ? 'readiness' : 'account',
   );
   const readiness = useReadiness(
-    user.role === 'admin' && section === 'readiness',
+    user.role === 'admin' &&
+      section === 'readiness' &&
+      props.desktop.activeWindowId === props.window.id &&
+      !props.window.shaded,
   );
   const [panelLoading, setPanelLoading] = useState(false);
   const [panelError, setPanelError] = useState('');
@@ -691,10 +694,9 @@ export function Settings(props: AppWindowProps) {
             <GettingReady
               {...readiness}
               onRefresh={() => void readiness.refresh()}
-              onSection={(next) =>
-                next === 'runners'
-                  ? props.desktop.openApp('runners')
-                  : setSection(next)
+              onSection={setSection}
+              onRunners={(connect) =>
+                void team.navigate({ app: 'runners', connect })
               }
               onAgents={() => props.desktop.openApp('agents')}
               onWorkspace={() => props.desktop.openApp('workspace')}

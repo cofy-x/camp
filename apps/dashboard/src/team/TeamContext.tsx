@@ -32,7 +32,7 @@ export type NavigationTarget =
       commit?: string;
     }
   | { app: 'agents'; agentId?: string }
-  | { app: 'runners'; runnerId?: string }
+  | { app: 'runners'; runnerId?: string; connect?: boolean }
   | { app: 'settings'; section?: string };
 
 export type NavigationIntent = NavigationTarget & { revision: number };

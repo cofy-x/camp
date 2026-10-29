@@ -42,6 +42,7 @@ type Config struct {
 	ShutdownTimeout     time.Duration
 	DSH                 runs.Config
 	DocumentRuntimeDir  string
+	OnReady             func(address, setupPath string)
 }
 
 // Run serves the desktop until its caller cancels ctx or the listener fails.
@@ -88,9 +89,11 @@ func Run(ctx context.Context, config Config) error {
 	if err != nil {
 		return fmt.Errorf("initialize team authentication: %w", err)
 	}
+	setupPath := ""
 	if required, err := auth.SetupRequired(ctx); err != nil {
 		return err
 	} else if required {
+		setupPath = auth.SetupPath()
 		logger.Info("Camp setup required", "token_file", auth.SetupPath())
 	}
 	runManager, err := remoteruns.New(ctx, store, remoteruns.Config{DataDir: config.DataDir, Models: config.DSH, AllowFixture: config.AllowFixtureRunners, Concurrency: config.MaxConcurrentRuns}, logger)
@@ -143,6 +146,9 @@ func Run(ctx context.Context, config Config) error {
 		scheme = "https://"
 	}
 	logger.Info("desktop listening", "url", scheme+listener.Addr().String(), "data", config.DataDir)
+	if config.OnReady != nil {
+		config.OnReady(listener.Addr().String(), setupPath)
+	}
 	var serveErr error
 	select {
 	case serveErr = <-done:

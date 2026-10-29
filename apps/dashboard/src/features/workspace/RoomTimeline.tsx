@@ -182,6 +182,7 @@ export function RoomTimeline({
   onSource,
   onReference,
   onAgents,
+  onSetup,
 }: {
   room: Room;
   threadId: string;
@@ -193,6 +194,7 @@ export function RoomTimeline({
   onSource: (messageId: string) => void;
   onReference: (reference: Reference) => void;
   onAgents: () => void;
+  onSetup?: () => void;
   runs: Run[];
   agents: Agent[];
   members: Agent[];
@@ -285,6 +287,11 @@ export function RoomTimeline({
           <div className="workspace-room-welcome">
             <PixelIcon name="conversation" size={28} />
             <h2>What would you like to work on?</h2>
+            {!available && onSetup && (
+              <Button primary onClick={onSetup}>
+                Set Up Agent Work…
+              </Button>
+            )}
             {hasMember ? (
               <>
                 <div

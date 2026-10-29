@@ -38,6 +38,8 @@ Choose a fixed version from [GitHub Releases](https://github.com/cofy-x/camp/rel
 2. In **Runners → Connect Runner**, obtain the separate **Runner installer** and a one-use connection code. The machine operator runs `setup`, then `run`; an offline package is also available.
 3. Configure Agent access and Runner routing, then explicitly send a first task. Registration and self-test success do not establish real model success.
 
+`camp doctor` checks local Server prerequisites without changing data; `camp open` opens its browser address (`--print` prints it on a headless host). Startup prints the address and private setup-token file location. An administrator can use **Set Up Agent Work…** in an empty Room or **Help → Getting Ready** for the next setup action, then explicitly run the sample task from Runners. Teammates joining an existing Server only need its browser address and invitation.
+
 Check [supported Runner hosts and prerequisites](docs/install.md#supported-deployment) before connecting a machine. Server and Runner remain independent processes even on one host. For local protocol and recovery development with two simulated machines, use the [Docker Compose harness](tools/remote-dev/README.md).
 
 The repository root also provides the Go-installable `camp` entrypoint. Install a fixed version that includes it with `go install github.com/cofy-x/camp@<version>`; see [Go installation](docs/install.md#go-installation) for its first-download, cache and platform behavior. The existing `v0.1.0-alpha.1` predates this entrypoint; use its published archives.
