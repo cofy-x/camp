@@ -3,11 +3,12 @@ import { execFile } from 'node:child_process';
 import { createReadStream } from 'node:fs';
 import { lstat, readFile, readdir } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { promisify } from 'node:util';
+import { isDeepStrictEqual, promisify } from 'node:util';
 import { command, root } from './lib.mjs';
 
 const execute = promisify(execFile);
 export const repository = 'cofy-x/camp';
+export const serverPlatforms = ['linux-amd64', 'darwin-arm64', 'darwin-amd64'];
 export const versionPattern =
   /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$/;
 export const deterministicTar = [
@@ -45,6 +46,23 @@ export async function releaseIdentity() {
     published: version !== 'dev',
     modified: Boolean(changes.trim()),
   };
+}
+
+export async function serverBuildFlags(identity) {
+  let flags = `-X main.version=${identity.version}`;
+  if (identity.published) {
+    const data = await readFile(join(root, 'dist/runner-release.json'));
+    const runner = JSON.parse(data);
+    if (
+      runner.version !== identity.version ||
+      runner.sourceCommit !== identity.sourceCommit
+    )
+      throw new Error(
+        'Build matching Runner packages before the release Server.',
+      );
+    flags += ` -X github.com/cofy-x/camp/apps/server/internal/releaseinfo.manifestBase64=${data.toString('base64')}`;
+  }
+  return flags;
 }
 
 export function installationNotes(identity, role) {
@@ -116,17 +134,29 @@ export async function verifyRelease(directory, version, sourceCommit) {
     Number(protocol.match(/const Version = (\d+)/)?.[1])
   )
     throw new Error('Release Runner protocol does not match its source.');
+  if (
+    !server.servers ||
+    Object.keys(server.servers).sort().join(',') !==
+      [...serverPlatforms].sort().join(',')
+  )
+    throw new Error(
+      'The release requires the complete supported Server platform set.',
+    );
+  if (!isDeepStrictEqual(server.server, server.servers['linux-amd64']))
+    throw new Error(
+      'The container Server must match the Linux Server package.',
+    );
   const artifacts = [
     runner.installer,
     runner.runtime,
     runner.offline,
-    server.server,
+    ...serverPlatforms.map((platform) => server.servers[platform]),
   ];
   const expected = [
     'camp-runner-linux-amd64.tar.gz',
     `camp-runtime-linux-amd64-${runner.runtime?.sha256}.tar.gz`,
     'camp-runner-offline-linux-amd64.tar.gz',
-    'camp-server-linux-amd64.tar.gz',
+    ...serverPlatforms.map((platform) => `camp-server-${platform}.tar.gz`),
   ];
   for (const [index, artifact] of artifacts.entries()) {
     if (

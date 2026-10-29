@@ -127,3 +127,45 @@ jobs:
       - name: Remove this test project's containers and volumes
         if: ${{ always() }}
         run: node scripts/remote.mjs down --project "$CAMP_REMOTE_PROJECT"
+
+  mac_server:
+    name: Server / ${{ matrix.platform }}
+    runs-on: ${{ matrix.host }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            host: macos-15
+          - platform: darwin-amd64
+            host: macos-15-intel
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install pinned source dependencies
+        run: make install
+      - name: Check launcher and complete Server lifecycle on Mac
+        run: |
+          go test -race ./internal/launcher
+          make build smoke-production
+      - name: Check discussion and versioned files in Mac WebKit
+        run: >-
+          make test-e2e E2E_INSTALL_ARGS=webkit
+          E2E_ARGS="--project=webkit tests/team-desktop.spec.ts --grep 'first-run discussion|Library private editing'"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ failure() }}
+        with:
+          name: mac-server-failure-${{ matrix.platform }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

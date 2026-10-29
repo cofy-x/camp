@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Run, RunEvent } from './api';
-import { buildRunDiagnostics } from './runDiagnostics';
+import { buildRunDiagnostics } from './runDiagnosticRecords';
 
 function exampleRun(): Run {
   return {

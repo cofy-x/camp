@@ -10,7 +10,7 @@ Runner discovers the selected local engine's volume directory through Docker's s
 
 The LayerFS local-volume backend requires privileged filesystem access. Docker group membership alone is insufficient. Use the same dedicated privileged account for setup, foreground operation and service installation. Native services require root-owned private storage and refuse another account's existing journal. Unprivileged/rootless native execution is unsupported. Treat the Runner operator as a trusted privileged host owner; tool containers receive no Docker control. Ubuntu policy may require an administrator-approved Bubblewrap profile.
 
-Server needs Git and private storage, without Docker, DSH or LayerFS. Its [lightweight image](../Dockerfile) omits native execution and optional PDF/DOCX reader dependencies. For readers on a binary Server deployment, see the [document runtime](../tools/document-runtime/README.md). macOS/Windows browser and Compose usage does not imply native Runner support; a build recipe alone is not validation of another host platform.
+Server packages target Linux amd64 and macOS arm64/amd64. Server needs Git and private storage, without Docker, DSH or LayerFS. Its [lightweight image](../Dockerfile) omits native execution and optional PDF/DOCX reader dependencies. For readers on a Linux binary Server deployment, see the [document runtime](../tools/document-runtime/README.md). macOS supports discussion, uploads, versioned text files, human review and remote Linux Runners. PDF/DOCX text preparation and controlled Server-host directory import currently require Linux; originals remain downloadable. Browser access from Windows requires no CLI. Mac/Windows browser and Compose usage does not imply native Runner support.
 
 ## Choose a version
 
@@ -32,7 +32,7 @@ Complete packages, including licenses, live under the OS user cache directory's 
 
 ### Standalone Server
 
-Extract `camp-server-linux-amd64.tar.gz` and run its `camp`, or build locally with `make build` and use `dist/camp`. The published image contains the same Server binary and dependency licenses. It needs a persistent `/data` mount and explicit port/TLS configuration; it does not include a Runner. For a binary deployment with remote access, provide TLS:
+Extract the matching `camp-server-linux-amd64.tar.gz`, `camp-server-darwin-arm64.tar.gz` (Apple Silicon) or `camp-server-darwin-amd64.tar.gz` (Intel Mac), then run its `camp`. Source developers use `make build` and `dist/camp`. Keep data outside the extracted installation. The published Linux image contains the same Linux Server binary and dependency licenses. It needs a persistent `/data` mount and explicit port/TLS configuration; it does not include a Runner. For a binary deployment with remote access, provide TLS:
 
 ```sh
 CAMP_PUBLIC_ORIGIN=https://camp.example.com:3443 \
@@ -143,11 +143,16 @@ node scripts/smoke-server-image.mjs camp-server:v0.1.0-alpha.1
 - `dist/camp-runtime-linux-amd64-<sha256>.tar.gz`: digest-addressed runtime.
 - `dist/camp-runner-offline-linux-amd64.tar.gz`: installer plus identical runtime.
 - `dist/camp-server-linux-amd64.tar.gz`: standalone Server, embedded Dashboard and licenses.
+- `dist/camp-server-darwin-arm64.tar.gz` and `dist/camp-server-darwin-amd64.tar.gz`: complete macOS Servers with the same fixed Runner descriptor.
 - Archive checksums, `dist/runner-release.json` and `dist/server-release.json`: fixed source/version, protocol and artifact identities. The published `release.json` also binds the registry digest.
 
 The runtime has its own file/link manifest, licenses and fixed image. Native dependencies stay pinned; only foreign-platform node-pty prebuilds are excluded and recorded. Normalized tar metadata/order keeps unchanged runtime content stable across installer rebuilds. Digests establish integrity, not a publisher signature; use a trusted release channel. Optional document parsing is Server-side and absent from Runner runtime packages.
 
 Runtime packaging precedes installer hashing; the Server then embeds that exact Runner descriptor. The final release catalog can hash the Server without a circular self-hash. A release build refuses dirty source. Unversioned `make package-daemon` creates local development packages; `make build-server-image` builds the development Server image. The `release` Docker target consumes the already verified Server bundle instead of rebuilding a different binary.
+
+`server-release.json` and `release.json` list the exact supported archives in `servers`; `server` is the matching Linux artifact used by the container/native harness. Release verification rejects missing platforms, changed identities or checksums. The Linux builder cross-compiles Mac packages, then actual Apple Silicon and Intel Mac workers verify the relocated archives, embedded UI, authentication, versioned files and restart persistence before publication. Ordinary CI also builds each Mac Server and exercises discussion/file work in Mac WebKit. These checks establish Server behavior, not a macOS native Runner.
+
+Publication generates a versioned `camp.rb` Homebrew formula from verified archive digests. The maintained tap formula must be updated from that asset in a reviewed PR after public verification; it installs the complete Server and Git without enabling a service. Tagged Go installation is separately checked on Linux and both Mac architectures after publication. Sanitized platform/package and public-Go reports are retained with the release.
 
 Published Servers advertise fixed GitHub downloads without a local package directory. To provide an optional mirror, stage that release's archives/checksums under the configured Server data directory's `packages/`. Copy to temporary names on the same filesystem, verify, then rename atomically; publish `runner-release.json` **last**. A published Server accepts only its compiled-in descriptor for installer downloads; an older/different staged descriptor cannot redirect the UI. Retain old digest-addressed runtimes while their installers remain in use. Never change bytes under a digest. Staging does not execute or update any existing Runner.
 

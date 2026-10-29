@@ -1,25 +1,13 @@
-import { cp, mkdir, readFile, rm } from 'node:fs/promises';
+import { cp, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { binary, command, go, root } from './lib.mjs';
-import { releaseIdentity } from './release.mjs';
+import { releaseIdentity, serverBuildFlags } from './release.mjs';
 
 const identity = await releaseIdentity();
 const args = process.argv.slice(2);
 if (args.length > 1 || (args.length && args[0] !== '--skip-dashboard'))
   throw new Error('Usage: node scripts/build.mjs [--skip-dashboard]');
-let flags = `-X main.version=${identity.version}`;
-if (identity.published) {
-  const data = await readFile(join(root, 'dist/runner-release.json'));
-  const release = JSON.parse(data);
-  if (
-    release.version !== identity.version ||
-    release.sourceCommit !== identity.sourceCommit
-  )
-    throw new Error(
-      'Build matching Runner packages before the release Server.',
-    );
-  flags += ` -X github.com/cofy-x/camp/apps/server/internal/releaseinfo.manifestBase64=${data.toString('base64')}`;
-}
+const flags = await serverBuildFlags(identity);
 
 if (!args.length)
   await command(

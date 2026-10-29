@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
 import type { Run, RunEvent } from './api';
-import { buildRunDiagnostics } from './runDiagnostics';
+import { buildRunDiagnostics } from './runDiagnosticRecords';
 
 export function RunDiagnostics({
   run,

@@ -19,6 +19,7 @@ The [CI workflow](.github/workflows/ci.yml) runs these checks on GitHub-hosted L
 | Source | Formatting, types, lint, documentation links, generated SQL, Go race tests, script/frontend unit tests, production build and smoke |
 | Browser | Production UI with fresh keyless data in Chromium, Firefox, WebKit and touch projects |
 | Fixture | TLS/Compose with two fixture Runners, collaboration, publication, cancellation, restart and reconnect |
+| Server / darwin-arm64 and darwin-amd64 | Actual Mac builds, launcher race tests, production authentication/file/restart smoke and Mac WebKit discussion/file checks |
 
 Run the checks relevant to your change before opening a pull request. CI uses a read-only token without model credentials, uploads no raw reports, and publishes no releases. Native DSH/LayerFS, privileged host cleanup, packaged installation and real-provider acceptance remain separate checks under [execution](docs/dsh.md#real-provider-verification) and [release evidence](docs/install.md#release-evidence). A skipped native case is not native validation.
 

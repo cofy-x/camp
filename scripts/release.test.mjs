@@ -7,7 +7,13 @@ import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { root } from './lib.mjs';
-import { hashFile, validVersion, verifyRelease } from './release.mjs';
+import { homebrewFormula } from './homebrew.mjs';
+import {
+  hashFile,
+  serverPlatforms,
+  validVersion,
+  verifyRelease,
+} from './release.mjs';
 
 test('release CI resolves only an actual local Docker Unix socket', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'camp-docker-socket-'));
@@ -87,6 +93,16 @@ test('release transfer rejects changed archives, checksums, identities and unsaf
       sourceCommit,
       server: await make('camp-server-linux-amd64'),
     };
+    server.servers = Object.fromEntries(
+      await Promise.all(
+        serverPlatforms.map(async (platform) => [
+          platform,
+          platform === 'linux-amd64'
+            ? server.server
+            : await make(`camp-server-${platform}`),
+        ]),
+      ),
+    );
     const descriptors = async () => {
       await writeFile(
         join(directory, 'runner-release.json'),
@@ -98,9 +114,15 @@ test('release transfer rejects changed archives, checksums, identities and unsaf
       );
     };
     await descriptors();
+    const formula = homebrewFormula(server);
+    for (const platform of serverPlatforms) {
+      assert.ok(formula.includes(server.servers[platform].filename));
+      assert.ok(formula.includes(server.servers[platform].sha256));
+    }
+    assert.ok(!formula.includes('service do'));
     assert.equal(
       (await verifyRelease(directory, version, sourceCommit)).artifacts.length,
-      4,
+      6,
     );
     server.sourceCommit = 'b'.repeat(40);
     await descriptors();
@@ -109,6 +131,14 @@ test('release transfer rejects changed archives, checksums, identities and unsaf
       /identity/,
     );
     server.sourceCommit = sourceCommit;
+    const mac = server.servers['darwin-arm64'];
+    delete server.servers['darwin-arm64'];
+    await descriptors();
+    await assert.rejects(
+      verifyRelease(directory, version, sourceCommit),
+      /platform set/,
+    );
+    server.servers['darwin-arm64'] = mac;
     const name = runner.installer.filename;
     runner.installer.filename = '../private.tar.gz';
     await descriptors();
