@@ -16,7 +16,11 @@ import {
   string,
 } from './validation.mjs';
 import { readState, saveState } from './state.mjs';
-import { dockerVolumeDirectory } from './docker.mjs';
+import {
+  dockerVolumeDirectory,
+  ownedStoreVolumes,
+  removeOwnedStoreVolumes,
+} from './docker.mjs';
 
 export class CampLayerFS {
   static async open(config) {
@@ -515,9 +519,7 @@ export class CampLayerFS {
           'The command owner must confirm all Sandbox containers are stopped before reset.',
         );
       const projects = await this.runtime.project.list();
-      const volumes = (await this.runtime.volume.list()).filter(
-        (volume) => volume.owner === 'this',
-      );
+      const volumes = await ownedStoreVolumes(this.options.docker, this.home);
       const removed = [];
       for (const project of projects) {
         if (!/^p-[0-9a-f]{40}$/.test(project.name))
@@ -531,7 +533,10 @@ export class CampLayerFS {
         const volume =
           project.volume ??
           (candidates.length === 1 ? candidates[0].name : undefined);
-        if (!volume)
+        if (
+          !volume ||
+          !candidates.some((candidate) => candidate.name === volume)
+        )
           throw new BridgeError(
             'Unknown',
             'An incomplete LayerFS project has no unambiguous public volume identity; cleanup stopped.',
@@ -555,19 +560,16 @@ export class CampLayerFS {
             result,
           );
       }
-      const orphanVolumes = (await this.runtime.volume.list()).filter(
-        (volume) => volume.owner === 'this',
+      const orphanVolumes = await ownedStoreVolumes(
+        this.options.docker,
+        this.home,
       );
       if (orphanVolumes.length) {
-        const result = await this.runtime.volume.remove(
+        await removeOwnedStoreVolumes(
+          this.options.docker,
+          this.home,
           orphanVolumes.map((volume) => volume.name),
         );
-        if (result.results.some((entry) => !entry.ok))
-          throw new BridgeError(
-            'Unknown',
-            'Some disposable Store volumes could not be removed.',
-            result,
-          );
       }
       if (
         (await this.runtime.sandbox.list()).length ||

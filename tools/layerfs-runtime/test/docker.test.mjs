@@ -4,7 +4,12 @@ import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { dockerVolumeDirectory } from '../docker.mjs';
+import { URL } from 'node:url';
+import {
+  dockerVolumeDirectory,
+  ownedStoreVolumes,
+  removeOwnedStoreVolumes,
+} from '../docker.mjs';
 
 test('volume discovery uses the selected engine and requires its local directory', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'camp-docker-'));
@@ -58,6 +63,91 @@ test('volume discovery uses the selected engine and requires its local directory
       await assert.rejects(dockerVolumeDirectory(invalid), {
         code: 'InvalidInput',
       });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Store cleanup filters one home and rechecks ownership without force or engine inventory', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'camp-stores-'));
+  const socket = path.join(root, 'engine.sock');
+  const home = path.join(root, 'runner');
+  const own = {
+    Name: 'store-one',
+    Labels: {
+      'layerfs.role': 'store',
+      'layerfs.home': home,
+      'layerfs.project': 'project-one',
+    },
+  };
+  let inventory = [own];
+  let inspected = own;
+  let busy = false;
+  let absent = false;
+  let deletes = 0;
+  const server = createServer((req, res) => {
+    const url = new URL(req.url, 'http://docker');
+    res.setHeader('content-type', 'application/json');
+    if (url.pathname === '/v1.54/volumes') {
+      assert.equal(req.method, 'GET');
+      assert.deepEqual(JSON.parse(url.searchParams.get('filters')), {
+        label: ['layerfs.role=store', `layerfs.home=${home}`],
+      });
+      res.end(JSON.stringify({ Volumes: inventory }));
+    } else if (url.pathname === '/v1.54/volumes/store-one') {
+      if (absent) {
+        res.writeHead(404);
+        res.end('{}');
+        return;
+      }
+      if (req.method === 'GET') res.end(JSON.stringify(inspected));
+      else {
+        assert.equal(req.method, 'DELETE');
+        assert.equal(url.searchParams.get('force'), 'false');
+        deletes++;
+        res.writeHead(busy ? 409 : 204);
+        res.end();
+      }
+    } else {
+      assert.fail('Cleanup requested unrelated Docker inventory');
+    }
+  });
+  await new Promise((resolve) => server.listen(socket, resolve));
+  try {
+    assert.deepEqual(await ownedStoreVolumes(socket, home), [
+      { name: 'store-one', project: 'project-one' },
+    ]);
+    await removeOwnedStoreVolumes(socket, home, ['store-one']);
+    assert.equal(deletes, 1);
+    busy = true;
+    await assert.rejects(
+      removeOwnedStoreVolumes(socket, home, ['store-one']),
+      /HTTP 409/,
+    );
+    inspected = {
+      ...own,
+      Labels: { ...own.Labels, 'layerfs.home': '/another-runner' },
+    };
+    await assert.rejects(
+      removeOwnedStoreVolumes(socket, home, ['store-one']),
+      /ownership changed/,
+    );
+    assert.equal(deletes, 2);
+    inventory = [inspected];
+    await assert.rejects(
+      ownedStoreVolumes(socket, home),
+      /outside this private/,
+    );
+    inventory = null;
+    assert.deepEqual(await ownedStoreVolumes(socket, home), []);
+    absent = true;
+    await removeOwnedStoreVolumes(socket, home, ['store-one']);
+    assert.equal(deletes, 2);
+    await assert.rejects(
+      removeOwnedStoreVolumes(socket, home, ['../store-one']),
+      { code: 'InvalidInput' },
+    );
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await rm(root, { recursive: true, force: true });
