@@ -398,7 +398,14 @@ test('status loading can be retried without running checks and refreshes after r
             checkedAt: '2026-10-27T10:00:00Z',
             detail: 'A response was observed for an explicit Agent request.',
           }
-        : item,
+        : item.id === 'first-task'
+          ? {
+              ...item,
+              status: 'ready',
+              checkedAt: '2026-10-27T09:30:00Z',
+              detail: 'A native task succeeded previously.',
+            }
+          : item,
     ),
   };
   const previousReads = reads;
@@ -407,6 +414,12 @@ test('status loading can be retried without running checks and refreshes after r
     'Response observed',
   );
   await expect(statusRow(page, 'Agent work')).toContainText('Available');
+  await expect(statusRow(page, 'Native task')).toContainText(
+    'Succeeded previously',
+  );
+  await expect(statusRow(page, 'Native task')).toContainText(
+    'Recorded success',
+  );
   await expect.poll(() => reads).toBe(previousReads + 1);
   expect(checks).toBe(0);
 });

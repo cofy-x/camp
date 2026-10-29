@@ -144,7 +144,7 @@ export function GettingReady({
               {firstTask?.checkedAt && (
                 <p>
                   <small>
-                    Last success {observationTime(firstTask.checkedAt)}
+                    Recorded success {observationTime(firstTask.checkedAt)}
                   </small>
                 </p>
               )}
