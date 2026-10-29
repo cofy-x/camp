@@ -483,10 +483,7 @@ func TestRemotePermissionRevocationCancelsPersistedAttempt(t *testing.T) {
 
 func TestRemoteMigrationRetainsHistoricalLocalRuns(t *testing.T) {
 	s := unmigratedStore(t)
-	sources := migrationSources(t)
-	delete(sources, "00008_remote_execution.sql")
-	delete(sources, "00009_owned_runners.sql")
-	delete(sources, "00010_collaboration_tasks.sql")
+	sources := migrationSourcesThrough(t, 7)
 	if err := s.applyMigrations(ctx, sources); err != nil {
 		t.Fatal(err)
 	}

@@ -56,6 +56,7 @@ type Agent struct {
 	Name              string `json:"name"`
 	Handle            string `json:"handle"`
 	Icon              string `json:"icon"`
+	Avatar            string `json:"avatar"`
 	Instructions      string `json:"instructions"`
 	Access            string `json:"access"`
 	Enabled           bool   `json:"enabled"`

@@ -24,6 +24,18 @@ Browser API, SSE and downloads require a revocable `camp_session`, except health
 
 Setup uses a private one-time file credential. Passwords use Argon2id; session and invitation secrets are stored hashed, never returned in metadata. Account disable revokes sessions/SSE and pending delegated work while preserving authorship. Authentication limits return 429 with Retry-After. All Rooms, tasks and shared files remain team-visible; ownership is management authority, not private Room access.
 
+### Identity avatars
+
+| Method | Path | Contract |
+| --- | --- | --- |
+| GET | `/api/avatars` | Authenticated bundled catalog `{avatars:[{id,name,kind}]}`; kind is `member` or `agent` |
+| GET | `/api/avatars/:id` | Authenticated, immutable SVG artwork for one catalog ID |
+| PATCH | `/api/me/avatar` | Own profile only; `{avatar,expectedAvatar}` → `{user}` |
+
+Users and Agents expose a persisted `avatar` catalog ID. Creation assigns a random least-used default of the appropriate kind. Explicit selections may repeat. Member changes compare `expectedAvatar`; a stale selection returns 409 `profile_conflict`, while a retry whose desired avatar is already current returns that profile. Authority, state and the team event commit together. Agent changes use the existing owner/admin check and Agent revision. Cross-kind and unknown IDs return 400 `invalid_avatar`; arbitrary image URLs and uploads are unsupported.
+
+The append-only schema upgrade transactionally assigns missing avatars before serving, preserving identities, timestamps, Agent revisions and frozen execution records. Historical snapshots may lack the field. Avatars are presentation metadata; message author IDs/names and admitted execution inputs remain authoritative.
+
 ## Rooms, Agents and messages
 
 | Method | Path | Contract |

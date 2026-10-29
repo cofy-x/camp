@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import type {
   ComponentProps,
+  CSSProperties,
   InputHTMLAttributes,
   ProgressHTMLAttributes,
   ReactNode,
@@ -8,6 +9,27 @@ import type {
 import type { IconName } from './types';
 
 export { Select } from './select';
+
+/** A compact identity frame; applications own image URLs and identity labels. */
+export function Avatar({
+  src,
+  size = 32,
+  children,
+}: {
+  src?: string;
+  size?: number;
+  children?: ReactNode;
+}) {
+  return (
+    <span
+      className="p9-avatar"
+      style={{ '--p9-avatar-size': `${size}px` } as CSSProperties}
+      aria-hidden="true"
+    >
+      {src ? <img src={src} alt="" draggable={false} /> : children}
+    </span>
+  );
+}
 
 /** Original 32-cell object drawings with single-cell outlines and bevel highlights. */
 export function PixelIcon({

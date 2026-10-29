@@ -15,6 +15,8 @@ import { agentPresets, suggestAgentHandle } from './agentPresets';
 import { useRunners } from '../runners/useRunners';
 import { useTeam } from '../../team/TeamContext';
 import './agents.css';
+import { IdentityAvatar } from '../identity/IdentityAvatar';
+import { AvatarPicker } from '../identity/AvatarPicker';
 
 export function AgentEditor({
   agent,
@@ -40,6 +42,8 @@ export function AgentEditor({
   const [customHandle, setCustomHandle] = useState(agent?.handle ?? null);
   const [submittedHandle, setSubmittedHandle] = useState<string | null>(null);
   const [icon, setIcon] = useState<string>(agentIcon(agent?.icon ?? 'agent'));
+  const [avatar, setAvatar] = useState(agent?.avatar ?? '');
+  const [choosingAvatar, setChoosingAvatar] = useState(false);
   const [instructions, setInstructions] = useState(agent?.instructions ?? '');
   const [access, setAccess] = useState<Agent['access']>(
     agent?.access ?? 'write',
@@ -76,6 +80,7 @@ export function AgentEditor({
         name: name.trim(),
         handle: handle.trim(),
         icon,
+        avatar,
         instructions,
         access,
         enabled,
@@ -142,6 +147,26 @@ export function AgentEditor({
           </div>
         </fieldset>
       )}
+      <details
+        className="camp-avatar-disclosure"
+        onToggle={(event) => setChoosingAvatar(event.currentTarget.open)}
+      >
+        <summary>
+          <span>
+            <IdentityAvatar avatar={avatar} kind="agent" size={40} />
+            Avatar
+          </span>
+        </summary>
+        {choosingAvatar && (
+          <AvatarPicker
+            kind="agent"
+            value={avatar}
+            onChange={setAvatar}
+            disabled={pending}
+            automatic={!agent}
+          />
+        )}
+      </details>
       <label>
         Name
         <input
@@ -247,27 +272,6 @@ export function AgentEditor({
               underscores.
             </small>
           </label>
-          <Select
-            disabled={pending}
-            label="Icon"
-            value={icon}
-            onChange={(event) => setIcon(event.target.value)}
-          >
-            {[
-              'agent',
-              'computer',
-              'document',
-              'notes',
-              'terminal',
-              'checklist',
-              'conversation',
-              'image',
-            ].map((item) => (
-              <option key={item} value={item}>
-                {item[0].toUpperCase() + item.slice(1)}
-              </option>
-            ))}
-          </Select>
         </div>
       </details>
       {agent && (
@@ -448,7 +452,7 @@ export function AgentsPanel({
                 <ul className="workspace-agent-list">
                   {group.agents.map((agent) => (
                     <li key={agent.id}>
-                      <PixelIcon name={agentIcon(agent.icon)} size={32} />
+                      <IdentityAvatar avatar={agent.avatar} kind="agent" />
                       <div className="workspace-agent-copy">
                         <strong>{agent.name}</strong>
                         <small>

@@ -18,6 +18,8 @@ import {
 import { workspaceApi } from '../workspace/api';
 import { GettingReady } from './GettingReady';
 import { useReadiness } from './useReadiness';
+import { IdentityAvatar } from '../identity/IdentityAvatar';
+import { AccountAvatar } from '../identity/AccountAvatar';
 
 function ModelPanel({ onSaved }: { onSaved: () => void }) {
   const fieldId = useId();
@@ -472,16 +474,19 @@ function TeamPanel({ desktop }: { desktop: AppWindowProps['desktop'] }) {
       <ul className="camp-team-list">
         {team.members.map((member) => (
           <li key={member.id}>
-            <div>
-              <strong>
-                {member.name}
-                {member.id === user.id ? ' (you)' : ''}
-              </strong>
-              <small>
-                @{member.username} ·{' '}
-                {member.role === 'admin' ? 'Administrator' : 'Member'}
-                {!member.enabled && ' · Disabled'}
-              </small>
+            <div className="camp-member-identity">
+              <IdentityAvatar avatar={member.avatar} kind="member" />
+              <div>
+                <strong>
+                  {member.name}
+                  {member.id === user.id ? ' (you)' : ''}
+                </strong>
+                <small>
+                  @{member.username} ·{' '}
+                  {member.role === 'admin' ? 'Administrator' : 'Member'}
+                  {!member.enabled && ' · Disabled'}
+                </small>
+              </div>
             </div>
             {member.id !== user.id && (
               <div className="app-actions">
@@ -812,11 +817,27 @@ export function Settings(props: AppWindowProps) {
           {section === 'appearance' && <Appearance {...props} />}
           {section === 'account' && (
             <>
-              <h2>{user.name}</h2>
+              <div className="panel-heading camp-member-identity">
+                <IdentityAvatar
+                  avatar={
+                    team.members.find((member) => member.id === user.id)
+                      ?.avatar ?? user.avatar
+                  }
+                  kind="member"
+                  size={40}
+                />
+                <h2>{user.name}</h2>
+              </div>
               <p>
                 @{user.username} ·{' '}
                 {user.role === 'admin' ? 'Administrator' : 'Team member'}
               </p>
+              <AccountAvatar
+                user={
+                  team.members.find((member) => member.id === user.id) ?? user
+                }
+                onSaved={team.refresh}
+              />
               <p>Agent work continues after you sign out.</p>
               <Button
                 onClick={() =>

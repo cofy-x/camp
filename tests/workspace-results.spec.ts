@@ -47,6 +47,7 @@ async function completedWork(
     name: 'Result Writer',
     handle: 'result-writer',
     icon: 'document',
+    avatar: 'agent-robot-teal-v1',
     instructions: 'Write and review team documents when asked.',
     access: 'write',
     enabled: true,

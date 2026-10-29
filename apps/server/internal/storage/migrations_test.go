@@ -71,6 +71,21 @@ func latestMigrationVersion(t *testing.T) int {
 	return latest
 }
 
+func migrationSourcesThrough(t *testing.T, version int) fstest.MapFS {
+	t.Helper()
+	sources := migrationSources(t)
+	for name := range sources {
+		number, err := strconv.Atoi(strings.SplitN(name, "_", 2)[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if number > version {
+			delete(sources, name)
+		}
+	}
+	return sources
+}
+
 func TestFailedSQLMigrationRollsBackAndCanRecover(t *testing.T) {
 	s := unmigratedStore(t)
 	broken := fstest.MapFS{

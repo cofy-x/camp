@@ -4,7 +4,8 @@ import type { AppWindowProps } from '@cofy-x/camp-platinum';
 import type { Message, Reference, Run } from './api';
 import { isActiveRun, statusLabel, workspaceApi } from './api';
 import { AgentsPanel } from './AgentsPanel';
-import { agentIcon, RoomTimeline } from './RoomTimeline';
+import { RoomTimeline } from './RoomTimeline';
+import { IdentityAvatar } from '../identity/IdentityAvatar';
 import { RunInspector } from './RunInspector';
 import { findRunReply } from './runMessages';
 import {
@@ -472,7 +473,11 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                       }
                       title={`@${agent.handle} · ${agent.access === 'write' ? 'Can edit files' : 'Read only'}`}
                     >
-                      <PixelIcon name={agentIcon(agent.icon)} size={20} />
+                      <IdentityAvatar
+                        avatar={agent.avatar}
+                        kind="agent"
+                        size={24}
+                      />
                       <strong>{agent.name}</strong>
                       <span>
                         {!agent.enabled

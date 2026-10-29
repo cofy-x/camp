@@ -13,7 +13,7 @@ import {
   type WorkspaceStatus,
 } from '../workspace/api';
 import { AgentEditor } from '../workspace/AgentsPanel';
-import { agentIcon } from '../workspace/RoomTimeline';
+import { IdentityAvatar } from '../identity/IdentityAvatar';
 import { useAccount } from '../../team/AuthContext';
 import { useTeam } from '../../team/TeamContext';
 
@@ -180,7 +180,7 @@ export function Agents({ desktop }: AppWindowProps) {
                 setCreating(false);
               }}
             >
-              <PixelIcon name={agentIcon(item.icon)} size={28} />
+              <IdentityAvatar avatar={item.avatar} kind="agent" size={28} />
               <span>
                 {item.name}
                 <small>@{item.handle}</small>
@@ -212,7 +212,7 @@ export function Agents({ desktop }: AppWindowProps) {
           ) : agent ? (
             <>
               <div className="panel-heading">
-                <PixelIcon name={agentIcon(agent.icon)} size={32} />
+                <IdentityAvatar avatar={agent.avatar} kind="agent" />
                 <div>
                   <h2>{agent.name}</h2>
                   <p>

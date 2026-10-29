@@ -21,6 +21,20 @@ func (q *Queries) ActiveAgentRun(ctx context.Context, agentID string) (string, e
 	return id, err
 }
 
+const backfillAgentAvatar = `-- name: BackfillAgentAvatar :exec
+UPDATE agents SET avatar=? WHERE id=? AND avatar=''
+`
+
+type BackfillAgentAvatarParams struct {
+	Avatar string
+	ID     string
+}
+
+func (q *Queries) BackfillAgentAvatar(ctx context.Context, arg BackfillAgentAvatarParams) error {
+	_, err := q.db.ExecContext(ctx, backfillAgentAvatar, arg.Avatar, arg.ID)
+	return err
+}
+
 const clearDefaultAgent = `-- name: ClearDefaultAgent :exec
 UPDATE rooms SET default_agent_id=NULL WHERE id=? AND default_agent_id=?
 `
@@ -93,7 +107,7 @@ func (q *Queries) ContextMessages(ctx context.Context, arg ContextMessagesParams
 }
 
 const createAgent = `-- name: CreateAgent :exec
-INSERT INTO agents(id,name,handle,icon,instructions,access,enabled,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)
+INSERT INTO agents(id,name,handle,icon,instructions,access,enabled,revision,created_at,updated_at,avatar) VALUES(?,?,?,?,?,?,?,?,?,?,?)
 `
 
 type CreateAgentParams struct {
@@ -107,6 +121,7 @@ type CreateAgentParams struct {
 	Revision     int64
 	CreatedAt    string
 	UpdatedAt    string
+	Avatar       string
 }
 
 func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) error {
@@ -121,6 +136,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) error 
 		arg.Revision,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.Avatar,
 	)
 	return err
 }
@@ -370,7 +386,7 @@ func (q *Queries) FinishConversation(ctx context.Context, arg FinishConversation
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, name, handle, icon, instructions, access, enabled, revision, created_at, updated_at, owner_user_id, preferred_runner_id FROM agents WHERE id=?
+SELECT id, name, handle, icon, instructions, access, enabled, revision, created_at, updated_at, owner_user_id, preferred_runner_id, avatar FROM agents WHERE id=?
 `
 
 func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
@@ -389,12 +405,13 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
 		&i.UpdatedAt,
 		&i.OwnerUserID,
 		&i.PreferredRunnerID,
+		&i.Avatar,
 	)
 	return i, err
 }
 
 const getAgentByHandle = `-- name: GetAgentByHandle :one
-SELECT id, name, handle, icon, instructions, access, enabled, revision, created_at, updated_at, owner_user_id, preferred_runner_id FROM agents WHERE handle=?
+SELECT id, name, handle, icon, instructions, access, enabled, revision, created_at, updated_at, owner_user_id, preferred_runner_id, avatar FROM agents WHERE handle=?
 `
 
 func (q *Queries) GetAgentByHandle(ctx context.Context, handle string) (Agent, error) {
@@ -413,6 +430,7 @@ func (q *Queries) GetAgentByHandle(ctx context.Context, handle string) (Agent, e
 		&i.UpdatedAt,
 		&i.OwnerUserID,
 		&i.PreferredRunnerID,
+		&i.Avatar,
 	)
 	return i, err
 }
@@ -584,8 +602,40 @@ func (q *Queries) LeaveRoom(ctx context.Context, arg LeaveRoomParams) error {
 	return err
 }
 
+const listAgentAvatarCounts = `-- name: ListAgentAvatarCounts :many
+SELECT avatar,count(*) AS uses FROM agents WHERE avatar<>'' GROUP BY avatar
+`
+
+type ListAgentAvatarCountsRow struct {
+	Avatar string
+	Uses   int64
+}
+
+func (q *Queries) ListAgentAvatarCounts(ctx context.Context) ([]ListAgentAvatarCountsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentAvatarCounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentAvatarCountsRow{}
+	for rows.Next() {
+		var i ListAgentAvatarCountsRow
+		if err := rows.Scan(&i.Avatar, &i.Uses); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAgents = `-- name: ListAgents :many
-SELECT id, name, handle, icon, instructions, access, enabled, revision, created_at, updated_at, owner_user_id, preferred_runner_id FROM agents ORDER BY created_at,id
+SELECT id, name, handle, icon, instructions, access, enabled, revision, created_at, updated_at, owner_user_id, preferred_runner_id, avatar FROM agents ORDER BY created_at,id
 `
 
 func (q *Queries) ListAgents(ctx context.Context) ([]Agent, error) {
@@ -610,6 +660,7 @@ func (q *Queries) ListAgents(ctx context.Context) ([]Agent, error) {
 			&i.UpdatedAt,
 			&i.OwnerUserID,
 			&i.PreferredRunnerID,
+			&i.Avatar,
 		); err != nil {
 			return nil, err
 		}
@@ -625,7 +676,7 @@ func (q *Queries) ListAgents(ctx context.Context) ([]Agent, error) {
 }
 
 const listMembers = `-- name: ListMembers :many
-SELECT a.id, a.name, a.handle, a.icon, a.instructions, a.access, a.enabled, a.revision, a.created_at, a.updated_at, a.owner_user_id, a.preferred_runner_id FROM agents a JOIN memberships m ON m.agent_id=a.id WHERE m.room_id=? ORDER BY m.created_at,a.id
+SELECT a.id, a.name, a.handle, a.icon, a.instructions, a.access, a.enabled, a.revision, a.created_at, a.updated_at, a.owner_user_id, a.preferred_runner_id, a.avatar FROM agents a JOIN memberships m ON m.agent_id=a.id WHERE m.room_id=? ORDER BY m.created_at,a.id
 `
 
 func (q *Queries) ListMembers(ctx context.Context, roomID string) ([]Agent, error) {
@@ -650,6 +701,7 @@ func (q *Queries) ListMembers(ctx context.Context, roomID string) ([]Agent, erro
 			&i.UpdatedAt,
 			&i.OwnerUserID,
 			&i.PreferredRunnerID,
+			&i.Avatar,
 		); err != nil {
 			return nil, err
 		}
@@ -732,6 +784,33 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]M
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMissingAgentAvatars = `-- name: ListMissingAgentAvatars :many
+SELECT id FROM agents WHERE avatar='' ORDER BY created_at,id
+`
+
+func (q *Queries) ListMissingAgentAvatars(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listMissingAgentAvatars)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -1157,7 +1236,7 @@ func (q *Queries) TouchRoom(ctx context.Context, arg TouchRoomParams) error {
 }
 
 const updateAgent = `-- name: UpdateAgent :execrows
-UPDATE agents SET name=?,handle=?,icon=?,instructions=?,access=?,enabled=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?
+UPDATE agents SET name=?,handle=?,icon=?,instructions=?,access=?,enabled=?,avatar=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?
 `
 
 type UpdateAgentParams struct {
@@ -1167,6 +1246,7 @@ type UpdateAgentParams struct {
 	Instructions string
 	Access       string
 	Enabled      bool
+	Avatar       string
 	UpdatedAt    string
 	ID           string
 	Revision     int64
@@ -1180,6 +1260,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (int64
 		arg.Instructions,
 		arg.Access,
 		arg.Enabled,
+		arg.Avatar,
 		arg.UpdatedAt,
 		arg.ID,
 		arg.Revision,

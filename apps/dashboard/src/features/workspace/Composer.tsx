@@ -6,6 +6,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { Button, Checkbox, PixelIcon } from '@cofy-x/camp-platinum';
+import { IdentityAvatar } from '../identity/IdentityAvatar';
 import type { Agent, Resource, Room } from './api';
 import { workspaceApi } from './api';
 import {
@@ -128,6 +129,7 @@ export function Composer({
         name: member.name,
         handle: member.handle,
         kind: 'agent',
+        avatar: member.avatar,
       })),
     ...team.members
       .filter((member) => member.enabled)
@@ -136,6 +138,7 @@ export function Composer({
         name: member.name,
         handle: member.username,
         kind: 'person',
+        avatar: member.avatar,
       })),
   ];
   const suggestions = mention
@@ -431,9 +434,10 @@ export function Composer({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => complete(agent)}
               >
-                <PixelIcon
-                  name={agent.kind === 'agent' ? 'agent' : 'conversation'}
-                  size={16}
+                <IdentityAvatar
+                  avatar={agent.avatar}
+                  kind={agent.kind === 'agent' ? 'agent' : 'member'}
+                  size={24}
                 />
                 <strong>{agent.name}</strong>
                 <span>@{agent.handle}</span>

@@ -49,6 +49,8 @@ Mouse and touch use the same compact visual control dimensions. Control Strip tr
 
 ## Conversation and results
 
+Use the [bundled pixel avatars](../apps/server/internal/avatars/catalog.json) consistently in conversations, mentions, member lists and Agent views. Members use animal silhouettes and Agents use machine silhouettes; visible names and accessible Agent identity remain present. Keep avatars visible in narrow conversations. The catalog's original artwork shares Camp's MIT license, loads from the Server and needs no external avatar service. Catalog IDs and their artwork are permanent; add an ID for a new design. Current profiles supply the conversation avatar without rewriting historical attribution or frozen execution inputs. Avatar choices use the shared Radio control with a visible selection and focus outline.
+
 The composer names selected plus mentioned Agents once. **Post only** uses a discussion placeholder and keeps its no-execution consequence visible. Empty-Room starters prepare editable drafts, preserve existing text and never send. Upload, recipient and preview lists scroll within bounds so message input and Send remain visible in short windows. Preview buttons inside forms cannot submit them.
 
 Upload/preparation completion belongs to its original Room/Thread and never sends automatically. Collapsed PDF/DOCX cards still prepare text; pending preparation blocks Agent submission while Post remains possible. Show actual source limits when relevant, with original download in every state. Physical PDF pages and nonempty DOCX paragraphs are honest source locations, not rendered Word pages. Citation labels come from frozen supplied evidence; a citation does not prove a claim.

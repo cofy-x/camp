@@ -7,7 +7,15 @@ INSERT INTO team_setup(id,token_hash) VALUES(1,?);
 -- name: DeleteSetupToken :exec
 DELETE FROM team_setup;
 -- name: CreateUser :exec
-INSERT INTO users(id,username,name,role,enabled,password_hash,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?);
+INSERT INTO users(id,username,name,role,enabled,password_hash,created_at,updated_at,avatar) VALUES(?,?,?,?,?,?,?,?,?);
+-- name: UpdateUserAvatar :execrows
+UPDATE users SET avatar=@avatar,updated_at=@updated_at WHERE id=@id AND avatar=@expected_avatar AND enabled=1;
+-- name: BackfillUserAvatar :exec
+UPDATE users SET avatar=? WHERE id=? AND avatar='';
+-- name: ListUserAvatarCounts :many
+SELECT avatar,count(*) AS uses FROM users WHERE avatar<>'' GROUP BY avatar;
+-- name: ListMissingUserAvatars :many
+SELECT id FROM users WHERE avatar='' ORDER BY created_at,id;
 -- name: GetUser :one
 SELECT * FROM users WHERE id=?;
 -- name: GetUserByUsername :one

@@ -1,0 +1,81 @@
+.camp-avatar-picker {
+  min-width: 0;
+  max-width: 420px;
+  padding: 10px;
+  margin: 0;
+}
+.camp-avatar-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+  gap: 6px;
+}
+.camp-avatar-options .p9-radio {
+  position: relative;
+  justify-content: center;
+  padding: 3px;
+  border: 1px solid transparent;
+}
+.camp-avatar-options .p9-radio input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.camp-avatar-options .p9-radio:has(input:checked) {
+  border-color: #262626;
+  background: #bbb;
+  box-shadow:
+    inset 1px 1px #777,
+    1px 1px white;
+}
+.camp-avatar-options .p9-radio:has(input:focus-visible) {
+  outline: 2px solid var(--p9-highlight);
+  outline-offset: 1px;
+}
+.camp-avatar-options .p9-radio:has(input:disabled) {
+  opacity: 0.5;
+}
+.camp-avatar-picker > .p9-radio {
+  margin-top: 10px;
+}
+.camp-avatar-disclosure > summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.camp-avatar-disclosure > summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  vertical-align: middle;
+}
+.camp-avatar-disclosure[open] > summary {
+  margin-bottom: 10px;
+}
+.camp-avatar-disclosure legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.camp-account-avatar {
+  margin: 16px 0;
+}
+.camp-account-avatar .app-actions {
+  margin-top: 10px;
+}
+.camp-member-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.camp-member-identity > div,
+.camp-member-identity h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.camp-member-identity h2 {
+  margin: 0;
+}

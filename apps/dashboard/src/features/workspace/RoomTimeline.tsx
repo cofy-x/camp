@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { Button, PixelIcon } from '@cofy-x/camp-platinum';
 import { useTeam } from '../../team/TeamContext';
+import { IdentityAvatar } from '../identity/IdentityAvatar';
 import type { Agent, Message, Reference, Resource, Room, Run } from './api';
 import { isActiveRun, statusLabel, workspaceApi } from './api';
 import { AgentResult } from './AgentResult';
@@ -79,10 +80,12 @@ export function timeLabel(value: string) {
 
 function WorkCard({
   run,
+  avatar,
   onInspect,
   onChange,
 }: {
   run: Run;
+  avatar?: string;
   onInspect: (id: string) => void;
   onChange: () => void;
 }) {
@@ -112,7 +115,11 @@ function WorkCard({
       data-state={run.status}
     >
       <div className="workspace-work-heading">
-        <PixelIcon name={agentIcon(run.agentSnapshot.icon)} size={16} />
+        <IdentityAvatar
+          avatar={avatar ?? run.agentSnapshot.avatar}
+          kind="agent"
+          size={24}
+        />
         <strong>{run.agentSnapshot.name}</strong>
         <span>{statusLabel[run.status]}</span>
         <Button onClick={() => onInspect(run.id)}>
@@ -334,6 +341,12 @@ export function RoomTimeline({
           const agent =
             run?.agentSnapshot ??
             agents.find((item) => item.id === message.agentId);
+          const currentAgent = agents.find(
+            (item) => item.id === message.agentId,
+          );
+          const person = team.members.find(
+            (item) => item.id === message.authorUserId,
+          );
           const author =
             message.authorKind === 'user'
               ? message.authorName || 'Team member'
@@ -361,19 +374,24 @@ export function RoomTimeline({
               className={`workspace-message author-${message.authorKind} ${sourceId === message.id ? 'is-source' : ''}`}
               key={message.id}
               data-message-id={message.id}
+              aria-label={
+                message.authorKind === 'agent' ? `${author} (Agent)` : author
+              }
               tabIndex={-1}
             >
               <div className="workspace-message-avatar">
-                <PixelIcon
-                  name={
-                    message.authorKind === 'agent'
-                      ? agentIcon(agent?.icon ?? '')
-                      : message.authorKind === 'system'
-                        ? 'info'
-                        : 'computer'
-                  }
-                  size={24}
-                />
+                {message.authorKind === 'system' ? (
+                  <PixelIcon name="info" size={32} />
+                ) : (
+                  <IdentityAvatar
+                    avatar={
+                      message.authorKind === 'agent'
+                        ? (currentAgent?.avatar ?? agent?.avatar)
+                        : person?.avatar
+                    }
+                    kind={message.authorKind === 'agent' ? 'agent' : 'member'}
+                  />
+                )}
               </div>
               <div className="workspace-message-copy">
                 <header>
@@ -453,6 +471,9 @@ export function RoomTimeline({
                   <WorkCard
                     key={item.id}
                     run={item}
+                    avatar={
+                      agents.find((agent) => agent.id === item.agentId)?.avatar
+                    }
                     onInspect={onInspect}
                     onChange={onChange}
                   />

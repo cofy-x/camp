@@ -46,14 +46,14 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 // remain internal failures until their public response has been defined here.
 func storageErrorStatus(code string) int {
 	switch code {
-	case "invalid_task", "invalid_intent", "invalid_review", "invalid_team", "invalid_user", "invalid_password", "invalid_invite", "invalid_draft", "invalid_cursor",
+	case "invalid_avatar", "invalid_task", "invalid_intent", "invalid_review", "invalid_team", "invalid_user", "invalid_password", "invalid_invite", "invalid_draft", "invalid_cursor",
 		"invalid_runner", "invalid_import", "invalid_artifact", "invalid_command", "invalid_lease", "invalid_result":
 		return http.StatusBadRequest
 	case "invalid_credentials", "unauthenticated":
 		return http.StatusUnauthorized
 	case "forbidden", "runner_forbidden", "owner_disabled":
 		return http.StatusForbidden
-	case "username_conflict", "setup_complete", "last_admin":
+	case "profile_conflict", "username_conflict", "setup_complete", "last_admin":
 		return http.StatusConflict
 	case "invalid_wallpaper", "invalid_message",
 		"invalid_client", "invalid_layout", "invalid_run", "invalid_event",

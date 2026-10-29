@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   Button,
+  Avatar,
   Checkbox,
   Field,
   PixelIcon,
@@ -42,6 +43,13 @@ export function Gallery({ desktop }: AppWindowProps) {
         >
           {tab === 'controls' && (
             <div className="gallery-controls">
+              <div className="app-actions" aria-label="Identity frames">
+                {[24, 32, 40].map((size) => (
+                  <Avatar key={size} size={size}>
+                    <PixelIcon name="computer" size={size - 4} />
+                  </Avatar>
+                ))}
+              </div>
               <Field
                 label="Text field"
                 value={text}
