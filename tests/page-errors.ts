@@ -25,8 +25,11 @@ export function isNavigationCancellation(
   );
 }
 
-export function watchPageErrors(page: Page, browserName: string) {
-  const errors: string[] = [];
+export function watchPageErrors(
+  page: Page,
+  browserName: string,
+  errors: string[] = [],
+) {
   const navigationCancellations: string[] = [];
   let departingOrigin: string | null = null;
   // WebKit emits native loader cancellation diagnostics as pageerror events:
