@@ -6,6 +6,7 @@ type ReadBarrier = {
   held: string[];
   signals: AbortSignal[];
   released: number;
+  superseded: number;
   phase: 'holding' | 'hidden' | 'restored';
   messagesWhileHidden: number;
   release: () => void;
@@ -15,7 +16,10 @@ test('typing at the first editable moment survives account draft restoration', a
   page,
 }, info) => {
   await signIn(page);
-  const room = await createRoom(page, `first-input-${info.project.name}`);
+  const room = await createRoom(
+    page,
+    `first-input-${info.project.name}-${randomUUID()}`,
+  );
   const text = 'Keep input typed as soon as this conversation is ready.';
   await page.addInitScript(
     ({ label, text }) => {
@@ -65,7 +69,7 @@ test('page hide aborts workspace reads and a restored page resumes without losin
   await signIn(page);
   const room = await createRoom(
     page,
-    `page-lifecycle-${testInfo.project.name}`,
+    `page-lifecycle-${testInfo.project.name}-${randomUUID()}`,
   );
   const input = workspace(page).getByRole('textbox', {
     name: `Message ${room.name}`,
@@ -74,6 +78,26 @@ test('page hide aborts workspace reads and a restored page resumes without losin
   const draft = 'Keep my unfinished instructions when this page is restored.';
   await input.fill(draft);
 
+  // Supersede the first read pair before either body can be buffered, as an SSE
+  // refresh can do while the barrier is being installed.
+  const readPaths = new Set(['/api/rooms', `/api/rooms/${room.id}/runs`]);
+  const deferred = new Set<string>();
+  let releaseNetwork = () => {};
+  const networkGate = new Promise<void>((resolve) => {
+    releaseNetwork = resolve;
+  });
+  await page.route(
+    (url) => readPaths.has(url.pathname),
+    async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (!deferred.has(path)) {
+        deferred.add(path);
+        await networkGate;
+      }
+      await route.continue();
+    },
+  );
+
   // Buffer real authenticated reads, then release their already-read responses
   // after pagehide. This exercises a resolved read continuation even when fetch
   // itself has finished before the controller is aborted.
@@ -81,14 +105,18 @@ test('page hide aborts workspace reads and a restored page resumes without losin
     const scoped = window as typeof window & { campReadBarrier: ReadBarrier };
     const original = window.fetch.bind(window);
     const targets = new Set(['/api/rooms', `/api/rooms/${roomId}/runs`]);
-    const releases: (() => void)[] = [];
+    const releases = new Set<() => void>();
     const barrier: ReadBarrier = {
       held: [],
       signals: [],
       released: 0,
+      superseded: 0,
       phase: 'holding',
       messagesWhileHidden: 0,
-      release: () => releases.splice(0).forEach((release) => release()),
+      release: () => {
+        releases.forEach((release) => release());
+        releases.clear();
+      },
     };
     scoped.campReadBarrier = barrier;
     window.fetch = async (input, init) => {
@@ -101,46 +129,104 @@ test('page hide aborts workspace reads and a restored page resumes without losin
         url.pathname === `/api/rooms/${roomId}/messages`
       )
         barrier.messagesWhileHidden++;
-      if (!targets.delete(url.pathname)) return original(input, init);
-      const response = await original(input, init);
-      const text = await response.text();
-      await new Promise<void>((resolve) => {
-        releases.push(resolve);
-        barrier.held.push(url.pathname);
-        if (init?.signal) barrier.signals.push(init.signal);
-      });
-      barrier.released++;
-      return new Response(text, {
-        status: response.status,
-        headers: response.headers,
-      });
+      const signal = init?.signal;
+      if (!signal || !targets.delete(url.pathname))
+        return original(input, init);
+      let superseded = false;
+      let resume: (() => void) | undefined;
+      const rearm = () => {
+        if (barrier.phase !== 'holding') return;
+        superseded = true;
+        barrier.superseded++;
+        targets.add(url.pathname);
+        const index = barrier.held.indexOf(url.pathname);
+        if (index >= 0) {
+          barrier.held.splice(index, 1);
+          barrier.signals.splice(index, 1);
+        }
+        resume?.();
+      };
+      signal.addEventListener('abort', rearm, { once: true });
+      try {
+        const response = await original(input, init);
+        const text = await response.text();
+        if (!superseded) {
+          await new Promise<void>((resolve) => {
+            resume = resolve;
+            releases.add(resolve);
+            barrier.held.push(url.pathname);
+            barrier.signals.push(signal);
+          });
+          if (!superseded) barrier.released++;
+        }
+        return new Response(text, {
+          status: response.status,
+          headers: response.headers,
+        });
+      } finally {
+        signal.removeEventListener('abort', rearm);
+        if (resume) releases.delete(resume);
+      }
     };
   }, room.id);
-  await workspace(page)
-    .getByRole('button', { name: 'Room actions', exact: true })
-    .click();
-  await page.getByRole('menuitem', { name: 'Refresh', exact: true }).click();
+  const refresh = async () => {
+    await workspace(page)
+      .getByRole('button', { name: 'Room actions', exact: true })
+      .click();
+    await page.getByRole('menuitem', { name: 'Refresh', exact: true }).click();
+  };
+  const supersededReads = () =>
+    page.evaluate(
+      () =>
+        (window as typeof window & { campReadBarrier: ReadBarrier })
+          .campReadBarrier.superseded,
+    );
+  const heldReads = () =>
+    page.evaluate(
+      () =>
+        (window as typeof window & { campReadBarrier: ReadBarrier })
+          .campReadBarrier.held.length,
+    );
+  try {
+    await refresh();
+    await expect.poll(() => deferred.size).toBe(2);
+    await refresh();
+    await expect.poll(supersededReads).toBeGreaterThanOrEqual(2);
+  } finally {
+    releaseNetwork();
+  }
+  await expect.poll(heldReads).toBe(2);
+  // A refresh can also replace reads whose response bodies are already held.
+  const cancelledBefore = await supersededReads();
+  await refresh();
+  await expect
+    .poll(supersededReads)
+    .toBeGreaterThanOrEqual(cancelledBefore + 2);
+  // Observe the live pair and dispatch pagehide in the same browser task, so a
+  // queued refresh cannot replace it between a poll and a later evaluate call.
   await expect
     .poll(() =>
-      page.evaluate(
-        () =>
-          (window as typeof window & { campReadBarrier: ReadBarrier })
-            .campReadBarrier.held.length,
-      ),
+      page.evaluate(() => {
+        const barrier = (
+          window as typeof window & { campReadBarrier: ReadBarrier }
+        ).campReadBarrier;
+        if (
+          barrier.phase !== 'holding' ||
+          barrier.signals.length !== 2 ||
+          barrier.signals.some((signal) => signal.aborted)
+        )
+          return null;
+        const before = barrier.signals.map((signal) => signal.aborted);
+        barrier.phase = 'hidden';
+        window.dispatchEvent(
+          new PageTransitionEvent('pagehide', { persisted: true }),
+        );
+        const after = barrier.signals.map((signal) => signal.aborted);
+        barrier.release();
+        return { before, after };
+      }),
     )
-    .toBe(2);
-  const aborted = await page.evaluate(() => {
-    const barrier = (window as typeof window & { campReadBarrier: ReadBarrier })
-      .campReadBarrier;
-    barrier.phase = 'hidden';
-    window.dispatchEvent(
-      new PageTransitionEvent('pagehide', { persisted: true }),
-    );
-    const aborted = barrier.signals.map((signal) => signal.aborted);
-    barrier.release();
-    return aborted;
-  });
-  expect(aborted).toEqual([true, true]);
+    .toEqual({ before: [false, false], after: [true, true] });
   await expect
     .poll(() =>
       page.evaluate(

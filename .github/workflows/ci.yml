@@ -76,6 +76,7 @@ jobs:
       - name: Install pinned dependencies
         run: make install
       - name: Check desktop and touch paths
+        id: browser_tests
         env:
           BROWSER_PROJECT: ${{ matrix.project }}
           BROWSER_ENGINE: ${{ matrix.engine }}
@@ -83,6 +84,15 @@ jobs:
           make test-e2e
           E2E_INSTALL_ARGS="--with-deps $BROWSER_ENGINE"
           E2E_ARGS="--project=$BROWSER_PROJECT"
+      - name: Retain browser failure evidence
+        if: ${{ failure() && steps.browser_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-failure-${{ matrix.project }}-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
 
   browser:
     name: Browser

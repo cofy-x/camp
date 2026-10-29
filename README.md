@@ -92,7 +92,7 @@ npx --yes pnpm@12.11.2 exec playwright install chromium firefox webkit
 make test-e2e E2E_ARGS="--project=chromium --project=firefox --project=webkit --project=touch"
 ```
 
-`E2E_PORT` overrides the test listener (default 13009); the runner refuses an occupied port. Reports and screenshots remain ignored. See [remote validation](tools/remote-dev/README.md) and the [UI review checklist](docs/design.md#review-checklist) for their distinct scopes. Native skips are not passes. Real-provider checks require an explicit allowance and are described in [execution](docs/dsh.md#real-provider-verification).
+`E2E_PORT` overrides the test listener (default 13009); the runner refuses an occupied port. Reports and screenshots remain ignored; failed CI browser jobs attach reports, screenshots and traces to their workflow run. See [remote validation](tools/remote-dev/README.md) and the [UI review checklist](docs/design.md#review-checklist) for their distinct scopes. Native skips are not passes. Real-provider checks require an explicit allowance and are described in [execution](docs/dsh.md#real-provider-verification).
 
 SQL migrations and named queries live in `apps/server/internal/storage`. After changing them, run `make generate` and `make generate-check`; maintain generated Go output with those inputs. Use `make format` or `make lint-fix-format` for formatting and safe lint fixes. Never reset existing data to repair a migration.
 
