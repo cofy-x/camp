@@ -354,9 +354,6 @@ export function RunnerImport({
                   Agent changes are saved to Camp; the original directory stays
                   unchanged.
                 </p>
-                {runner && !runner.online && (
-                  <p>This snapshot will wait until the Runner reconnects.</p>
-                )}
                 <div className="camp-import-actions">
                   <Button
                     type="submit"
@@ -371,6 +368,9 @@ export function RunnerImport({
                     Import Snapshot
                   </Button>
                 </div>
+                {runner && !runner.online && (
+                  <p>This snapshot will wait until the Runner reconnects.</p>
+                )}
               </fieldset>
             </form>
           ) : (

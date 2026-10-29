@@ -775,6 +775,99 @@ test('Runner Access grants only the selected machine and keeps management privat
   ]);
 });
 
+test('Runner reconnect between pointer down and up keeps the import action stationary and submits once', async ({
+  page,
+}, info) => {
+  await mockRunners(page);
+  let online = false;
+  let runnerReads = 0;
+  await page.route('**/api/runners', (route) => {
+    runnerReads++;
+    return route.fulfill({
+      json: {
+        runners: runners.map((runner, index) =>
+          index === 0 ? { ...runner, online } : runner,
+        ),
+      },
+    });
+  });
+  const requests: SourceImportInput[] = [];
+  const value: SourceImport = {
+    id: 'pointer-import',
+    runnerId: runners[0].id,
+    sourceId: 'source-notes',
+    sourceAlias: 'Team Notes',
+    roomName: 'Pointer import',
+    status: 'queued',
+    createdAt: '2026-10-29T12:00:00Z',
+    updatedAt: '2026-10-29T12:00:00Z',
+  };
+  await page.route('**/api/source-imports', (route) => {
+    if (route.request().method() === 'GET')
+      return route.fulfill({ json: { sourceImports: [] } });
+    requests.push(route.request().postDataJSON() as SourceImportInput);
+    return route.fulfill({ json: { sourceImport: value } });
+  });
+  await page.route('**/api/source-imports/pointer-import', (route) =>
+    route.fulfill({ json: { sourceImport: value } }),
+  );
+  await signIn(page);
+  await openApp(page, 'Library');
+  const panel = await openImport(page);
+  await panel
+    .getByLabel('Source Runner', { exact: true })
+    .selectOption(runners[0].id);
+  await panel
+    .getByLabel('Registered directory', { exact: true })
+    .selectOption('source-notes');
+  await panel
+    .getByLabel('New Room name', { exact: true })
+    .fill('Pointer import');
+  await expect(
+    panel.getByText('This snapshot will wait until the Runner reconnects.', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  const button = panel.getByRole('button', {
+    name: 'Import Snapshot',
+    exact: true,
+  });
+  const before = (await button.boundingBox())!;
+  await page.mouse.move(
+    before.x + before.width / 2,
+    before.y + before.height / 2,
+  );
+  await page.mouse.down();
+  try {
+    online = true;
+    const previousReads = runnerReads;
+    const response = await mutate(page, '/rooms', {
+      name: `pointer-status-${info.project.name}`,
+    });
+    expect(response.ok()).toBe(true);
+    await expect.poll(() => runnerReads).toBeGreaterThan(previousReads);
+    await expect(
+      panel.getByText('This snapshot will wait until the Runner reconnects.', {
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    const after = (await button.boundingBox())!;
+    expect(Math.abs(after.y - before.y)).toBeLessThan(1);
+    await expect(
+      panel.getByLabel('New Room name', { exact: true }),
+    ).toHaveValue('Pointer import');
+  } finally {
+    await page.mouse.up();
+  }
+  await expect(panel.getByRole('status')).toContainText('Waiting for Runner');
+  expect(requests).toHaveLength(1);
+  expect(requests[0]).toMatchObject({
+    runnerId: runners[0].id,
+    sourceId: 'source-notes',
+    roomName: 'Pointer import',
+  });
+});
+
 test('Runner imports recover an uncertain receipt after closing the panel and cancel without losing identity', async ({
   page,
 }, info) => {

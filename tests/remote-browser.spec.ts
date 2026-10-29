@@ -380,28 +380,6 @@ test('an offline source import can be recovered and cancelled, then its snapshot
   await expect(
     panel.getByLabel('Registered directory', { exact: true }),
   ).toBeEnabled();
-  await page.evaluate(() => {
-    const log: { type: string; target: string; x: number; y: number }[] = [];
-    (
-      window as typeof window & { campImportClicks: typeof log }
-    ).campImportClicks = log;
-    for (const type of ['mousedown', 'mouseup', 'click', 'submit', 'invalid'])
-      document.addEventListener(
-        type,
-        (event) => {
-          const target = event.target as HTMLElement;
-          if (!target.closest('.camp-runner-import')) return;
-          const pointer = event as MouseEvent;
-          log.push({
-            type,
-            target: target.tagName + ':' + target.textContent?.slice(0, 80),
-            x: pointer.clientX,
-            y: pointer.clientY,
-          });
-        },
-        true,
-      );
-  });
   await panel
     .getByLabel('Source Runner', { exact: true })
     .selectOption(a.runner.id);
@@ -414,21 +392,7 @@ test('an offline source import can be recovered and cancelled, then its snapshot
   await panel
     .getByRole('button', { name: 'Import Snapshot', exact: true })
     .click();
-  try {
-    await expect(panel).toContainText('Room created', { timeout: 20_000 });
-  } catch (error) {
-    await info.attach('import-interaction.json', {
-      body: JSON.stringify(
-        await page.evaluate(
-          () =>
-            (window as typeof window & { campImportClicks: unknown })
-              .campImportClicks,
-        ),
-      ),
-      contentType: 'application/json',
-    });
-    throw error;
-  }
+  await expect(panel).toContainText('Room created', { timeout: 20_000 });
   const items = (await (await page.request.get('/api/source-imports')).json())
     .sourceImports as SourceImport[];
   expect(items).toHaveLength(2);
