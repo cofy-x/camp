@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/cofy-x/camp/apps/server/internal/avatars"
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
 
@@ -50,7 +51,7 @@ func event(ctx context.Context, q *sqlgen.Queries, kind, room, id string) error 
 	return nil
 }
 func agentRow(a sqlgen.Agent) Agent {
-	return Agent{OwnerUserID: a.OwnerUserID.String, PreferredRunnerID: a.PreferredRunnerID.String, ID: a.ID, Name: a.Name, Handle: a.Handle, Icon: a.Icon, Instructions: a.Instructions, Access: a.Access, Enabled: a.Enabled, Revision: a.Revision, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt}
+	return Agent{OwnerUserID: a.OwnerUserID.String, PreferredRunnerID: a.PreferredRunnerID.String, ID: a.ID, Name: a.Name, Handle: a.Handle, Icon: a.Icon, Avatar: a.Avatar, Instructions: a.Instructions, Access: a.Access, Enabled: a.Enabled, Revision: a.Revision, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt}
 }
 func roomRow(r sqlgen.Room) Room {
 	return Room{RunnerID: r.RunnerID.String, RunnerRevision: r.RunnerRevision, LastMessageSeq: r.LastMessageSeq, ID: r.ID, Name: r.Name, Description: r.Description, ResourceID: r.ResourceID, DefaultAgentID: r.DefaultAgentID.String, ActivitySeq: r.ActivitySeq, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
@@ -126,6 +127,9 @@ func saveAgent(ctx context.Context, q *sqlgen.Queries, a Agent) (Agent, error) {
 		}
 		a.OwnerUserID = old.OwnerUserID.String
 		previousRunner = old.PreferredRunnerID.String
+		if a.Avatar == "" {
+			a.Avatar = old.Avatar
+		}
 	}
 	if a.PreferredRunnerID != "" && a.PreferredRunnerID != previousRunner {
 		runner, err := availableRunner(ctx, q, a.PreferredRunnerID)
@@ -140,6 +144,16 @@ func saveAgent(ctx context.Context, q *sqlgen.Queries, a Agent) (Agent, error) {
 	a.Handle = strings.ToLower(strings.TrimSpace(a.Handle))
 	if a.Icon == "" {
 		a.Icon = "agent"
+	}
+	if a.Avatar == "" {
+		var err error
+		a.Avatar, err = chooseAgentAvatar(ctx, q)
+		if err != nil {
+			return Agent{}, err
+		}
+	}
+	if !avatars.Valid(a.Avatar, avatars.Agent) {
+		return Agent{}, problem("invalid_avatar", "Choose an Agent avatar from the catalog.")
 	}
 	if !validText(a.Name, 120, false) || !handlePattern.MatchString(a.Handle) || !validText(a.Instructions, 8192, true) || !validText(a.Icon, 48, false) || (a.Access != "read" && a.Access != "write") {
 		return Agent{}, problem("invalid_agent", "Provide a name, a valid handle, instructions, and read or write access.")
@@ -159,7 +173,7 @@ func saveAgent(ctx context.Context, q *sqlgen.Queries, a Agent) (Agent, error) {
 		a.ID = newID()
 		a.CreatedAt = a.UpdatedAt
 		a.Revision = 1
-		if e := q.CreateAgent(ctx, sqlgen.CreateAgentParams{ID: a.ID, Name: a.Name, Handle: a.Handle, Icon: a.Icon, Instructions: a.Instructions, Access: a.Access, Enabled: a.Enabled, Revision: 1, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt}); e != nil {
+		if e := q.CreateAgent(ctx, sqlgen.CreateAgentParams{ID: a.ID, Name: a.Name, Handle: a.Handle, Icon: a.Icon, Avatar: a.Avatar, Instructions: a.Instructions, Access: a.Access, Enabled: a.Enabled, Revision: 1, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt}); e != nil {
 			return Agent{}, e
 		}
 	} else {
@@ -168,7 +182,7 @@ func saveAgent(ctx context.Context, q *sqlgen.Queries, a Agent) (Agent, error) {
 			return Agent{}, missing(e, "The agent")
 		}
 		a.CreatedAt = old.CreatedAt
-		n, e := q.UpdateAgent(ctx, sqlgen.UpdateAgentParams{ID: a.ID, Name: a.Name, Handle: a.Handle, Icon: a.Icon, Instructions: a.Instructions, Access: a.Access, Enabled: a.Enabled, Revision: a.Revision, UpdatedAt: a.UpdatedAt})
+		n, e := q.UpdateAgent(ctx, sqlgen.UpdateAgentParams{ID: a.ID, Name: a.Name, Handle: a.Handle, Icon: a.Icon, Avatar: a.Avatar, Instructions: a.Instructions, Access: a.Access, Enabled: a.Enabled, Revision: a.Revision, UpdatedAt: a.UpdatedAt})
 		if e != nil {
 			return Agent{}, e
 		}

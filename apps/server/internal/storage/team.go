@@ -16,6 +16,7 @@ type User struct {
 	ID        string `json:"id"`
 	Username  string `json:"username"`
 	Name      string `json:"name"`
+	Avatar    string `json:"avatar"`
 	Role      string `json:"role"`
 	Enabled   bool   `json:"enabled"`
 	CreatedAt string `json:"createdAt"`
@@ -32,7 +33,7 @@ func UserFromContext(ctx context.Context) (User, bool) {
 }
 func actorID(ctx context.Context) string { u, _ := UserFromContext(ctx); return u.ID }
 func userRow(u sqlgen.User) User {
-	return User{u.ID, u.Username, u.Name, u.Role, u.Enabled, u.CreatedAt, u.UpdatedAt}
+	return User{ID: u.ID, Username: u.Username, Name: u.Name, Avatar: u.Avatar, Role: u.Role, Enabled: u.Enabled, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt}
 }
 func (s *Store) GetUser(ctx context.Context, id string) (User, error) {
 	u, e := s.queries().GetUser(ctx, id)
@@ -104,8 +105,12 @@ func createUser(ctx context.Context, q *sqlgen.Queries, username, name, password
 		return User{}, e
 	}
 	stamp := now()
-	u := User{newID(), username, name, role, true, stamp, stamp}
-	e = q.CreateUser(ctx, sqlgen.CreateUserParams{ID: u.ID, Username: u.Username, Name: u.Name, Role: u.Role, Enabled: true, PasswordHash: passwordHash, CreatedAt: stamp, UpdatedAt: stamp})
+	avatar, e := chooseMemberAvatar(ctx, q)
+	if e != nil {
+		return User{}, e
+	}
+	u := User{ID: newID(), Username: username, Name: name, Avatar: avatar, Role: role, Enabled: true, CreatedAt: stamp, UpdatedAt: stamp}
+	e = q.CreateUser(ctx, sqlgen.CreateUserParams{ID: u.ID, Username: u.Username, Name: u.Name, Avatar: u.Avatar, Role: u.Role, Enabled: true, PasswordHash: passwordHash, CreatedAt: stamp, UpdatedAt: stamp})
 	if e == nil {
 		e = event(ctx, q, "team.changed", "", u.ID)
 	}

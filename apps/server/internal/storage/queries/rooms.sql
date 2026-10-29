@@ -15,9 +15,15 @@ SELECT * FROM agents WHERE id=?;
 -- name: GetAgentByHandle :one
 SELECT * FROM agents WHERE handle=?;
 -- name: CreateAgent :exec
-INSERT INTO agents(id,name,handle,icon,instructions,access,enabled,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?);
+INSERT INTO agents(id,name,handle,icon,instructions,access,enabled,revision,created_at,updated_at,avatar) VALUES(?,?,?,?,?,?,?,?,?,?,?);
 -- name: UpdateAgent :execrows
-UPDATE agents SET name=?,handle=?,icon=?,instructions=?,access=?,enabled=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?;
+UPDATE agents SET name=?,handle=?,icon=?,instructions=?,access=?,enabled=?,avatar=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?;
+-- name: BackfillAgentAvatar :exec
+UPDATE agents SET avatar=? WHERE id=? AND avatar='';
+-- name: ListAgentAvatarCounts :many
+SELECT avatar,count(*) AS uses FROM agents WHERE avatar<>'' GROUP BY avatar;
+-- name: ListMissingAgentAvatars :many
+SELECT id FROM agents WHERE avatar='' ORDER BY created_at,id;
 -- name: ListRooms :many
 SELECT * FROM rooms ORDER BY created_at,id;
 -- name: GetRoom :one

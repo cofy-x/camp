@@ -1,5 +1,5 @@
 import { request } from '../../shared/api/http';
-import type { Agent, ReferenceInput, Run } from '../workspace/api';
+import type { AgentSnapshot, ReferenceInput, Run } from '../workspace/api';
 
 export interface Task {
   id: string;
@@ -20,7 +20,11 @@ export interface Task {
     | 'cancelled'
     | 'interrupted';
   revision: number;
-  participants: { agent: Agent; runnerId: string; runnerName: string }[];
+  participants: {
+    agent: AgentSnapshot;
+    runnerId: string;
+    runnerName: string;
+  }[];
   currentAgentId: string;
   activeRunId: string;
   baseSharedCommit: string;

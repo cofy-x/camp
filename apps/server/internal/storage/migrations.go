@@ -22,7 +22,10 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.applyMigrations(ctx, fsys)
+	if err := s.applyMigrations(ctx, fsys); err != nil {
+		return err
+	}
+	return s.ensureAvatars(ctx)
 }
 
 func (s *Store) applyMigrations(ctx context.Context, fsys fs.FS) error {

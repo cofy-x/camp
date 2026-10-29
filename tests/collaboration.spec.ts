@@ -22,6 +22,7 @@ async function fixture(page: Page, name: string) {
     ownerUserId: user.id,
     preferredRunnerId: `runner-${index}`,
     icon: 'document',
+    avatar: 'agent-robot-teal-v1',
     instructions: '',
     access: 'write',
     enabled: true,

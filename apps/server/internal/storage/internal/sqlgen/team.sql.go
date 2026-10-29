@@ -9,6 +9,20 @@ import (
 	"context"
 )
 
+const backfillUserAvatar = `-- name: BackfillUserAvatar :exec
+UPDATE users SET avatar=? WHERE id=? AND avatar=''
+`
+
+type BackfillUserAvatarParams struct {
+	Avatar string
+	ID     string
+}
+
+func (q *Queries) BackfillUserAvatar(ctx context.Context, arg BackfillUserAvatarParams) error {
+	_, err := q.db.ExecContext(ctx, backfillUserAvatar, arg.Avatar, arg.ID)
+	return err
+}
+
 const consumeInvite = `-- name: ConsumeInvite :execrows
 UPDATE invites SET consumed_at=?1 WHERE id=?2 AND consumed_at='' AND revoked_at='' AND expires_at>?1
 `
@@ -147,7 +161,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) er
 }
 
 const createUser = `-- name: CreateUser :exec
-INSERT INTO users(id,username,name,role,enabled,password_hash,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)
+INSERT INTO users(id,username,name,role,enabled,password_hash,created_at,updated_at,avatar) VALUES(?,?,?,?,?,?,?,?,?)
 `
 
 type CreateUserParams struct {
@@ -159,6 +173,7 @@ type CreateUserParams struct {
 	PasswordHash string
 	CreatedAt    string
 	UpdatedAt    string
+	Avatar       string
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
@@ -171,6 +186,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
 		arg.PasswordHash,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.Avatar,
 	)
 	return err
 }
@@ -293,7 +309,7 @@ func (q *Queries) GetTeamProfile(ctx context.Context) (TeamProfile, error) {
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, username, name, role, enabled, password_hash, created_at, updated_at FROM users WHERE id=?
+SELECT id, username, name, role, enabled, password_hash, created_at, updated_at, avatar FROM users WHERE id=?
 `
 
 func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
@@ -308,12 +324,13 @@ func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
 		&i.PasswordHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Avatar,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, name, role, enabled, password_hash, created_at, updated_at FROM users WHERE username=? COLLATE NOCASE
+SELECT id, username, name, role, enabled, password_hash, created_at, updated_at, avatar FROM users WHERE username=? COLLATE NOCASE
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
@@ -328,6 +345,7 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.PasswordHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Avatar,
 	)
 	return i, err
 }
@@ -535,6 +553,33 @@ func (q *Queries) ListManagementEvents(ctx context.Context) ([]ManagementEvent, 
 	return items, nil
 }
 
+const listMissingUserAvatars = `-- name: ListMissingUserAvatars :many
+SELECT id FROM users WHERE avatar='' ORDER BY created_at,id
+`
+
+func (q *Queries) ListMissingUserAvatars(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listMissingUserAvatars)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRoomReads = `-- name: ListRoomReads :many
 SELECT user_id, room_id, seq FROM room_reads WHERE user_id=?
 `
@@ -589,8 +634,40 @@ func (q *Queries) ListUserActiveRuns(ctx context.Context, requestedByUserID stri
 	return items, nil
 }
 
+const listUserAvatarCounts = `-- name: ListUserAvatarCounts :many
+SELECT avatar,count(*) AS uses FROM users WHERE avatar<>'' GROUP BY avatar
+`
+
+type ListUserAvatarCountsRow struct {
+	Avatar string
+	Uses   int64
+}
+
+func (q *Queries) ListUserAvatarCounts(ctx context.Context) ([]ListUserAvatarCountsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUserAvatarCounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUserAvatarCountsRow{}
+	for rows.Next() {
+		var i ListUserAvatarCountsRow
+		if err := rows.Scan(&i.Avatar, &i.Uses); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsers = `-- name: ListUsers :many
-SELECT id, username, name, role, enabled, password_hash, created_at, updated_at FROM users ORDER BY created_at,id
+SELECT id, username, name, role, enabled, password_hash, created_at, updated_at, avatar FROM users ORDER BY created_at,id
 `
 
 func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
@@ -611,6 +688,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 			&i.PasswordHash,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Avatar,
 		); err != nil {
 			return nil, err
 		}
@@ -772,4 +850,28 @@ func (q *Queries) UpdateUserAccess(ctx context.Context, arg UpdateUserAccessPara
 		arg.ID,
 	)
 	return err
+}
+
+const updateUserAvatar = `-- name: UpdateUserAvatar :execrows
+UPDATE users SET avatar=?1,updated_at=?2 WHERE id=?3 AND avatar=?4 AND enabled=1
+`
+
+type UpdateUserAvatarParams struct {
+	Avatar         string
+	UpdatedAt      string
+	ID             string
+	ExpectedAvatar string
+}
+
+func (q *Queries) UpdateUserAvatar(ctx context.Context, arg UpdateUserAvatarParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateUserAvatar,
+		arg.Avatar,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.ExpectedAvatar,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

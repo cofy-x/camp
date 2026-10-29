@@ -874,7 +874,11 @@
     padding: 12px 9px;
   }
   .workspace-message-avatar {
-    display: none;
+    display: block;
+  }
+  .workspace-message-avatar .p9-avatar {
+    width: 24px;
+    height: 24px;
   }
   .workspace-composer {
     padding: 7px 9px;

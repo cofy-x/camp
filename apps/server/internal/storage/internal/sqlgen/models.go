@@ -21,6 +21,7 @@ type Agent struct {
 	UpdatedAt         string
 	OwnerUserID       sql.NullString
 	PreferredRunnerID sql.NullString
+	Avatar            string
 }
 
 type AgentConversation struct {
@@ -401,6 +402,7 @@ type User struct {
 	PasswordHash string
 	CreatedAt    string
 	UpdatedAt    string
+	Avatar       string
 }
 
 type UserDraft struct {

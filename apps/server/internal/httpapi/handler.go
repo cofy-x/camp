@@ -44,6 +44,7 @@ func New(store *storage.Store, logger *slog.Logger, managers ...RoomService) *AP
 	a.taskRoutes(mux)
 	a.runnerInstallationRoutes(mux)
 	a.authRoutes(mux)
+	a.avatarRoutes(mux)
 	a.teamRoutes(mux)
 	a.libraryRoutes(mux)
 	a.reviewRoutes(mux)

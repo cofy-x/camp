@@ -309,11 +309,7 @@ func TestReviewSurvivesRestartAndDraftsRemainPrivate(t *testing.T) {
 }
 func TestReviewMigrationPreservesPersonalStateAndNotifications(t *testing.T) {
 	s := unmigratedStore(t)
-	sources := migrationSources(t)
-	delete(sources, "00007_reviews.sql")
-	delete(sources, "00008_remote_execution.sql")
-	delete(sources, "00009_owned_runners.sql")
-	delete(sources, "00010_collaboration_tasks.sql")
+	sources := migrationSourcesThrough(t, 6)
 	if err := s.applyMigrations(ctx, sources); err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +326,7 @@ func TestReviewMigrationPreservesPersonalStateAndNotifications(t *testing.T) {
 	if _, err := s.db.Exec(`INSERT INTO inbox(id,user_id,kind,room_id,message_id,created_at,read_at) VALUES('notification',?,'mention','room','message','then','read')`, person.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SaveDraft(owner, "conversation", "draft", json.RawMessage(`{"content":"kept"}`), 0); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO user_drafts(user_id,kind,draft_key,value,revision,updated_at) VALUES('owner','conversation','draft','{"content":"kept"}',1,'then')`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.migrate(ctx); err != nil {

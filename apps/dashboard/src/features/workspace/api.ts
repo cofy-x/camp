@@ -18,6 +18,7 @@ export interface Agent {
   name: string;
   handle: string;
   icon: string;
+  avatar: string;
   instructions: string;
   access: 'read' | 'write';
   enabled: boolean;
@@ -25,6 +26,9 @@ export interface Agent {
   createdAt: string;
   updatedAt: string;
 }
+
+// Existing frozen execution records predate the avatar catalog.
+export type AgentSnapshot = Omit<Agent, 'avatar'> & { avatar?: string };
 
 export interface Room {
   id: string;
@@ -180,7 +184,7 @@ export interface Run {
   sessionMode: string;
   baselineCommit: string;
   resultCommit: string;
-  agentSnapshot: Agent;
+  agentSnapshot: AgentSnapshot;
   environment: Environment | null;
   checks: CheckResult[] | null;
   files: {
@@ -282,6 +286,7 @@ export const workspaceApi = {
         name: agent.name,
         handle: agent.handle,
         icon: agent.icon,
+        avatar: agent.avatar,
         instructions: agent.instructions,
         access: agent.access,
         enabled: agent.enabled,
@@ -295,6 +300,7 @@ export const workspaceApi = {
         name: agent.name,
         handle: agent.handle,
         icon: agent.icon,
+        avatar: agent.avatar,
         instructions: agent.instructions,
         access: agent.access,
         enabled: agent.enabled,

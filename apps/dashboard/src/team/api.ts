@@ -4,6 +4,7 @@ export interface User {
   id: string;
   username: string;
   name: string;
+  avatar: string;
   role: 'admin' | 'member';
   enabled: boolean;
   createdAt: string;
@@ -52,6 +53,15 @@ const json = (method: string, body: unknown) => ({
   body: JSON.stringify(body),
 });
 export const teamApi = {
+  avatars: (signal?: AbortSignal) =>
+    request<{
+      avatars: { id: string; name: string; kind: 'member' | 'agent' }[];
+    }>('/avatars', { signal }),
+  saveAvatar: (avatar: string, expectedAvatar: string) =>
+    request<{ user: User }>(
+      '/me/avatar',
+      json('PATCH', { avatar, expectedAvatar }),
+    ),
   status: () =>
     request<{
       setupRequired: boolean;

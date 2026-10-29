@@ -313,6 +313,7 @@ type agentInput struct {
 	Name              *string `json:"name"`
 	Handle            *string `json:"handle"`
 	Icon              *string `json:"icon"`
+	Avatar            *string `json:"avatar"`
 	Instructions      *string `json:"instructions"`
 	Access            *string `json:"access"`
 	Enabled           *bool   `json:"enabled"`
@@ -331,6 +332,9 @@ func applyAgent(a storage.Agent, in agentInput) storage.Agent {
 	}
 	if in.Icon != nil {
 		a.Icon = *in.Icon
+	}
+	if in.Avatar != nil {
+		a.Avatar = *in.Avatar
 	}
 	if in.Instructions != nil {
 		a.Instructions = *in.Instructions
