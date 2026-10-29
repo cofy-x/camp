@@ -140,6 +140,22 @@ try {
     );
   }
 
+  for (const args of [['doctor'], ['open', '--print']]) {
+    const result = await invoke(args, {
+      ADDR: addr,
+      DATA_DIR: ignoredDataDir,
+      CAMP_ENV_FILE: join(dir, 'unread-private-file'),
+    });
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.timedOut, false);
+    assert.ok(result.stdout.includes(base));
+    assert.deepEqual(
+      await readdir(dir),
+      [],
+      'Local information commands must not create team data.',
+    );
+  }
+
   for (const args of [
     ['unknown-command'],
     ['--unknown-flag'],
