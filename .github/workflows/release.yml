@@ -62,7 +62,7 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends bubblewrap fuse3 build-essential pkg-config git curl
+          sudo apt-get install --yes --no-install-recommends bubblewrap fuse3 build-essential pkg-config git curl openssl
           sudo modprobe fuse
           test -c /dev/fuse
       - uses: docker/setup-docker-action@7ec28a010822b4626af4874f9448a4b05ac6f3e5 # v5.6.0
@@ -159,7 +159,7 @@ jobs:
       - name: Prepare a fresh installation host
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends bubblewrap fuse3 git
+          sudo apt-get install --yes --no-install-recommends bubblewrap fuse3 git openssl
           sudo modprobe fuse
           test -c /dev/fuse
       - uses: docker/setup-docker-action@7ec28a010822b4626af4874f9448a4b05ac6f3e5 # v5.6.0

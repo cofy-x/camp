@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { request as httpsRequest } from 'node:https';
 import { join } from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 import { promisify } from 'node:util';
@@ -47,6 +48,53 @@ assert.ok(
 const directory = await mkdtemp(join(tmpdir(), 'camp-image-'));
 const data = join(directory, 'data');
 await mkdir(data, { mode: 0o700 });
+const tls = join(directory, 'tls');
+await mkdir(tls, { mode: 0o700 });
+await execute('openssl', [
+  'req',
+  '-x509',
+  '-newkey',
+  'rsa:2048',
+  '-noenc',
+  '-days',
+  '1',
+  '-subj',
+  '/CN=localhost',
+  '-addext',
+  'subjectAltName=IP:127.0.0.1,DNS:localhost',
+  '-keyout',
+  join(tls, 'server.key'),
+  '-out',
+  join(tls, 'server.crt'),
+]);
+const ca = await readFile(join(tls, 'server.crt'));
+
+function request(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const pending = httpsRequest(
+      url,
+      { ca, method: options.method, headers: options.headers, timeout: 5000 },
+      (response) => {
+        const chunks = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.once('error', reject);
+        response.once('end', () =>
+          resolve({
+            status: response.statusCode,
+            headers: response.headers,
+            text: Buffer.concat(chunks).toString('utf8'),
+          }),
+        );
+      },
+    );
+    pending.once('error', reject);
+    pending.once('timeout', () =>
+      pending.destroy(new Error('Image HTTPS request timed out.')),
+    );
+    pending.end(options.body);
+  });
+}
+
 let container;
 try {
   container = await docker(
@@ -57,14 +105,27 @@ try {
     '127.0.0.1::3443',
     '--mount',
     `type=bind,src=${data},dst=/data`,
+    '--mount',
+    `type=bind,src=${tls},dst=/tls,readonly`,
     reference,
+    'serve',
+    '--addr',
+    '0.0.0.0:3443',
+    '--data-dir',
+    '/data',
+    '--tls-cert',
+    '/tls/server.crt',
+    '--tls-key',
+    '/tls/server.key',
+    '--allowed-hosts',
+    '127.0.0.1',
   );
   assert.match(container, /^[a-f0-9]{64}$/);
   const port = (await docker('port', container, '3443/tcp')).match(
     /^127\.0\.0\.1:(\d+)$/,
   )?.[1];
   assert.ok(port);
-  const origin = `http://127.0.0.1:${port}`;
+  const origin = `https://127.0.0.1:${port}`;
   let ready = false;
   for (let attempt = 0; attempt < 120; attempt++) {
     assert.equal(
@@ -72,11 +133,7 @@ try {
       'true',
     );
     try {
-      ready = (
-        await fetch(`${origin}/api/health`, {
-          signal: AbortSignal.timeout(1000),
-        })
-      ).ok;
+      ready = (await request(`${origin}/api/health`)).status === 200;
     } catch {
       /* The new container may still be opening SQLite. */
     }
@@ -84,7 +141,7 @@ try {
     await pause(250);
   }
   assert.ok(ready, 'Server image did not become healthy.');
-  const setup = await fetch(`${origin}/api/auth/setup`, {
+  const setup = await request(`${origin}/api/auth/setup`, {
     method: 'POST',
     headers: { Origin: origin, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -94,13 +151,13 @@ try {
       password: 'Disposable image acceptance password',
     }),
   });
-  assert.equal(setup.status, 200);
-  const cookie = setup.headers.get('set-cookie').split(';')[0];
-  const metadata = await fetch(`${origin}/api/runner-installation`, {
+  assert.equal(setup.status, 200, setup.text);
+  const cookie = setup.headers['set-cookie'][0].split(';')[0];
+  const metadata = await request(`${origin}/api/runner-installation`, {
     headers: { Cookie: cookie },
   });
   assert.equal(metadata.status, 200);
-  const installation = await metadata.json();
+  const installation = JSON.parse(metadata.text);
   assert.equal(installation.source, 'github');
   assert.equal(installation.version, release.version);
   assert.equal(installation.available, true);
@@ -109,12 +166,12 @@ try {
     installation.downloadUrl,
     `https://github.com/cofy-x/camp/releases/download/${release.version}/${release.installer.filename}`,
   );
-  const page = await fetch(origin);
-  const html = await page.text();
+  const page = await request(origin);
+  const html = page.text;
   assert.equal(page.status, 200);
   const script = html.match(/<script[^>]*src="([^"]+)"/)?.[1];
   assert.ok(script, 'Dashboard is missing from the Server image.');
-  assert.equal((await fetch(new URL(script, origin))).status, 200);
+  assert.equal((await request(new URL(script, origin))).status, 200);
   await writeFile(
     join(root, 'dist/smoke-server-image.json'),
     `${JSON.stringify(
@@ -131,6 +188,7 @@ try {
           'licenses',
           'server-without-native-runtime',
           'fresh-data-bootstrap',
+          'verified-HTTPS',
           'embedded-dashboard',
           'fixed-GitHub-installation-without-staged-packages',
         ],

@@ -472,6 +472,15 @@ try {
   assert.equal(restoredReview.status, 'delivered');
   assert.equal(restoredReview.deliveredCommit, run.resultCommit);
   assert.equal(restoredReview.submittedCommit, run.resultCommit);
+  const restoredFile = await fetch(
+    `${origin}/api/resources/${room.resourceId}/file?commit=${restoredReview.deliveredCommit}&path=asset.bin&download=1`,
+    { headers: { Cookie: cookie } },
+  );
+  assert.equal(restoredFile.status, 200);
+  assert.deepEqual(
+    new Uint8Array(await restoredFile.arrayBuffer()),
+    Uint8Array.of(0, 1, 255, 128),
+  );
   assert.equal(
     (await api('/api/runners')).runners.find((item) => item.id === assigned.id)
       .firstTaskRunId,

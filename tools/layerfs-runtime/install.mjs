@@ -96,11 +96,13 @@ if (!args[1]) {
   ]);
   const present = spawnSync(
     'git',
-    ['-C', checkout, 'cat-file', '-e', `${pin.commit}^{commit}`],
-    { stdio: 'ignore' },
+    ['-C', checkout, 'rev-parse', '--verify', '--quiet', 'refs/camp/runtime'],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
   );
   if (present.error) throw present.error;
-  if (present.status !== 0)
+  // Inspect a local ref rather than opening an absent object: a promisor
+  // cat-file probe would implicitly fetch history before the shallow fetch.
+  if (present.status !== 0 || present.stdout.trim() !== pin.commit)
     run('git', [
       '-C',
       checkout,
@@ -108,7 +110,7 @@ if (!args[1]) {
       '--depth=1',
       '--filter=blob:limit=10m',
       'origin',
-      pin.commit,
+      `+${pin.commit}:refs/camp/runtime`,
     ]);
 }
 const revision = run(
