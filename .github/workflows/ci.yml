@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source:
+    name: Source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install pinned dependencies
+        run: make install
+      - name: Check types, lint and formatting
+        run: make typecheck lint format-check
+      - name: Check generated SQL and run unit tests
+        run: make test-go-race test-js
+      - name: Check embedded production build
+        run: make build smoke-production
+      - name: Check GitHub workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Check tracked files remain unchanged
+        run: git diff --exit-code
+
+  browser:
+    name: Browser
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install pinned dependencies
+        run: make install
+      - name: Check desktop and touch paths
+        run: >-
+          make test-e2e
+          E2E_INSTALL_ARGS="--with-deps chromium firefox webkit"
+          E2E_ARGS="--project=chromium --project=firefox --project=webkit --project=touch"
+
+  fixture:
+    name: Fixture
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CAMP_REMOTE_PROJECT: camp-remote-ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Check Docker Compose
+        run: docker compose version
+      - name: Check protocol, business flow and recovery
+        run: make test-remote
+      - name: Remove this test project's containers and volumes
+        if: ${{ always() }}
+        run: node scripts/remote.mjs down --project "$CAMP_REMOTE_PROJECT"

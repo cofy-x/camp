@@ -1,0 +1,3 @@
+Camp remote execution fixture.
+Create a draft, request human review, revise, and deliver a pinned version.
+This source directory is immutable to the Agent.

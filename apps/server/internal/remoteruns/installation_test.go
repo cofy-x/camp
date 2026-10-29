@@ -1,0 +1,148 @@
+package remoteruns
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
+	"github.com/cofy-x/camp/apps/server/internal/runs"
+	"github.com/cofy-x/camp/apps/server/internal/storage"
+)
+
+func TestRunnerReleasePublicationRequiresCompleteInstallerAndRuntime(t *testing.T) {
+	directory := t.TempDir()
+	packages := filepath.Join(directory, "packages")
+	if err := os.Mkdir(packages, 0700); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{config: Config{DataDir: directory}}
+	release := runnerRelease{Schema: 1,
+		Installer: releaseArtifact{Filename: runnerPackageName, SHA256: strings.Repeat("a", 64), Bytes: 10, UnpackedBytes: 20},
+		Offline:   releaseArtifact{Filename: runnerOfflinePackageName, SHA256: strings.Repeat("b", 64), Bytes: 30, UnpackedBytes: 40},
+		Runtime:   releaseArtifact{Filename: "camp-runtime-linux-amd64-" + strings.Repeat("c", 64) + ".tar.gz", SHA256: strings.Repeat("c", 64), Bytes: 20, UnpackedBytes: 30},
+	}
+	publish := func() {
+		t.Helper()
+		raw, _ := json.Marshal(release)
+		if err := os.WriteFile(filepath.Join(packages, "runner-release.json"), raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(a releaseArtifact) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(packages, a.Filename), []byte(strings.Repeat("x", int(a.Bytes))), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publish()
+	write(release.Installer)
+	if m.RunnerInstallation().Available {
+		t.Fatal("installer advertised without runtime")
+	}
+	write(release.Runtime)
+	meta := m.RunnerInstallation()
+	if !meta.Available || meta.Offline.Available || meta.Bytes != 10 || meta.Runtime.Bytes != 20 || meta.Runtime.UnpackedBytes != 30 {
+		t.Fatalf("wrong sizes or availability: %+v", meta)
+	}
+	write(release.Offline)
+	if !m.RunnerInstallation().Offline.Available {
+		t.Fatal("offline archive not advertised")
+	}
+	if err := os.Remove(filepath.Join(packages, release.Runtime.Filename)); err != nil {
+		t.Fatal(err)
+	}
+	if m.RunnerInstallation().Available || !m.RunnerInstallation().Offline.Available {
+		t.Fatal("offline option should work independently of runtime hosting")
+	}
+	write(release.Runtime)
+	if err := os.WriteFile(filepath.Join(packages, release.Runtime.Filename), []byte("partial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if m.RunnerInstallation().Available {
+		t.Fatal("partial runtime advertised")
+	}
+	write(release.Runtime)
+	release.Installer.Filename = "../secret"
+	publish()
+	if m.RunnerInstallation().Available || m.RunnerInstallation().Offline.Available {
+		t.Fatal("unsafe descriptor accepted")
+	}
+	release.Installer.Filename = runnerPackageName
+	publish()
+	if err := os.Remove(filepath.Join(packages, runnerPackageName)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(packages, release.Runtime.Filename), filepath.Join(packages, runnerPackageName)); err != nil {
+		t.Fatal(err)
+	}
+	if m.RunnerInstallation().Available {
+		t.Fatal("symlinked package advertised")
+	}
+}
+
+func TestRuntimeDownloadRequiresLiveMachineAuthorization(t *testing.T) {
+	h := newRemoteHarness(t, runs.Config{})
+	config := h.join(t, "Installer", "fixture", nil, nativeexecutor.Config{})
+	sha := strings.Repeat("a", 64)
+	packages := filepath.Join(h.data, "packages")
+	if err := os.Mkdir(packages, 0700); err != nil {
+		t.Fatal(err)
+	}
+	filename := filepath.Join(packages, "camp-runtime-linux-amd64-"+sha+".tar.gz")
+	if err := os.WriteFile(filename, []byte("0123456789"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	request := func(token, cookie, origin, hash string) (int, string) {
+		t.Helper()
+		req, err := http.NewRequest("GET", h.server.URL+"/api/daemon/runtime/"+hash, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Cookie", cookie)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Range", "bytes=3-6")
+		res, err := h.server.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		data, err := io.ReadAll(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode, string(data)
+	}
+	if status, _ := request("", "", "", sha); status != 401 {
+		t.Fatal("unauthenticated download", status)
+	}
+	for _, headers := range [][2]string{{"session=browser", ""}, {"", "https://browser.example"}} {
+		if status, _ := request(config.Credential, headers[0], headers[1], sha); status != 403 {
+			t.Fatal("browser credentials accepted", status)
+		}
+	}
+	if status, body := request(config.Credential, "", "", sha); status != 206 || body != "3456" {
+		t.Fatal("authenticated range failed", status, body)
+	}
+	if status, _ := request(config.Credential, "", "", "invalid"); status != 404 {
+		t.Fatal("invalid runtime digest accepted", status)
+	}
+	enabled := false
+	if _, err := h.store.UpdateRunner(h.actor, config.RunnerID, storage.RunnerUpdate{Enabled: &enabled}); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := request(config.Credential, "", "", sha); status != 403 {
+		t.Fatal("disabled machine downloaded runtime", status)
+	}
+	if _, err := h.store.UpdateRunner(h.actor, config.RunnerID, storage.RunnerUpdate{Revoke: true}); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := request(config.Credential, "", "", sha); status != 401 {
+		t.Fatal("revoked machine downloaded runtime", status)
+	}
+}

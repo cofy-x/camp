@@ -1,0 +1,93 @@
+.p9-menubar > .p9-application-menu {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 32px;
+  padding: 0 9px;
+  border-left: 1px solid #999;
+  box-shadow: inset 1px 0 #fff;
+}
+.p9-application-name {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.p9-application-arrow {
+  font-size: 9px;
+}
+.p9-menubar > .p9-application-menu.is-pressed {
+  box-shadow: none;
+}
+@media (max-width: 599px) {
+  .p9-menubar > .p9-application-menu {
+    gap: 0;
+    padding: 0 7px;
+  }
+  .p9-application-name,
+  .p9-application-arrow {
+    display: none;
+  }
+}
+@media (pointer: coarse) {
+  .p9-control-strip {
+    align-items: flex-end;
+  }
+  /* Expand the hit regions above the artwork without scaling the strip. */
+  .p9-control-strip .p9-strip-body {
+    height: 24px;
+  }
+  .p9-control-strip .p9-strip-module {
+    flex: 0 0 31px;
+    width: 31px;
+    min-height: 32px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .p9-control-strip .p9-strip-module::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 22px;
+    border-left: 1px solid #262626;
+    pointer-events: none;
+  }
+  .p9-control-strip .p9-strip-modules {
+    height: 32px;
+    align-self: flex-end;
+    max-width: calc(
+      100vw - 60px - env(safe-area-inset-left, 0px) -
+        env(safe-area-inset-right, 0px)
+    );
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x;
+  }
+  .p9-control-strip .p9-strip-face {
+    position: absolute;
+    left: 2px;
+    bottom: 0;
+    width: 29px;
+    background: #c0c0c0;
+  }
+  .p9-control-strip .p9-strip-module:active .p9-strip-face {
+    background: #888;
+  }
+  .p9-control-strip .p9-strip-handle {
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-start;
+    flex: 0 0 32px;
+    width: 32px;
+    height: var(--p9-control-strip-height);
+  }
+}
+@media (max-width: 359px) {
+  .p9-menubar > button[data-menu-id] {
+    padding-inline: 5px;
+  }
+  .p9-menubar > .p9-clock {
+    padding-inline: 4px;
+  }
+}

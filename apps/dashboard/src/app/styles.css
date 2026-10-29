@@ -1,0 +1,18 @@
+@import '../shared/styles/apps.css';
+@import '../features/welcome/welcome.css';
+@import '../features/appearance/appearance.css';
+@import '../features/workspace/workspace.css';
+@import '../features/workspace/uploads.css';
+@import '../features/workspace/documents.css';
+@import '../features/workspace/citations.css';
+@import './app.css';
+
+@import '../team/team.css';
+@import '../features/library/library.css';
+@import '../features/agents/agents.css';
+@import '../features/settings/settings.css';
+
+@import '../features/reviews/reviews.css';
+
+@import '../features/runners/runners.css';
+@import '../features/collaboration/collaboration.css';

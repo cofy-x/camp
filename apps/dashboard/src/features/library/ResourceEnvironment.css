@@ -1,0 +1,137 @@
+.library-environment {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px;
+  overflow: auto;
+  background: #eee;
+  font: 11px/1.5 var(--p9-body-font);
+}
+.library-environment-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+}
+.library-environment-heading > div {
+  flex: 1;
+  min-width: 140px;
+}
+.library-environment-heading h2 {
+  margin: 0;
+  font: 14px/1.4 var(--p9-font);
+}
+.library-environment-heading p {
+  margin: 3px 0 0;
+  color: #555;
+  overflow-wrap: anywhere;
+}
+.library-environment-description {
+  max-width: 64ch;
+  margin: 14px 0;
+}
+.library-environment-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 122px) minmax(0, 1fr);
+  gap: 6px 10px;
+  max-width: 560px;
+  margin: 0 0 16px;
+  padding: 10px;
+  border: 1px solid var(--p9-shadow);
+  box-shadow:
+    inset 1px 1px #bbb,
+    1px 1px #fff;
+  background: #fff;
+}
+.library-environment-summary dt {
+  font-weight: 600;
+}
+.library-environment-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.library-environment form {
+  max-width: 560px;
+}
+.library-environment .app-control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+}
+.library-environment .p9-field-label {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 6px 10px;
+}
+.library-environment .p9-field-label > span:first-child {
+  flex: 0 0 112px;
+  text-align: left;
+}
+.library-environment .p9-select {
+  flex: 1 1 180px;
+  min-width: 0;
+  max-width: 260px;
+}
+.library-environment-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.library-environment-checks > label {
+  font-weight: 600;
+}
+.library-environment-checks p {
+  margin: 0;
+}
+.library-environment-checks textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 100px;
+  padding: 7px;
+  border: 1px solid var(--p9-shadow);
+  box-shadow:
+    inset 1px 1px #bbb,
+    1px 1px #fff;
+  border-radius: 0;
+  background: #fff;
+  color: var(--p9-text);
+  resize: vertical;
+  font:
+    11px/1.6 ui-monospace,
+    monospace;
+}
+.library-environment-hint {
+  margin: 0;
+  font-size: 10px;
+  color: #555;
+  overflow-wrap: anywhere;
+}
+.library-environment-hint code {
+  display: block;
+  margin: 3px 0 6px;
+  user-select: text;
+}
+.library-environment .app-error {
+  margin: 12px 0;
+}
+.library-environment-notice {
+  max-width: 560px;
+  margin-bottom: 14px;
+  padding: 10px;
+  border: 1px solid var(--p9-shadow);
+  background: #fff6d6;
+}
+.library-environment-notice p {
+  margin: 0 0 8px;
+}
+.library-environment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding-bottom: 2px;
+}

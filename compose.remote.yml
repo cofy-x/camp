@@ -1,0 +1,75 @@
+services:
+  server:
+    build:
+      context: .
+      target: server
+    command:
+      - serve
+      - --addr
+      - 0.0.0.0:3443
+      - --data-dir
+      - /data
+      - --tls-cert
+      - /certs/server.crt
+      - --tls-key
+      - /certs/server.key
+      - --allow-fixture-runners
+      - --allowed-hosts
+      - server,localhost,127.0.0.1
+      - --trusted-origins
+      - https://server:3443,https://localhost:${CAMP_REMOTE_PORT:-13443},https://127.0.0.1:${CAMP_REMOTE_PORT:-13443}
+    ports:
+      - 127.0.0.1:${CAMP_REMOTE_PORT:-13443}:3443
+    volumes:
+      - server-data:/data
+      - server-certificates:/certs:ro
+    networks: [camp]
+  daemon-a:
+    build:
+      context: .
+      target: remote-test
+    entrypoint: [node, /opt/camp-remote/daemon-entry.mjs]
+    environment:
+      CAMP_RUNNER_NAME: daemon-a
+    volumes:
+      - daemon-a-data:/data
+      - daemon-a-join:/join:ro
+      - trust:/trust:ro
+    networks: [camp]
+  daemon-b:
+    build:
+      context: .
+      target: remote-test
+    entrypoint: [node, /opt/camp-remote/daemon-entry.mjs]
+    environment:
+      CAMP_RUNNER_NAME: daemon-b
+    volumes:
+      - daemon-b-data:/data
+      - daemon-b-join:/join:ro
+      - trust:/trust:ro
+    networks: [camp]
+  tests:
+    build:
+      context: .
+      target: remote-test
+    environment:
+      CAMP_TEST_ORIGIN: https://server:3443
+    volumes:
+      - server-data:/server-data:ro
+      - server-certificates:/certs
+      - trust:/trust
+      - daemon-a-join:/join-a
+      - daemon-b-join:/join-b
+      - test-control:/control
+    networks: [camp]
+networks:
+  camp: {}
+volumes:
+  server-data: {}
+  server-certificates: {}
+  trust: {}
+  daemon-a-data: {}
+  daemon-b-data: {}
+  daemon-a-join: {}
+  daemon-b-join: {}
+  test-control: {}

@@ -1,0 +1,293 @@
+.camp-session {
+  width: 100%;
+  height: 100%;
+}
+.camp-auth {
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  gap: 14px;
+}
+.camp-auth-heading {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--p9-shadow);
+  box-shadow: 0 1px #fff;
+  text-align: left;
+}
+.camp-auth-heading svg {
+  flex: 0 0 auto;
+}
+.camp-auth h1 {
+  font: bold 16px/1.4 var(--p9-font);
+  margin: 0;
+}
+.camp-auth.startup-panel {
+  padding: 20px;
+  font: 12px/1.45 var(--p9-body-font);
+  background: var(--p9-face);
+}
+.camp-auth > p {
+  margin: 0;
+  line-height: 1.5;
+  text-align: left;
+}
+.camp-auth label,
+.camp-settings-form label,
+.camp-invitation label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+  width: 100%;
+  min-width: 0;
+  font-weight: 600;
+}
+.camp-auth input.p9-field {
+  width: 100%;
+  height: 22px;
+  font-weight: normal;
+}
+.camp-auth small,
+.camp-settings small {
+  font-weight: normal;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #555;
+}
+.camp-auth details {
+  width: 100%;
+  text-align: left;
+  border-top: 1px solid var(--p9-shadow);
+  box-shadow: inset 0 1px #fff;
+  padding-top: 10px;
+}
+.camp-auth details label {
+  margin: 10px 0;
+}
+.camp-auth > .p9-button {
+  margin-top: 4px;
+  min-width: 100px;
+}
+.camp-section-heading,
+.panel-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.camp-section-heading {
+  justify-content: space-between;
+}
+.camp-inbox {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  position: fixed;
+  z-index: 20000;
+  right: 12px;
+  bottom: 12px;
+  max-width: calc(100vw - 24px);
+}
+.camp-inbox-panel {
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(480px, calc(100dvh - 90px));
+  margin-bottom: 6px;
+}
+.camp-inbox-summary {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: #555;
+}
+.camp-inbox-panel ul {
+  list-style: none;
+  padding: 1px;
+  margin: 0;
+  background: white;
+  border: 1px solid var(--p9-shadow);
+  box-shadow:
+    inset 1px 1px #bbb,
+    1px 1px white;
+}
+.camp-inbox-panel li + li {
+  border-top: 1px solid #ddd;
+}
+.camp-inbox-panel li button {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 8px;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  background: transparent;
+  border: 0;
+  color: var(--p9-text);
+  text-align: left;
+  padding: 7px 6px;
+  font: 11px/1.4 var(--p9-body-font);
+  cursor: pointer;
+}
+.camp-inbox-copy {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  display: grid;
+  gap: 3px;
+}
+.camp-inbox-copy strong {
+  font: 12px/1.35 var(--p9-font);
+}
+.camp-inbox-panel small {
+  font-size: 10px;
+  color: #555;
+}
+.camp-inbox-unread {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  justify-self: center;
+}
+.camp-inbox-feedback {
+  width: min(360px, calc(100vw - 24px));
+  padding: 8px;
+  margin: 0 0 6px;
+  border: 1px solid var(--p9-shadow);
+  background: var(--p9-face);
+}
+.camp-resource-nav {
+  box-sizing: border-box;
+  flex: 0 0 200px;
+  overflow: auto;
+  padding: 14px 10px;
+  border-right: 1px solid #aaa;
+  background: #d6d6d6;
+}
+.camp-resource-nav h3 {
+  font-size: 12px;
+  color: #555;
+  margin: 20px 6px 6px;
+}
+.camp-resource-nav > strong {
+  display: block;
+  margin: 0 6px 16px;
+}
+.camp-resource-nav button:not(.p9-button) {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px;
+  border: 1px solid transparent;
+  color: #222;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.camp-resource-nav button.selected {
+  background: #fff;
+  border-color: #888;
+  box-shadow: inset 1px 1px #eee;
+}
+.camp-resource-nav small {
+  display: block;
+  margin-top: 4px;
+  color: #555;
+  font-size: 11px;
+}
+.camp-empty {
+  margin: auto;
+  padding: 30px;
+  text-align: center;
+  max-width: 420px;
+}
+.camp-empty h2 {
+  font-size: 19px;
+}
+.camp-empty p {
+  line-height: 1.5;
+}
+.camp-link {
+  border: 0;
+  background: transparent;
+  color: #16345e;
+  text-decoration: underline;
+  font: inherit;
+  cursor: pointer;
+  padding: 3px;
+}
+@media (max-width: 600px) {
+  .camp-resource-nav {
+    flex-basis: 120px;
+    padding: 10px 4px;
+  }
+  .camp-resource-nav button:not(.p9-button) {
+    gap: 4px;
+    padding: 8px 4px;
+  }
+  .camp-inbox {
+    bottom: 7px;
+    right: 7px;
+  }
+}
+.camp-inbox > .camp-inbox-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 2px 7px;
+  white-space: nowrap;
+  max-width: calc(100vw - 24px);
+}
+.camp-inbox-toggle[aria-expanded='true'] {
+  background: #bbb;
+  box-shadow:
+    inset 1px 1px #666,
+    inset -1px -1px white;
+}
+.camp-inbox-arrow {
+  font-size: 9px;
+}
+.camp-draft-comparison {
+  flex: 0 0 auto;
+  max-height: 220px;
+  overflow: auto;
+  background: #fffce7;
+  border: 1px solid #a49c73;
+  padding: 10px;
+}
+.camp-draft-comparison pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    12px/1.5 ui-monospace,
+    monospace;
+}
+.camp-draft-comparison p {
+  font-size: 12px;
+}
+
+.camp-inbox-panel li button:focus-visible {
+  outline-offset: -2px;
+}
+.camp-inbox-panel li button:hover {
+  background: var(--p9-highlight);
+  color: #fff;
+}
+.camp-inbox-panel li button:hover small {
+  color: #eee;
+}
+.camp-inbox-account {
+  min-width: 0;
+  max-width: min(160px, 35vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.camp-inbox > .p9-button > .p9-pixel-icon {
+  flex-shrink: 0;
+}

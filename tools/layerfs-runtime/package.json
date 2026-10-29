@@ -1,0 +1,13 @@
+{
+  "name": "@camp/layerfs-runtime",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.16.0"
+  },
+  "scripts": {
+    "install:runtime": "node install.mjs",
+    "test": "node --test test/*.test.mjs",
+    "probe": "node probe.mjs"
+  }
+}

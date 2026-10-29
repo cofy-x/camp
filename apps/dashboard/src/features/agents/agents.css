@@ -1,0 +1,109 @@
+.camp-agents-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  container-type: inline-size;
+}
+.camp-agents-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.camp-agents-app > .app-toolbar {
+  justify-content: space-between;
+}
+.camp-agents-app > .app-toolbar > strong {
+  font-family: var(--p9-font);
+}
+.camp-agent-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 16px;
+  background: var(--p9-face);
+}
+.camp-agent-detail h2 {
+  margin: 0 0 4px;
+  font: bold 16px/1.4 var(--p9-font);
+}
+.camp-agent-detail h3 {
+  font: bold 12px/1.4 var(--p9-font);
+}
+.camp-agent-detail p {
+  line-height: 1.5;
+}
+.camp-agent-role {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.camp-agent-role p {
+  margin: 0;
+}
+.camp-agent-rooms {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: #fff;
+  border: 1px solid var(--p9-shadow);
+  box-shadow:
+    inset 1px 1px #bbb,
+    1px 1px #fff;
+}
+.camp-agent-rooms li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px;
+  border-bottom: 1px solid #ddd;
+}
+.camp-agent-rooms li:last-child {
+  border-bottom: 0;
+}
+.camp-agent-room-name {
+  min-width: 0;
+}
+.camp-agent-room-name > span {
+  display: block;
+  margin-top: 3px;
+  color: #555;
+  font-size: 11px;
+}
+.camp-agents-chooser {
+  display: none;
+}
+@container (max-width: 600px) {
+  .camp-agent-detail {
+    padding: 12px;
+  }
+  .camp-agents-body > .app-control-nav {
+    display: none;
+  }
+  .camp-agents-app > .app-toolbar > strong {
+    display: none;
+  }
+  .camp-agents-chooser {
+    display: block;
+    flex: 1;
+    min-width: 0;
+  }
+  .camp-agents-chooser .p9-select {
+    margin: 0;
+    width: 100%;
+  }
+}
+.camp-agent-detail .panel-heading > div {
+  min-width: 0;
+}
+.camp-agent-detail .panel-heading h2,
+.camp-agent-detail .panel-heading p,
+.camp-agent-rooms .camp-link {
+  overflow-wrap: anywhere;
+}
+.camp-agent-rooms .camp-link {
+  min-width: 0;
+  max-width: 100%;
+  text-align: left;
+}

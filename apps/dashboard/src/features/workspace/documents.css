@@ -1,0 +1,58 @@
+.workspace-document-note,
+.workspace-document-status,
+.workspace-document-unavailable,
+.workspace-document-warnings {
+  margin: 8px 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.workspace-document-about {
+  margin-top: 10px;
+  font-size: 11px;
+  color: #555;
+}
+.workspace-document-about > p {
+  margin: 6px 0;
+  line-height: 1.5;
+}
+.workspace-document-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 6px 12px;
+  margin: 10px 0;
+}
+.workspace-document-navigation > .p9-field-label {
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
+}
+.workspace-document-navigation > .p9-field-label > span:first-child {
+  white-space: nowrap;
+}
+.workspace-document-step-actions {
+  display: flex;
+  gap: 6px;
+}
+.workspace-document-section > strong {
+  font-size: 11px;
+  color: #555;
+}
+.workspace-document-section > p {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.workspace-document-empty {
+  color: #555;
+}
+.workspace-document-warnings {
+  padding-left: 18px;
+}
+.workspace-document-unavailable > p {
+  margin: 6px 0;
+}
+.workspace-document-status .p9-button {
+  margin-left: 8px;
+}

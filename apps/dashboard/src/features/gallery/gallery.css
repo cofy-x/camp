@@ -1,0 +1,45 @@
+.gallery-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 4px;
+}
+.gallery-controls > * {
+  min-width: 0;
+  max-width: 100%;
+}
+.gallery-controls > .p9-button {
+  justify-self: start;
+}
+.gallery-controls > label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.gallery-controls fieldset {
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 8px;
+}
+@media (max-width: 359px) {
+  .gallery-controls > .p9-field-label {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+}
+.icon-gallery {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px 10px;
+}
+.icon-gallery > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+}

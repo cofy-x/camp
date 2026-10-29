@@ -1,0 +1,67 @@
+.wallpaper-options {
+  display: flex;
+  gap: 10px;
+}
+.wallpaper-swatch {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 2px;
+  background: transparent;
+  font: inherit;
+  font-size: 10px;
+  cursor: default;
+}
+.wallpaper-swatch .swatch-preview {
+  display: block;
+  height: 55px;
+  width: 100%;
+  border: 1px solid #262626;
+  box-shadow:
+    inset 1px 1px #999,
+    1px 1px #fff;
+  margin-bottom: 5px;
+  background-color: #ccccff;
+}
+.wallpaper-swatch.lavender .swatch-preview {
+  background-color: #7474a5;
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent 0 7px,
+    #ffffff13 7px 8px
+  );
+}
+.wallpaper-swatch.grid .swatch-preview {
+  background-image:
+    linear-gradient(#9999cc 1px, transparent 1px),
+    linear-gradient(90deg, #9999cc 1px, transparent 1px);
+  background-size: 8px 8px;
+}
+.wallpaper-swatch.chosen {
+  outline: 2px solid #333399;
+  outline-offset: 1px;
+}
+.settings-app .p9-checkbox {
+  display: flex;
+  margin-bottom: 8px;
+}
+@media (max-width: 599px) {
+  .wallpaper-options {
+    gap: 7px;
+  }
+}
+.camp-appearance.settings-app {
+  height: auto;
+}
+.camp-appearance > .app-pad {
+  padding: 0;
+  overflow: visible;
+}
+.camp-appearance .panel-heading h2 {
+  margin-bottom: 4px;
+}
+.camp-appearance-status {
+  font-size: 11px;
+  color: #555;
+  margin: 12px 0 0;
+}

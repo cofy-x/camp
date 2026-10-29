@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/Ephemeral-AI-Lab/layerfs.git",
+  "commit": "caebd268dc376865e964f33f78047f7918763190",
+  "version": "1.1.0",
+  "rust": "1.85.1",
+  "node": "24.16.0",
+  "pnpm": "12.11.2",
+  "baseImage": "ubuntu@sha256:a2d43bffc46670d7108bb3c0468c67c5557c4c92e83e1e34cbff1322ad1b94dc"
+}

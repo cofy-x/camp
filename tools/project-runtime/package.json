@@ -1,0 +1,12 @@
+{
+  "name": "@cofy-x/camp-project-runtime",
+  "private": true,
+  "packageManager": "pnpm@12.11.2",
+  "engines": {
+    "node": "24.16.0",
+    "pnpm": "12.11.2"
+  },
+  "dependencies": {
+    "pnpm": "12.11.2"
+  }
+}

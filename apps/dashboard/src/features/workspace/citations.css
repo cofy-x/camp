@@ -1,0 +1,35 @@
+.workspace-source-link {
+  border: 0;
+  background: transparent;
+  color: var(--p9-highlight);
+  padding: 0 2px;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.workspace-source-link:focus-visible {
+  outline: 1px dotted currentcolor;
+  outline-offset: 2px;
+}
+.workspace-cited-source {
+  margin-top: 10px;
+  border: 1px solid #aaa;
+  background: #fafafa;
+}
+.workspace-cited-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid #bbb;
+  background: #eee;
+}
+.workspace-cited-heading strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.workspace-cited-heading button {
+  flex-shrink: 0;
+}

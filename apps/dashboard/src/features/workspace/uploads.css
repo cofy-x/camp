@@ -1,0 +1,133 @@
+.workspace-upload-input {
+  display: none;
+}
+.workspace-conversation:has(> .workspace-composer) {
+  container-type: size;
+  container-name: composer-space;
+}
+.workspace-conversation > .workspace-composer {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  max-height: 58%;
+  overflow: visible;
+}
+.workspace-composer > :not(.workspace-composer-context) {
+  flex-shrink: 0;
+}
+.workspace-composer-context {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.workspace-composer-context > .workspace-references.is-draft {
+  max-height: none;
+  overflow: visible;
+}
+.workspace-composer > .app-error {
+  max-height: 48px;
+  overflow: auto;
+  margin: 5px 0;
+}
+.workspace-composer.is-file-drop {
+  outline: 2px solid var(--p9-highlight);
+  outline-offset: -3px;
+  background: #f2f2ff;
+}
+.workspace-drop-hint {
+  padding: 6px;
+  margin: 0 0 6px;
+  border: 1px dashed var(--p9-highlight);
+  font-size: 12px;
+  text-align: center;
+}
+.workspace-upload-list {
+  margin: 7px 0;
+}
+.workspace-upload-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 5px;
+  margin: 4px 0;
+  border: 1px solid #bbb;
+  background: #fafafa;
+}
+.workspace-upload-row > .p9-icon {
+  flex: none;
+}
+.workspace-upload-description {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.workspace-upload-description small {
+  color: #666;
+}
+.workspace-upload-description > span {
+  flex-basis: 100%;
+}
+.workspace-upload-description > [role='alert'] {
+  color: #8b2525;
+}
+.workspace-upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  max-width: 48%;
+}
+.workspace-upload-actions .p9-button {
+  min-width: 24px;
+}
+.workspace-composer-actions > .workspace-attach-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.workspace-composer-actions > .workspace-description {
+  flex: 1;
+  text-align: right;
+}
+.workspace-attachment-note {
+  margin: 5px 0 0;
+}
+.workspace-references.is-draft .workspace-reference-card > details > summary {
+  padding-block: 4px;
+}
+.workspace-reference-evidence .workspace-file-preview {
+  border: 0;
+  padding: 0;
+}
+@container (max-width: 500px) {
+  .workspace-upload-actions {
+    max-width: 44%;
+  }
+  .workspace-composer-actions > .workspace-attach-button {
+    min-width: 0;
+  }
+}
+@container composer-space (max-height: 360px) {
+  .workspace-conversation > .workspace-composer {
+    max-height: 80%;
+  }
+  .workspace-composer textarea {
+    min-height: 44px;
+    height: 44px;
+    max-height: 80px;
+  }
+}
+@container composer-space (max-height: 260px) {
+  .workspace-conversation > .workspace-composer {
+    max-height: 100%;
+  }
+  .workspace-composer > .app-error {
+    max-height: 32px;
+  }
+}

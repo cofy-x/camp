@@ -1,0 +1,13 @@
+{
+  "name": "@cofy-x/camp-document-runtime",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.11.2",
+  "engines": {
+    "node": "24.16.0",
+    "pnpm": "12.11.2"
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.4.299"
+  }
+}

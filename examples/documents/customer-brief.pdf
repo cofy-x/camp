@@ -1,0 +1,79 @@
+%PDF-1.7
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 460 >>
+stream
+BT
+/F1 12 Tf
+50 740 Td
+20 TL
+
+(Customer support pilot - brief) Tj
+T*
+(Sponsor: Morgan, Support Lead.) Tj
+T*
+(Team: three support specialists; around 40 tickets each week.) Tj
+T*
+(Duration: two weeks. Capacity: 6 staff-hours per week.) Tj
+T*
+(Budget: no new software purchases.) Tj
+T*
+(Target: 25% fewer repeat setup questions.) Tj
+T*
+(Keep customer satisfaction at its current level.) Tj
+T*
+(Start with a shared setup guide before considering a chatbot.) Tj
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 407 >>
+stream
+BT
+/F1 12 Tf
+50 740 Td
+20 TL
+
+(Measurement and approval - risks) Tj
+T*
+(No customer-satisfaction baseline has been recorded yet.) Tj
+T*
+(Count repeat setup tickets before and during the pilot.) Tj
+T*
+(Ask the same short satisfaction question each week.) Tj
+T*
+(Morgan approves guide changes before specialists publish them.) Tj
+T*
+(Report uncertainty: a two-week sample cannot prove long-term impact.) Tj
+ET
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000191 00000 n 
+0000000317 00000 n 
+0000000828 00000 n 
+0000000954 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1412
+%%EOF

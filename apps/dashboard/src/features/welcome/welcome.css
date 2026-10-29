@@ -1,0 +1,12 @@
+.about-app {
+  text-align: center;
+  overflow: auto;
+  height: 100%;
+}
+.about-app > svg {
+  display: block;
+  margin: 0 auto;
+}
+.about-app h1 {
+  font-family: var(--p9-font);
+}
