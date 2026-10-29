@@ -7,15 +7,16 @@ import type {
   Run,
 } from '../apps/dashboard/src/features/workspace/api';
 import { createRoom, mutate, signIn, workspace } from './team-helpers';
+import { watchPageErrors } from './page-errors';
 
-const errors = new WeakMap<Page, string[]>();
-test.beforeEach(async ({ page }) => {
-  const caught: string[] = [];
-  errors.set(page, caught);
-  page.on('pageerror', (error) => caught.push(error.message));
+const errors = new WeakMap<Page, ReturnType<typeof watchPageErrors>>();
+test.beforeEach(async ({ page, browserName }) => {
+  errors.set(page, watchPageErrors(page, browserName));
   await signIn(page);
 });
-test.afterEach(async ({ page }) => expect(errors.get(page)).toEqual([]));
+test.afterEach(async ({ page }) =>
+  expect(errors.get(page)?.errors).toEqual([]),
+);
 
 type ResultFixture = {
   content: string;
@@ -29,7 +30,8 @@ async function completedWork(
   name: string,
   fixtures: ResultFixture[],
 ) {
-  const room = await createRoom(page, name);
+  const room = await createRoom(page, `${name}-${randomUUID().slice(0, 8)}`);
+  const reload = () => errors.get(page)!.reload();
   const response = await mutate(page, `/rooms/${room.id}/messages`, {
     requestId: randomUUID(),
     content: 'Prepare and review a document for this team.',
@@ -131,8 +133,8 @@ async function completedWork(
       route.fulfill({ json: { events: [] } }),
     );
   }
-  await page.reload();
-  return { room, origin, replies, runs };
+  await reload();
+  return { room, origin, replies, runs, reload };
 }
 
 const longReply = [
@@ -190,7 +192,7 @@ test('a long completed reply keeps its files and checks ahead of expandable, int
       },
     }),
   );
-  const { replies, runs, room } = await completedWork(
+  const { replies, runs, room, reload } = await completedWork(
     page,
     `complete-${testInfo.project.name}`,
     [
@@ -282,7 +284,7 @@ test('a long completed reply keeps its files and checks ahead of expandable, int
       { exact: true },
     ),
   ).toBeVisible();
-  await page.reload();
+  await reload();
   await expect(disclosure).toHaveAttribute('open');
   await expect(toggle).toHaveText('Full reply');
   await expect(message.getByRole('table')).toContainText('Morgan');
@@ -332,7 +334,7 @@ test('a long completed reply keeps its files and checks ahead of expandable, int
     preview.getByRole('link', { name: 'Download proposal.md', exact: true }),
   ).toHaveAttribute('href', new RegExp(`commit=${runs[0].resultCommit}`));
   await expect(disclosure).not.toHaveAttribute('open');
-  await page.reload();
+  await reload();
   await expect(disclosure).not.toHaveAttribute('open');
   await expect(toggle).toHaveText('Read full reply');
   expect(

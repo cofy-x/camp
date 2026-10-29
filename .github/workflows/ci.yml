@@ -46,10 +46,22 @@ jobs:
       - name: Check tracked files remain unchanged
         run: git diff --exit-code
 
-  browser:
-    name: Browser
+  browser_project:
+    name: Browser / ${{ matrix.project }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: chromium
+            engine: chromium
+          - project: firefox
+            engine: firefox
+          - project: webkit
+            engine: webkit
+          - project: touch
+            engine: chromium
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -64,10 +76,25 @@ jobs:
       - name: Install pinned dependencies
         run: make install
       - name: Check desktop and touch paths
+        env:
+          BROWSER_PROJECT: ${{ matrix.project }}
+          BROWSER_ENGINE: ${{ matrix.engine }}
         run: >-
           make test-e2e
-          E2E_INSTALL_ARGS="--with-deps chromium firefox webkit"
-          E2E_ARGS="--project=chromium --project=firefox --project=webkit --project=touch"
+          E2E_INSTALL_ARGS="--with-deps $BROWSER_ENGINE"
+          E2E_ARGS="--project=$BROWSER_PROJECT"
+
+  browser:
+    name: Browser
+    needs: browser_project
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every browser project to pass
+        env:
+          RESULT: ${{ needs.browser_project.result }}
+        run: test "$RESULT" = success
 
   fixture:
     name: Fixture
