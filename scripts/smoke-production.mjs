@@ -87,8 +87,8 @@ function invoke(args, env) {
   });
 }
 
-function start(args = [], env = {}) {
-  const child = spawn(binary, args, {
+function start(args = [], env = {}, executable = binary) {
+  const child = spawn(executable, args, {
     cwd: dir,
     stdio: ['inherit', 'inherit', 'pipe'],
     env: {
@@ -130,6 +130,12 @@ try {
       assert.match(result.stdout.slice(project.length + 1), /^\S+\n$/, label);
       versionOutput ??= result.stdout;
       assert.equal(result.stdout, versionOutput, label);
+      if (process.env.VERSION)
+        assert.equal(
+          result.stdout.trim(),
+          `camp ${process.env.VERSION}`,
+          'The executable version must match the requested release.',
+        );
     } else {
       assert.match(result.stdout, /Usage/, label);
     }
@@ -191,7 +197,7 @@ try {
     );
   }
 
-  const child = start();
+  const child = start([], {}, process.env.CAMP_SMOKE_PREVIOUS_BINARY || binary);
   await waitFor(`${base}/api/health`, child);
   const html = await (await fetch(base)).text();
   assert.match(html, /<div id="root">/);

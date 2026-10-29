@@ -13,7 +13,8 @@ const read = async (name) => {
 const online = await read('smoke-github.json');
 const offline = await read('smoke-github-offline.json');
 const image = await read('smoke-server-image.json');
-const checks = [online, offline, image];
+const upgrade = await read('smoke-github-upgrade.json');
+const checks = [online, offline, image, upgrade];
 const report = {
   schema: 1,
   version: process.env.VERSION,
@@ -37,10 +38,11 @@ const report = {
   publicOnline: online,
   publicOffline: offline,
   anonymousServerImage: image,
+  runnerUpgrade: upgrade,
   imagePull: process.env.CAMP_IMAGE_PULL_OUTCOME || 'not_completed',
   untested: [
     'paid model provider',
-    'cross-version upgrade',
+    'upgrades from releases other than the named baseline',
     'systemd service installation',
   ],
 };

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { root } from './lib.mjs';
-import { releaseIdentity, verifyRelease } from './release.mjs';
+import { hashFile, releaseIdentity, verifyRelease } from './release.mjs';
+import { upgradeBaseline } from './upgrade.mjs';
 
 const identity = await releaseIdentity();
 const directory = join(root, 'dist');
@@ -12,7 +13,18 @@ const { runner, artifacts } = await verifyRelease(
   identity.sourceCommit,
 );
 const reports = [];
-for (const mode of ['online', 'offline']) {
+const upgrade = JSON.parse(
+  await readFile(join(directory, 'server-upgrade-verification.json'), 'utf8'),
+);
+assert.equal(upgrade.status, 'passed');
+assert.equal(upgrade.version, identity.version);
+assert.equal(upgrade.sourceCommit, identity.sourceCommit);
+assert.equal(upgrade.sourceModified, false);
+assert.equal(
+  upgrade.binarySHA256,
+  await hashFile(join(directory, 'camp-server-linux-amd64/camp')),
+);
+for (const mode of ['online', 'offline', 'upgrade']) {
   const report = JSON.parse(
     await readFile(join(directory, `smoke-${mode}.json`), 'utf8'),
   );
@@ -21,8 +33,17 @@ for (const mode of ['online', 'offline']) {
   assert.equal(report.sourceCommit, identity.sourceCommit);
   assert.equal(
     report.archiveSHA256,
-    mode === 'online' ? runner.installer.sha256 : runner.offline.sha256,
+    mode === 'offline' ? runner.offline.sha256 : runner.installer.sha256,
   );
+  if (mode === 'upgrade') {
+    assert.equal(report.fromVersion, upgradeBaseline);
+    for (const field of [
+      'runnerIdentityPreserved',
+      'durableSourceReceiptPreserved',
+      'journalPreserved',
+    ])
+      assert.equal(report[field], true);
+  }
   reports.push(report);
 }
 const image = JSON.parse(
@@ -81,13 +102,14 @@ const evidence = {
   },
   installations: reports,
   serverImage: image,
+  serverUpgrade: upgrade,
   publicDistribution:
     process.env.CAMP_RELEASE_VALIDATE_ONLY === 'true'
       ? 'not published; this run validates Native packages only'
       : 'pending; see appended distribution-verification evidence',
   untested: [
     'paid model provider',
-    'cross-version upgrade from an earlier public release',
+    'upgrades from releases other than the named baseline',
     'systemd service installation',
   ],
 };

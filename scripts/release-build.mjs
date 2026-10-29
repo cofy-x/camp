@@ -17,8 +17,13 @@ await command('make', [
   'install-layerfs',
 ]);
 await command('make', ['package-daemon']);
+await command(process.execPath, [join(root, 'scripts/smoke-upgrade.mjs')]);
 await command('make', ['test-remote-native']);
 await command('make', ['smoke-bundle']);
+await command(process.execPath, [
+  join(root, 'scripts/smoke-bundle.mjs'),
+  'upgrade',
+]);
 await command('docker', [
   'build',
   '--target',

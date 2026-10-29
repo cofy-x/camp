@@ -242,6 +242,7 @@ jobs:
         run: |
           sudo env PATH="$PATH" HOME=/root CAMP_TEST_DOCKER_SOCKET="$CAMP_TEST_DOCKER_SOCKET" node scripts/smoke-bundle.mjs github
           sudo env PATH="$PATH" HOME=/root CAMP_TEST_DOCKER_SOCKET="$CAMP_TEST_DOCKER_SOCKET" node scripts/smoke-bundle.mjs github-offline
+          sudo env PATH="$PATH" HOME=/root CAMP_TEST_DOCKER_SOCKET="$CAMP_TEST_DOCKER_SOCKET" node scripts/smoke-bundle.mjs github-upgrade
       - name: Pull Server image anonymously
         id: image
         env:
@@ -334,7 +335,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/camp-go-bin"
           GOBIN="$RUNNER_TEMP/camp-go-bin" go install "github.com/cofy-x/camp@$VERSION"
-          "$RUNNER_TEMP/camp-go-bin/camp" version
+          test "$("$RUNNER_TEMP/camp-go-bin/camp" version)" = "camp $VERSION"
           "$RUNNER_TEMP/camp-go-bin/camp" serve --help
       - name: Verify full UI, authentication, files and restart through the Go entrypoint
         id: smoke

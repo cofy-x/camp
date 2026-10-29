@@ -40,7 +40,9 @@ jobs:
       - name: Check generated SQL and run unit tests
         run: make test-go-race test-js
       - name: Check embedded production build
-        run: make build smoke-production
+        run: |
+          make build smoke-production
+          node scripts/smoke-upgrade.mjs
       - name: Check GitHub workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
       - name: Check tracked files remain unchanged
