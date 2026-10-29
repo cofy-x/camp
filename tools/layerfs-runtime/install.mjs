@@ -52,9 +52,13 @@ function run(command, arguments_, options = {}) {
 
 async function archive(checkout, destination) {
   await mkdir(destination, { recursive: true });
-  const producer = spawn('git', ['-C', checkout, 'archive', pin.commit], {
-    stdio: ['ignore', 'pipe', 'inherit'],
-  });
+  const producer = spawn(
+    'git',
+    ['-C', checkout, 'archive', pin.commit, '--', '.', ':!docs/assets'],
+    {
+      stdio: ['ignore', 'pipe', 'inherit'],
+    },
+  );
   const consumer = spawn('tar', ['-xf', '-', '-C', destination], {
     stdio: ['pipe', 'inherit', 'inherit'],
   });
@@ -77,14 +81,35 @@ if (!args[1]) {
   try {
     await readFile(path.join(checkout, 'HEAD'));
   } catch {
-    run('git', [
-      'clone',
-      '--bare',
-      '--filter=blob:none',
-      pin.repository,
-      checkout,
-    ]);
+    run('git', ['init', '--bare', checkout]);
   }
+  // The pinned build needs source, not large documentation videos. Keep this
+  // promisor configuration inside Camp's private build cache only.
+  run('git', ['-C', checkout, 'config', 'remote.origin.url', pin.repository]);
+  run('git', ['-C', checkout, 'config', 'remote.origin.promisor', 'true']);
+  run('git', [
+    '-C',
+    checkout,
+    'config',
+    'remote.origin.partialclonefilter',
+    'blob:limit=10m',
+  ]);
+  const present = spawnSync(
+    'git',
+    ['-C', checkout, 'cat-file', '-e', `${pin.commit}^{commit}`],
+    { stdio: 'ignore' },
+  );
+  if (present.error) throw present.error;
+  if (present.status !== 0)
+    run('git', [
+      '-C',
+      checkout,
+      'fetch',
+      '--depth=1',
+      '--filter=blob:limit=10m',
+      'origin',
+      pin.commit,
+    ]);
 }
 const revision = run(
   'git',

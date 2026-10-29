@@ -19,6 +19,7 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/daemon"
 	"github.com/cofy-x/camp/apps/server/internal/execution"
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
+	"github.com/cofy-x/camp/apps/server/internal/releaseinfo"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
 )
 
@@ -28,6 +29,7 @@ var runtimePinJSON string
 
 type runtimePin struct {
 	Schema          int    `json:"schema"`
+	ReleaseVersion  string `json:"releaseVersion,omitempty"`
 	Platform        string `json:"platform"`
 	ProtocolVersion int    `json:"protocolVersion"`
 	SHA256          string `json:"sha256"`
@@ -44,8 +46,11 @@ func compiledRuntimePin() (runtimePin, error) {
 	if err := json.Unmarshal([]byte(runtimePinJSON), &pin); err != nil {
 		return pin, errors.New("The Camp Runner installer has an invalid runtime pin")
 	}
-	if pin.Schema != 1 || pin.Platform != "linux/x64" || pin.ProtocolVersion != p.Version || !digestPattern.MatchString(pin.SHA256) || !digestPattern.MatchString(pin.ManifestSHA256) || pin.Bytes <= 0 || pin.Bytes > 2<<30 || pin.UnpackedBytes <= 0 || pin.UnpackedBytes > 8<<30 {
+	if pin.Schema != 1 || pin.Platform != "linux/x64" || pin.ProtocolVersion != p.Version || !digestPattern.MatchString(pin.SHA256) || !digestPattern.MatchString(pin.ManifestSHA256) || pin.Bytes <= 0 || pin.Bytes >= releaseinfo.MaxArtifactBytes || pin.UnpackedBytes <= 0 || pin.UnpackedBytes > 8<<30 {
 		return pin, errors.New("The Camp Runner installer has an unsupported runtime pin")
+	}
+	if pin.ReleaseVersion != "" && !releaseinfo.ValidVersion(pin.ReleaseVersion) {
+		return pin, errors.New("The Camp Runner installer has an invalid release version")
 	}
 	return pin, nil
 }
@@ -150,13 +155,21 @@ func installRuntime(ctx context.Context, config daemon.Config, pin runtimePin, o
 	} else {
 		fmt.Fprintf(output, "Installing fixed execution runtime (%.1f MiB download, %.1f MiB files). This happens during setup, not each task.\n", float64(pin.Bytes)/(1<<20), float64(pin.UnpackedBytes)/(1<<20))
 		last := int64(-1)
-		if err := daemon.DownloadRuntime(ctx, config, pin.SHA256, pin.Bytes, archive, func(bytes int64) {
+		progress := func(bytes int64) {
 			step := bytes * 10 / pin.Bytes
 			if step != last {
 				last = step
 				fmt.Fprintf(output, "Runtime download: %d%%\n", min(bytes*100/pin.Bytes, 100))
 			}
-		}); err != nil {
+		}
+		if config.RuntimeSource == "github" || (config.RuntimeSource == "" && pin.ReleaseVersion != "") {
+			fmt.Fprintln(output, "Downloading GitHub release", pin.ReleaseVersion)
+			err = daemon.DownloadPublicRuntime(ctx, pin.ReleaseVersion, pin.SHA256, pin.Bytes, archive, progress)
+		} else {
+			fmt.Fprintln(output, "Downloading the explicitly staged Camp Server runtime.")
+			err = daemon.DownloadRuntime(ctx, config, pin.SHA256, pin.Bytes, archive, progress)
+		}
+		if err != nil {
 			return "", fmt.Errorf("Runtime download did not finish; repeat setup with the same data directory to resume: %w", err)
 		}
 	}

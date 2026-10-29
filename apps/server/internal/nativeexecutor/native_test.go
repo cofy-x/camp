@@ -85,7 +85,7 @@ func TestNativeExecutorTLSIsolationAndResume(t *testing.T) {
 	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: model.Certificate().Raw}), 0600); err != nil {
 		t.Fatal(err)
 	}
-	executor, err := Open(ctx, Config{DataDir: data, RuntimeDir: dshRuntime, LayerFSRuntimeDir: layerRuntime, SandboxHelper: helper, NodePath: node, CAFile: ca})
+	executor, err := Open(ctx, Config{DataDir: data, RuntimeDir: dshRuntime, LayerFSRuntimeDir: layerRuntime, DockerSocket: os.Getenv("CAMP_TEST_DOCKER_SOCKET"), SandboxHelper: helper, NodePath: node, CAFile: ca})
 	if err != nil {
 		t.Fatal(err)
 	}

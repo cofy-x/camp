@@ -158,8 +158,7 @@ export function ConnectRunner({
                   )}
                 </div>
                 <p className="camp-runner-hint">
-                  {installation.platform} with machine administrator access.
-                  Extract the download on that machine.
+                  {`${installation.platform}${installation.version ? ` · ${installation.version}` : ''} with machine administrator access. Extract the download on that machine.`}
                   {installation.runtime?.bytes
                     ? ` Setup downloads ${size(installation.runtime.bytes)} of execution tools once.`
                     : ''}
@@ -167,8 +166,8 @@ export function ConnectRunner({
               </>
             ) : (
               <p>
-                The installer is not available yet. Ask an administrator to make
-                it available on this Server.
+                The installer is unavailable for this build. Use a published
+                Camp release or ask an administrator to stage matching packages.
                 {installation.offline?.available &&
                   ' The full offline package is available below.'}
               </p>
@@ -181,6 +180,12 @@ export function ConnectRunner({
                   Bash. Setup checks these requirements before downloading the
                   execution tools.
                 </p>
+                {installation.source === 'server' && installation.version && (
+                  <p>
+                    This Server mirrors the fixed release. For setup without
+                    GitHub access, add <code>--runtime-source server</code>.
+                  </p>
+                )}
                 <p>
                   Download the checksum beside the archive, then verify it
                   before extracting:

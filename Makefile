@@ -15,8 +15,7 @@ install:
 
 .PHONY: install-dsh install-project-runtime install-document-runtime install-layerfs build-sandbox test-layerfs test-dsh test-project-env
 .PHONY: package-linux smoke-bundle
-package-linux: build
-	node scripts/package-linux.mjs
+package-linux: package-daemon
 
 smoke-bundle:
 	node scripts/smoke-bundle.mjs
@@ -126,7 +125,7 @@ test-remote:
 test-remote-native:
 	node scripts/remote.mjs native
 
-package-daemon: build
+package-daemon: build-dashboard build-sandbox
 	node scripts/package-daemon.mjs
 
 build-server-image:

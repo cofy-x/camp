@@ -51,7 +51,7 @@ func TestNativeReadinessSelfTest(t *testing.T) {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("Build helper: %v %s", err, output)
 	}
-	executor, err := Open(ctx, Config{DataDir: data, RuntimeDir: dshRuntime, LayerFSRuntimeDir: layerRuntime, SandboxHelper: helper, NodePath: node})
+	executor, err := Open(ctx, Config{DataDir: data, RuntimeDir: dshRuntime, LayerFSRuntimeDir: layerRuntime, DockerSocket: os.Getenv("CAMP_TEST_DOCKER_SOCKET"), SandboxHelper: helper, NodePath: node})
 	if err != nil {
 		t.Fatal(err)
 	}

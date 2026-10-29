@@ -39,7 +39,7 @@ func nativeRecoveryConfig(t *testing.T) nativeexecutor.Config {
 			t.Fatalf("build sandbox: %v %s", err, output)
 		}
 	}
-	return nativeexecutor.Config{RuntimeDir: dshRuntime, LayerFSRuntimeDir: layerRuntime, SandboxHelper: helper, NodePath: node}
+	return nativeexecutor.Config{RuntimeDir: dshRuntime, LayerFSRuntimeDir: layerRuntime, DockerSocket: os.Getenv("CAMP_TEST_DOCKER_SOCKET"), SandboxHelper: helper, NodePath: node}
 }
 
 type holdingProvider struct {

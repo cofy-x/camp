@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
 import { createReadStream } from 'node:fs';
 import {
   chmod,
@@ -16,9 +15,9 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
-import { createRequire } from 'node:module';
-import { promisify } from 'node:util';
 import { command, go, root } from './lib.mjs';
+import { collectLicenses } from './licenses.mjs';
+import { releaseIdentity, installationNotes } from './release.mjs';
 
 if (process.platform !== 'linux' || process.arch !== 'x64')
   throw new Error('Build the first Camp release on Linux x86_64.');
@@ -36,7 +35,6 @@ const copy = async (from, to) => {
 };
 const json = async (name, value) =>
   writeFile(path.join(staging, name), `${JSON.stringify(value, null, 2)}\n`);
-const execute = promisify(execFile);
 // Runtime identity follows content, not the installer build date or host uid.
 // GNU format has no PAX atime/ctime headers that could vary between copies.
 const deterministicTar = [
@@ -48,87 +46,6 @@ const deterministicTar = [
   '--format=gnu',
 ];
 
-async function copyLicenses(source, destination) {
-  for (const entry of await readdir(source, { withFileTypes: true })) {
-    if (
-      entry.isFile() &&
-      /^(license|licence|notice|copying)(\.|-|$)/i.test(entry.name)
-    )
-      await copy(path.join(source, entry.name), `${destination}/${entry.name}`);
-  }
-}
-
-async function collectLicenses() {
-  await copy(path.join(root, 'LICENSE'), 'licenses/Camp-LICENSE');
-  const { stdout: goRoot } = await execute('go', ['env', 'GOROOT'], {
-    cwd: root,
-  });
-  await copy(path.join(goRoot.trim(), 'LICENSE'), 'licenses/Go-LICENSE');
-  const { stdout } = await execute(
-    'go',
-    [
-      'list',
-      '-deps',
-      '-f',
-      '{{with .Module}}{{.Path}}\t{{.Version}}\t{{.Dir}}{{end}}',
-      './apps/server/cmd/server',
-      './apps/server/cmd/camp-sandbox',
-    ],
-    { cwd: root },
-  );
-  const modules = new Map();
-  for (const line of stdout.trim().split('\n')) {
-    const [name, version, source] = line.split('\t');
-    if (!version || modules.has(name)) continue;
-    modules.set(name, version);
-    await copyLicenses(source, `licenses/go/${name}@${version}`);
-  }
-  const webModules = {};
-  const visited = new Set();
-
-  async function visitWeb(packageFile) {
-    packageFile = await realpath(packageFile);
-    if (visited.has(packageFile)) return;
-    visited.add(packageFile);
-    const metadata = JSON.parse(await readFile(packageFile, 'utf8'));
-    if (!metadata.private) {
-      webModules[metadata.name] = metadata.version;
-      await copyLicenses(
-        path.dirname(packageFile),
-        `licenses/web/${metadata.name}@${metadata.version}`,
-      );
-    }
-    const resolver = createRequire(packageFile);
-    for (const name of Object.keys(metadata.dependencies ?? {})) {
-      let dependency;
-      for (const directory of resolver.resolve.paths(name) ?? []) {
-        const candidate = path.join(directory, name, 'package.json');
-        try {
-          dependency = await realpath(candidate);
-          break;
-        } catch (error) {
-          if (error.code !== 'ENOENT') throw error;
-        }
-      }
-      if (!dependency)
-        throw new Error(`Cannot find the installed license for ${name}.`);
-      await visitWeb(dependency);
-    }
-  }
-
-  await visitWeb(path.join(root, 'apps/dashboard/package.json'));
-  for (const name of [
-    'Inter-LICENSE.txt',
-    'ChicagoKare-LICENSE.txt',
-    'README.md',
-  ])
-    await copy(
-      path.join(root, 'packages/platinum/src/fonts', name),
-      `licenses/fonts/${name}`,
-    );
-  return { goModules: Object.fromEntries(modules), webModules };
-}
-
 async function hash(filename) {
   const digest = createHash('sha256');
   for await (const chunk of createReadStream(filename)) digest.update(chunk);
@@ -136,7 +53,8 @@ async function hash(filename) {
 }
 
 try {
-  const licenses = await collectLicenses();
+  const identity = await releaseIdentity();
+  const licenses = await collectLicenses(staging);
   await copy(path.join(root, 'dist/camp-sandbox'), 'bin/camp-sandbox');
   await copy(await realpath(process.execPath), 'bin/node');
   await copy(
@@ -324,6 +242,7 @@ try {
     schema: 1,
     platform: 'linux/x64',
     protocolVersion,
+    ...(identity.published ? { releaseVersion: identity.version } : {}),
     sha256: runtimeSHA,
     manifestSHA256: await hash(path.join(destination, 'manifest.json')),
     bytes: (await lstat(runtimeArchive)).size,
@@ -333,7 +252,7 @@ try {
   const installerStage = `${installer}.staging`;
   await rm(installerStage, { recursive: true, force: true });
   await mkdir(installerStage);
-  const version = process.env.VERSION ?? 'dev';
+  const version = identity.version;
   if (!/^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(version))
     throw new Error('Use a valid release VERSION.');
   await command(
@@ -341,8 +260,6 @@ try {
     [
       'build',
       '-trimpath',
-      '-tags',
-      'production',
       '-ldflags',
       `-s -w -X main.version=${version} -X github.com/cofy-x/camp/apps/server/internal/cli.runtimePinJSON=${JSON.stringify(pin)}`,
       '-o',
@@ -352,9 +269,9 @@ try {
     { env: { ...process.env, CGO_ENABLED: '0' } },
   );
   await chmod(path.join(installerStage, 'camp'), 0o755);
-  await cp(
-    path.join(root, 'docs/install.md'),
+  await writeFile(
     path.join(installerStage, 'INSTALL.md'),
+    installationNotes(identity, 'runner'),
   );
   await cp(
     path.join(destination, 'licenses'),
@@ -408,7 +325,7 @@ try {
   const descriptorPath = path.join(root, 'dist/runner-release.json');
   await writeFile(
     `${descriptorPath}.pending`,
-    `${JSON.stringify({ schema: 1, installer: installerInfo, runtime: runtimeInfo, offline: offlineInfo }, null, 2)}\n`,
+    `${JSON.stringify({ schema: 1, ...(identity.published ? { version: identity.version, sourceCommit: identity.sourceCommit, protocolVersion } : {}), installer: installerInfo, runtime: runtimeInfo, offline: offlineInfo }, null, 2)}\n`,
   );
   await rename(`${descriptorPath}.pending`, descriptorPath);
 } catch (error) {

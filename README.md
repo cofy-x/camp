@@ -52,7 +52,7 @@ make build
 ./dist/camp serve --addr 127.0.0.1:3001 --data-dir "$PWD/.data/dev"
 ```
 
-The executable embeds Web/API; development and ordinary Go tests do not need generated frontend assets. Server images and Runner packages are separate release artifacts; see [release building](docs/install.md#build-and-publish-a-release). Browser host Terminal and executable site previews are disabled.
+The executable embeds Web/API; development and ordinary Go tests do not need generated frontend assets. [GitHub Releases](https://github.com/cofy-x/camp/releases) distribute fixed Server/Runner packages, checksums and acceptance evidence; [GHCR](https://github.com/cofy-x/camp/pkgs/container/camp) distributes the matching Server image. Choose an explicit version and follow [installation](docs/install.md), or see [release building](docs/install.md#build-and-publish-a-release). Browser host Terminal and executable site previews are disabled.
 
 ## Checks and maintenance
 
