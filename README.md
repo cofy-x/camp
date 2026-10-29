@@ -34,7 +34,20 @@ Team members use Camp in a browser. An administrator deploys Camp Server; member
 
 Choose a fixed version from [GitHub Releases](https://github.com/cofy-x/camp/releases) and follow that version's [installation guide](docs/install.md):
 
-1. Deploy the **Server archive** or the matching **GHCR image**, with private persistent storage. Open its browser address to create the team and configure a model.
+```sh
+go install github.com/cofy-x/camp@v0.1.0-alpha.2
+camp
+```
+
+On Mac, Homebrew installs the complete Server and Git without requiring Go:
+
+```sh
+brew tap cofy-x/camp https://github.com/cofy-x/camp
+brew install cofy-x/camp/camp
+camp
+```
+
+1. Open the printed browser address to create the team and configure a model. The **Server archives** and matching **GHCR image** are alternatives to Go/Homebrew installation.
 2. In **Runners → Connect Runner**, obtain the separate **Runner installer** and a one-use connection code. The machine operator runs `setup`, then `run`; an offline package is also available.
 3. Configure Agent access and Runner routing, then explicitly send a first task. Registration and self-test success do not establish real model success.
 
@@ -42,7 +55,7 @@ Choose a fixed version from [GitHub Releases](https://github.com/cofy-x/camp/rel
 
 Check [supported Runner hosts and prerequisites](docs/install.md#supported-deployment) before connecting a machine. Server and Runner remain independent processes even on one host. For local protocol and recovery development with two simulated machines, use the [Docker Compose harness](tools/remote-dev/README.md).
 
-The repository root also provides the Go-installable `camp` entrypoint. Install a fixed version that includes it with `go install github.com/cofy-x/camp@<version>`; see [Go installation](docs/install.md#go-installation) for its first-download, cache and platform behavior. The existing `v0.1.0-alpha.1` predates this entrypoint; use its published archives.
+The Go entrypoint downloads and verifies the full fixed-version product on first use; no Node/pnpm or source checkout is required. Put Go's binary installation directory on PATH. See [Go installation](docs/install.md#go-installation) for cache/recovery behavior and [Homebrew installation](docs/install.md#homebrew-installation) for the maintained tap. Native Agent work requires a supported Linux Runner, including when Server runs on Mac.
 
 ## Local development
 
