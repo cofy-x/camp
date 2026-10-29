@@ -67,7 +67,13 @@ assert.ok(
   'The exact main commit must pass Source, Browser and Fixture CI before release.',
 );
 const jobs = await api(`actions/runs/${ci.id}/jobs?per_page=100`);
-for (const name of ['Source', 'Browser', 'Fixture'])
+for (const name of [
+  'Source',
+  'Browser',
+  'Fixture',
+  'Server / darwin-arm64',
+  'Server / darwin-amd64',
+])
   assert.ok(
     jobs.jobs.some((job) => job.name === name && job.conclusion === 'success'),
     `Missing successful ${name} check.`,

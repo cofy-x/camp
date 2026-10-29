@@ -5,7 +5,12 @@ import { join } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { command, root } from './lib.mjs';
-import { repository, validVersion, verifyRelease } from './release.mjs';
+import {
+  repository,
+  serverPlatforms,
+  validVersion,
+  verifyRelease,
+} from './release.mjs';
 
 const version = process.env.VERSION;
 assert.ok(validVersion(version));
@@ -42,10 +47,13 @@ for (const [key, expected] of [
   ['installer', 'camp-runner-linux-amd64.tar.gz'],
   ['offline', 'camp-runner-offline-linux-amd64.tar.gz'],
   ['runtime', `camp-runtime-linux-amd64-${runner.runtime?.sha256}.tar.gz`],
-  ['server', 'camp-server-linux-amd64.tar.gz'],
+  ...serverPlatforms.map((platform) => [
+    platform,
+    `camp-server-${platform}.tar.gz`,
+  ]),
 ]) {
-  const artifact = key === 'server' ? server.server : runner[key];
-  assert.deepEqual(artifact, catalog[key]);
+  const artifact = server.servers[key] || runner[key];
+  assert.deepEqual(artifact, catalog.servers[key] || catalog[key]);
   assert.equal(artifact.filename, expected);
   assert.match(artifact.sha256, /^[a-f0-9]{64}$/);
   assert.ok(

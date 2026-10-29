@@ -114,10 +114,55 @@ jobs:
           overwrite: true
           retention-days: 1
 
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-server-packages
+          path: |
+            ${{ steps.builder.outputs.path }}/dist/release/camp-server-darwin*
+            ${{ steps.builder.outputs.path }}/dist/release/server-release.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  mac_server:
+    name: Verify Mac package / ${{ matrix.platform }}
+    needs: [preflight, build]
+    runs-on: ${{ matrix.host }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            host: macos-15
+          - platform: darwin-amd64
+            host: macos-15-intel
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.preflight.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: macos-server-packages
+          path: dist/release
+      - name: Verify the relocated archive and persistent Server lifecycle
+        run: node scripts/verify-server-package.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: server-verification-${{ matrix.platform }}
+          path: dist/release/server-verification-${{ matrix.platform }}.json
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: Publish fixed version
     if: ${{ !inputs.validate-only }}
-    needs: [preflight, build]
+    needs: [preflight, build, mac_server]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -143,6 +188,11 @@ jobs:
         with:
           name: server-image
           path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: server-verification-*
+          merge-multiple: true
+          path: dist/release
       - name: Publish verified archives and immutable Server image
         id: publish
         env:
@@ -222,7 +272,7 @@ jobs:
 
   evidence:
     name: Retain public verification evidence
-    needs: [publish, verify]
+    needs: [publish, verify, go_install]
     if: ${{ always() && needs.publish.result == 'success' && needs.verify.result != 'cancelled' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -233,11 +283,75 @@ jobs:
         with:
           name: distribution-verification
           path: evidence
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: go-install-verification-*
+          merge-multiple: true
+          path: evidence
       - name: Append verification evidence without replacing assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: cofy-x/camp
         run: |
-          report="distribution-verification-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
-          mv evidence/distribution-verification.json "evidence/$report"
-          gh release upload "$VERSION" "evidence/$report"
+          for source in evidence/*.json; do
+            name="$(basename "$source" .json)-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
+            mv "$source" "evidence/$name"
+            gh release upload "$VERSION" "evidence/$name"
+          done
+
+  go_install:
+    name: Public Go installation / ${{ matrix.platform }}
+    needs: [preflight, publish]
+    runs-on: ${{ matrix.host }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-amd64
+            host: ubuntu-24.04
+          - platform: darwin-arm64
+            host: macos-15
+          - platform: darwin-amd64
+            host: macos-15-intel
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.preflight.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install the public tagged Go module
+        id: install
+        env:
+          GOPROXY: direct
+          XDG_CACHE_HOME: ${{ runner.temp }}/camp-go-cache
+        run: |
+          mkdir -p "$RUNNER_TEMP/camp-go-bin"
+          GOBIN="$RUNNER_TEMP/camp-go-bin" go install "github.com/cofy-x/camp@$VERSION"
+          "$RUNNER_TEMP/camp-go-bin/camp" version
+          "$RUNNER_TEMP/camp-go-bin/camp" serve --help
+      - name: Verify full UI, authentication, files and restart through the Go entrypoint
+        id: smoke
+        env:
+          CAMP_SMOKE_BINARY: ${{ runner.temp }}/camp-go-bin/camp
+          XDG_CACHE_HOME: ${{ runner.temp }}/camp-go-cache
+        run: node scripts/smoke-production.mjs
+      - name: Record actual Go installation results
+        if: ${{ always() }}
+        env:
+          CAMP_GO_INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          CAMP_GO_SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+        run: node scripts/record-go-install.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: go-install-verification-${{ matrix.platform }}
+          path: dist/go-install-verification-*.json
+          if-no-files-found: error
+          retention-days: 7

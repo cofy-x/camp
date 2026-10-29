@@ -4,7 +4,18 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import { binary, dispose, project, scratch, stop, waitFor } from './lib.mjs';
+import {
+  binary as builtBinary,
+  dispose,
+  project,
+  scratch,
+  stop,
+  waitFor,
+} from './lib.mjs';
+
+// Release acceptance also runs this lifecycle against a relocated archive or
+// the public Go entrypoint, without rebuilding a different executable.
+const binary = process.env.CAMP_SMOKE_BINARY || builtBinary;
 
 const dir = await scratch();
 const children = [];

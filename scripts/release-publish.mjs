@@ -11,6 +11,8 @@ import {
   verifyRelease,
 } from './release.mjs';
 
+import { homebrewFormula } from './homebrew.mjs';
+
 const execute = promisify(execFile);
 assert.equal(
   process.env.CAMP_RELEASE_VALIDATE_ONLY,
@@ -40,6 +42,27 @@ assert.match(
   acceptance.ci.sourceBrowserFixture,
   /^https:\/\/github\.com\/cofy-x\/camp\/actions\/runs\/\d+$/,
 );
+const macReports = [];
+for (const platform of ['darwin-arm64', 'darwin-amd64']) {
+  const report = JSON.parse(
+    await readFile(
+      join(directory, `server-verification-${platform}.json`),
+      'utf8',
+    ),
+  );
+  assert.equal(report.status, 'passed');
+  assert.equal(report.platform, platform);
+  assert.equal(report.version, identity.version);
+  assert.equal(report.sourceCommit, identity.sourceCommit);
+  assert.equal(report.archiveSHA256, server.servers[platform].sha256);
+  macReports.push(report);
+}
+acceptance.macServers = macReports;
+await writeFile(
+  join(directory, 'acceptance.json'),
+  `${JSON.stringify(acceptance, null, 2)}\n`,
+);
+await writeFile(join(directory, 'camp.rb'), homebrewFormula(server));
 const existingResponse = await fetch(
   `https://api.github.com/repos/${repository}/releases/tags/${identity.version}`,
   {
@@ -98,6 +121,7 @@ await writeFile(
       runtime: runner.runtime,
       offline: runner.offline,
       server: server.server,
+      servers: server.servers,
       image,
       imageTag,
     },
@@ -110,6 +134,8 @@ const filenames = [
   'server-release.json',
   'release.json',
   'acceptance.json',
+  'camp.rb',
+  ...macReports.map((report) => `server-verification-${report.platform}.json`),
   ...artifacts.flatMap((artifact) => [
     artifact.filename,
     `${artifact.filename}.sha256`,
@@ -123,7 +149,7 @@ filenames.push('SHA256SUMS');
 const notes = join(root, 'dist/release-notes.md');
 await writeFile(
   notes,
-  `Camp ${identity.version} publishes a Linux amd64 Server, the small Camp Runner installer, its fixed runtime and an offline installer containing that same runtime. Native Runner support is Ubuntu 24.04 amd64.
+  `Camp ${identity.version} publishes Linux amd64 and macOS arm64/amd64 Servers, a Go-installable entrypoint, the small Camp Runner installer, its fixed runtime and an offline installer containing that same runtime. Native Runner support is Ubuntu 24.04 amd64. Mac users connect a supported Linux Runner; macOS is a Server platform, not a native execution platform.
 
 Install using the [versioned guide](https://github.com/${repository}/blob/${identity.version}/docs/install.md). Verify SHA256SUMS before extraction. Server image: \`${image}\`.
 
