@@ -7,15 +7,16 @@ import type {
   SendInput,
 } from '../apps/dashboard/src/features/workspace/api';
 import { createRoom, mutate, post, signIn, workspace } from './team-helpers';
+import { watchPageErrors } from './page-errors';
 
-const errors = new WeakMap<Page, string[]>();
-test.beforeEach(async ({ page }) => {
-  const caught: string[] = [];
-  errors.set(page, caught);
-  page.on('pageerror', (error) => caught.push(error.message));
+const errors = new WeakMap<Page, ReturnType<typeof watchPageErrors>>();
+test.beforeEach(async ({ page, browserName }) => {
+  errors.set(page, watchPageErrors(page, browserName));
   await signIn(page);
 });
-test.afterEach(async ({ page }) => expect(errors.get(page)).toEqual([]));
+test.afterEach(async ({ page }) =>
+  expect(errors.get(page)?.errors).toEqual([]),
+);
 
 async function createAgent(page: Page, name: string, enabled = true) {
   const response = await mutate(page, '/agents', {
@@ -81,7 +82,7 @@ test('recipient labels match selected and mentioned Agents, while Post only supp
       },
     });
   });
-  await page.reload();
+  await errors.get(page)!.reload();
   const composer = workspace(page).getByRole('form', { name: 'Room composer' });
   const input = composer.getByRole('textbox', { name: `Message ${room.name}` });
   await expect(input).toBeEnabled();
@@ -155,7 +156,9 @@ test('members manage their own Agents and cannot share another owner’s Agent',
       : {}),
   });
   const member = await context.newPage();
-  member.on('pageerror', (error) => errors.get(page)?.push(error.message));
+  member.on('pageerror', (error) =>
+    errors.get(page)?.errors.push(error.message),
+  );
   try {
     await member.goto(`/#invite=${encodeURIComponent(token)}`);
     await member.getByLabel('Your name', { exact: true }).fill('Room Teammate');
@@ -467,7 +470,7 @@ test('work details lead with results, preserve failure evidence, and keep techni
       }),
     );
   }
-  await page.reload();
+  await errors.get(page)!.reload();
   const inspector = workspace(page).getByRole('region', {
     name: 'Work details',
     exact: true,
@@ -673,6 +676,7 @@ test('a member can stop work from details, recover a failed request, and keep th
   browser,
   baseURL,
   isMobile,
+  browserName,
 }, testInfo) => {
   const agent = await createAgent(page, 'Cancellable Writer');
   const invitation = await mutate(page, '/team/invites', {
@@ -688,7 +692,11 @@ test('a member can stop work from details, recover a failed request, and keep th
       : {}),
   });
   const member = await context.newPage();
-  member.on('pageerror', (error) => errors.get(page)?.push(error.message));
+  const memberNavigation = watchPageErrors(
+    member,
+    browserName,
+    errors.get(page)!.errors,
+  );
   try {
     await member.goto(`/#invite=${encodeURIComponent(token)}`);
     await member
@@ -778,7 +786,7 @@ test('a member can stop work from details, recover a failed request, and keep th
       };
       await route.fulfill({ json: { run } });
     });
-    await member.reload();
+    await memberNavigation.reload();
     await workspace(member)
       .getByTestId('agent-work')
       .filter({ hasText: agent.name })

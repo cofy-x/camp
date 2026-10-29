@@ -13,15 +13,16 @@ import {
   signIn,
   workspace,
 } from './team-helpers';
+import { watchPageErrors } from './page-errors';
 
-const errors = new WeakMap<Page, string[]>();
-test.beforeEach(async ({ page }) => {
-  const caught: string[] = [];
-  errors.set(page, caught);
-  page.on('pageerror', (error) => caught.push(error.message));
+const errors = new WeakMap<Page, ReturnType<typeof watchPageErrors>>();
+test.beforeEach(async ({ page, browserName }) => {
+  errors.set(page, watchPageErrors(page, browserName));
   await signIn(page);
 });
-test.afterEach(async ({ page }) => expect(errors.get(page)).toEqual([]));
+test.afterEach(async ({ page }) =>
+  expect(errors.get(page)?.errors).toEqual([]),
+);
 
 test('first-run discussion, private drafts, threads and explicit agent requests', async ({
   page,
@@ -58,7 +59,7 @@ test('first-run discussion, private drafts, threads and explicit agent requests'
         ).draft.value?.draft,
     )
     .toBe('Remember our three preparation steps.');
-  await page.reload();
+  await errors.get(page)!.reload();
   await expect(input).toHaveValue('Remember our three preparation steps.');
   await input.press('ControlOrMeta+a');
   await input.press('Backspace');

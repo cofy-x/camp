@@ -1,14 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
 import { createRoom, signIn, workspace } from './team-helpers';
+import { watchPageErrors } from './page-errors';
 
-const errors = new WeakMap<Page, string[]>();
-test.beforeEach(async ({ page }) => {
-  const caught: string[] = [];
-  errors.set(page, caught);
-  page.on('pageerror', (error) => caught.push(error.message));
+const errors = new WeakMap<Page, ReturnType<typeof watchPageErrors>>();
+test.beforeEach(async ({ page, browserName }) => {
+  errors.set(page, watchPageErrors(page, browserName));
   await signIn(page);
 });
-test.afterEach(async ({ page }) => expect(errors.get(page)).toEqual([]));
+test.afterEach(async ({ page }) =>
+  expect(errors.get(page)?.errors).toEqual([]),
+);
 
 test('a narrow Room chooser and compact actions fit long names without duplicating navigation', async ({
   page,
@@ -160,7 +161,7 @@ test('the Room pop-up supports keyboard and touch selection while keeping privat
   await expect(chooser).toHaveValue(second.id);
   await expect(chooser).toBeFocused();
   await expect(input).toHaveValue(draft);
-  await page.reload();
+  await errors.get(page)!.reload();
   await expect(chooser).toHaveValue(second.id);
   await expect(input).toHaveValue(draft);
 

@@ -9,6 +9,7 @@ import {
   signIn,
   workspace,
 } from './team-helpers';
+import { watchPageErrors } from './page-errors';
 
 interface Review {
   id: string;
@@ -73,10 +74,11 @@ test('two people review, revise and deliver an exact document version', async ({
   browser,
   baseURL,
   isMobile,
+  browserName,
 }, testInfo) => {
   test.setTimeout(90_000);
   const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const navigation = watchPageErrors(page, browserName, errors);
   await signIn(page);
   const invite = await mutate(page, '/team/invites', { expiresInHours: 24 });
   expect(invite.ok()).toBeTruthy();
@@ -89,7 +91,7 @@ test('two people review, revise and deliver an exact document version', async ({
       : {}),
   });
   const reviewer = await reviewerContext.newPage();
-  reviewer.on('pageerror', (error) => errors.push(error.message));
+  watchPageErrors(reviewer, browserName, errors);
   try {
     await reviewer.goto(`/#invite=${encodeURIComponent(token)}`);
     await reviewer.getByLabel('Your name', { exact: true }).fill('Morgan');
@@ -433,7 +435,7 @@ test('two people review, revise and deliver an exact document version', async ({
     await page.screenshot({
       path: testInfo.outputPath('delivered-review.png'),
     });
-    await page.reload();
+    await navigation.reload();
     await openReview(page, title);
     await expect(detail(page)).toContainText('Delivered');
     await detail(page)
@@ -472,12 +474,16 @@ test('two people review, revise and deliver an exact document version', async ({
 
 test('a newer publication blocks delivery and preserves the approved document', async ({
   page,
+  browserName,
 }, testInfo) => {
   test.setTimeout(90_000);
   const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const navigation = watchPageErrors(page, browserName, errors);
   await signIn(page);
-  const room = await createRoom(page, `stale-review-${testInfo.project.name}`);
+  const room = await createRoom(
+    page,
+    `stale-review-${testInfo.project.name}-${randomUUID().slice(0, 8)}`,
+  );
   const user = (await (await page.request.get('/api/auth/status')).json())
     .user as {
     id: string;
@@ -593,7 +599,7 @@ test('a newer publication blocks delivery and preserves the approved document', 
       'PUT',
     );
     expect(later.ok()).toBeTruthy();
-    await page.reload();
+    await navigation.reload();
     await openReview(page, title);
     await detail(page)
       .getByRole('button', { name: 'Open Document', exact: true })
