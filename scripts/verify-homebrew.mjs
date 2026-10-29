@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { release } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { command, root } from './lib.mjs';
+import { command, root, scratch } from './lib.mjs';
 import { homebrewFormula } from './homebrew.mjs';
 import { hashFile } from './release.mjs';
 
@@ -34,6 +34,7 @@ const report = {
   schema: 1,
   version,
   sourceCommit: descriptor.sourceCommit,
+  lifecycleSourceCommit: descriptor.sourceCommit,
   formulaSourceCommit: process.env.GITHUB_SHA,
   formulaSHA256: await hashFile(formula),
   archiveSHA256: descriptor.servers[platform].sha256,
@@ -66,17 +67,43 @@ try {
     '--prefix',
     'cofy-x/camp/camp',
   ]);
-  await command(
-    process.execPath,
-    [join(root, 'scripts/smoke-production.mjs')],
-    {
-      env: {
-        ...environment,
-        VERSION: version,
-        CAMP_SMOKE_BINARY: join(prefix.trim(), 'bin/camp'),
+  // Verify the installed release with its own lifecycle contract. Future API
+  // changes must not make CI require an older tap release to implement them.
+  const source = await scratch();
+  try {
+    await command('git', [
+      '-c',
+      'advice.detachedHead=false',
+      'clone',
+      '--quiet',
+      '--depth=1',
+      '--branch',
+      version,
+      'https://github.com/cofy-x/camp',
+      source,
+    ]);
+    const { stdout: commit } = await execute('git', [
+      '-C',
+      source,
+      'rev-parse',
+      'HEAD',
+    ]);
+    assert.equal(commit.trim(), descriptor.sourceCommit);
+    await command(
+      process.execPath,
+      [join(source, 'scripts/smoke-production.mjs')],
+      {
+        cwd: source,
+        env: {
+          ...environment,
+          VERSION: version,
+          CAMP_SMOKE_BINARY: join(prefix.trim(), 'bin/camp'),
+        },
       },
-    },
-  );
+    );
+  } finally {
+    await rm(source, { recursive: true, force: true });
+  }
   report.checks.push(
     'complete-embedded-ui',
     'authentication-and-discussion',
