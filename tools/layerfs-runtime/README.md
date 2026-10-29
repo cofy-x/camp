@@ -17,6 +17,8 @@ The installer collects notices for the Linux native dependency graph and Rust to
 
 Runtime requirements are Docker Engine with API v1.54, Linux FUSE, and a local ext4, XFS, or Btrfs Docker volume directory. The trusted host must be able to write that directory and use the Docker socket; ordinary membership in the Docker group alone does not grant the required directory access. On this development host that owner is root. This is a privileged deployment component, not an unprivileged desktop dependency. Nothing installs a persistent service.
 
+The bridge discovers the selected engine's data directory through the public Docker system-info API and verifies that its volume directory is available locally. A custom socket does not imply `/var/lib/docker`; remote engines and inaccessible volume storage remain unsupported.
+
 ## Boundary and lifetime
 
 Go owns the SDK process, the private runtime home, Run records, resource locks, execution admission, cancellation, export validation, and authoritative result publication. The bridge uses only the public `@layerfs/agent`, `@layerfs/backend`, and `@layerfs/runtime` entrypoints. LayerFS owns its disposable Store, Sandbox, mounted Workspace, and checkpoints.

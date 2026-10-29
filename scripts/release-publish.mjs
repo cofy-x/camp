@@ -12,6 +12,16 @@ import {
 } from './release.mjs';
 
 const execute = promisify(execFile);
+assert.equal(
+  process.env.CAMP_RELEASE_VALIDATE_ONLY,
+  'false',
+  'Validation runs cannot publish.',
+);
+assert.equal(
+  process.env.GITHUB_REF,
+  'refs/heads/main',
+  'Publish only from reviewed main source.',
+);
 const identity = await releaseIdentity();
 const directory = join(root, 'dist/release');
 const { runner, server, artifacts } = await verifyRelease(
@@ -25,6 +35,11 @@ const acceptance = JSON.parse(
 assert.equal(acceptance.sourceCommit, identity.sourceCommit);
 assert.equal(acceptance.sourceModified, false);
 assert.equal(acceptance.native.status, 'passed');
+assert.equal(acceptance.validationOnly, false);
+assert.match(
+  acceptance.ci.sourceBrowserFixture,
+  /^https:\/\/github\.com\/cofy-x\/camp\/actions\/runs\/\d+$/,
+);
 const existingResponse = await fetch(
   `https://api.github.com/repos/${repository}/releases/tags/${identity.version}`,
   {

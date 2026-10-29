@@ -6,6 +6,8 @@ Camp serves one trusted team from one Server. Ordinary members use a browser; pe
 
 The native Runner package targets **Ubuntu 24.04 amd64**. Its host requires Docker Engine with a local Unix socket and local volume access, `/dev/fuse`, Bubblewrap with working user/PID namespaces, Git and Bash. The fixed native binaries use the platform's system libraries; setup reports missing prerequisites without installing packages or changing host policy.
 
+Runner discovers the selected local engine's volume directory through Docker's system-info API, including custom Docker data directories. That directory must be directly accessible to the privileged Runner account; a remote Docker endpoint cannot provide this execution environment.
+
 The LayerFS local-volume backend requires privileged filesystem access. Docker group membership alone is insufficient. Use the same dedicated privileged account for setup, foreground operation and service installation. Native services require root-owned private storage and refuse another account's existing journal. Unprivileged/rootless native execution is unsupported. Treat the Runner operator as a trusted privileged host owner; tool containers receive no Docker control. Ubuntu policy may require an administrator-approved Bubblewrap profile.
 
 Server needs Git and private storage, without Docker, DSH or LayerFS. Its [lightweight image](../Dockerfile) omits native execution and optional PDF/DOCX reader dependencies. For readers on a binary Server deployment, see the [document runtime](../tools/document-runtime/README.md). macOS/Windows browser and Compose usage does not imply native Runner support; a build recipe alone is not validation of another host platform.
@@ -89,7 +91,9 @@ Use Server and Runner from the same release for the supported installation path.
 
 ## Build and publish a release
 
-The [Release workflow](../.github/workflows/release.yml) is manually dispatched on `main` with a fixed version. It verifies that the exact source has passed Source, Browser and Fixture CI and that the tag is unused. A fresh privileged Ubuntu builder installs pinned dependencies, builds all packages, runs Native recovery and online/offline installation checks, tests the Server image, and stages only the reviewed artifact allowlist. A separate job publishes to GitHub Releases and GHCR. Publishing permissions are confined to those jobs; pull requests do not run the privileged release build.
+The [Release workflow](../.github/workflows/release.yml) is manually dispatched on `main` with a fixed version. It verifies that the exact source has passed Source, Browser and Fixture CI and that the tag is unused. A fresh privileged Ubuntu builder installs pinned dependencies, builds all packages, runs Native recovery and online/offline installation checks, tests the Server image, and stages only the reviewed artifact allowlist. A separate job publishes to GitHub Releases and GHCR. Publishing permissions are confined to those jobs; pull requests do not automatically run the privileged release build.
+
+Maintainers can manually dispatch the same workflow on a trusted development branch with `validate-only=true` to check Native packages before merging. This mode has read-only repository permissions, retains CI artifacts, and creates no tag, Release or registry image. Its report explicitly leaves Source/Browser/Fixture acceptance and public distribution ungranted. Publishing still requires the normal mode on reviewed `main`.
 
 After publication, another fresh Ubuntu host downloads the real public assets without GitHub or Camp credentials, checks their hashes and source identity, runs online/offline Native tasks and stopped backup/restore, then pulls/tests the Server image anonymously. Its report is appended to the release, including failures. A published prerelease with a failed distribution check is not a completed release acceptance. New GHCR packages default to private: the repository owner must make the Camp package public once before anonymous pull can pass; see [GitHub's package visibility guidance](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility). Repository visibility alone does not do this.
 
@@ -97,6 +101,13 @@ Dispatch after the main commit's CI finishes:
 
 ```sh
 gh workflow run release.yml --repo cofy-x/camp --ref main -f version=v0.1.0-alpha.1
+```
+
+For a development branch rehearsal:
+
+```sh
+gh workflow run release.yml --repo cofy-x/camp --ref your-branch \
+  -f version=v0.1.0-alpha.1 -f validate-only=true
 ```
 
 For a local rehearsal, release builders use the [repository toolchain](../README.md#local-development) and an isolated clean checkout on the supported privileged host:
