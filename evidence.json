@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "issue": "https://github.com/cofy-x/camp/issues/17",
+  "sourceCommit": "cabbd23ed1d0223e8f2ba393d0559857511e412d",
+  "baseCommit": "a90ab55ef7def7dda173a2d65b36552180081f69",
+  "data": "synthetic browser test account; readiness responses are fixtures, not real model evidence",
+  "scenes": {
+    "desktop": {
+      "viewport": [
+        1440,
+        900
+      ],
+      "deviceScaleFactor": 1
+    },
+    "touch": {
+      "viewport": [
+        390,
+        844
+      ],
+      "deviceScaleFactor": 2
+    }
+  },
+  "checks": "28 targeted Chromium/Firefox/WebKit/touch checks, including keyboard, draft recovery and simulated IME composition"
+}
