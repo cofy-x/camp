@@ -22,13 +22,32 @@ Early releases use numbered `alpha`, `beta` and `rc` versions. Alpha/beta versio
 
 ### Go installation
 
-Releases containing the root Go entrypoint support `go install github.com/cofy-x/camp@<version>` with a fixed published version and the [pinned Go toolchain](../README.md#local-development). The original `v0.1.0-alpha.1` has no root command and must be installed from its archives. Put Go's binary installation directory on PATH, then run `camp`. This entrypoint downloads the same complete Server archive as a manual installation; it does not compile an API-only development Server or require Node/pnpm. `camp runner ...` selects the matching Linux Runner installer instead.
+Starting with `v0.1.0-alpha.2`, install the root entrypoint using the [pinned Go toolchain](../README.md#local-development):
+
+```sh
+go install github.com/cofy-x/camp@v0.1.0-alpha.2
+camp
+```
+
+Put Go's binary installation directory on PATH. This entrypoint downloads the same complete Server archive as a manual installation; it does not compile an API-only development Server or require Node/pnpm. `camp runner ...` selects the matching Linux Runner installer instead. The original `v0.1.0-alpha.1` has no root command and must be installed from its archives.
 
 The launcher derives its immutable version from Go's build information. It never selects `latest`, substitutes another platform or advances an existing installation. Downloads use system TLS and only GitHub release redirects, without Camp credentials. Archive/checksum names are fixed by version, role and platform. Checksums establish release-channel integrity, not a separate publisher signature.
 
 Complete packages, including licenses, live under the OS user cache directory's `camp/releases/<version>/`. Installation uses a private staging directory and lock; only a bounded, checksum-verified archive with safe regular files can become runnable. Subsequent invocations verify the cached executable without a network request. Missing or damaged cache files trigger repair of that same version; failed transfers retain the prior cache and are retried by repeating the command. Server data and Runner identity/journals remain outside this cache. Deleting a release cache does not delete team data, but stop any service using that cached executable before removing it.
 
 `camp help` and `camp version` work without downloads or private configuration. A source/pseudo-version entrypoint refuses to guess a public release: developers use `make build`. Downloads support cancellation and report controlled network errors without signed URLs or transport credentials. Offline hosts use the standalone archives; this launcher is an online installation channel.
+
+### Homebrew installation
+
+On Apple Silicon and Intel Mac, the maintained [formula](../Formula/camp.rb) installs the complete Server and Git from fixed, checksum-verified release archives. It requires neither Go nor Node/pnpm:
+
+```sh
+brew tap cofy-x/camp https://github.com/cofy-x/camp
+brew install cofy-x/camp/camp
+camp
+```
+
+The explicit repository URL is required because this tap lives in the Camp repository. The fully qualified formula selects Camp's own package. The formula currently pins `v0.1.0-alpha.2`; release maintainers update it in a reviewed PR after public verification. `brew upgrade cofy-x/camp/camp` is an explicit installation update; stop Camp and retain a full backup first. Homebrew keeps team data outside its Cellar and never starts a Camp service. Native execution still requires the separate Linux Runner.
 
 ### Standalone Server
 
@@ -160,7 +179,7 @@ Runtime packaging precedes installer hashing; the Server then embeds that exact 
 
 `server-release.json` and `release.json` list the exact supported archives in `servers`; `server` is the matching Linux artifact used by the container/native harness. Release verification rejects missing platforms, changed identities or checksums. The Linux builder cross-compiles Mac packages, then actual Apple Silicon and Intel Mac workers verify the relocated archives, embedded UI, authentication, versioned files and restart persistence before publication. Ordinary CI also builds each Mac Server and exercises discussion/file work in Mac WebKit. These checks establish Server behavior, not a macOS native Runner.
 
-Publication generates a versioned `camp.rb` Homebrew formula from verified archive digests. The maintained tap formula must be updated from that asset in a reviewed PR after public verification; it installs the complete Server and Git without enabling a service. Tagged Go installation is separately checked on Linux and both Mac architectures after publication. Sanitized platform/package and public-Go reports are retained with the release.
+Publication generates a versioned `camp.rb` Homebrew formula from verified archive digests. Update the maintained [tap formula](../Formula/camp.rb) from that asset in a reviewed PR after public verification; it installs the complete Server and Git without enabling a service. Both Mac CI workers install/test its actual public archive and run the full Server lifecycle through Homebrew. Main-branch CI also clones the public tap; PR CI uses its reviewed checkout. Tagged Go installation is separately checked on Linux and both Mac architectures after publication. Sanitized platform/package, Homebrew and public-Go reports are retained with the release.
 
 Published Servers advertise fixed GitHub downloads without a local package directory. To provide an optional mirror, stage that release's archives/checksums under the configured Server data directory's `packages/`. Copy to temporary names on the same filesystem, verify, then rename atomically; publish `runner-release.json` **last**. A published Server accepts only its compiled-in descriptor for installer downloads; an older/different staged descriptor cannot redirect the UI. Retain old digest-addressed runtimes while their installers remain in use. Never change bytes under a digest. Staging does not execute or update any existing Runner.
 
