@@ -83,6 +83,8 @@ test('a saved avatar stays stable and updates an existing conversation in anothe
     'src',
     `/api/avatars/${before.avatar}`,
   );
+  // Native keyboard radio navigation belongs to the foreground browser page.
+  await page.bringToFront();
   await account(page);
   const changeAvatar = settings(page).getByRole('button', {
     name: 'Change Avatar…',
