@@ -23,11 +23,13 @@ Early releases use numbered `alpha`, `beta` and `rc` versions. Alpha/beta versio
 Extract `camp-server-linux-amd64.tar.gz` and run its `camp`, or build locally with `make build` and use `dist/camp`. The published image contains the same Server binary and dependency licenses. It needs a persistent `/data` mount and explicit port/TLS configuration; it does not include a Runner. For a binary deployment with remote access, provide TLS:
 
 ```sh
-CAMP_PUBLIC_ORIGIN=https://camp.example.com \
+CAMP_PUBLIC_ORIGIN=https://camp.example.com:3443 \
   ./dist/camp serve --addr 0.0.0.0:3443 --data-dir /absolute/path/camp-data \
   --tls-cert /private/server.crt --tls-key /private/server.key \
   --allowed-hosts camp.example.com
 ```
+
+For this direct listener, open `https://camp.example.com:3443` and give Runner that same origin. The explicit port is part of Host/origin validation. The CLI defaults to `127.0.0.1:3001`; the image/example uses `3443`. Neither makes external port 443 implicit. To expose `https://camp.example.com` instead, explicitly map external 443 to the HTTPS listener (for example Docker `-p 443:3443`), or configure an HTTPS reverse proxy preserving the original Host and TLS at Camp, and set that external origin.
 
 Read `camp-data/team-setup.token` privately and enter it in browser setup. Create the administrator, configure the model in Settings and invite members. Model configuration is independent of observed connectivity and native execution.
 
@@ -49,17 +51,19 @@ Interactive setup asks for Server URL, machine name and private storage, then re
 For automation, supply all connection fields and a private code file; explicit `--code-file -` reads one code from stdin. Codes are never command-line values:
 
 ```sh
-./camp runner setup --server https://camp.example.com --name studio-linux \
+./camp runner setup --server https://camp.example.com:3443 --name studio-linux \
   --data-dir /private/camp-runner --code-file /private/connect-code
 ./camp runner run --data-dir /private/camp-runner
 ./camp runner status --data-dir /private/camp-runner
 ```
 
-Setup checks basic host conditions, saves registration, downloads the compiled-in runtime version/digest/size from GitHub Releases, validates archive/files/links, loads the fixed image and performs isolated file/write/export/cleanup self-tests. It uses no model call. Public downloads use a separate client with no Camp credential or private Server CA configuration, allowing only HTTPS redirects within GitHub's release services. Runtime extraction stages privately and publishes its verified cache atomically. Changed digests and unverified native files cannot become executable dependencies. `run` checks the installation but never installs or upgrades it.
+For a new Runner, setup checks the supported platform, root account and basic host prerequisites before reading the connection code or registering. It then saves registration, downloads the compiled-in runtime version/digest/size from GitHub Releases, validates archive/files/links, loads the fixed image and performs isolated file/write/export/cleanup self-tests. It uses no model call. Public downloads use a separate client with no Camp credential or private Server CA configuration, allowing only HTTPS redirects within GitHub's release services. Failures identify a controlled DNS, TLS, connection, timeout, cancellation, redirect or interrupted-transfer class without exposing signed URLs or transport credentials. Runtime extraction stages privately and publishes its verified cache atomically. Changed digests and unverified native files cannot become executable dependencies. `run` checks the installation but never installs or upgrades it.
 
 For an explicitly staged Server mirror, add `--runtime-source server` to setup. This choice persists across setup retries; `--runtime-source github` selects the public source again. Neither source silently falls back to another version or host. A development installer without a public version uses its enrolled Server. Offline setup always prefers its adjacent matching archive, independently of the saved download source.
 
 Failure retains registration. Fix the reported issue and repeat setup with the same data directory to reuse the identity and verified cache. Explicit setup can quarantine/repair a damaged cache while preserving journal and sessions. A revoked identity needs a new code and directory; it is never silently replaced. `run` can connect with execution unavailable and report Needs attention. Status separates connection observations and their freshness from the last execution check.
+
+Use the same root account and absolute private directory for setup, foreground operation and services. A host failure before enrollment creates no Runner identity. If an earlier installation registered under another account, stop it and inspect its saved state under that account; do not change ownership of its journal or silently enroll a replacement. If replacement is intended, explicitly revoke the old Runner in Camp and use a new code and separate root-owned directory.
 
 Keep the installer at a stable absolute path; runtime cache and private data have separate lifetimes. For offline runtime installation, verify/extract `camp-runner-offline-linux-amd64.tar.gz`, then run the same setup command. It detects the adjacent exact archive and validates it identically. Registration and work still need Server connectivity. The smaller installer moves runtime transfer to setup; it does not remove total download or disk cost.
 

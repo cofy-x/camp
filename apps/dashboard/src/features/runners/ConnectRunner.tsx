@@ -127,6 +127,12 @@ export function ConnectRunner({
         aria-label="Install Camp Runner"
       >
         <h3>1. Get Camp Runner</h3>
+        <p>
+          Requires Ubuntu 24.04 amd64, Docker, FUSE and Bubblewrap. Run setup,
+          foreground operation and service installation as the same root
+          account, using the same private data directory. Rootless execution is
+          unsupported.
+        </p>
         {installationError ? (
           <p className="app-error" role="alert">
             {installationError}{' '}
@@ -158,7 +164,7 @@ export function ConnectRunner({
                   )}
                 </div>
                 <p className="camp-runner-hint">
-                  {`${installation.platform}${installation.version ? ` · ${installation.version}` : ''} with machine administrator access. Extract the download on that machine.`}
+                  {`${installation.platform}${installation.version ? ` · ${installation.version}` : ''}. Extract the download on the Runner machine.`}
                   {installation.runtime?.bytes
                     ? ` Setup downloads ${size(installation.runtime.bytes)} of execution tools once.`
                     : ''}

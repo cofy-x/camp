@@ -438,9 +438,14 @@ test('Connect Runner uses the fixed public release and exposes offline verificat
   await signIn(page);
   await openApp(page, 'Runners');
   const panel = await connectRunner(page);
+  await expect(panel).toContainText('v0.1.0-alpha.1.');
   await expect(panel).toContainText(
-    'v0.1.0-alpha.1 with machine administrator access.',
+    'Requires Ubuntu 24.04 amd64, Docker, FUSE and Bubblewrap.',
   );
+  await expect(panel).toContainText(
+    'as the same root account, using the same private data directory.',
+  );
+  await expect(panel).toContainText('Rootless execution is unsupported.');
   await expect(
     panel.getByRole('link', {
       name: 'Download for Linux (12 MB)',

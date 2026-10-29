@@ -55,6 +55,9 @@ and checks isolated execution without a model request. The offline package inclu
 the same runtime. Existing verified runtime downloads are reused.
 Model settings stay on Camp Server. No separate DSH or LayerFS installation is needed.
 Scripts provide --server, --name, --data-dir and --code-file explicitly.
+Native Runner requires Ubuntu 24.04 amd64, Docker, FUSE and Bubblewrap.
+Use the same root account and private data directory for setup, run and service.
+Rootless execution is unsupported; never change ownership of an existing journal.
 
 Options:
   --data-dir path    Private Runner storage (default: user config directory/camp/runner)
@@ -66,6 +69,7 @@ Options:
   --source alias=path Register an authorized snapshot source (repeatable)
   --docker-socket path Local Docker socket (default /var/run/docker.sock)
   --runtime-source github|server Public release (default) or an explicitly staged Server mirror
+  --development-runtime Use installed source runtimes (contributors only)
 
 Setup never installs a system service. Service installation, starting it, and
 running it at boot are separate explicit actions. Removing a service keeps data.
@@ -206,6 +210,20 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 	}
 	if !filepath.IsAbs(docker) {
 		return errors.New("Choose an absolute local Docker socket")
+	}
+	// A new identity must not be enrolled on an unsuitable host. Existing
+	// registrations keep the repair path that persists corrected installation
+	// settings and failed observations without replacing their identity.
+	if executor == "native" && needsCode {
+		report := nativeexecutor.HostChecks(nativeexecutor.Config{DockerSocket: docker})
+		for _, check := range report.Checks {
+			if check.Status != "passed" {
+				if err := json.NewEncoder(output).Encode(report); err != nil {
+					return err
+				}
+				return errors.New("Complete the native host requirements before connecting a Runner. Use the same root account and private data directory for setup and operation")
+			}
+		}
 	}
 	var installationErr error
 	var managedPin *runtimePin

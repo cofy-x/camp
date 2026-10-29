@@ -250,6 +250,11 @@ func TestSetupUsesCorrectedDockerSocketBeforePreflight(t *testing.T) {
 	}))
 	defer server.Close()
 	directory := t.TempDir()
+	// This is an already registered Runner repairing host settings. New setup
+	// is covered separately and must fail before creating any identity.
+	if _, err := daemon.Join(context.Background(), daemon.Config{DataDir: directory, ServerURL: server.URL, Name: "Preflight", Executor: "native", Slots: 1, RuntimeSource: "server"}, "private-code"); err != nil {
+		t.Fatal(err)
+	}
 	var original daemon.Config
 	for index, name := range []string{"wrong.sock", "corrected-but-unavailable.sock", "still-unavailable.sock"} {
 		socket := filepath.Join(directory, name)
@@ -278,6 +283,21 @@ func TestSetupUsesCorrectedDockerSocketBeforePreflight(t *testing.T) {
 	}
 	if len(enrollments) != 1 {
 		t.Fatal("Host retry enrolled another Runner")
+	}
+}
+
+func TestNewNativeSetupRejectsHostBeforeReadingCodeOrEnrolling(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests++; w.WriteHeader(500) }))
+	defer server.Close()
+	directory := filepath.Join(t.TempDir(), "not-created")
+	input := runnerInput{reader: unexpectedInput{t}, isTerminal: func(io.Reader) bool { return false }, readSecret: func(io.Reader) ([]byte, error) { t.Fatal("Host failure read a connection code"); return nil, nil }}
+	err := runRunnerWithInput(context.Background(), []string{"setup", "--server", server.URL, "--name", "Unsupported", "--data-dir", directory, "--docker-socket", filepath.Join(t.TempDir(), "missing.sock"), "--code-file", "-"}, io.Discard, input)
+	if err == nil || !strings.Contains(err.Error(), "host requirements") || requests != 0 {
+		t.Fatal("Unsuitable host enrolled a Runner", err, requests)
+	}
+	if _, err := os.Stat(directory); !os.IsNotExist(err) {
+		t.Fatal("Unsuitable setup created private identity/storage", err)
 	}
 }
 

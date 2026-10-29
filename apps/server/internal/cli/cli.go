@@ -80,7 +80,7 @@ Configuration precedence:
   Hosts:   --allowed-hosts > ALLOWED_HOSTS
   Origins: --trusted-origins > TRUSTED_ORIGINS
   Env file: --env-file > CAMP_ENV_FILE > ./.env (optional default)
-  DSH: non-empty process environment > selected env file > defaults
+  DSH: non-empty process environment > selected env file > managed Settings > defaults
 
 Empty environment variables are treated as unset. Explicit flag values must
 not be empty. Put options after "serve"; positional arguments are not accepted.
