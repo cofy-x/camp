@@ -18,6 +18,11 @@ for (const mode of ['online', 'offline']) {
   );
   assert.equal(report.status, 'passed');
   assert.equal(report.version, identity.version);
+  assert.equal(report.sourceCommit, identity.sourceCommit);
+  assert.equal(
+    report.archiveSHA256,
+    mode === 'online' ? runner.installer.sha256 : runner.offline.sha256,
+  );
   reports.push(report);
 }
 const image = JSON.parse(
@@ -25,6 +30,7 @@ const image = JSON.parse(
 );
 assert.equal(image.status, 'passed');
 assert.equal(image.version, identity.version);
+assert.equal(image.sourceCommit, identity.sourceCommit);
 const runtime = JSON.parse(
   await readFile(
     join(directory, 'camp-runtime-linux-amd64/manifest.json'),

@@ -10,6 +10,8 @@ import { root } from './lib.mjs';
 
 const execute = promisify(execFile);
 const reference = process.argv[2];
+const reportFile = join(root, 'dist/smoke-server-image.json');
+await rm(reportFile, { force: true });
 assert.ok(
   reference && process.argv.length === 3,
   'Choose the exact Server image reference.',
@@ -173,7 +175,7 @@ try {
   assert.ok(script, 'Dashboard is missing from the Server image.');
   assert.equal((await request(new URL(script, origin))).status, 200);
   await writeFile(
-    join(root, 'dist/smoke-server-image.json'),
+    reportFile,
     `${JSON.stringify(
       {
         schema: 1,

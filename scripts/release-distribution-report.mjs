@@ -13,6 +13,7 @@ const read = async (name) => {
 const online = await read('smoke-github.json');
 const offline = await read('smoke-github-offline.json');
 const image = await read('smoke-server-image.json');
+const checks = [online, offline, image];
 const report = {
   schema: 1,
   version: process.env.VERSION,
@@ -25,7 +26,12 @@ const report = {
     architecture: process.arch,
   },
   workflow: `https://github.com/cofy-x/camp/actions/runs/${process.env.GITHUB_RUN_ID}/attempts/${process.env.GITHUB_RUN_ATTEMPT}`,
-  status: [online, offline, image].every((check) => check.status === 'passed')
+  status: checks.every(
+    (check) =>
+      check.status === 'passed' &&
+      check.version === process.env.VERSION &&
+      check.sourceCommit === process.env.GITHUB_SHA,
+  )
     ? 'passed'
     : 'failed',
   publicOnline: online,

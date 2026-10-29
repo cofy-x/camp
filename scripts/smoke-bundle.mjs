@@ -30,6 +30,8 @@ if (!mode) {
 assert.ok(['online', 'offline', 'github', 'github-offline'].includes(mode));
 const publicDownload = mode.startsWith('github');
 const offline = mode.endsWith('offline');
+const reportFile = path.join(root, `dist/smoke-${mode}.json`);
+await rm(reportFile, { force: true });
 const release = JSON.parse(
   await readFile(path.join(root, 'dist/runner-release.json'), 'utf8'),
 );
@@ -499,13 +501,15 @@ try {
     `Runner ${mode} install smoke passed: separate Server, ${publicDownload ? 'anonymous GitHub' : 'authenticated mirror'} download, relocated verified runtime, repeat setup, native DSH/LayerFS task, checks, binary bytes, one publication, human approval/delivery, stopped backup/restore and cleanup (${digest}). No paid model endpoint used.`,
   );
   await writeFile(
-    path.join(root, `dist/smoke-${mode}.json`),
+    reportFile,
     `${JSON.stringify(
       {
         schema: 1,
         status: 'passed',
         mode,
         version: release.version || 'dev',
+        sourceCommit: release.sourceCommit || '',
+        archiveSHA256: artifact.sha256,
         completedAt: new Date().toISOString(),
         platform: process.platform,
         architecture: process.arch,
