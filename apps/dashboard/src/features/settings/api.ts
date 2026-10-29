@@ -65,11 +65,7 @@ export const settingsApi = {
       method: 'PATCH',
       body: JSON.stringify(value),
     }),
-  readiness: (recheck = false) =>
-    request<Readiness>(
-      `/settings/readiness${recheck ? '/recheck' : ''}`,
-      recheck ? { method: 'POST', body: '{}' } : {},
-    ),
+  readiness: () => request<Readiness>('/settings/readiness'),
   environments: () => request<EnvironmentSettings>('/settings/environments'),
   storage: () => request<StorageSettings>('/settings/storage'),
 };

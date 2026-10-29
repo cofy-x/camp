@@ -17,20 +17,16 @@ function statusLabel(item: Component) {
 export function GettingReady({
   readiness,
   loading,
-  rechecking,
   error,
   onRefresh,
-  onRecheck,
   onSection,
   onAgents,
   onWorkspace,
 }: {
   readiness: Readiness | null;
   loading: boolean;
-  rechecking: boolean;
   error: string;
   onRefresh: () => void;
-  onRecheck: () => void;
   onSection: (section: 'models' | 'environments' | 'runners' | 'team') => void;
   onAgents: () => void;
   onWorkspace: () => void;
@@ -39,16 +35,8 @@ export function GettingReady({
     readiness?.components.find((item) => item.id === id);
   const model = component('model');
   const connection = component('connection');
-  const runtime = component('runtime') ?? component('execution');
-  const pdf = component('document-pdf');
-  const docx = component('document-docx');
-  const readers = [pdf, docx];
-  const readersReady = readers.filter(
-    (item) => item?.status === 'ready',
-  ).length;
-  const readersUnobserved = readers.every(
-    (item) => !item || item.status === 'unknown',
-  );
+  const runtime = component('execution');
+  const firstTask = component('first-task');
   const issues =
     readiness?.components.filter(
       (item) => item.status === 'missing' || item.status === 'error',
@@ -70,7 +58,7 @@ export function GettingReady({
             {error}
             {readiness ? ' Previous observations are shown below.' : ''}
           </p>
-          <Button disabled={loading || rechecking} onClick={onRefresh}>
+          <Button disabled={loading} onClick={onRefresh}>
             Retry Status
           </Button>
         </div>
@@ -112,24 +100,32 @@ export function GettingReady({
                 ['missing', 'error'].includes(connection.status) && (
                   <p>{connection.detail}</p>
                 )}
+              {connection?.checkedAt && (
+                <p>
+                  <small>
+                    Last observed {observationTime(connection.checkedAt)}
+                  </small>
+                </p>
+              )}
             </dd>
           </div>
           <div>
             <dt>Agent work</dt>
             <dd>
               <strong className={runtime?.status}>
-                {rechecking
-                  ? 'Checking…'
-                  : readiness.ready
-                    ? 'Available'
-                    : 'Unavailable'}
+                {readiness.ready ? 'Available' : 'Unavailable'}
               </strong>
-              {(rechecking || !readiness.ready) && (
+              {!readiness.ready && (
                 <p>
-                  {rechecking
-                    ? 'New work waits until this check finishes.'
-                    : runtime?.detail ||
-                      'Open Diagnostic details to review setup.'}
+                  {runtime?.detail ||
+                    'Open Diagnostic details to review setup.'}
+                </p>
+              )}
+              {runtime?.checkedAt && (
+                <p>
+                  <small>
+                    Self-test reported {observationTime(runtime.checkedAt)}
+                  </small>
                 </p>
               )}
             </dd>
@@ -138,21 +134,18 @@ export function GettingReady({
             </dd>
           </div>
           <div>
-            <dt>Document reading</dt>
+            <dt>Native task</dt>
             <dd>
               <strong>
-                {readersReady === 2
-                  ? 'Available'
-                  : readersUnobserved
-                    ? 'Not checked'
-                    : readersReady
-                      ? 'Partly available'
-                      : 'Unavailable'}
+                {firstTask?.status === 'ready'
+                  ? 'Succeeded previously'
+                  : 'Not yet verified'}
               </strong>
-              {!readersUnobserved && readersReady !== 2 && (
+              {firstTask?.checkedAt && (
                 <p>
-                  PDF: {pdf ? statusLabel(pdf) : 'Not checked'} · Word:{' '}
-                  {docx ? statusLabel(docx) : 'Not checked'}
+                  <small>
+                    Last success {observationTime(firstTask.checkedAt)}
+                  </small>
                 </p>
               )}
             </dd>
@@ -160,8 +153,8 @@ export function GettingReady({
         </dl>
       )}
       <div className="camp-preparation-check">
-        <Button disabled={loading || rechecking} onClick={onRecheck}>
-          {rechecking ? 'Checking Environment…' : 'Check Environment'}
+        <Button disabled={loading} onClick={onRefresh}>
+          {loading ? 'Refreshing Status…' : 'Refresh Status'}
         </Button>
       </div>
       <fieldset className="app-control-group camp-preparation-team">
@@ -178,7 +171,7 @@ export function GettingReady({
             {issues.length ? ` · ${issues.length} unavailable or failed` : ''}
           </summary>
           {readiness.checkedAt && (
-            <p>Latest observation: {observationTime(readiness.checkedAt)}</p>
+            <p>Status refreshed: {observationTime(readiness.checkedAt)}</p>
           )}
           <ul className="camp-readiness">
             {readiness.components.map((item) => (

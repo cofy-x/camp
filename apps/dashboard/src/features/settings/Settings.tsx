@@ -686,7 +686,6 @@ export function Settings(props: AppWindowProps) {
             <GettingReady
               {...readiness}
               onRefresh={() => void readiness.refresh()}
-              onRecheck={() => void readiness.recheck().then(team.refresh)}
               onSection={(next) =>
                 next === 'runners'
                   ? props.desktop.openApp('runners')

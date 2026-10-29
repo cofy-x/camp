@@ -8,12 +8,12 @@ import (
 	"testing"
 
 	"github.com/cofy-x/camp/apps/server/internal/configuration"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
+	"github.com/cofy-x/camp/apps/server/internal/remoteruns"
 )
 
 func TestSettingsAreAdminOnlyWriteOnlyAndAudited(t *testing.T) {
 	f := newTeamFixture(t)
-	manager, err := runs.New(context.Background(), f.store, t.TempDir(), runs.Config{}, nil)
+	manager, err := remoteruns.New(context.Background(), f.store, remoteruns.Config{DataDir: t.TempDir()}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,11 +46,11 @@ func TestSettingsAreAdminOnlyWriteOnlyAndAudited(t *testing.T) {
 			count++
 		}
 	}
-	if count != 2 {
+	if count != 1 {
 		t.Fatalf("model update was not audited: %+v", events)
 	}
-	requireHTTP(t, teamRequest(t, f, f.adminCookie, "POST", "/api/settings/readiness/recheck", map[string]any{"unexpected": true}), http.StatusBadRequest)
-	requireHTTP(t, teamRequest(t, f, f.adminCookie, "POST", "/api/settings/readiness/recheck", map[string]any{}), http.StatusOK)
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "GET", "/api/settings/readiness", nil), http.StatusOK)
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "POST", "/api/settings/readiness/recheck", map[string]any{}), http.StatusNotFound)
 	response = teamRequest(t, f, f.adminCookie, "POST", "/api/resources", map[string]any{"name": "Private server files", "path": "/tmp"})
 	requireHTTP(t, response, http.StatusForbidden)
 	if !strings.Contains(response.Body.String(), "import_disabled") {

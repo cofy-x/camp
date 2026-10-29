@@ -14,7 +14,7 @@ type SettingsService interface {
 	UpdateModelSettings(context.Context, configuration.Update) (configuration.View, error)
 	EnvironmentSettings() runs.EnvironmentSettings
 	StorageSettings() runs.StorageSettings
-	CheckReadiness(context.Context, bool) (runs.Readiness, error)
+	Readiness(context.Context) (runs.Readiness, error)
 }
 
 func (a *API) EnableSettings(service SettingsService, policy configuration.ImportPolicy) {
@@ -50,15 +50,7 @@ func (a *API) settingsRoutes(mux *http.ServeMux) {
 		}{a.settings.StorageSettings(), a.importPolicy})
 	})
 	register("GET /api/settings/readiness", func(w http.ResponseWriter, r *http.Request) {
-		value, err := a.settings.CheckReadiness(r.Context(), false)
-		a.settingsRespond(w, r, value, err)
-	})
-	register("POST /api/settings/readiness/recheck", func(w http.ResponseWriter, r *http.Request) {
-		var input struct{}
-		if !decode(w, r, &input, 1024) {
-			return
-		}
-		value, err := a.settings.CheckReadiness(r.Context(), true)
+		value, err := a.settings.Readiness(r.Context())
 		a.settingsRespond(w, r, value, err)
 	})
 }

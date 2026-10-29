@@ -22,8 +22,8 @@ const observation: Readiness = {
       detail: 'No model response has been observed.',
     },
     {
-      id: 'runtime',
-      label: 'Execution environment',
+      id: 'execution',
+      label: 'Runner execution reports',
       status: 'ready',
       detail: 'The execution environment passed its local checks.',
       checkedAt: '2026-10-27T09:00:00Z',
@@ -33,16 +33,10 @@ const observation: Readiness = {
       lastFailure: 'The container service was unavailable.',
     },
     {
-      id: 'document-pdf',
-      label: 'PDF text extraction',
-      status: 'missing',
-      detail: 'The PDF reader is not installed.',
-    },
-    {
-      id: 'document-docx',
-      label: 'Word text extraction',
-      status: 'ready',
-      detail: 'The Word reader is available.',
+      id: 'first-task',
+      label: 'Native task',
+      status: 'unknown',
+      detail: 'No successful native task has been recorded.',
     },
   ],
 };
@@ -232,17 +226,10 @@ test('Getting Ready separates capabilities and remains usable when another setti
     'Not verified',
   );
   await expect(statusRow(page, 'Agent work')).toContainText('Available');
-  await expect(statusRow(page, 'Document reading')).toContainText(
-    'Partly available',
+  await expect(statusRow(page, 'Document reading')).toHaveCount(0);
+  await expect(statusRow(page, 'Native task')).toContainText(
+    'Not yet verified',
   );
-  await expect(statusRow(page, 'Document reading')).toContainText(
-    'PDF: Unavailable · Word: Ready',
-  );
-  await expect(
-    preparation(page).getByText('The PDF reader is not installed.', {
-      exact: true,
-    }),
-  ).toBeHidden();
   const openWorkspace = preparation(page).getByRole('button', {
     name: 'Open Workspace',
     exact: true,
@@ -272,49 +259,48 @@ test('Getting Ready separates capabilities and remains usable when another setti
   expect(checks).toBe(0);
 });
 
-test('environment checks are explicit, disable duplicate submission, and retain observations after failure', async ({
+test('status refresh uses GET, keeps work available, and retains observations after failure', async ({
   page,
 }) => {
   await signIn(page);
   let reads = 0;
-  let checks = 0;
   let release = () => {};
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route('**/api/settings/readiness', (route) => {
+  await page.route('**/api/settings/readiness', async (route) => {
+    expect(route.request().method()).toBe('GET');
     reads++;
+    if (reads === 2) {
+      await held;
+      return route.fulfill({
+        status: 503,
+        json: { error: 'Status refresh failed.' },
+      });
+    }
     return route.fulfill({ json: observation });
-  });
-  await page.route('**/api/settings/readiness/recheck', async (route) => {
-    expect(route.request().method()).toBe('POST');
-    checks++;
-    await held;
-    await route.fulfill({
-      status: 503,
-      json: { error: 'The environment check could not finish.' },
-    });
   });
   await openApp(page, 'Settings');
   await expect(statusRow(page, 'Agent work')).toContainText('Available');
-  expect(checks).toBe(0);
+  expect(reads).toBe(1);
   await preparation(page)
-    .getByRole('button', { name: 'Check Environment', exact: true })
+    .getByRole('button', { name: 'Refresh Status', exact: true })
     .click();
   const checking = preparation(page).getByRole('button', {
-    name: 'Checking Environment…',
+    name: 'Refreshing Status…',
     exact: true,
   });
   try {
     await expect(checking).toBeDisabled();
-    await expect(statusRow(page, 'Agent work')).toContainText('Checking…');
+    await expect(statusRow(page, 'Agent work')).toContainText('Available');
+    await expect(preparation(page)).not.toContainText('New work waits');
     await checking.press('Enter');
-    await expect.poll(() => checks).toBe(1);
+    await expect.poll(() => reads).toBe(2);
   } finally {
     release();
   }
   await expect(preparation(page).getByRole('alert')).toContainText(
-    'The environment check could not finish. Previous observations are shown below.',
+    'Status refresh failed. Previous observations are shown below.',
   );
   await expect(statusRow(page, 'Agent work')).toContainText('Available');
   await preparation(page)
@@ -322,7 +308,7 @@ test('environment checks are explicit, disable duplicate submission, and retain 
     .click();
   const runtime = preparation(page)
     .locator('.camp-readiness > li')
-    .filter({ hasText: 'Execution environment' });
+    .filter({ hasText: 'Runner execution reports' });
   await runtime.getByText('Previous observations', { exact: true }).click();
   await expect(runtime).toContainText('Sandbox startup and cleanup succeeded.');
   await expect(runtime).toContainText('The container service was unavailable.');
@@ -332,7 +318,6 @@ test('environment checks are explicit, disable duplicate submission, and retain 
     .click();
   await expect(preparation(page).getByRole('alert')).toHaveCount(0);
   await expect.poll(() => reads).toBe(previousReads + 1);
-  expect(checks).toBe(1);
   await expect(runtime).toContainText('Sandbox startup and cleanup succeeded.');
   await expect(runtime).toContainText('The container service was unavailable.');
 });
@@ -348,7 +333,7 @@ test('status loading can be retried without running checks and refreshes after r
     ...observation,
     ready: false,
     components: observation.components.map((item) =>
-      item.id === 'model' || item.id === 'runtime'
+      item.id === 'model' || item.id === 'execution'
         ? {
             ...item,
             status: 'missing',
@@ -426,17 +411,12 @@ test('status loading can be retried without running checks and refreshes after r
   expect(checks).toBe(0);
 });
 
-test('panel navigation preserves an active check and ignores an older status response', async ({
+test('panel navigation refreshes status and ignores an older pending response', async ({
   page,
 }) => {
   await signIn(page);
   let reads = 0;
-  let checks = 0;
-  let releaseCheck = () => {};
   let releaseOlderRead = () => {};
-  const heldCheck = new Promise<void>((resolve) => {
-    releaseCheck = resolve;
-  });
   const heldRead = new Promise<void>((resolve) => {
     releaseOlderRead = resolve;
   });
@@ -454,46 +434,18 @@ test('panel navigation preserves an active check and ignores an older status res
     ),
   };
   await page.route('**/api/settings/readiness', async (route) => {
+    expect(route.request().method()).toBe('GET');
     const number = ++reads;
     if (number === 2) await heldRead;
     await route.fulfill({
       json: number >= 3 ? newerObservation : observation,
     });
   });
-  await page.route('**/api/settings/readiness/recheck', async (route) => {
-    checks++;
-    await heldCheck;
-    await route.fulfill({
-      status: 503,
-      json: { error: 'The environment check could not finish.' },
-    });
-  });
   await openApp(page, 'Settings');
   await expect(statusRow(page, 'Agent work')).toContainText('Available');
   await preparation(page)
-    .getByRole('button', { name: 'Check Environment', exact: true })
+    .getByRole('button', { name: 'Refresh Status', exact: true })
     .click();
-  try {
-    await expect.poll(() => checks).toBe(1);
-    await selectPanel(page, 'models', 'Models');
-    await selectPanel(page, 'readiness', 'Getting Ready');
-    await expect(
-      preparation(page).getByRole('button', {
-        name: 'Checking Environment…',
-        exact: true,
-      }),
-    ).toBeDisabled();
-    expect(reads).toBe(1);
-  } finally {
-    releaseCheck();
-  }
-  await expect(preparation(page).getByRole('alert')).toContainText(
-    'The environment check could not finish. Previous observations are shown below.',
-  );
-  await expect(statusRow(page, 'Agent work')).toContainText('Available');
-
-  await selectPanel(page, 'models', 'Models');
-  await selectPanel(page, 'readiness', 'Getting Ready');
   try {
     await expect.poll(() => reads).toBe(2);
     await selectPanel(page, 'models', 'Models');
@@ -514,7 +466,7 @@ test('panel navigation preserves an active check and ignores an older status res
     await expect(statusRow(page, 'Model connection')).toContainText(
       'Response observed',
     );
-    expect(checks).toBe(1);
+    await expect(preparation(page).getByRole('alert')).toHaveCount(0);
   } finally {
     releaseOlderRead();
   }
