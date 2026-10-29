@@ -4,6 +4,8 @@ Camp has one trusted team's single Server, React desktop and independent Linux R
 
 Server owns identity/permissions, admission/scheduling, model proxy, durable files, review and notifications. Runner actively connects to Server and owns its journal, deduplication, local scheduling, lease watchdog, reconnection reconciliation and artifact upload/cleanup. Native executor prepares tools, calls DSH/LayerFS and checks/exports results without the business database. DSH owns the model/tool loop; LayerFS owns rebuildable execution workspaces. Even on one machine, Server and Runner are separate processes using the same remote protocol. Server has no Agent-execution dependency on host Docker, DSH or LayerFS.
 
+The [root Go entrypoint](../main.go) and [release launcher](../internal/launcher/launcher.go) are distribution code, outside the Server's internal packages. The launcher installs the exact published Server or Runner archive and replaces itself with that executable, preserving process signals and exit status. It owns only a private, rebuildable version cache, never team configuration, credentials or Runner journals. This preserves the complete generated Dashboard and compiled-in runtime identities without checking generated bundles into source or rebuilding release metadata during `go install`. Standalone archives remain the offline path; source developers retain `make build`.
+
 ## Package boundaries
 
 | Owner | Responsibility |

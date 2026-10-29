@@ -84,13 +84,13 @@ format: format-go
 	$(PNPM) run format
 
 format-go:
-	$(GOFMT) -w apps/server tools
+	$(GOFMT) -w *.go internal apps/server tools
 
 format-check: format-check-go
 	$(PNPM) run format:check
 
 format-check-go:
-	@set -eu; files="$$($(GOFMT) -l apps/server tools)"; \
+	@set -eu; files="$$($(GOFMT) -l *.go internal apps/server tools)"; \
 		if [ -n "$$files" ]; then printf '%s\n' "$$files"; exit 1; fi
 
 lint: lint-go
