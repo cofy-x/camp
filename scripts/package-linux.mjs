@@ -97,6 +97,11 @@ try {
   const installed = JSON.parse(
     await readFile(path.join(layer, 'installed.json'), 'utf8'),
   );
+  const rustLicenses = path.join(layer, 'node_modules/.camp-layerfs/licenses');
+  const rustModules = JSON.parse(
+    await readFile(path.join(rustLicenses, 'modules.json'), 'utf8'),
+  );
+  await copy(rustLicenses, 'licenses/rust');
   for (const [filename, expected] of [
     [installed.daemon, installed.daemonSha256],
     [installed.native, installed.nativeSha256],
@@ -149,6 +154,12 @@ try {
     node: process.versions.node,
     pnpm: '12.11.2',
     ...licenses,
+    rust: {
+      toolchain: JSON.parse(
+        await readFile(path.join(layer, 'pin.json'), 'utf8'),
+      ).rust,
+      modules: rustModules,
+    },
     dsh: '0.2.1-rc.3',
     layerfs: {
       version: installed.version,

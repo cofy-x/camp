@@ -13,6 +13,8 @@ Run from the Camp root with the [repository toolchain](../../README.md#local-dev
 
 Native Go acceptance can select a dedicated local engine with `CAMP_TEST_DOCKER_SOCKET`; the release CI also selects that engine through `DOCKER_HOST` for build commands. This avoids assuming that a hosted worker's default engine supports the pinned API. Runner operators use `--docker-socket`, as described in the [installation guide](../../docs/install.md).
 
+The installer collects notices for the Linux native dependency graph and Rust toolchain into its private cache; the Runner package retains them under `licenses/rust`. The few published napi-rs crates without license files use the checked-in supplement, matched against each crate's packaged source commit and the original license digest. Changing the LayerFS pin requires reviewing missing notices again; packaging fails when the license inventory is absent.
+
 Runtime requirements are Docker Engine with API v1.54, Linux FUSE, and a local ext4, XFS, or Btrfs Docker volume directory. The trusted host must be able to write that directory and use the Docker socket; ordinary membership in the Docker group alone does not grant the required directory access. On this development host that owner is root. This is a privileged deployment component, not an unprivileged desktop dependency. Nothing installs a persistent service.
 
 ## Boundary and lifetime

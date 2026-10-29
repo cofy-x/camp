@@ -69,6 +69,7 @@ const evidence = {
     node: runtime.node,
     pnpm: runtime.pnpm,
     dsh: runtime.dsh,
+    rust: runtime.rust,
     layerfs: runtime.layerfs,
   },
   installations: reports,

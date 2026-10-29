@@ -13,6 +13,7 @@ import {
 import path from 'node:path';
 import process from 'node:process';
 import { createRequire } from 'node:module';
+import { collectRustLicenses } from './licenses.mjs';
 
 const root = import.meta.dirname;
 const pin = JSON.parse(await readFile(path.join(root, 'pin.json'), 'utf8'));
@@ -172,6 +173,12 @@ await copyFile(
   path.join(source, 'target/release/liblayerfs_node.so'),
   path.join(source, 'engine/crates/layerfs-node/layerfs.node'),
 );
+await collectRustLicenses({
+  source,
+  environment: buildEnv,
+  rust: pin.rust,
+  destination: path.join(cache, 'licenses'),
+});
 run(
   'npm',
   ['install', '--ignore-scripts', '--offline', '--package-lock=false'],
