@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   copyFile,
   cp,
@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 import { command, root, stop, waitFor } from './lib.mjs';
+import { baselineLauncher, upgradeBaseline } from './upgrade.mjs';
 
 const mode = process.argv[2];
 if (!mode) {
@@ -27,9 +28,19 @@ if (!mode) {
     ]);
   process.exit(0);
 }
-assert.ok(['online', 'offline', 'github', 'github-offline'].includes(mode));
+assert.ok(
+  [
+    'online',
+    'offline',
+    'upgrade',
+    'github',
+    'github-offline',
+    'github-upgrade',
+  ].includes(mode),
+);
 const publicDownload = mode.startsWith('github');
 const offline = mode.endsWith('offline');
+const upgrading = mode === 'upgrade' || mode === 'github-upgrade';
 const reportFile = path.join(root, `dist/smoke-${mode}.json`);
 await rm(reportFile, { force: true });
 const release = JSON.parse(
@@ -45,6 +56,20 @@ const cwd = path.join(dir, 'unrelated-working-directory');
 let child;
 let runner;
 let calls = 0;
+let previousConfig;
+let previousImport;
+let previousJournal;
+
+async function until(label, read, accept) {
+  const deadline = Date.now() + 180000;
+  do {
+    const value = await read();
+    if (accept(value)) return value;
+    await pause(250);
+  } while (Date.now() < deadline);
+  throw new Error(`${label} timed out`);
+}
+
 const provider = createServer(async (request, response) => {
   for await (const chunk of request) void chunk;
   calls++;
@@ -215,44 +240,134 @@ try {
     name: 'Installed Camp Runner',
   });
   const runnerData = path.join(dir, "Runner's private data");
+  const sourceDirectory = path.join(dir, 'original upgrade source');
+  if (upgrading) {
+    await mkdir(sourceDirectory);
+    await writeFile(
+      path.join(sourceDirectory, 'before-upgrade.txt'),
+      'Preserve the original source.\n',
+    );
+  }
   const stagedRuntime = path.join(data, 'packages', release.runtime.filename);
   if (offline && !publicDownload)
     await rename(stagedRuntime, `${stagedRuntime}.held`);
-  const setup = spawn(
-    path.join(bundle, 'camp'),
-    [
-      'runner',
-      'setup',
-      '--server',
-      origin,
-      '--name',
-      'Installed Camp Runner',
-      '--data-dir',
-      runnerData,
-      '--code-file',
-      '-',
-      '--docker-socket',
-      process.env.CAMP_TEST_DOCKER_SOCKET || '/var/run/docker.sock',
-      ...(!publicDownload ? ['--runtime-source', 'server'] : []),
-    ],
-    {
+  const setupArgs = [
+    'runner',
+    'setup',
+    '--server',
+    origin,
+    '--name',
+    'Installed Camp Runner',
+    '--data-dir',
+    runnerData,
+    '--code-file',
+    '-',
+    '--docker-socket',
+    process.env.CAMP_TEST_DOCKER_SOCKET || '/var/run/docker.sock',
+    ...(upgrading ? ['--source', `upgrade-notes=${sourceDirectory}`] : []),
+  ];
+  const runnerEnv = { PATH: '/usr/bin:/bin', HOME: dir, LANG: 'C.UTF-8' };
+
+  async function setupWith(executable, code, legacy = false) {
+    const source = legacy
+      ? ['--runtime-source', 'github']
+      : !publicDownload
+        ? ['--runtime-source', 'server']
+        : [];
+    const setup = spawn(executable, [...setupArgs, ...source], {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { PATH: '/usr/bin:/bin', HOME: dir, LANG: 'C.UTF-8' },
-    },
-  );
-  let setupOutput = '';
-  for (const stream of [setup.stdout, setup.stderr])
-    stream.on('data', (chunk) => {
-      setupOutput += chunk.toString();
+      env: runnerEnv,
     });
-  setup.stdin.end(token);
-  const setupCode = await new Promise((resolve, reject) => {
-    setup.once('error', reject);
-    setup.once('exit', resolve);
-  });
+    let output = '';
+    for (const stream of [setup.stdout, setup.stderr])
+      stream.on('data', (chunk) => {
+        output += chunk.toString();
+      });
+    setup.stdin.end(code);
+    const exit = await new Promise((resolve, reject) => {
+      setup.once('error', reject);
+      setup.once('exit', resolve);
+    });
+    return { output, exit };
+  }
+
+  if (upgrading) {
+    const previous = await baselineLauncher(dir, 'runner');
+    runnerEnv.XDG_CACHE_HOME = previous.cache;
+    const setup = await setupWith(previous.binary, token, true);
+    // Do not publish legacy transport diagnostics or private configuration.
+    if (setup.exit !== 0) {
+      const privateLogs = path.join(root, '.data/upgrade-private');
+      await mkdir(privateLogs, { recursive: true, mode: 0o700 });
+      await writeFile(
+        path.join(privateLogs, 'baseline-setup.log'),
+        setup.output,
+        { mode: 0o600 },
+      );
+    }
+    assert.equal(setup.exit, 0, 'The fixed baseline Runner setup failed');
+    previousConfig = JSON.parse(
+      await readFile(path.join(runnerData, 'daemon.json'), 'utf8'),
+    );
+    runner = spawn(
+      previous.binary,
+      ['runner', 'run', '--data-dir', runnerData],
+      { cwd, stdio: 'ignore', env: runnerEnv },
+    );
+    await until(
+      'Baseline Runner connection',
+      () => api('/api/runners'),
+      (value) =>
+        value.runners.some(
+          (item) =>
+            item.id === previousConfig.runnerId &&
+            item.online &&
+            item.capabilities.ready,
+        ),
+    );
+    const { sources } = await until(
+      'Baseline source availability',
+      () => api(`/api/runners/${previousConfig.runnerId}/sources`),
+      (value) =>
+        value.sources.some(
+          (item) => item.alias === 'upgrade-notes' && item.available,
+        ),
+    );
+    const source = sources.find((item) => item.alias === 'upgrade-notes');
+    const imported = await api('/api/source-imports', 'POST', {
+      requestId: randomUUID(),
+      runnerId: previousConfig.runnerId,
+      sourceId: source.id,
+      expectedSourceRevision: source.revision,
+      roomName: 'Before Runner upgrade',
+    });
+    const receipt = await until(
+      'Baseline durable source import',
+      () => api(`/api/source-imports/${imported.sourceImport.id}`),
+      (value) =>
+        ['succeeded', 'failed', 'interrupted'].includes(
+          value.sourceImport.status,
+        ),
+    );
+    assert.equal(
+      receipt.sourceImport.status,
+      'succeeded',
+      'Baseline source import failed',
+    );
+    previousImport = receipt.sourceImport;
+    await stop(runner);
+    runner = undefined;
+    previousJournal = createHash('sha256')
+      .update(await readFile(path.join(runnerData, 'journal.sqlite')))
+      .digest('hex');
+  }
+  const { output: setupOutput, exit: setupCode } = await setupWith(
+    path.join(bundle, 'camp'),
+    token,
+  );
   assert.equal(setupCode, 0, setupOutput);
-  if (publicDownload && !offline)
+  if (publicDownload && !offline && !upgrading)
     assert.ok(
       setupOutput.includes(`Downloading GitHub release ${release.version}`),
       'Setup did not download the fixed public release',
@@ -260,6 +375,30 @@ try {
   const savedConfig = JSON.parse(
     await readFile(path.join(runnerData, 'daemon.json'), 'utf8'),
   );
+  if (upgrading) {
+    for (const field of [
+      'runnerId',
+      'storageId',
+      'registrationId',
+      'credential',
+    ])
+      assert.ok(
+        savedConfig[field] === previousConfig[field],
+        `Runner upgrade replaced ${field}`,
+      );
+    assert.equal(
+      createHash('sha256')
+        .update(await readFile(path.join(runnerData, 'journal.sqlite')))
+        .digest('hex'),
+      previousJournal,
+      'Setup changed the existing durable Runner journal',
+    );
+    assert.equal(
+      (await api('/api/runners')).runners.length,
+      1,
+      'Upgrade enrolled another identity',
+    );
+  }
   const runtime = path.join(
     runnerData,
     'runtime/cache',
@@ -306,7 +445,10 @@ try {
     await readFile(path.join(runnerData, 'daemon.json'), 'utf8'),
   );
   assert.equal(repeatedConfig.runnerId, savedConfig.runnerId);
-  assert.equal(repeatedConfig.credential, savedConfig.credential);
+  assert.ok(
+    repeatedConfig.credential === savedConfig.credential,
+    'Repeat setup replaced the Runner credential',
+  );
   if (!publicDownload) await rename(`${stagedRuntime}.held`, stagedRuntime);
   const readiness = JSON.parse(
     await readFile(path.join(runnerData, 'readiness.json'), 'utf8'),
@@ -361,8 +503,19 @@ try {
   assert.equal(assigned.firstTaskRunId, '');
   assert.equal(assigned.firstTaskSucceededAt, '');
   assert.equal(assigned.modelConfigured, true);
+  if (upgrading) {
+    const retained = (await api(`/api/source-imports/${previousImport.id}`))
+      .sourceImport;
+    assert.equal(retained.status, 'succeeded');
+    assert.equal(retained.roomId, previousImport.roomId);
+    assert.equal(
+      await readFile(path.join(sourceDirectory, 'before-upgrade.txt'), 'utf8'),
+      'Preserve the original source.\n',
+    );
+  }
   const { rooms } = await api('/api/rooms');
-  let room = rooms[0];
+  let room =
+    rooms.find((item) => item.id !== previousImport?.roomId) ?? rooms[0];
   await api(
     `/api/runners/${assigned.id}/agents/${room.defaultAgentId}`,
     'PUT',
@@ -510,6 +663,14 @@ try {
         version: release.version || 'dev',
         sourceCommit: release.sourceCommit || '',
         archiveSHA256: artifact.sha256,
+        ...(upgrading
+          ? {
+              fromVersion: upgradeBaseline,
+              runnerIdentityPreserved: true,
+              durableSourceReceiptPreserved: true,
+              journalPreserved: true,
+            }
+          : {}),
         completedAt: new Date().toISOString(),
         platform: process.platform,
         architecture: process.arch,
@@ -531,10 +692,19 @@ try {
           'human-approval-and-delivery',
           'stopped-backup-and-restore',
           'cleanup',
+          ...(upgrading
+            ? [
+                'cross-version-runner-upgrade',
+                'durable-source-receipt-preserved',
+                'journal-preserved',
+              ]
+            : []),
         ],
         untested: [
           'paid-model-provider',
-          'cross-version-upgrade',
+          upgrading
+            ? 'upgrades-other-than-named-baseline'
+            : 'cross-version-upgrade',
           'systemd-service-installation',
         ],
       },

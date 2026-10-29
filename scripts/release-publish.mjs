@@ -157,7 +157,7 @@ This is early development software. Alpha/beta versions may introduce breaking c
 
 [Source, Browser and Fixture CI](${acceptance.ci.sourceBrowserFixture}) and the [Native build and installation checks](${acceptance.ci.native}) passed for source \`${identity.sourceCommit}\`. See acceptance.json for artifact and runtime evidence. Public GitHub downloads, online/offline installation and anonymous GHCR pull are checked after publication; the workflow appends a distribution-verification report with their actual outcomes. A failed distribution check leaves this prerelease available for diagnosis and must be resolved before recommending it.
 
-The deterministic local provider exercises real DSH and LayerFS without paid model calls. Paid-provider acceptance, systemd installation and upgrades from an earlier public release are not established by these checks.
+The deterministic local provider exercises real DSH and LayerFS without paid model calls. Server and Runner data upgrade from the named public baseline are recorded in acceptance.json; public Runner upgrade and tagged Go installation are checked again after publication in the appended distribution reports. Paid-provider acceptance, systemd installation and upgrades from other baselines are not established by these checks.
 `,
 );
 if (!existing)

@@ -101,13 +101,17 @@ An operator can add `--source notes=/absolute/notes` during initial setup. Repea
 
 ## Data, upgrades and backup
 
+Release acceptance pins `v0.1.0-alpha.1` as the public upgrade baseline. `node scripts/smoke-upgrade.mjs` creates actual baseline Server data, then starts the current Server against it and verifies authentication/session, discussion, exact versioned file bytes, private drafts and history. This Linux check needs Git, Go and public GitHub access and performs no model call.
+
+On the supported privileged native host, `node scripts/smoke-bundle.mjs upgrade` first installs/runs the baseline Runner and completes a model-free source import. Explicit current-version setup must preserve the identity, credential, storage/registration IDs and exact stopped journal bytes; the upgraded Runner then completes native work, checks, human approval/delivery and backup/restore. The current runtime uses the staged Server mirror before publication. Public verification repeats this as `github-upgrade` using the newly published runtime. Both scenarios use a deterministic provider and record only sanitized evidence. They establish the named baseline, not arbitrary historical upgrades or real-provider success.
+
 Gracefully stop Server, then back up its **whole** data directory with permissions: SQLite, Git resources, private configuration and immutable model revisions belong together. Separately stop/back up each Runner's configuration, journal and native sessions when those must be retained. Backups contain credentials. LayerFS Stores are disposable and cannot replace the Git/SQLite backup.
 
 Restore into an empty stopped directory using the matching release. Check Library history, review/delivery versions and Runner state before normal use. Never run two Servers on one data directory or two Runners on one journal. Valid queued work can resume through reconciliation; a broken model stream is interrupted. Runner restart cleans uncertain execution and can upload only completely retained output. It never replays an incomplete prompt.
 
 Upgrade with a stopped backup and previous release retained. Verify the new release, repeat Runner setup against the same data, then start explicitly. Reinstall an existing service from the new release to update its launcher path. Existing Team data uses append-only migrations; schema downgrade requires the matching backup. Unsupported pre-Team development databases require a separate directory, not deletion or an invented compatibility migration. Never clear data on failure.
 
-Use Server and Runner from the same release for the supported installation path. Protocol compatibility is an explicit handshake version: incompatible Runners stop with status 78 and do not replay work. Distribution-only changes do not bump that protocol. A protocol match is not a general cross-version data-upgrade guarantee; check the release evidence and migration notes before upgrading. The first public release can establish stopped backup/restore, but has no earlier public release against which to claim an upgrade test.
+Use Server and Runner from the same release for the supported installation path. Protocol compatibility is an explicit handshake version: incompatible Runners stop with status 78 and do not replay work. Distribution-only changes do not bump that protocol. A protocol match is not a general cross-version data-upgrade guarantee; check the named baseline, release evidence and migration notes before upgrading.
 
 ## Build and publish a release
 

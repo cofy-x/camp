@@ -84,6 +84,7 @@ On Linux, ordinary Go tests require Bubblewrap (`bwrap`) on PATH to validate exe
 | `make test` | Documentation consistency, SQL generation, ordinary Go tests, script and frontend unit tests |
 | `make test-e2e` | Production-built UI with temporary keyless data; Chromium by default |
 | `make build smoke-production` | Embedded production binary, API/authentication and restart smoke |
+| `node scripts/smoke-upgrade.mjs` | Linux public-baseline Server data upgrade; Go/Git and GitHub access, no model call |
 | `make test-layerfs test-dsh test-project-env` | Opt-in native checks; install fixed runtimes and Linux host prerequisites first |
 | `make test-remote` | Two fixture Runners over TLS/Compose; Docker required |
 | `make test-remote-native` | Actual remote DSH/LayerFS path; Linux native prerequisites |
