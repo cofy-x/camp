@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Button,
   PixelIcon,
@@ -19,7 +19,8 @@ import { ConnectRunner } from './ConnectRunner';
 export function RunnersPanel({ desktop }: { desktop: DesktopAPI }) {
   const { runners, loading, error: loadError, refresh } = useRunners();
   const { user } = useAccount();
-  const { revision, members } = useTeam();
+  const { revision, members, navigation } = useTeam();
+  const handledNavigation = useRef(0);
   const [selectedId, setSelectedId] = useState('');
   const [tab, setTab] = useState('overview');
   const [connecting, setConnecting] = useState(false);
@@ -28,6 +29,26 @@ export function RunnersPanel({ desktop }: { desktop: DesktopAPI }) {
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  useEffect(() => {
+    if (
+      navigation?.app !== 'runners' ||
+      handledNavigation.current === navigation.revision
+    )
+      return;
+    if (navigation.runnerId && loading) return;
+    handledNavigation.current = navigation.revision;
+    setConnecting(Boolean(navigation.connect));
+    if (navigation.runnerId) {
+      if (runners.some((runner) => runner.id === navigation.runnerId)) {
+        setSelectedId(navigation.runnerId);
+        setTab('overview');
+        setError('');
+      } else
+        setError(
+          'This Runner is no longer available. Choose another Runner or connect a Linux machine.',
+        );
+    }
+  }, [navigation, loading, runners]);
   const selected =
     runners.find((runner) => runner.id === selectedId) ?? runners[0];
   const manage =

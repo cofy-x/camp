@@ -31,6 +31,9 @@ type command struct {
 
 // Run dispatches a command, resolving service configuration only when needed.
 func Run(ctx context.Context, args []string, output io.Writer, version string) error {
+	if len(args) > 0 && (args[0] == "doctor" || args[0] == "open") {
+		return runLocal(ctx, args, output)
+	}
 	if len(args) > 0 && args[0] == "runner" {
 		return runRunner(ctx, args[1:], output)
 	}
@@ -50,6 +53,8 @@ Start the local desktop service when no command is given.
 
 Commands:
   serve     Start the service (use "serve --help" for options)
+  doctor    Check local Server prerequisites without changing data
+  open      Open the browser address (use --print on headless hosts)
   runner    Install, connect, run, or inspect a Camp Runner
   help      Show this help (--help, -h)
   version   Print the version (--version)
@@ -102,6 +107,17 @@ not be empty. Put options after "serve"; positional arguments are not accepted.
 		config.DSH, err = readDSHConfig(cmd.options, os.Getenv, cwd)
 		if err != nil {
 			return err
+		}
+		config.OnReady = func(address, setupPath string) {
+			config.Addr = address
+			if url, err := browserURL(config); err == nil {
+				_, _ = fmt.Fprintf(output, "Open Camp: %s\n", url)
+			}
+			directory, _ := filepath.Abs(config.DataDir)
+			_, _ = fmt.Fprintf(output, "Team data: %s\n", directory)
+			if setupPath != "" {
+				_, _ = fmt.Fprintf(output, "Read the private setup token from %s, create your team, then follow Getting Ready.\n", setupPath)
+			}
 		}
 		return server.Run(ctx, config)
 	}

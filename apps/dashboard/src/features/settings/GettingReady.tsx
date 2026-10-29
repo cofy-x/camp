@@ -20,6 +20,7 @@ export function GettingReady({
   error,
   onRefresh,
   onSection,
+  onRunners,
   onAgents,
   onWorkspace,
 }: {
@@ -27,7 +28,8 @@ export function GettingReady({
   loading: boolean;
   error: string;
   onRefresh: () => void;
-  onSection: (section: 'models' | 'environments' | 'runners' | 'team') => void;
+  onSection: (section: 'models' | 'environments' | 'team') => void;
+  onRunners: (connect?: boolean) => void;
   onAgents: () => void;
   onWorkspace: () => void;
 }) {
@@ -37,6 +39,38 @@ export function GettingReady({
   const connection = component('connection');
   const runtime = component('execution');
   const firstTask = component('first-task');
+  const next =
+    model?.status !== 'ready'
+      ? {
+          title: 'Connect a model',
+          detail:
+            'Save your model settings. Your provider key stays on the Server.',
+          action: 'Configure Model…',
+          run: () => onSection('models'),
+        }
+      : runtime?.status !== 'ready' || !readiness?.ready
+        ? {
+            title: 'Connect a Linux Runner',
+            detail:
+              'Use an Ubuntu 24.04 amd64 machine for Agent work. Mac can run the Server.',
+            action: 'Connect Runner…',
+            run: () => onRunners(true),
+          }
+        : firstTask?.status !== 'ready'
+          ? {
+              title: 'Try your first Agent task',
+              detail:
+                'Choose your Runner and run a sample file task. This makes a model request.',
+              action: 'Choose Runner…',
+              run: () => onRunners(),
+            }
+          : {
+              title: 'Start working',
+              detail:
+                'An Agent task succeeded previously. Open Workspace to discuss, draft and review.',
+              action: 'Start Working',
+              run: onWorkspace,
+            };
   const issues =
     readiness?.components.filter(
       (item) => item.status === 'missing' || item.status === 'error',
@@ -48,9 +82,7 @@ export function GettingReady({
         <div>
           <h2>Getting Ready</h2>
         </div>
-        <Button primary onClick={onWorkspace}>
-          Open Workspace
-        </Button>
+        <Button onClick={onWorkspace}>Open Workspace</Button>
       </header>
       {error && (
         <div className="app-error" role="alert">
@@ -64,6 +96,17 @@ export function GettingReady({
         </div>
       )}
       {loading && !readiness && <p role="status">Loading setup status…</p>}
+      {readiness && (
+        <section className="camp-preparation-next" aria-label="Next setup step">
+          <div>
+            <h3>{next.title}</h3>
+            <p>{next.detail}</p>
+          </div>
+          <Button primary onClick={next.run}>
+            {next.action}
+          </Button>
+        </section>
+      )}
       {readiness && (
         <dl className="camp-preparation-status" aria-label="Setup status">
           <div>
@@ -116,7 +159,7 @@ export function GettingReady({
               )}
             </dd>
             <dd className="camp-preparation-action">
-              <Button onClick={() => onSection('runners')}>Open Runners</Button>
+              <Button onClick={() => onRunners()}>Open Runners</Button>
             </dd>
           </div>
           <div>

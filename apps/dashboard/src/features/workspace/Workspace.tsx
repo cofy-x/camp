@@ -662,6 +662,15 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 onChange={workspace.refresh}
                 onReference={addReference}
                 onAgents={() => void team.navigate({ app: 'agents' })}
+                onSetup={
+                  user.role === 'admin'
+                    ? () =>
+                        void team.navigate({
+                          app: 'settings',
+                          section: 'readiness',
+                        })
+                    : undefined
+                }
               />
             )
           ) : (

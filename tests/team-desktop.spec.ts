@@ -32,6 +32,19 @@ test('first-run discussion, private drafts, threads and explicit agent requests'
       page.locator('.p9-desktop-icon').getByText(name, { exact: true }),
     ).toHaveCount(1);
   await expect(page.locator('.p9-desktop-icon')).toHaveCount(5);
+  if (['chromium', 'touch'].includes(testInfo.project.name))
+    await page.screenshot({
+      path: testInfo.outputPath('workspace-first-run.png'),
+    });
+  await workspace(page)
+    .getByRole('button', { name: 'Set Up Agent Work…', exact: true })
+    .click();
+  await expect(
+    settings(page).getByRole('heading', { name: 'Getting Ready', exact: true }),
+  ).toBeVisible();
+  await settings(page)
+    .getByRole('button', { name: 'Open Workspace', exact: true })
+    .click();
   const name = `discussion-${testInfo.project.name}`;
   const room = await createRoom(page, name);
   await post(page, name, 'Let us prepare a useful onboarding guide.');
@@ -61,6 +74,20 @@ test('first-run discussion, private drafts, threads and explicit agent requests'
     .toBe('Remember our three preparation steps.');
   await errors.get(page)!.reload();
   await expect(input).toHaveValue('Remember our three preparation steps.');
+  await input.fill('准备一份入门指南。');
+  await input.dispatchEvent('compositionstart');
+  await input.dispatchEvent('keydown', {
+    key: 'Enter',
+    ctrlKey: true,
+    isComposing: true,
+    bubbles: true,
+  });
+  await input.dispatchEvent('compositionend', { data: '准备一份入门指南。' });
+  await expect(input).toHaveValue('准备一份入门指南。');
+  expect(
+    (await (await page.request.get(`/api/rooms/${room.id}/messages`)).json())
+      .messages,
+  ).toHaveLength(1);
   await input.press('ControlOrMeta+a');
   await input.press('Backspace');
   await expect(input).toHaveValue('');

@@ -32,6 +32,10 @@ Complete packages, including licenses, live under the OS user cache directory's 
 
 ### Standalone Server
 
+Run `camp doctor` to inspect the selected local address, Git and private storage without creating data or reading model credentials. It accepts `--addr`, `--data-dir` and paired TLS path options with the same environment/default resolution as Server. It checks local prerequisites, not provider connectivity or Runner execution. `camp open` opens the resolved browser address with the OS browser command; `camp open --print` only prints it on headless hosts. `CAMP_PUBLIC_ORIGIN` takes precedence for the browser address; wildcard bind addresses map to loopback. Pass the same explicit address/TLS options used for startup when they are not in the process environment.
+
+Starting `camp` prints the browser address, data location and private setup-token file path. The token itself is never printed or placed in a URL. Opening the browser is explicit and no service is enabled. After creating the team, use **Set Up Agent Work…** in an empty Room or **Help → Getting Ready** to follow model setup, Runner connection and first-task selection. Configure model settings in the browser; no model key belongs in shell arguments or Runner configuration.
+
 Extract the matching `camp-server-linux-amd64.tar.gz`, `camp-server-darwin-arm64.tar.gz` (Apple Silicon) or `camp-server-darwin-amd64.tar.gz` (Intel Mac), then run its `camp`. Source developers use `make build` and `dist/camp`. Keep data outside the extracted installation. The published Linux image contains the same Linux Server binary and dependency licenses. It needs a persistent `/data` mount and explicit port/TLS configuration; it does not include a Runner. For a binary deployment with remote access, provide TLS:
 
 ```sh

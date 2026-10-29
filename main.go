@@ -38,6 +38,8 @@ func main() {
 
 Commands:
   serve     Start Camp Server (default; use "serve --help" for options)
+  doctor    Check local Server prerequisites without changing data
+  open      Open the browser address (use --print on headless hosts)
   runner    Set up or operate a supported Linux Runner
   version   Print this fixed installation's version
 

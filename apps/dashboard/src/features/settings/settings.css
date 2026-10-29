@@ -286,6 +286,27 @@
 .camp-preparation-heading h2 {
   margin: 0;
 }
+.camp-preparation-next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid #999;
+  background: #fff;
+  box-shadow: 1px 1px #fff;
+}
+.camp-preparation-next > div {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.camp-preparation-next h3 {
+  margin: 0 0 6px;
+}
+.camp-preparation-next p {
+  margin: 0;
+}
 .camp-settings .camp-preparation-status {
   display: block;
   margin: 0 0 12px;

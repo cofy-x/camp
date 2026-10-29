@@ -71,6 +71,8 @@ Review forms freeze their file while open and survive background refresh. Uncert
 
 ## Readiness and Runners
 
+An empty Room with unavailable execution gives administrators **Set Up Agent Work…**; ordinary teammates retain the browser discussion path. Getting Ready leads with one next action: configure a model, connect a Linux Runner, choose a Runner for an explicitly requested sample task, or start working after recorded success. Navigation starts no model request or enrollment. Connection navigation opens the existing persistent Connect Runner view; returning to machine overview keeps its unfinished connection draft. Detailed observations remain independently visible and never become a substitute for first-task evidence.
+
 Getting Ready separates model configuration, observed provider responses, Runner self-test reports and recorded native task success. Opening and Refresh Status read the current aggregate without probing dependencies, invoking a model or pausing admission. Preserve the actual observation timestamps; prior observations survive failures and older responses cannot replace newer reports. Optional document readers belong to document preparation, independently of discussion/plain-text work. Model, environment and storage panels load independently. An available runtime or previous connection cannot certify a current successful task. See [readiness ownership](architecture.md#readiness-reporting).
 
 Runners uses a selected-machine list/detail panel: Overview for availability and repair, Access for defaults/grants, Diagnostics for versions/timestamps/history. Agent choice stays in conversation; machine choice stays in Agents/Runners. A submitted request keeps its Runner and explains offline/busy waits.

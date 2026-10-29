@@ -200,6 +200,88 @@ test('remote environment settings show Server concurrency without inventing Runn
   await expect(page.locator('[data-window-id="runners:main"]')).toBeVisible();
 });
 
+test('Getting Ready guides model, Runner and task setup without starting work', async ({
+  page,
+}) => {
+  await signIn(page);
+  let stage = 'model';
+  const mutations: string[] = [];
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      /\/api\/(agents|runner-enrollments|rooms\/[^/]+\/messages)/.test(
+        request.url(),
+      )
+    )
+      mutations.push(request.url());
+  });
+  await page.route('**/api/settings/readiness', (route) =>
+    route.fulfill({
+      json: {
+        ...observation,
+        ready: ['task', 'done'].includes(stage),
+        components: observation.components.map((component) => ({
+          ...component,
+          status:
+            component.id === 'model'
+              ? stage === 'model'
+                ? 'missing'
+                : 'ready'
+              : component.id === 'execution'
+                ? ['task', 'done'].includes(stage)
+                  ? 'ready'
+                  : 'missing'
+                : component.id === 'first-task'
+                  ? stage === 'done'
+                    ? 'ready'
+                    : 'unknown'
+                  : component.status,
+        })),
+      },
+    }),
+  );
+  await openApp(page, 'Settings');
+  const next = preparation(page).getByRole('region', {
+    name: 'Next setup step',
+  });
+  await expect(next.getByRole('heading')).toHaveText('Connect a model');
+  await next
+    .getByRole('button', { name: 'Configure Model…', exact: true })
+    .focus();
+  await page.keyboard.press('Enter');
+  await expect(
+    settings(page).getByRole('heading', {
+      name: 'Model Connection',
+      exact: true,
+    }),
+  ).toBeVisible();
+  stage = 'runner';
+  await selectPanel(page, 'readiness', 'Getting Ready');
+  await expect(next.getByRole('heading')).toHaveText('Connect a Linux Runner');
+  await next
+    .getByRole('button', { name: 'Connect Runner…', exact: true })
+    .click();
+  await expect(
+    page.getByRole('region', { name: 'Connect Runner', exact: true }),
+  ).toBeVisible();
+  stage = 'task';
+  await openApp(page, 'Settings');
+  await expect(next.getByRole('heading')).toHaveText(
+    'Try your first Agent task',
+  );
+  await expect(next).toContainText('This makes a model request.');
+  await next
+    .getByRole('button', { name: 'Choose Runner…', exact: true })
+    .click();
+  await expect(
+    page.getByRole('region', { name: 'Connect Runner', exact: true }),
+  ).not.toBeVisible();
+  stage = 'done';
+  await openApp(page, 'Settings');
+  await expect(next.getByRole('heading')).toHaveText('Start working');
+  expect(mutations).toEqual([]);
+});
+
 test('Getting Ready separates capabilities and remains usable when another settings panel fails', async ({
   page,
 }, testInfo) => {
