@@ -1,10 +1,46 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:net';
+import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { root } from './lib.mjs';
 import { hashFile, validVersion, verifyRelease } from './release.mjs';
+
+test('release CI resolves only an actual local Docker Unix socket', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'camp-docker-socket-'));
+  const server = createServer();
+  const socket = join(directory, "engine's socket.sock");
+  const output = join(directory, 'output');
+  const execute = promisify(execFile);
+  const run = (endpoint) =>
+    execute(
+      process.execPath,
+      [join(root, 'scripts/release-docker-socket.mjs')],
+      { env: { ...process.env, DOCKER_HOST: endpoint, GITHUB_OUTPUT: output } },
+    );
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(socket, resolve);
+    });
+    await run(`unix://${socket}`);
+    assert.equal(await readFile(output, 'utf8'), `path=${socket}\n`);
+    for (const endpoint of [
+      'tcp://127.0.0.1:2375',
+      'unix://remote.invalid/socket',
+      `unix://${socket}?redirect=1`,
+      `unix://${output}`,
+      'unix:///missing-camp-engine.sock',
+    ])
+      await assert.rejects(run(endpoint));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test('release transfer rejects changed archives, checksums, identities and unsafe names', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'camp-release-test-'));

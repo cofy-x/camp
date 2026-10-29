@@ -5,12 +5,22 @@ import { releaseIdentity, repository } from './release.mjs';
 const identity = await releaseIdentity();
 assert.ok(identity.published, 'Choose a fixed release version.');
 assert.equal(process.env.GITHUB_REPOSITORY, repository);
+assert.equal(process.env.GITHUB_SHA, identity.sourceCommit);
+if (process.env.CAMP_RELEASE_VALIDATE_ONLY === 'true') {
+  await appendFile(
+    process.env.GITHUB_OUTPUT,
+    `source=${identity.sourceCommit}\nci-url=\n`,
+  );
+  console.log(
+    `Validation only: Native package checks for ${identity.sourceCommit}; publication and Source/Browser/Fixture acceptance are not granted.`,
+  );
+  process.exit(0);
+}
 assert.equal(
   process.env.GITHUB_REF,
   'refs/heads/main',
   'Publish only reviewed main source.',
 );
-assert.equal(process.env.GITHUB_SHA, identity.sourceCommit);
 const api = async (route, allowMissing = false) => {
   const response = await fetch(
     `https://api.github.com/repos/${repository}/${route}`,

@@ -54,6 +54,7 @@ const evidence = {
   version: identity.version,
   sourceCommit: identity.sourceCommit,
   sourceModified: identity.modified,
+  validationOnly: process.env.CAMP_RELEASE_VALIDATE_ONLY === 'true',
   protocolVersion: runner.protocolVersion,
   completedAt: new Date().toISOString(),
   host: {
@@ -63,7 +64,7 @@ const evidence = {
     architecture: process.arch,
   },
   ci: {
-    sourceBrowserFixture: process.env.CAMP_RELEASE_CI_URL,
+    sourceBrowserFixture: process.env.CAMP_RELEASE_CI_URL || null,
     native: `https://github.com/cofy-x/camp/actions/runs/${process.env.GITHUB_RUN_ID}`,
   },
   native: {
@@ -81,7 +82,9 @@ const evidence = {
   installations: reports,
   serverImage: image,
   publicDistribution:
-    'pending; see appended distribution-verification evidence',
+    process.env.CAMP_RELEASE_VALIDATE_ONLY === 'true'
+      ? 'not published; this run validates Native packages only'
+      : 'pending; see appended distribution-verification evidence',
   untested: [
     'paid model provider',
     'cross-version upgrade from an earlier public release',

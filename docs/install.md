@@ -89,7 +89,9 @@ Use Server and Runner from the same release for the supported installation path.
 
 ## Build and publish a release
 
-The [Release workflow](../.github/workflows/release.yml) is manually dispatched on `main` with a fixed version. It verifies that the exact source has passed Source, Browser and Fixture CI and that the tag is unused. A fresh privileged Ubuntu builder installs pinned dependencies, builds all packages, runs Native recovery and online/offline installation checks, tests the Server image, and stages only the reviewed artifact allowlist. A separate job publishes to GitHub Releases and GHCR. Publishing permissions are confined to those jobs; pull requests do not run the privileged release build.
+The [Release workflow](../.github/workflows/release.yml) is manually dispatched on `main` with a fixed version. It verifies that the exact source has passed Source, Browser and Fixture CI and that the tag is unused. A fresh privileged Ubuntu builder installs pinned dependencies, builds all packages, runs Native recovery and online/offline installation checks, tests the Server image, and stages only the reviewed artifact allowlist. A separate job publishes to GitHub Releases and GHCR. Publishing permissions are confined to those jobs; pull requests do not automatically run the privileged release build.
+
+Maintainers can manually dispatch the same workflow on a trusted development branch with `validate-only=true` to check Native packages before merging. This mode has read-only repository permissions, retains CI artifacts, and creates no tag, Release or registry image. Its report explicitly leaves Source/Browser/Fixture acceptance and public distribution ungranted. Publishing still requires the normal mode on reviewed `main`.
 
 After publication, another fresh Ubuntu host downloads the real public assets without GitHub or Camp credentials, checks their hashes and source identity, runs online/offline Native tasks and stopped backup/restore, then pulls/tests the Server image anonymously. Its report is appended to the release, including failures. A published prerelease with a failed distribution check is not a completed release acceptance. New GHCR packages default to private: the repository owner must make the Camp package public once before anonymous pull can pass; see [GitHub's package visibility guidance](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility). Repository visibility alone does not do this.
 
@@ -97,6 +99,13 @@ Dispatch after the main commit's CI finishes:
 
 ```sh
 gh workflow run release.yml --repo cofy-x/camp --ref main -f version=v0.1.0-alpha.1
+```
+
+For a development branch rehearsal:
+
+```sh
+gh workflow run release.yml --repo cofy-x/camp --ref your-branch \
+  -f version=v0.1.0-alpha.1 -f validate-only=true
 ```
 
 For a local rehearsal, release builders use the [repository toolchain](../README.md#local-development) and an isolated clean checkout on the supported privileged host:
