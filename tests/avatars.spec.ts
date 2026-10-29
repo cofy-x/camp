@@ -50,7 +50,11 @@ test('a saved avatar stays stable and updates an existing conversation in anothe
   const before = await profile(page);
   expect(before.avatar).toMatch(/^member-/);
   const choices = await catalog(page, 'member');
-  const target = choices.find((entry) => entry.id !== before.avatar)!;
+  const target =
+    choices[
+      (choices.findIndex((entry) => entry.id === before.avatar) + 1) %
+        choices.length
+    ];
   const room = await createRoom(
     page,
     `Avatar Room ${randomUUID().slice(0, 8)}`,
@@ -80,15 +84,22 @@ test('a saved avatar stays stable and updates an existing conversation in anothe
     `/api/avatars/${before.avatar}`,
   );
   await account(page);
-  await settings(page)
-    .getByRole('button', { name: 'Change Avatar…', exact: true })
-    .click();
+  const changeAvatar = settings(page).getByRole('button', {
+    name: 'Change Avatar…',
+    exact: true,
+  });
+  await changeAvatar.focus();
+  await changeAvatar.press('Enter');
+  const current = settings(page).getByRole('radio', {
+    name: choices.find((entry) => entry.id === before.avatar)!.name,
+    exact: true,
+  });
+  await expect(current).toBeFocused();
+  await current.press('ArrowRight');
   const radio = settings(page).getByRole('radio', {
     name: target.name,
     exact: true,
   });
-  await radio.focus();
-  await radio.press('Space');
   await expect(radio).toBeChecked();
   await radio.press('Tab');
   await page.keyboard.press('Shift+Tab');

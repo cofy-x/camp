@@ -97,6 +97,7 @@ export function AccountAvatar({
       }}
     >
       <AvatarPicker
+        autoFocus
         kind="member"
         value={selection.avatar}
         onChange={(avatar) => {
