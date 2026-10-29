@@ -16,6 +16,7 @@ import {
   string,
 } from './validation.mjs';
 import { readState, saveState } from './state.mjs';
+import { dockerVolumeDirectory } from './docker.mjs';
 
 export class CampLayerFS {
   static async open(config) {
@@ -76,12 +77,13 @@ export class CampLayerFS {
       pathToFileURL(require.resolve('@layerfs/runtime'))
     );
     const containerPrefix = `camp-${identity('home', [home]).slice(5, 17)}-`;
+    const docker = config.docker ?? '/var/run/docker.sock';
     const options = {
       home,
       image: installed.image,
       daemon: installed.daemon,
-      docker: config.docker ?? '/var/run/docker.sock',
-      volumes: config.volumes ?? '/var/lib/docker/volumes',
+      docker,
+      volumes: config.volumes ?? (await dockerVolumeDirectory(docker)),
       containerPrefix,
       sweep: false,
     };

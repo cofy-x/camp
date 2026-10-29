@@ -6,6 +6,8 @@ Camp serves one trusted team from one Server. Ordinary members use a browser; pe
 
 The native Runner package targets **Ubuntu 24.04 amd64**. Its host requires Docker Engine with a local Unix socket and local volume access, `/dev/fuse`, Bubblewrap with working user/PID namespaces, Git and Bash. The fixed native binaries use the platform's system libraries; setup reports missing prerequisites without installing packages or changing host policy.
 
+Runner discovers the selected local engine's volume directory through Docker's system-info API, including custom Docker data directories. That directory must be directly accessible to the privileged Runner account; a remote Docker endpoint cannot provide this execution environment.
+
 The LayerFS local-volume backend requires privileged filesystem access. Docker group membership alone is insufficient. Use the same dedicated privileged account for setup, foreground operation and service installation. Native services require root-owned private storage and refuse another account's existing journal. Unprivileged/rootless native execution is unsupported. Treat the Runner operator as a trusted privileged host owner; tool containers receive no Docker control. Ubuntu policy may require an administrator-approved Bubblewrap profile.
 
 Server needs Git and private storage, without Docker, DSH or LayerFS. Its [lightweight image](../Dockerfile) omits native execution and optional PDF/DOCX reader dependencies. For readers on a binary Server deployment, see the [document runtime](../tools/document-runtime/README.md). macOS/Windows browser and Compose usage does not imply native Runner support; a build recipe alone is not validation of another host platform.

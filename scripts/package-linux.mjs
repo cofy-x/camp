@@ -115,6 +115,7 @@ try {
   for (const name of [
     'bridge.mjs',
     'runtime.mjs',
+    'docker.mjs',
     'state.mjs',
     'validation.mjs',
     'pin.json',
