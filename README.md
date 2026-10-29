@@ -28,6 +28,18 @@ The five applications support **collect sources → Room discussion → Agent ex
 
 All Rooms, shared files and collaboration task drafts are team-visible. Task drafts remain separate from shared Room files until final publication. Personal editing drafts, Inbox, reads and desktop layouts belong to each member. Agent sharing delegates invocation; machine administration and source import still require owner/admin authority.
 
+## Start using Camp
+
+Team members use Camp in a browser. An administrator deploys Camp Server; members who contribute execution machines install the matching Camp Runner. Using Camp does not require the source development toolchain or separate DSH/LayerFS installations.
+
+Choose a fixed version from [GitHub Releases](https://github.com/cofy-x/camp/releases) and follow that version's [installation guide](docs/install.md):
+
+1. Deploy the **Server archive** or the matching **GHCR image**, with private persistent storage. Open its browser address to create the team and configure a model.
+2. In **Runners → Connect Runner**, obtain the separate **Runner installer** and a one-use connection code. The machine operator runs `setup`, then `run`; an offline package is also available.
+3. Configure Agent access and Runner routing, then explicitly send a first task. Registration and self-test success do not establish real model success.
+
+Check [supported Runner hosts and prerequisites](docs/install.md#supported-deployment) before connecting a machine. Server and Runner remain independent processes even on one host. For local protocol and recovery development with two simulated machines, use the [Docker Compose harness](tools/remote-dev/README.md).
+
 ## Local development
 
 Use Go **1.27.3**, Node **24.16.0** and pnpm **12.11.2**, as pinned in [go.mod](go.mod), [.node-version](.node-version) and [package.json](package.json). Run commands from this repository root. The Makefile invokes fixed pnpm via `npx`.

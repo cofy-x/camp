@@ -171,6 +171,9 @@
   margin: 0 auto;
   padding: 20px;
 }
+.camp-runner-connect > h2 {
+  margin-bottom: 22px;
+}
 .camp-runner-connect > p {
   margin-top: 6px;
   margin-bottom: 22px;
@@ -189,6 +192,9 @@
 .camp-runner-connect input {
   width: 100%;
   max-width: 320px;
+}
+.camp-runner-connect form > .p9-button {
+  margin-top: 12px;
 }
 .camp-runner-token {
   width: 100%;

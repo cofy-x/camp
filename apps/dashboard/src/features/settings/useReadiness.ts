@@ -4,7 +4,6 @@ import { settingsApi, type Readiness } from './api';
 interface ReadinessState {
   readiness: Readiness | null;
   loading: boolean;
-  rechecking: boolean;
   error: string;
 }
 
@@ -12,7 +11,6 @@ export function useReadiness(active: boolean) {
   const [state, setState] = useState<ReadinessState>({
     readiness: null,
     loading: false,
-    rechecking: false,
     error: '',
   });
   const requests = useRef({
@@ -20,7 +18,6 @@ export function useReadiness(active: boolean) {
     lifetime: 0,
     visible: false,
     readGeneration: 0,
-    pendingRecheck: null as Promise<void> | null,
   });
 
   useEffect(() => {
@@ -36,7 +33,7 @@ export function useReadiness(active: boolean) {
 
   const refresh = useCallback(async () => {
     const request = requests.current;
-    if (!request.mounted || !request.visible || request.pendingRecheck) return;
+    if (!request.mounted || !request.visible) return;
     const generation = ++request.readGeneration;
     const currentLifetime = request.lifetime;
     const current = () =>
@@ -62,47 +59,6 @@ export function useReadiness(active: boolean) {
     }
   }, []);
 
-  const recheck = useCallback(async () => {
-    const request = requests.current;
-    if (!request.mounted) return;
-    if (request.pendingRecheck) return request.pendingRecheck;
-    const currentLifetime = request.lifetime;
-    request.readGeneration++;
-    setState((previous) => ({
-      ...previous,
-      loading: false,
-      rechecking: true,
-      error: '',
-    }));
-
-    // A deliberate server check continues when another Settings panel opens.
-    // Reads cannot replace its result, and repeated clicks share this request.
-    const operation = (async () => {
-      const current = () =>
-        request.mounted && currentLifetime === request.lifetime;
-      try {
-        const readiness = await settingsApi.readiness(true);
-        if (current()) setState((previous) => ({ ...previous, readiness }));
-      } catch (error) {
-        if (current())
-          setState((previous) => ({
-            ...previous,
-            error:
-              error instanceof Error
-                ? error.message
-                : 'Could not check the working environment.',
-          }));
-      } finally {
-        if (current()) {
-          request.pendingRecheck = null;
-          setState((previous) => ({ ...previous, rechecking: false }));
-        }
-      }
-    })();
-    request.pendingRecheck = operation;
-    await operation;
-  }, []);
-
   useEffect(() => {
     const request = requests.current;
     request.visible = active;
@@ -114,5 +70,5 @@ export function useReadiness(active: boolean) {
     };
   }, [active, refresh]);
 
-  return { ...state, refresh, recheck };
+  return { ...state, refresh };
 }

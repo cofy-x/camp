@@ -438,8 +438,9 @@ test('Connect Runner uses the fixed public release and exposes offline verificat
   await signIn(page);
   await openApp(page, 'Runners');
   const panel = await connectRunner(page);
+  await expect(panel).toContainText('v0.1.0-alpha.1.');
   await expect(panel).toContainText(
-    'v0.1.0-alpha.1 with machine administrator access.',
+    'Ubuntu 24.04 amd64. Run setup and the Runner as root, using the same private data directory.',
   );
   await expect(
     panel.getByRole('link', {
@@ -447,11 +448,14 @@ test('Connect Runner uses the fixed public release and exposes offline verificat
       exact: true,
     }),
   ).toHaveAttribute('href', `${base}camp-runner-linux-amd64.tar.gz`);
-  const details = panel.getByText('Download verification and offline install', {
+  const details = panel.getByText('Requirements and offline install', {
     exact: true,
   });
   await details.focus();
   await details.press('Enter');
+  await expect(panel).toContainText(
+    'Requires Docker Engine, FUSE, Bubblewrap, Git and Bash.',
+  );
   await expect(
     panel.getByRole('link', {
       name: 'Full offline package (322 MB)',
@@ -530,9 +534,7 @@ test('Connect Runner distinguishes the small installer from runtime downloads an
       exact: true,
     }),
   ).toHaveAttribute('href', '/api/runner-installation/download');
-  await expect(panel).toContainText(
-    'Setup downloads 310 MB of execution tools once.',
-  );
+  await expect(panel).toContainText('Setup downloads 310 MB once.');
   if (['chromium', 'touch'].includes(info.project.name))
     await runnerApp(page).screenshot({
       path: info.outputPath('runners-connect-start.png'),
@@ -545,7 +547,7 @@ test('Connect Runner distinguishes the small installer from runtime downloads an
     }),
   ).toBeHidden();
   await panel
-    .getByText('Download verification and offline install', { exact: true })
+    .getByText('Requirements and offline install', { exact: true })
     .click();
   await expect(
     panel.getByRole('link', {
@@ -768,6 +770,99 @@ test('Runner Access grants only the selected machine and keeps management privat
     { method: 'PUT', path: `/api/runners/${owned.id}/agents/guest-agent` },
     { method: 'DELETE', path: `/api/runners/${owned.id}/agents/guest-agent` },
   ]);
+});
+
+test('Runner reconnect between pointer down and up keeps the import action stationary and submits once', async ({
+  page,
+}, info) => {
+  await mockRunners(page);
+  let online = false;
+  let runnerReads = 0;
+  await page.route('**/api/runners', (route) => {
+    runnerReads++;
+    return route.fulfill({
+      json: {
+        runners: runners.map((runner, index) =>
+          index === 0 ? { ...runner, online } : runner,
+        ),
+      },
+    });
+  });
+  const requests: SourceImportInput[] = [];
+  const value: SourceImport = {
+    id: 'pointer-import',
+    runnerId: runners[0].id,
+    sourceId: 'source-notes',
+    sourceAlias: 'Team Notes',
+    roomName: 'Pointer import',
+    status: 'queued',
+    createdAt: '2026-10-29T12:00:00Z',
+    updatedAt: '2026-10-29T12:00:00Z',
+  };
+  await page.route('**/api/source-imports', (route) => {
+    if (route.request().method() === 'GET')
+      return route.fulfill({ json: { sourceImports: [] } });
+    requests.push(route.request().postDataJSON() as SourceImportInput);
+    return route.fulfill({ json: { sourceImport: value } });
+  });
+  await page.route('**/api/source-imports/pointer-import', (route) =>
+    route.fulfill({ json: { sourceImport: value } }),
+  );
+  await signIn(page);
+  await openApp(page, 'Library');
+  const panel = await openImport(page);
+  await panel
+    .getByLabel('Source Runner', { exact: true })
+    .selectOption(runners[0].id);
+  await panel
+    .getByLabel('Registered directory', { exact: true })
+    .selectOption('source-notes');
+  await panel
+    .getByLabel('New Room name', { exact: true })
+    .fill('Pointer import');
+  await expect(
+    panel.getByText('This snapshot will wait until the Runner reconnects.', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  const button = panel.getByRole('button', {
+    name: 'Import Snapshot',
+    exact: true,
+  });
+  const before = (await button.boundingBox())!;
+  await page.mouse.move(
+    before.x + before.width / 2,
+    before.y + before.height / 2,
+  );
+  await page.mouse.down();
+  try {
+    online = true;
+    const previousReads = runnerReads;
+    const response = await mutate(page, '/rooms', {
+      name: `pointer-status-${info.project.name}`,
+    });
+    expect(response.ok()).toBe(true);
+    await expect.poll(() => runnerReads).toBeGreaterThan(previousReads);
+    await expect(
+      panel.getByText('This snapshot will wait until the Runner reconnects.', {
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    const after = (await button.boundingBox())!;
+    expect(Math.abs(after.y - before.y)).toBeLessThan(1);
+    await expect(
+      panel.getByLabel('New Room name', { exact: true }),
+    ).toHaveValue('Pointer import');
+  } finally {
+    await page.mouse.up();
+  }
+  await expect(panel.getByRole('status')).toContainText('Waiting for Runner');
+  expect(requests).toHaveLength(1);
+  expect(requests[0]).toMatchObject({
+    runnerId: runners[0].id,
+    sourceId: 'source-notes',
+    roomName: 'Pointer import',
+  });
 });
 
 test('Runner imports recover an uncertain receipt after closing the panel and cancel without losing identity', async ({

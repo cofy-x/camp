@@ -121,12 +121,15 @@ export function ConnectRunner({
   return (
     <section className="camp-runner-connect" aria-label="Connect Runner">
       <h2>Connect a Linux machine</h2>
-      <p>Your Runner executes Agent work for the Rooms you share with.</p>
       <section
         className="camp-runner-connect-step"
         aria-label="Install Camp Runner"
       >
         <h3>1. Get Camp Runner</h3>
+        <p>
+          {installation?.platform ?? 'Linux'}. Run setup and the Runner as root,
+          using the same private data directory.
+        </p>
         {installationError ? (
           <p className="app-error" role="alert">
             {installationError}{' '}
@@ -158,9 +161,10 @@ export function ConnectRunner({
                   )}
                 </div>
                 <p className="camp-runner-hint">
-                  {`${installation.platform}${installation.version ? ` · ${installation.version}` : ''} with machine administrator access. Extract the download on that machine.`}
+                  {installation.version && `${installation.version}. `}
+                  Extract on the Runner machine.
                   {installation.runtime?.bytes
-                    ? ` Setup downloads ${size(installation.runtime.bytes)} of execution tools once.`
+                    ? ` Setup downloads ${size(installation.runtime.bytes)} once.`
                     : ''}
                 </p>
               </>
@@ -174,12 +178,8 @@ export function ConnectRunner({
             )}
             {(installation.available || installation.offline?.available) && (
               <details className="camp-runner-install-options">
-                <summary>Download verification and offline install</summary>
-                <p>
-                  The machine needs Docker Engine, FUSE, Bubblewrap, Git and
-                  Bash. Setup checks these requirements before downloading the
-                  execution tools.
-                </p>
+                <summary>Requirements and offline install</summary>
+                <p>Requires Docker Engine, FUSE, Bubblewrap, Git and Bash.</p>
                 {installation.source === 'server' && installation.version && (
                   <p>
                     This Server mirrors the fixed release. For setup without
@@ -313,8 +313,8 @@ export function ConnectRunner({
               {new Date(enrollment.enrollment.expiresAt).toLocaleString()}.
             </p>
             <p>
-              Follow setup’s run command to bring your Runner online. Keep it
-              running while Agents work. Background service setup is optional.
+              Start the Runner with setup’s run command. Background service
+              setup is optional.
             </p>
             <p role="status">
               Waiting for registration…{' '}
@@ -347,9 +347,6 @@ export function ConnectRunner({
                   placeholder="For example, Studio Linux"
                 />
               </label>
-              <p className="camp-runner-hint">
-                Choose a name your team will recognize.
-              </p>
               <Button primary type="submit" disabled={pending || !name.trim()}>
                 {pending ? 'Creating…' : 'Create Connection Code'}
               </Button>

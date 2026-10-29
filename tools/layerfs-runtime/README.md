@@ -19,6 +19,8 @@ Runtime requirements are Docker Engine with API v1.54, Linux FUSE, and a local e
 
 The bridge discovers the selected engine's data directory through the public Docker system-info API and verifies that its volume directory is available locally. A custom socket does not imply `/var/lib/docker`; remote engines and inaccessible volume storage remain unsupported.
 
+Startup cleanup queries the public Docker volume API with exact Store/home labels instead of engine-wide disk/image inventory. This keeps unrelated host inventory outside cleanup's output budget. Project removal still uses the public LayerFS runtime API; orphan removal rechecks exact ownership and asks Docker to delete without force. Missing/ambiguous ownership or in-use volumes stop cleanup rather than pruning another Runner's state.
+
 ## Boundary and lifetime
 
 Go owns the SDK process, the private runtime home, Run records, resource locks, execution admission, cancellation, export validation, and authoritative result publication. The bridge uses only the public `@layerfs/agent`, `@layerfs/backend`, and `@layerfs/runtime` entrypoints. LayerFS owns its disposable Store, Sandbox, mounted Workspace, and checkpoints.

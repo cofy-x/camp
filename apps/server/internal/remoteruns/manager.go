@@ -247,7 +247,7 @@ func (m *Manager) MaxConcurrent() int { return m.config.Concurrency }
 func (m *Manager) StorageSettings() runs.StorageSettings {
 	return runs.StorageSettings{DataDirectory: m.config.DataDir, Files: "Immutable Git resource versions", Versions: "SQLite publication and review records", Backups: "Stop the server and back up its complete data directory."}
 }
-func (m *Manager) CheckReadiness(ctx context.Context, recheck bool) (runs.Readiness, error) {
+func (m *Manager) Readiness(ctx context.Context) (runs.Readiness, error) {
 	revision, model := m.models.Snapshot()
 	stamp := time.Now().UTC().Format(time.RFC3339Nano)
 	modelState, modelDetail := "missing", "Configure a model connection."
@@ -259,22 +259,32 @@ func (m *Manager) CheckReadiness(ctx context.Context, recheck bool) (runs.Readin
 		return runs.Readiness{}, err
 	}
 	ready := 0
+	firstTask := configuration.Diagnostic{Status: "unknown", Detail: "No successful native task has been recorded. Installation self-tests and fixture tasks do not verify model-backed native work."}
+	lastSelfTest := ""
 	for _, r := range runners {
 		var c runnerprotocol.Capabilities
 		_ = json.Unmarshal(r.Capabilities, &c)
 		if r.Online && r.Enabled && !r.Revoked && c.Ready {
 			ready++
+			if c.Readiness != nil && c.Readiness.CheckedAt > lastSelfTest {
+				lastSelfTest = c.Readiness.CheckedAt
+			}
+		}
+		for _, observed := range []string{r.FirstTaskSucceededAt, r.EarlierTaskSucceededAt} {
+			if r.Runtime == "native" && observed > firstTask.CheckedAt {
+				firstTask = configuration.Diagnostic{Status: "ready", Detail: "A native task succeeded previously. This is a recorded outcome, not a new model check.", CheckedAt: observed}
+			}
 		}
 	}
 	runnerState, runnerDetail := "missing", "Connect an execution machine in Runners."
 	if ready > 0 {
-		runnerState, runnerDetail = "ready", "An execution runner is connected."
+		runnerState, runnerDetail = "ready", "Connected Runners report execution ready. Agent routing and access are checked separately when work is submitted."
 	}
 	connection := m.diagnostics.Get("connection:" + revision)
 	if connection.Status == "" {
 		connection = configuration.Diagnostic{Status: "unknown", Detail: "No model connection has been observed."}
 	}
-	return runs.Readiness{Ready: ready > 0 && (model.APIKey != "" || m.config.AllowFixture), CheckedAt: stamp, Components: []runs.ReadinessComponent{{ID: "model", Label: "Model", Diagnostic: configuration.Diagnostic{Status: modelState, Detail: modelDetail, CheckedAt: stamp}}, {ID: "connection", Label: "Model connection", Diagnostic: connection}, {ID: "execution", Label: "Runners", Diagnostic: configuration.Diagnostic{Status: runnerState, Detail: runnerDetail, CheckedAt: stamp}}}}, nil
+	return runs.Readiness{Ready: ready > 0 && (model.APIKey != "" || m.config.AllowFixture), CheckedAt: stamp, Components: []runs.ReadinessComponent{{ID: "model", Label: "Model", Diagnostic: configuration.Diagnostic{Status: modelState, Detail: modelDetail, CheckedAt: stamp}}, {ID: "connection", Label: "Model connection", Diagnostic: connection}, {ID: "execution", Label: "Runner execution reports", Diagnostic: configuration.Diagnostic{Status: runnerState, Detail: runnerDetail, CheckedAt: lastSelfTest}}, {ID: "first-task", Label: "Native task", Diagnostic: firstTask}}}, nil
 }
 
 type RunnerView struct {

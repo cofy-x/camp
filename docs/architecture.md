@@ -97,6 +97,12 @@ The [registry](../apps/dashboard/src/app/registry.ts) composes five product apps
 
 Library freezes resource/path/baseline for an editor or review request. Obsolete reads cannot install another file after navigation. Existing filenames open saved bytes. Tabs preserve reading state; listing failures end loading and offer retry. Environment forms keep editing baselines separate from observed settings and save receipts. That API has no atomic revision precondition, so the UI cannot prevent an unseen concurrent administrator update; see [the open concurrency work](#resource-configuration-concurrency).
 
+## Readiness reporting
+
+[Remote readiness](../apps/server/internal/remoteruns/manager.go) and [GettingReady](../apps/dashboard/src/features/settings/GettingReady.tsx) report configuration, prior provider responses, connected Runner self-test reports and recorded native task success separately. Refresh is a read-only GET, with its own timestamp; it preserves observation timestamps and makes no model call, dependency probe or admission change. Failed/obsolete refreshes retain the last accepted report without claiming fresh success.
+
+Execution self-tests belong to explicit Runner setup, which owns the journal lock and confirms isolation/export/cleanup without a model request. Optional readers belong to document preparation and do not gate discussion/plain-text work. A future active probe needs an explicit owner, scope and protocol; a refresh cannot stand in for one. Readiness is an aggregate, not a guarantee of a particular Agent's routing, grants or future task outcome.
+
 ## Storage
 
 [Numbered migrations](../apps/server/internal/storage/migrations) are the Goose schema; [named queries](../apps/server/internal/storage/queries) generate private sqlc rows. Business models/errors remain handwritten. Run `make generate` and `make generate-check` together with SQL changes and maintain generated Go source.
@@ -117,18 +123,6 @@ The boundaries below describe current implementation choices, not permanent requ
 | Upgrades preserve team data | Append-only Team migrations are implemented. [Migration validation](../apps/server/internal/storage/migrations.go) explicitly rejects discarded pre-Team baselines; there is no universal historical-data upgrader or automatic reset. Restore is the stopped manual procedure in [installation](install.md#data-upgrades-and-backup). |
 
 Runner check/output reports assume a trusted machine; they are not remote attestation against a hostile operator. Source/browser/fixture results alone do not establish native isolation, fresh-host portability or real-provider success.
-
-### Readiness reporting
-
-Open work; owners: `remoteruns` and Settings. [Remote CheckReadiness](../apps/server/internal/remoteruns/manager.go) returns model configuration, prior connection observation and connected ready Runners. It ignores the recheck flag, performs no native/document probe and does not pause admission. [GettingReady](../apps/dashboard/src/features/settings/GettingReady.tsx) still has document-reader rows and copy saying new work waits during checking.
-
-Completion requires UI/API checks demonstrating that refresh and active checks are labelled truthfully, capability observations identify their scope and freshness, and missing optional readers do not block ordinary work. A refresh must not claim a probe or admission pause. Any explicit capability check must make no paid model call; a failed check must preserve prior observations without presenting them as fresh success.
-
-### CLI help accuracy
-
-Open work; owner: `cli`. [Serve help](../apps/server/internal/cli/cli.go) omits managed Settings from its printed precedence, although the manager uses them between external values and defaults. [Runner parsing](../apps/server/internal/cli/daemon.go) accepts `--development-runtime` but omits it from help.
-
-Completion requires help-output tests covering the actual configuration precedence and the source-only Runner setup option, with examples matching [execution configuration](dsh.md#configuration-and-budgets). Printed help must distinguish development setup from the packaged member workflow.
 
 ### Resource configuration concurrency
 
