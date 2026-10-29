@@ -1,0 +1,226 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Fixed version (for example v0.1.0-alpha.1 or v0.1.0-rc.1)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: camp-release
+  cancel-in-progress: false
+
+env:
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  preflight:
+    name: Release preflight
+    if: ${{ github.repository == 'cofy-x/camp' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      source: ${{ steps.guard.outputs.source }}
+      ci-url: ${{ steps.guard.outputs.ci-url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Bind release to reviewed source and successful CI
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-preflight.mjs
+
+  build:
+    name: Native build and installation
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.preflight.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Prepare this disposable native builder
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap fuse3 build-essential pkg-config git curl openssl
+          sudo modprobe fuse
+          test -c /dev/fuse
+      - uses: docker/setup-docker-action@7ec28a010822b4626af4874f9448a4b05ac6f3e5 # v5.6.0
+        id: docker
+        with:
+          version: v29.6.2
+          set-host: true
+      - name: Build pinned packages and check native recovery and installations
+        env:
+          CAMP_RELEASE_CI_URL: ${{ needs.preflight.outputs.ci-url }}
+          CAMP_TEST_DOCKER_SOCKET: ${{ steps.docker.outputs.sock }}
+        run: |
+          build="$RUNNER_TEMP/camp-release-build"
+          git clone --no-hardlinks "$GITHUB_WORKSPACE" "$build"
+          sudo chown -R root:root "$build"
+          cd "$build"
+          sudo env PATH="$PATH" HOME=/root DOCKER_HOST="$DOCKER_HOST" \
+            CAMP_TEST_DOCKER_SOCKET="$CAMP_TEST_DOCKER_SOCKET" VERSION="$VERSION" \
+            GITHUB_RUN_ID="$GITHUB_RUN_ID" CAMP_RELEASE_CI_URL="$CAMP_RELEASE_CI_URL" \
+            node scripts/release-build.mjs
+          sudo chown -R "$(id -u):$(id -g)" dist/release dist/server-image.tar
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-packages
+          path: ${{ runner.temp }}/camp-release-build/dist/release/
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+          retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: server-image
+          path: ${{ runner.temp }}/camp-release-build/dist/server-image.tar
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+          retention-days: 1
+
+  publish:
+    name: Publish fixed version
+    needs: [preflight, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
+      url: ${{ steps.publish.outputs.url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.preflight.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-packages
+          path: dist/release
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: server-image
+          path: dist
+      - name: Publish verified archives and immutable Server image
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REGISTRY_USER: ${{ github.actor }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$REGISTRY_USER" --password-stdin
+          docker load --input dist/server-image.tar
+          node scripts/release-publish.mjs
+      - name: Clear temporary registry authentication
+        if: ${{ always() }}
+        run: docker logout ghcr.io
+
+  verify:
+    name: Public installation
+    needs: [preflight, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.preflight.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Prepare a fresh installation host
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap fuse3 git openssl
+          sudo modprobe fuse
+          test -c /dev/fuse
+      - uses: docker/setup-docker-action@7ec28a010822b4626af4874f9448a4b05ac6f3e5 # v5.6.0
+        id: docker
+        with:
+          version: v29.6.2
+          set-host: true
+      - name: Download public assets without GitHub or Camp credentials
+        run: node scripts/fetch-release.mjs
+      - name: Verify public online and offline native installations
+        env:
+          CAMP_TEST_DOCKER_SOCKET: ${{ steps.docker.outputs.sock }}
+        run: |
+          sudo env PATH="$PATH" HOME=/root CAMP_TEST_DOCKER_SOCKET="$CAMP_TEST_DOCKER_SOCKET" node scripts/smoke-bundle.mjs github
+          sudo env PATH="$PATH" HOME=/root CAMP_TEST_DOCKER_SOCKET="$CAMP_TEST_DOCKER_SOCKET" node scripts/smoke-bundle.mjs github-offline
+      - name: Pull Server image anonymously
+        id: image
+        env:
+          SERVER_IMAGE: ${{ needs.publish.outputs.image }}
+        run: |
+          export DOCKER_CONFIG="$RUNNER_TEMP/anonymous-docker"
+          mkdir -p "$DOCKER_CONFIG"
+          docker pull "$SERVER_IMAGE"
+      - name: Verify the published Server image
+        env:
+          SERVER_IMAGE: ${{ needs.publish.outputs.image }}
+        run: sudo env PATH="$PATH" HOME=/root DOCKER_HOST="$DOCKER_HOST" node scripts/smoke-server-image.mjs "$SERVER_IMAGE"
+      - name: Record actual public distribution results
+        if: ${{ always() }}
+        env:
+          CAMP_IMAGE_PULL_OUTCOME: ${{ steps.image.outcome }}
+        run: |
+          mkdir -p dist
+          node scripts/release-distribution-report.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: distribution-verification
+          path: dist/distribution-verification.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  evidence:
+    name: Retain public verification evidence
+    needs: [publish, verify]
+    if: ${{ always() && needs.publish.result == 'success' && needs.verify.result != 'cancelled' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: distribution-verification
+          path: evidence
+      - name: Append verification evidence without replacing assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: cofy-x/camp
+        run: |
+          report="distribution-verification-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
+          mv evidence/distribution-verification.json "evidence/$report"
+          gh release upload "$VERSION" "evidence/$report"

@@ -101,6 +101,8 @@ export const runnersApi = {
   installation: (signal?: AbortSignal) =>
     request<{
       platform: string;
+      version?: string;
+      source?: 'github' | 'server';
       available: boolean;
       downloadUrl: string;
       filename: string;

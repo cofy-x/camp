@@ -3,12 +3,14 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   copyFile,
+  cp,
   readFile,
   mkdtemp,
   mkdir,
   readdir,
   rename,
   rm,
+  writeFile,
 } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -25,11 +27,15 @@ if (!mode) {
     ]);
   process.exit(0);
 }
-assert.ok(['online', 'offline'].includes(mode));
+assert.ok(['online', 'offline', 'github', 'github-offline'].includes(mode));
+const publicDownload = mode.startsWith('github');
+const offline = mode.endsWith('offline');
+const reportFile = path.join(root, `dist/smoke-${mode}.json`);
+await rm(reportFile, { force: true });
 const release = JSON.parse(
   await readFile(path.join(root, 'dist/runner-release.json'), 'utf8'),
 );
-const artifact = mode === 'offline' ? release.offline : release.installer;
+const artifact = offline ? release.offline : release.installer;
 
 // A real native Run, with deterministic local provider responses and no key.
 const dir = await mkdtemp(path.join(tmpdir(), 'camp-release-'));
@@ -106,20 +112,22 @@ try {
   await mkdir(cwd);
   await mkdir(data, { mode: 0o700 });
   const archiveName = release.installer.filename;
-  await mkdir(path.join(data, 'packages'), { mode: 0o700 });
-  for (const name of [
-    release.installer,
-    release.runtime,
-    release.offline,
-  ].flatMap((item) => [item.filename, `${item.filename}.sha256`]))
+  if (!publicDownload) {
+    await mkdir(path.join(data, 'packages'), { mode: 0o700 });
+    for (const name of [
+      release.installer,
+      release.runtime,
+      release.offline,
+    ].flatMap((item) => [item.filename, `${item.filename}.sha256`]))
+      await copyFile(
+        path.join(root, 'dist', name),
+        path.join(data, 'packages', name),
+      );
     await copyFile(
-      path.join(root, 'dist', name),
-      path.join(data, 'packages', name),
+      path.join(root, 'dist/runner-release.json'),
+      path.join(data, 'packages/runner-release.json'),
     );
-  await copyFile(
-    path.join(root, 'dist/runner-release.json'),
-    path.join(data, 'packages/runner-release.json'),
-  );
+  }
   await new Promise((resolve) => provider.listen(0, '127.0.0.1', resolve));
   const socket = createServer();
   await new Promise((resolve) => socket.listen(0, '127.0.0.1', resolve));
@@ -161,7 +169,7 @@ try {
   });
   const installation = await api('/api/runner-installation');
   const checksumText = await readFile(
-    path.join(data, 'packages', `${archiveName}.sha256`),
+    path.join(root, 'dist', `${archiveName}.sha256`),
     'utf8',
   );
   assert.equal(installation.available, true);
@@ -174,18 +182,23 @@ try {
   );
   assert.equal(installation.offline.bytes, release.offline.bytes);
   assert.equal(installation.sha256, checksumText.split(' ')[0]);
-  const checksum = await fetch(`${origin}${installation.checksumUrl}`, {
-    headers: { Cookie: cookie },
+  assert.equal(installation.source, publicDownload ? 'github' : 'server');
+  if (publicDownload) assert.equal(installation.version, release.version);
+  const checksum = await fetch(new URL(installation.checksumUrl, origin), {
+    headers: publicDownload ? {} : { Cookie: cookie },
   });
   assert.equal(checksum.status, 200);
   assert.equal((await checksum.text()).trim(), checksumText.trim());
-  const anonymous = await fetch(`${origin}${installation.downloadUrl}`, {
+  const anonymous = await fetch(new URL(installation.downloadUrl, origin), {
     headers: { Range: 'bytes=0-15' },
   });
-  assert.equal(anonymous.status, 401);
+  assert.equal(anonymous.status, publicDownload ? 206 : 401);
   await anonymous.body.cancel();
-  const download = await fetch(`${origin}${installation.downloadUrl}`, {
-    headers: { Cookie: cookie, Range: 'bytes=0-15' },
+  const download = await fetch(new URL(installation.downloadUrl, origin), {
+    headers: {
+      ...(publicDownload ? {} : { Cookie: cookie }),
+      Range: 'bytes=0-15',
+    },
   });
   assert.equal(download.status, 206);
   const prefix = new Uint8Array(await download.arrayBuffer());
@@ -203,7 +216,8 @@ try {
   });
   const runnerData = path.join(dir, "Runner's private data");
   const stagedRuntime = path.join(data, 'packages', release.runtime.filename);
-  if (mode === 'offline') await rename(stagedRuntime, `${stagedRuntime}.held`);
+  if (offline && !publicDownload)
+    await rename(stagedRuntime, `${stagedRuntime}.held`);
   const setup = spawn(
     path.join(bundle, 'camp'),
     [
@@ -217,6 +231,9 @@ try {
       runnerData,
       '--code-file',
       '-',
+      '--docker-socket',
+      process.env.CAMP_TEST_DOCKER_SOCKET || '/var/run/docker.sock',
+      ...(!publicDownload ? ['--runtime-source', 'server'] : []),
     ],
     {
       cwd,
@@ -235,6 +252,11 @@ try {
     setup.once('exit', resolve);
   });
   assert.equal(setupCode, 0, setupOutput);
+  if (publicDownload && !offline)
+    assert.ok(
+      setupOutput.includes(`Downloading GitHub release ${release.version}`),
+      'Setup did not download the fixed public release',
+    );
   const savedConfig = JSON.parse(
     await readFile(path.join(runnerData, 'daemon.json'), 'utf8'),
   );
@@ -259,8 +281,9 @@ try {
   ]);
   // Repeating setup must not redownload the runtime or enroll another identity.
   // Hide the Server artifact in both modes, and the included archive offline.
-  if (mode === 'online') await rename(stagedRuntime, `${stagedRuntime}.held`);
-  if (mode === 'offline')
+  if (!offline && !publicDownload)
+    await rename(stagedRuntime, `${stagedRuntime}.held`);
+  if (offline)
     await rename(
       path.join(bundle, release.runtime.filename),
       path.join(bundle, `${release.runtime.filename}.held`),
@@ -284,7 +307,7 @@ try {
   );
   assert.equal(repeatedConfig.runnerId, savedConfig.runnerId);
   assert.equal(repeatedConfig.credential, savedConfig.credential);
-  await rename(`${stagedRuntime}.held`, stagedRuntime);
+  if (!publicDownload) await rename(`${stagedRuntime}.held`, stagedRuntime);
   const readiness = JSON.parse(
     await readFile(path.join(runnerData, 'readiness.json'), 'utf8'),
   );
@@ -402,8 +425,69 @@ try {
   const history = await api(`/api/resources/${room.resourceId}/history`);
   assert.equal(history.publications.length, 1);
   assert.equal(history.publications[0].checksStatus, 'passed');
+  let { review } = await api(`/api/rooms/${room.id}/reviews`, 'POST', {
+    requestId: 'release-review',
+    title: 'Release acceptance output',
+    resourceId: room.resourceId,
+    path: 'greet.mjs',
+    commit: run.resultCommit,
+    reviewerUserId: assigned.ownerUserId,
+  });
+  ({ review } = await api(`/api/reviews/${review.id}/actions`, 'POST', {
+    requestId: 'release-approve',
+    revision: review.revision,
+    action: 'approve',
+  }));
+  ({ review } = await api(`/api/reviews/${review.id}/actions`, 'POST', {
+    requestId: 'release-deliver',
+    revision: review.revision,
+    action: 'deliver',
+  }));
+  assert.equal(review.status, 'delivered');
   await stop(runner);
   runner = undefined;
+  await stop(child);
+  child = undefined;
+  // Distribution caches are rebuildable. Back up all remaining business state,
+  // then restart the exact release from that stopped, private copy.
+  await rm(path.join(data, 'packages'), { recursive: true, force: true });
+  const restored = path.join(dir, 'restored-data');
+  await cp(data, restored, { recursive: true });
+  child = spawn(
+    path.join(root, 'dist/camp'),
+    ['serve', '--addr', `127.0.0.1:${port}`, '--data-dir', restored],
+    {
+      cwd,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      env: { PATH: '/usr/bin:/bin', HOME: dir, LANG: 'C.UTF-8' },
+    },
+  );
+  await waitFor(`${origin}/api/health`, child, 90000);
+  const restoredRun = (await api(`/api/runs/${run.id}`)).run;
+  assert.equal(restoredRun.resultCommit, run.resultCommit);
+  assert.equal(restoredRun.status, 'succeeded');
+  const restoredHistory = await api(
+    `/api/resources/${room.resourceId}/history`,
+  );
+  assert.deepEqual(restoredHistory, history);
+  const restoredReview = (await api(`/api/reviews/${review.id}`)).review;
+  assert.equal(restoredReview.status, 'delivered');
+  assert.equal(restoredReview.deliveredCommit, run.resultCommit);
+  assert.equal(restoredReview.submittedCommit, run.resultCommit);
+  const restoredFile = await fetch(
+    `${origin}/api/resources/${room.resourceId}/file?commit=${restoredReview.deliveredCommit}&path=asset.bin&download=1`,
+    { headers: { Cookie: cookie } },
+  );
+  assert.equal(restoredFile.status, 200);
+  assert.deepEqual(
+    new Uint8Array(await restoredFile.arrayBuffer()),
+    Uint8Array.of(0, 1, 255, 128),
+  );
+  assert.equal(
+    (await api('/api/runners')).runners.find((item) => item.id === assigned.id)
+      .firstTaskRunId,
+    run.id,
+  );
   await stop(child);
   child = undefined;
   const manifest = JSON.parse(
@@ -414,7 +498,49 @@ try {
     .digest('hex')
     .slice(0, 12);
   console.log(
-    `Runner ${mode} install smoke passed: separate Server, authenticated package/checksum download, relocated verified runtime, repeat setup without downloads, Linux native package selection, connection, no-model self-test, explicit Agent grant, native DSH/LayerFS command, first successful task metadata, checks, binary download, publication and shutdown (${digest}). No paid model endpoint used.`,
+    `Runner ${mode} install smoke passed: separate Server, ${publicDownload ? 'anonymous GitHub' : 'authenticated mirror'} download, relocated verified runtime, repeat setup, native DSH/LayerFS task, checks, binary bytes, one publication, human approval/delivery, stopped backup/restore and cleanup (${digest}). No paid model endpoint used.`,
+  );
+  await writeFile(
+    reportFile,
+    `${JSON.stringify(
+      {
+        schema: 1,
+        status: 'passed',
+        mode,
+        version: release.version || 'dev',
+        sourceCommit: release.sourceCommit || '',
+        archiveSHA256: artifact.sha256,
+        completedAt: new Date().toISOString(),
+        platform: process.platform,
+        architecture: process.arch,
+        model: {
+          kind: 'deterministic-local-provider',
+          requests: calls,
+          paid: false,
+        },
+        checks: [
+          'archive-checksum',
+          'fixed-runtime-installation',
+          'relocation',
+          'repeat-setup-preserves-identity',
+          'native-self-test-without-model',
+          'native-task',
+          'configured-checks',
+          'binary-transfer',
+          'single-publication',
+          'human-approval-and-delivery',
+          'stopped-backup-and-restore',
+          'cleanup',
+        ],
+        untested: [
+          'paid-model-provider',
+          'cross-version-upgrade',
+          'systemd-service-installation',
+        ],
+      },
+      null,
+      2,
+    )}\n`,
   );
 } finally {
   if (runner) await stop(runner);

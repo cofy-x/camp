@@ -407,6 +407,70 @@ test('Runner navigation separates connection codes from machine details and reta
     .click();
 });
 
+test('Connect Runner uses the fixed public release and exposes offline verification with the keyboard', async ({
+  page,
+}, info) => {
+  await mockRunners(page);
+  const base =
+    'https://github.com/cofy-x/camp/releases/download/v0.1.0-alpha.1/';
+  await page.route('**/api/runner-installation', (route) =>
+    route.fulfill({
+      json: {
+        platform: 'Ubuntu 24.04 amd64',
+        version: 'v0.1.0-alpha.1',
+        source: 'github',
+        available: true,
+        filename: 'camp-runner-linux-amd64.tar.gz',
+        downloadUrl: `${base}camp-runner-linux-amd64.tar.gz`,
+        checksumUrl: `${base}camp-runner-linux-amd64.tar.gz.sha256`,
+        bytes: 12_000_000,
+        runtime: { bytes: 310_000_000, unpackedBytes: 920_000_000 },
+        offline: {
+          available: true,
+          filename: 'camp-runner-offline-linux-amd64.tar.gz',
+          downloadUrl: `${base}camp-runner-offline-linux-amd64.tar.gz`,
+          checksumUrl: `${base}camp-runner-offline-linux-amd64.tar.gz.sha256`,
+          bytes: 322_000_000,
+        },
+      },
+    }),
+  );
+  await signIn(page);
+  await openApp(page, 'Runners');
+  const panel = await connectRunner(page);
+  await expect(panel).toContainText(
+    'v0.1.0-alpha.1 with machine administrator access.',
+  );
+  await expect(
+    panel.getByRole('link', {
+      name: 'Download for Linux (12 MB)',
+      exact: true,
+    }),
+  ).toHaveAttribute('href', `${base}camp-runner-linux-amd64.tar.gz`);
+  const details = panel.getByText('Download verification and offline install', {
+    exact: true,
+  });
+  await details.focus();
+  await details.press('Enter');
+  await expect(
+    panel.getByRole('link', {
+      name: 'Full offline package (322 MB)',
+      exact: true,
+    }),
+  ).toHaveAttribute('href', `${base}camp-runner-offline-linux-amd64.tar.gz`);
+  await expect(
+    panel.getByRole('link', { name: 'Offline checksum', exact: true }),
+  ).toHaveAttribute(
+    'href',
+    `${base}camp-runner-offline-linux-amd64.tar.gz.sha256`,
+  );
+  await expect(panel).not.toContainText('--runtime-source server');
+  if (['chromium', 'touch'].includes(info.project.name))
+    await runnerApp(page).screenshot({
+      path: info.outputPath('runners-public-release.png'),
+    });
+});
+
 test('Connect Runner distinguishes the small installer from runtime downloads and forgotten codes stay revocable', async ({
   page,
 }, info) => {
@@ -415,15 +479,17 @@ test('Connect Runner distinguishes the small installer from runtime downloads an
     route.fulfill({
       json: {
         platform: 'Ubuntu 24.04 amd64',
+        version: 'v0.1.0-alpha.1',
+        source: 'server',
         available: true,
-        filename: 'camp-runner-installer-linux-amd64.tar.gz',
+        filename: 'camp-runner-linux-amd64.tar.gz',
         downloadUrl: '/api/runner-installation/download',
         checksumUrl: '/api/runner-installation/checksum',
         bytes: 12_000_000,
         runtime: { bytes: 310_000_000, unpackedBytes: 920_000_000 },
         offline: {
           available: true,
-          filename: 'camp-runner-linux-amd64.tar.gz',
+          filename: 'camp-runner-offline-linux-amd64.tar.gz',
           downloadUrl: '/api/runner-installation/download?variant=offline',
           checksumUrl: '/api/runner-installation/checksum?variant=offline',
           bytes: 322_000_000,
@@ -491,8 +557,9 @@ test('Connect Runner distinguishes the small installer from runtime downloads an
     '/api/runner-installation/download?variant=offline',
   );
   await expect(panel).toContainText(
-    'sha256sum -c camp-runner-installer-linux-amd64.tar.gz.sha256',
+    'sha256sum -c camp-runner-linux-amd64.tar.gz.sha256',
   );
+  await expect(panel).toContainText('--runtime-source server');
   await expect(panel).toContainText('920 MB on disk');
   await panel
     .getByLabel('Runner name', { exact: true })

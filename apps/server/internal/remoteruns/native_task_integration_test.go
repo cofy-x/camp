@@ -103,7 +103,7 @@ func TestRemoteNativeCollaborationAcrossRunners(t *testing.T) {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("Build sandbox: %v %s", err, output)
 	}
-	native := nativeexecutor.Config{RuntimeDir: dshRuntime, LayerFSRuntimeDir: layerRuntime, SandboxHelper: helper, NodePath: node}
+	native := nativeexecutor.Config{RuntimeDir: dshRuntime, LayerFSRuntimeDir: layerRuntime, DockerSocket: os.Getenv("CAMP_TEST_DOCKER_SOCKET"), SandboxHelper: helper, NodePath: node}
 	a := h.start(t, h.join(t, "native-writer", "native", nil, native))
 	b := h.start(t, h.join(t, "native-reviewer", "native", nil, native))
 	if calls.Load() != 0 {

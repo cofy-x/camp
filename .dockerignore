@@ -4,6 +4,10 @@
 .data
 **/node_modules
 **/dist
+!dist
+dist/*
+!dist/camp-server-linux-amd64
+!dist/camp-server-linux-amd64/**
 **/coverage
 **/test-results
 **/playwright-report

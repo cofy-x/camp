@@ -251,17 +251,20 @@ func TestSetupUsesCorrectedDockerSocketBeforePreflight(t *testing.T) {
 	defer server.Close()
 	directory := t.TempDir()
 	var original daemon.Config
-	for index, name := range []string{"wrong.sock", "corrected-but-unavailable.sock"} {
+	for index, name := range []string{"wrong.sock", "corrected-but-unavailable.sock", "still-unavailable.sock"} {
 		socket := filepath.Join(directory, name)
 		args := []string{"setup", "--server", server.URL, "--name", "Preflight", "--data-dir", directory, "--docker-socket", socket, "--code-file", "-"}
+		if index == 0 {
+			args = append(args, "--runtime-source", "server")
+		}
 		input := runnerInput{reader: strings.NewReader("private-code\n"), isTerminal: func(io.Reader) bool { return false }, readSecret: readConnectionCode}
 		err := runRunnerWithInput(context.Background(), args, io.Discard, input)
 		if err == nil || !strings.Contains(err.Error(), "host requirements") {
 			t.Fatal("Expected preserved host failure", err)
 		}
 		config, err := daemon.LoadConfig(directory)
-		if err != nil || config.DockerSocket != socket {
-			t.Fatal("Corrected socket was not persisted", err)
+		if err != nil || config.DockerSocket != socket || config.RuntimeSource != "server" {
+			t.Fatal("Explicit installation settings were not persisted", config.RuntimeSource, err)
 		}
 		if index == 0 {
 			original = config

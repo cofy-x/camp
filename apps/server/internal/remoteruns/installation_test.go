@@ -10,9 +10,53 @@ import (
 	"testing"
 
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
+	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
 	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
+
+func TestPublishedInstallationNeedsNoServerPackagesAndRejectsOtherMirrors(t *testing.T) {
+	directory := t.TempDir()
+	m := &Manager{config: Config{DataDir: directory}}
+	release := runnerRelease{Schema: 1, Version: "v0.1.0-alpha.1", SourceCommit: strings.Repeat("a", 40), ProtocolVersion: p.Version,
+		Installer: releaseArtifact{Filename: runnerPackageName, SHA256: strings.Repeat("a", 64), Bytes: 10, UnpackedBytes: 20},
+		Runtime:   releaseArtifact{Filename: "camp-runtime-linux-amd64-" + strings.Repeat("c", 64) + ".tar.gz", SHA256: strings.Repeat("c", 64), Bytes: 20, UnpackedBytes: 30},
+		Offline:   releaseArtifact{Filename: runnerOfflinePackageName, SHA256: strings.Repeat("b", 64), Bytes: 30, UnpackedBytes: 40},
+	}
+	assertPublic := func() {
+		t.Helper()
+		meta := m.runnerInstallation(release, true)
+		if !meta.Available || !meta.Offline.Available || meta.Source != "github" || meta.Version != release.Version || meta.Runtime.Bytes != 20 || meta.DownloadURL != "https://github.com/cofy-x/camp/releases/download/v0.1.0-alpha.1/"+runnerPackageName {
+			t.Fatalf("incorrect fixed public installation: %+v", meta)
+		}
+	}
+	assertPublic()
+	packages := filepath.Join(directory, "packages")
+	if err := os.Mkdir(packages, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range []releaseArtifact{release.Installer, release.Runtime, release.Offline} {
+		if err := os.WriteFile(filepath.Join(packages, artifact.Filename), []byte(strings.Repeat("x", int(artifact.Bytes))), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeDescriptor := func(value runnerRelease) {
+		t.Helper()
+		data, _ := json.Marshal(value)
+		if err := os.WriteFile(filepath.Join(packages, "runner-release.json"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	other := release
+	other.Version = "v0.1.0-alpha.2"
+	writeDescriptor(other)
+	assertPublic()
+	writeDescriptor(release)
+	meta := m.runnerInstallation(release, true)
+	if meta.Source != "server" || meta.DownloadURL != "/api/runner-package" || !meta.Offline.Available {
+		t.Fatalf("matching explicit mirror unavailable: %+v", meta)
+	}
+}
 
 func TestRunnerReleasePublicationRequiresCompleteInstallerAndRuntime(t *testing.T) {
 	directory := t.TempDir()

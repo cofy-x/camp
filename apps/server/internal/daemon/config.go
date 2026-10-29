@@ -26,6 +26,7 @@ import (
 
 type Config struct {
 	BundleDir         string                `json:"bundleDir,omitempty"`
+	RuntimeSource     string                `json:"runtimeSource,omitempty"`
 	DockerSocket      string                `json:"dockerSocket,omitempty"`
 	ServerURL         string                `json:"serverUrl"`
 	RunnerID          string                `json:"runnerId"`
@@ -72,6 +73,9 @@ func LoadConfig(directory string) (Config, error) {
 	var config Config
 	if err = json.Unmarshal(data, &config); err != nil {
 		return config, err
+	}
+	if !validRuntimeSource(config.RuntimeSource) {
+		return config, errors.New("Runtime source must be github or server")
 	}
 	config.DataDir, err = filepath.Abs(directory)
 	return config, err
@@ -161,6 +165,9 @@ func httpClient(config Config) (*http.Client, error) {
 // Join persists registration identity before sending it, so a lost enrollment
 // response can recover the same Runner without spending another join token.
 func Join(ctx context.Context, config Config, token string) (Config, error) {
+	if !validRuntimeSource(config.RuntimeSource) {
+		return config, errors.New("Runtime source must be github or server")
+	}
 	if err := validateSources(config.Sources); err != nil {
 		return config, err
 	}
@@ -285,6 +292,9 @@ func (e *httpError) Error() string { return fmt.Sprintf("Camp request failed (HT
 
 // SaveInstallation updates only runtime locations after an explicit setup.
 func SaveInstallation(config Config, bundle, docker string) error {
+	if !validRuntimeSource(config.RuntimeSource) {
+		return errors.New("Runtime source must be github or server")
+	}
 	lock, err := execution.AcquireLock(config.DataDir)
 	if err != nil {
 		return err
@@ -301,5 +311,10 @@ func SaveInstallation(config Config, bundle, docker string) error {
 	}
 	current.BundleDir = bundle
 	current.DockerSocket = docker
+	current.RuntimeSource = config.RuntimeSource
 	return saveConfig(current)
+}
+
+func validRuntimeSource(value string) bool {
+	return value == "" || value == "github" || value == "server"
 }

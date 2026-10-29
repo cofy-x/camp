@@ -80,7 +80,7 @@ func TestRemoteNativeIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := h.join(t, "native-linux", "native", nil, nativeexecutor.Config{RuntimeDir: dshRuntime, LayerFSRuntimeDir: layerRuntime, SandboxHelper: helper, NodePath: node})
+	config := h.join(t, "native-linux", "native", nil, nativeexecutor.Config{RuntimeDir: dshRuntime, LayerFSRuntimeDir: layerRuntime, DockerSocket: os.Getenv("CAMP_TEST_DOCKER_SOCKET"), SandboxHelper: helper, NodePath: node})
 	runner := h.start(t, config)
 	room, agent := h.room(t, "Native remote work", runner.config.RunnerID)
 	resource, err := h.store.GetResource(h.ctx, room.ResourceID)

@@ -13,6 +13,7 @@ import {
 import path from 'node:path';
 import process from 'node:process';
 import { createRequire } from 'node:module';
+import { collectRustLicenses } from './licenses.mjs';
 
 const root = import.meta.dirname;
 const pin = JSON.parse(await readFile(path.join(root, 'pin.json'), 'utf8'));
@@ -52,9 +53,13 @@ function run(command, arguments_, options = {}) {
 
 async function archive(checkout, destination) {
   await mkdir(destination, { recursive: true });
-  const producer = spawn('git', ['-C', checkout, 'archive', pin.commit], {
-    stdio: ['ignore', 'pipe', 'inherit'],
-  });
+  const producer = spawn(
+    'git',
+    ['-C', checkout, 'archive', pin.commit, '--', '.', ':!docs/assets'],
+    {
+      stdio: ['ignore', 'pipe', 'inherit'],
+    },
+  );
   const consumer = spawn('tar', ['-xf', '-', '-C', destination], {
     stdio: ['pipe', 'inherit', 'inherit'],
   });
@@ -77,14 +82,37 @@ if (!args[1]) {
   try {
     await readFile(path.join(checkout, 'HEAD'));
   } catch {
-    run('git', [
-      'clone',
-      '--bare',
-      '--filter=blob:none',
-      pin.repository,
-      checkout,
-    ]);
+    run('git', ['init', '--bare', checkout]);
   }
+  // The pinned build needs source, not large documentation videos. Keep this
+  // promisor configuration inside Camp's private build cache only.
+  run('git', ['-C', checkout, 'config', 'remote.origin.url', pin.repository]);
+  run('git', ['-C', checkout, 'config', 'remote.origin.promisor', 'true']);
+  run('git', [
+    '-C',
+    checkout,
+    'config',
+    'remote.origin.partialclonefilter',
+    'blob:limit=10m',
+  ]);
+  const present = spawnSync(
+    'git',
+    ['-C', checkout, 'rev-parse', '--verify', '--quiet', 'refs/camp/runtime'],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+  );
+  if (present.error) throw present.error;
+  // Inspect a local ref rather than opening an absent object: a promisor
+  // cat-file probe would implicitly fetch history before the shallow fetch.
+  if (present.status !== 0 || present.stdout.trim() !== pin.commit)
+    run('git', [
+      '-C',
+      checkout,
+      'fetch',
+      '--depth=1',
+      '--filter=blob:limit=10m',
+      'origin',
+      `+${pin.commit}:refs/camp/runtime`,
+    ]);
 }
 const revision = run(
   'git',
@@ -145,6 +173,12 @@ await copyFile(
   path.join(source, 'target/release/liblayerfs_node.so'),
   path.join(source, 'engine/crates/layerfs-node/layerfs.node'),
 );
+await collectRustLicenses({
+  source,
+  environment: buildEnv,
+  rust: pin.rust,
+  destination: path.join(cache, 'licenses'),
+});
 run(
   'npm',
   ['install', '--ignore-scripts', '--offline', '--package-lock=false'],

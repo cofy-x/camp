@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/napi-rs/napi-rs",
+  "filename": "napi-rs-LICENSE",
+  "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215",
+  "packages": {
+    "napi@2.16.17": "f2178312d0e3e07beecc19836b91716a229107d3",
+    "napi-build@2.1.6": "c1b840ee61d71809f24bf614bda7de5b3f172357",
+    "napi-derive@2.16.13": "a312b7eb4e12d3e0a3e9770429ee05c333947a39",
+    "napi-derive-backend@1.0.75": "a312b7eb4e12d3e0a3e9770429ee05c333947a39",
+    "napi-sys@2.4.0": "f1b8ab5e645e674df33c796ef75aa278cd1b4a31"
+  }
+}

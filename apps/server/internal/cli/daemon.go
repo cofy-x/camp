@@ -65,6 +65,7 @@ Options:
   --slots count      Concurrent local operations (default 1)
   --source alias=path Register an authorized snapshot source (repeatable)
   --docker-socket path Local Docker socket (default /var/run/docker.sock)
+  --runtime-source github|server Public release (default) or an explicitly staged Server mirror
 
 Setup never installs a system service. Service installation, starting it, and
 running it at boot are separate explicit actions. Removing a service keeps data.
@@ -80,7 +81,7 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 	}
 	flags := flag.NewFlagSet("runner "+action, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var directory, server, name, codeFile, caFile, executor, bundle, docker string
+	var directory, server, name, codeFile, caFile, executor, bundle, docker, runtimeSource string
 	var slots int
 	var sources sourceFlags
 	var development bool
@@ -94,6 +95,7 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 		flags.Var(&sources, "source", "authorized source alias=path")
 		flags.StringVar(&executor, "executor", "native", "native or explicit fixture protocol tests")
 		flags.StringVar(&bundle, "bundle-dir", runnerBundleDirectory(), "Camp installation directory")
+		flags.StringVar(&runtimeSource, "runtime-source", "", "github release or server mirror")
 		flags.BoolVar(&development, "development-runtime", false, "use an explicitly configured source checkout runtime")
 	}
 	if action != "status" {
@@ -105,7 +107,7 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 	if flags.NArg() != 0 {
 		return errors.New("Runner commands do not accept positional arguments")
 	}
-	explicitCode, explicitDocker, explicitCA := false, false, false
+	explicitCode, explicitDocker, explicitCA, explicitRuntime := false, false, false, false
 	flags.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "code-file":
@@ -114,6 +116,8 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 			explicitDocker = true
 		case "ca-file":
 			explicitCA = true
+		case "runtime-source":
+			explicitRuntime = true
 		}
 	})
 	interactive := input.isTerminal(input.reader)
@@ -186,6 +190,12 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 		if !explicitCA {
 			caFile = previous.CAFile
 		}
+		if !explicitRuntime {
+			runtimeSource = previous.RuntimeSource
+		}
+	}
+	if runtimeSource != "" && runtimeSource != "github" && runtimeSource != "server" {
+		return errors.New("Runtime source must be github or server")
 	}
 	needsCode := loadErr != nil || (previous.PendingToken == "" && previous.RunnerID == "")
 	if needsCode && !interactive && !explicitCode {
@@ -208,6 +218,9 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 				return err
 			}
 			managedPin = &pin
+			if runtimeSource == "github" && pin.ReleaseVersion == "" {
+				return errors.New("This development installer has no GitHub release; use --runtime-source server")
+			}
 			bundle, launcherBundle = "", ""
 		} else {
 			bundle, err = filepath.Abs(bundle)
@@ -263,12 +276,13 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 			return errors.New("The connection code is too large")
 		}
 	}
-	config, err := daemon.Join(ctx, daemon.Config{DataDir: directory, ServerURL: strings.TrimRight(server, "/"), Name: name, CAFile: caFile, CAFileSet: explicitCA, Executor: executor, Slots: slots, Sources: sources, BundleDir: bundle, DockerSocket: docker}, string(data))
+	config, err := daemon.Join(ctx, daemon.Config{DataDir: directory, ServerURL: strings.TrimRight(server, "/"), Name: name, CAFile: caFile, CAFileSet: explicitCA, Executor: executor, Slots: slots, Sources: sources, BundleDir: bundle, DockerSocket: docker, RuntimeSource: runtimeSource}, string(data))
 	if err != nil {
 		return err
 	}
 	fmt.Fprintln(output, "Connected account:", config.Name, "— registration saved.")
 	config.DockerSocket = docker
+	config.RuntimeSource = runtimeSource
 	if err = daemon.SaveInstallation(config, config.BundleDir, docker); err != nil {
 		return err
 	}
