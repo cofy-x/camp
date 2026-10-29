@@ -100,13 +100,6 @@ export function GettingReady({
                 ['missing', 'error'].includes(connection.status) && (
                   <p>{connection.detail}</p>
                 )}
-              {connection?.checkedAt && (
-                <p>
-                  <small>
-                    Last observed {observationTime(connection.checkedAt)}
-                  </small>
-                </p>
-              )}
             </dd>
           </div>
           <div>
@@ -119,13 +112,6 @@ export function GettingReady({
                 <p>
                   {runtime?.detail ||
                     'Open Diagnostic details to review setup.'}
-                </p>
-              )}
-              {runtime?.checkedAt && (
-                <p>
-                  <small>
-                    Self-test reported {observationTime(runtime.checkedAt)}
-                  </small>
                 </p>
               )}
             </dd>
@@ -141,13 +127,6 @@ export function GettingReady({
                   ? 'Succeeded previously'
                   : 'Not yet verified'}
               </strong>
-              {firstTask?.checkedAt && (
-                <p>
-                  <small>
-                    Recorded success {observationTime(firstTask.checkedAt)}
-                  </small>
-                </p>
-              )}
             </dd>
           </div>
         </dl>

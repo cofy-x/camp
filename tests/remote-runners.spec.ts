@@ -440,23 +440,22 @@ test('Connect Runner uses the fixed public release and exposes offline verificat
   const panel = await connectRunner(page);
   await expect(panel).toContainText('v0.1.0-alpha.1.');
   await expect(panel).toContainText(
-    'Requires Ubuntu 24.04 amd64, Docker, FUSE and Bubblewrap.',
+    'Ubuntu 24.04 amd64. Run setup and the Runner as root, using the same private data directory.',
   );
-  await expect(panel).toContainText(
-    'as the same root account, using the same private data directory.',
-  );
-  await expect(panel).toContainText('Rootless execution is unsupported.');
   await expect(
     panel.getByRole('link', {
       name: 'Download for Linux (12 MB)',
       exact: true,
     }),
   ).toHaveAttribute('href', `${base}camp-runner-linux-amd64.tar.gz`);
-  const details = panel.getByText('Download verification and offline install', {
+  const details = panel.getByText('Requirements and offline install', {
     exact: true,
   });
   await details.focus();
   await details.press('Enter');
+  await expect(panel).toContainText(
+    'Requires Docker Engine, FUSE, Bubblewrap, Git and Bash.',
+  );
   await expect(
     panel.getByRole('link', {
       name: 'Full offline package (322 MB)',
@@ -535,9 +534,7 @@ test('Connect Runner distinguishes the small installer from runtime downloads an
       exact: true,
     }),
   ).toHaveAttribute('href', '/api/runner-installation/download');
-  await expect(panel).toContainText(
-    'Setup downloads 310 MB of execution tools once.',
-  );
+  await expect(panel).toContainText('Setup downloads 310 MB once.');
   if (['chromium', 'touch'].includes(info.project.name))
     await runnerApp(page).screenshot({
       path: info.outputPath('runners-connect-start.png'),
@@ -550,7 +547,7 @@ test('Connect Runner distinguishes the small installer from runtime downloads an
     }),
   ).toBeHidden();
   await panel
-    .getByText('Download verification and offline install', { exact: true })
+    .getByText('Requirements and offline install', { exact: true })
     .click();
   await expect(
     panel.getByRole('link', {

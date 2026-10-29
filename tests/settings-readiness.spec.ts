@@ -417,9 +417,16 @@ test('status loading can be retried without running checks and refreshes after r
   await expect(statusRow(page, 'Native task')).toContainText(
     'Succeeded previously',
   );
-  await expect(statusRow(page, 'Native task')).toContainText(
-    'Recorded success',
+  await preparation(page)
+    .getByText(/^Diagnostic details/)
+    .click();
+  const nativeTask = preparation(page)
+    .locator('.camp-readiness > li')
+    .filter({ hasText: 'Native task' });
+  const recordedAt = await page.evaluate(() =>
+    new Date('2026-10-27T09:30:00Z').toLocaleString(),
   );
+  await expect(nativeTask).toContainText(`Observed ${recordedAt}`);
   await expect.poll(() => reads).toBe(previousReads + 1);
   expect(checks).toBe(0);
 });
