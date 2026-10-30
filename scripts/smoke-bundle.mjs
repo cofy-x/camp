@@ -41,12 +41,18 @@ assert.ok(
 const publicDownload = mode.startsWith('github');
 const offline = mode.endsWith('offline');
 const upgrading = mode === 'upgrade' || mode === 'github-upgrade';
+const mac = process.platform === 'darwin' && process.arch === 'arm64';
+const target = mac ? 'darwin-arm64' : 'linux-amd64';
+if (upgrading && mac)
+  throw new Error('The public upgrade baseline has no Mac Runner.');
 const reportFile = path.join(root, `dist/smoke-${mode}.json`);
 await rm(reportFile, { force: true });
 const release = JSON.parse(
   await readFile(path.join(root, 'dist/runner-release.json'), 'utf8'),
 );
-const artifact = offline ? release.offline : release.installer;
+const artifact = offline
+  ? release.runners[target].offline
+  : release.runners[target].installer;
 
 // A real native Run, with deterministic local provider responses and no key.
 const dir = await mkdtemp(path.join(tmpdir(), 'camp-release-'));
@@ -84,7 +90,7 @@ const provider = createServer(async (request, response) => {
           id: 'bundle-write',
           name: 'bash',
           input: {
-            description: 'Verify relocated LayerFS execution',
+            description: 'Verify relocated native execution',
             command: `test -z "$DEEPSEEK_API_KEY" || exit 91
 printf 'export const greet = (name = "friend") => "Hello, " + name + "!";\\n' > greet.mjs
 printf 'import {test} from "node:test"; import assert from "node:assert/strict"; import {greet} from "./greet.mjs"; test("default",()=>assert.equal(greet(),"Hello, friend!"));\\n' > greet.test.mjs
@@ -122,8 +128,13 @@ node --test`,
 });
 try {
   await command(
-    'sha256sum',
-    ['--check', '--quiet', `${artifact.filename}.sha256`],
+    mac ? 'shasum' : 'sha256sum',
+    [
+      ...(mac ? ['-a', '256'] : []),
+      '--check',
+      '--quiet',
+      `${artifact.filename}.sha256`,
+    ],
     { cwd: path.join(root, 'dist') },
   );
   await mkdir(bundle);
@@ -136,13 +147,13 @@ try {
   ]);
   await mkdir(cwd);
   await mkdir(data, { mode: 0o700 });
-  const archiveName = release.installer.filename;
+  const archiveName = release.runners[target].installer.filename;
   if (!publicDownload) {
     await mkdir(path.join(data, 'packages'), { mode: 0o700 });
     for (const name of [
-      release.installer,
-      release.runtime,
-      release.offline,
+      release.runners[target].installer,
+      release.runners[target].runtime,
+      release.runners[target].offline,
     ].flatMap((item) => [item.filename, `${item.filename}.sha256`]))
       await copyFile(
         path.join(root, 'dist', name),
@@ -192,20 +203,26 @@ try {
     name: 'Release Admin',
     password: 'Native bundle smoke password',
   });
-  const installation = await api('/api/runner-installation');
+  const installation = await api(`/api/runner-installation?platform=${target}`);
   const checksumText = await readFile(
     path.join(root, 'dist', `${archiveName}.sha256`),
     'utf8',
   );
   assert.equal(installation.available, true);
   assert.equal(installation.filename, archiveName);
-  assert.equal(installation.bytes, release.installer.bytes);
-  assert.equal(installation.runtime.bytes, release.runtime.bytes);
+  assert.equal(installation.bytes, release.runners[target].installer.bytes);
+  assert.equal(
+    installation.runtime.bytes,
+    release.runners[target].runtime.bytes,
+  );
   assert.equal(
     installation.runtime.unpackedBytes,
-    release.runtime.unpackedBytes,
+    release.runners[target].runtime.unpackedBytes,
   );
-  assert.equal(installation.offline.bytes, release.offline.bytes);
+  assert.equal(
+    installation.offline.bytes,
+    release.runners[target].offline.bytes,
+  );
   assert.equal(installation.sha256, checksumText.split(' ')[0]);
   assert.equal(installation.source, publicDownload ? 'github' : 'server');
   if (publicDownload) assert.equal(installation.version, release.version);
@@ -248,7 +265,11 @@ try {
       'Preserve the original source.\n',
     );
   }
-  const stagedRuntime = path.join(data, 'packages', release.runtime.filename);
+  const stagedRuntime = path.join(
+    data,
+    'packages',
+    release.runners[target].runtime.filename,
+  );
   if (offline && !publicDownload)
     await rename(stagedRuntime, `${stagedRuntime}.held`);
   const setupArgs = [
@@ -402,17 +423,23 @@ try {
   const runtime = path.join(
     runnerData,
     'runtime/cache',
-    release.runtime.sha256,
+    release.runners[target].runtime.sha256,
   );
   assert.equal(savedConfig.bundleDir, runtime);
-  await command('sha256sum', ['--check', '--quiet', 'SHA256SUMS'], {
-    cwd: runtime,
-  });
+  await command(
+    mac ? 'shasum' : 'sha256sum',
+    [...(mac ? ['-a', '256'] : []), '--check', '--quiet', 'SHA256SUMS'],
+    {
+      cwd: runtime,
+    },
+  );
   const prebuilds = path.join(
     runtime,
     'runtime/dsh-runtime/node_modules/.pnpm/node-pty@1.2.0-beta.15/node_modules/node-pty/prebuilds',
   );
-  assert.deepEqual(await readdir(prebuilds), ['linux-x64']);
+  assert.deepEqual(await readdir(prebuilds), [
+    mac ? 'darwin-arm64' : 'linux-x64',
+  ]);
   await command(path.join(runtime, 'bin/node'), [
     '-e',
     'require(process.argv[1]);',
@@ -424,8 +451,8 @@ try {
     await rename(stagedRuntime, `${stagedRuntime}.held`);
   if (offline)
     await rename(
-      path.join(bundle, release.runtime.filename),
-      path.join(bundle, `${release.runtime.filename}.held`),
+      path.join(bundle, release.runners[target].runtime.filename),
+      path.join(bundle, `${release.runners[target].runtime.filename}.held`),
     );
   await command(
     path.join(bundle, 'camp'),
@@ -647,11 +674,19 @@ try {
     await readFile(path.join(runtime, 'manifest.json'), 'utf8'),
   );
   const digest = createHash('sha256')
-    .update(JSON.stringify(manifest.layerfs))
+    .update(
+      JSON.stringify(
+        manifest.layerfs ?? {
+          workspace: 'native-local',
+          sandbox: 'seatbelt',
+          platform: manifest.platform,
+        },
+      ),
+    )
     .digest('hex')
     .slice(0, 12);
   console.log(
-    `Runner ${mode} install smoke passed: separate Server, ${publicDownload ? 'anonymous GitHub' : 'authenticated mirror'} download, relocated verified runtime, repeat setup, native DSH/LayerFS task, checks, binary bytes, one publication, human approval/delivery, stopped backup/restore and cleanup (${digest}). No paid model endpoint used.`,
+    `Runner ${mode} install smoke passed: separate Server, ${publicDownload ? 'anonymous GitHub' : 'authenticated mirror'} download, relocated verified runtime, repeat setup, native DSH task, checks, binary bytes, one publication, human approval/delivery, stopped backup/restore and cleanup (${digest}). No paid model endpoint used.`,
   );
   await writeFile(
     reportFile,
@@ -705,7 +740,7 @@ try {
           upgrading
             ? 'upgrades-other-than-named-baseline'
             : 'cross-version-upgrade',
-          'systemd-service-installation',
+          mac ? 'launchd-service-installation' : 'systemd-service-installation',
         ],
       },
       null,

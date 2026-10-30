@@ -252,7 +252,7 @@ func runMacRunnerService(ctx context.Context, args []string, output io.Writer) e
 			return err
 		}
 		defer lock.Close()
-		if runtimePinJSON != "" {
+		if hasRuntimePin() {
 			pin, err := compiledRuntimePin()
 			if err != nil {
 				return err

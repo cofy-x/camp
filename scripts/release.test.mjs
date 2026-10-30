@@ -10,7 +10,9 @@ import { root } from './lib.mjs';
 import { homebrewFormula } from './homebrew.mjs';
 import {
   hashFile,
+  mergeRunnerReleases,
   serverPlatforms,
+  runnerPlatforms,
   validVersion,
   verifyRelease,
 } from './release.mjs';
@@ -63,7 +65,7 @@ test('release transfer rejects changed archives, checksums, identities and unsaf
       let filename = `${name}.tar.gz`;
       await writeFile(join(directory, filename), payload);
       const sha256 = await hashFile(join(directory, filename));
-      if (name === 'camp-runtime-linux-amd64') {
+      if (name.startsWith('camp-runtime-')) {
         filename = `${name}-${sha256}.tar.gz`;
         await writeFile(join(directory, filename), payload);
       }
@@ -79,13 +81,25 @@ test('release transfer rejects changed archives, checksums, identities and unsaf
       };
     };
     const runner = {
-      schema: 1,
+      schema: 2,
       version,
       sourceCommit,
       protocolVersion,
-      installer: await make('camp-runner-linux-amd64'),
-      runtime: await make('camp-runtime-linux-amd64'),
-      offline: await make('camp-runner-offline-linux-amd64'),
+      runners: Object.fromEntries(
+        await Promise.all(
+          runnerPlatforms.map(async (platform) => [
+            platform,
+            {
+              installer: await make(`camp-runner-${platform}`),
+              runtime: {
+                ...(await make(`camp-runtime-${platform}`)),
+                manifestSHA256: 'a'.repeat(64),
+              },
+              offline: await make(`camp-runner-offline-${platform}`),
+            },
+          ]),
+        ),
+      ),
     };
     const server = {
       schema: 1,
@@ -113,6 +127,36 @@ test('release transfer rejects changed archives, checksums, identities and unsaf
         JSON.stringify(server),
       );
     };
+    for (const platform of runnerPlatforms) {
+      await writeFile(
+        join(directory, `runner-release-${platform}.json`),
+        JSON.stringify({
+          ...runner,
+          runners: { [platform]: runner.runners[platform] },
+        }),
+      );
+    }
+    const identity = { version, sourceCommit, published: true };
+    assert.deepEqual(await mergeRunnerReleases(directory, identity), runner);
+    await assert.rejects(
+      mergeRunnerReleases(directory, {
+        ...identity,
+        sourceCommit: 'c'.repeat(40),
+      }),
+      /identity/,
+    );
+    const macContribution = join(directory, 'runner-release-darwin-arm64.json');
+    const contribution = await readFile(macContribution);
+    await rm(macContribution);
+    await assert.rejects(mergeRunnerReleases(directory, identity));
+    assert.equal(
+      Object.keys(
+        (await mergeRunnerReleases(directory, identity, { partial: true }))
+          .runners,
+      ).length,
+      1,
+    );
+    await writeFile(macContribution, contribution);
     await descriptors();
     const formula = homebrewFormula(server);
     for (const platform of serverPlatforms) {
@@ -122,7 +166,7 @@ test('release transfer rejects changed archives, checksums, identities and unsaf
     assert.ok(!formula.includes('service do'));
     assert.equal(
       (await verifyRelease(directory, version, sourceCommit)).artifacts.length,
-      6,
+      9,
     );
     server.sourceCommit = 'b'.repeat(40);
     await descriptors();
@@ -139,14 +183,14 @@ test('release transfer rejects changed archives, checksums, identities and unsaf
       /platform set/,
     );
     server.servers['darwin-arm64'] = mac;
-    const name = runner.installer.filename;
-    runner.installer.filename = '../private.tar.gz';
+    const name = runner.runners['linux-amd64'].installer.filename;
+    runner.runners['linux-amd64'].installer.filename = '../private.tar.gz';
     await descriptors();
     await assert.rejects(
       verifyRelease(directory, version, sourceCommit),
       /artifact/,
     );
-    runner.installer.filename = name;
+    runner.runners['linux-amd64'].installer.filename = name;
     runner.protocolVersion++;
     await descriptors();
     await assert.rejects(

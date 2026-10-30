@@ -56,7 +56,7 @@ try {
       'restart persistence',
     ],
     untested: [
-      'native Runner on macOS (unsupported)',
+      'native Runner (separately qualified by Runner installation acceptance)',
       'PDF/DOCX preparation on macOS (unsupported)',
       'paid model provider',
     ],

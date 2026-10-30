@@ -181,7 +181,7 @@ func TestPlatformVersionAndCacheBoundaries(t *testing.T) {
 			t.Fatal("invalid version accepted", version)
 		}
 	}
-	for _, platform := range [][3]string{{"runner", "darwin", "arm64"}, {"server", "windows", "amd64"}, {"server", "linux", "arm64"}} {
+	for _, platform := range [][3]string{{"runner", "darwin", "amd64"}, {"server", "windows", "amd64"}, {"server", "linux", "arm64"}} {
 		bad := o
 		bad.Role, bad.OS, bad.Arch = platform[0], platform[1], platform[2]
 		if _, err := Ensure(t.Context(), bad); err == nil {

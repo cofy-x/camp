@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/httptransfer"
@@ -28,11 +29,13 @@ type RunnerPackage struct {
 
 type RunnerInstallation struct {
 	RunnerPackage
-	Version  string        `json:"version,omitempty"`
-	Source   string        `json:"source,omitempty"`
-	Platform string        `json:"platform"`
-	Offline  RunnerPackage `json:"offline"`
-	Runtime  struct {
+	Version   string                 `json:"version,omitempty"`
+	Source    string                 `json:"source,omitempty"`
+	Platform  string                 `json:"platform"`
+	Target    string                 `json:"target"`
+	Platforms []releaseinfo.Platform `json:"platforms"`
+	Offline   RunnerPackage          `json:"offline"`
+	Runtime   struct {
 		Bytes         int64 `json:"bytes"`
 		UnpackedBytes int64 `json:"unpackedBytes"`
 	} `json:"runtime"`
@@ -69,7 +72,7 @@ func (m *Manager) runnerRelease() (runnerRelease, error) {
 		return release, err
 	}
 	compiled, published, err := releaseinfo.Embedded()
-	if err != nil || (published && compiled != release) {
+	if err != nil || (published && !reflect.DeepEqual(compiled, release)) {
 		return release, errors.New("The staged Runner release differs from this Server build")
 	}
 	return release, nil
@@ -88,36 +91,56 @@ func (m *Manager) releaseArtifactPath(artifact releaseArtifact) (string, error) 
 }
 
 func (m *Manager) RunnerInstallation() RunnerInstallation {
+	return m.RunnerInstallationFor(releaseinfo.LinuxAMD64)
+}
+func (m *Manager) RunnerInstallationFor(platform string) RunnerInstallation {
 	compiled, published, err := releaseinfo.Embedded()
 	if err != nil {
-		return RunnerInstallation{Platform: "Ubuntu 24.04 amd64"}
+		return installationPlatform(platform)
 	}
-	return m.runnerInstallation(compiled, published)
+	return m.runnerInstallationFor(compiled, published, platform)
 }
 
 func (m *Manager) runnerInstallation(compiled runnerRelease, published bool) RunnerInstallation {
-	out := RunnerInstallation{Platform: "Ubuntu 24.04 amd64", Source: "server", RunnerPackage: RunnerPackage{Filename: runnerPackageName}, Offline: RunnerPackage{Filename: runnerOfflinePackageName}}
+	return m.runnerInstallationFor(compiled, published, releaseinfo.LinuxAMD64)
+}
+func installationPlatform(platform string) RunnerInstallation {
+	definition, _ := releaseinfo.PlatformFor(platform)
+	return RunnerInstallation{Target: platform, Platforms: releaseinfo.Platforms(), Platform: definition.Name, Source: "server", RunnerPackage: RunnerPackage{Filename: releaseinfo.InstallerFor(platform)}, Offline: RunnerPackage{Filename: releaseinfo.OfflineFor(platform)}}
+}
+func (m *Manager) runnerInstallationFor(compiled runnerRelease, published bool, platform string) RunnerInstallation {
+	out := installationPlatform(platform)
 	local, localErr := m.runnerRelease()
 	release := local
 	if published {
 		release = compiled
 		out.Source = "github"
-		out.RunnerPackage = githubPackageView(compiled.Installer, compiled.Version)
-		out.Offline = githubPackageView(compiled.Offline, compiled.Version)
 	} else if localErr != nil {
 		return out
 	}
+	runner, ok := release.Runners[platform]
+	if !ok {
+		return out
+	}
+	if published {
+		out.RunnerPackage = githubPackageView(runner.Installer, release.Version)
+		out.Offline = githubPackageView(runner.Offline, release.Version)
+	}
 	out.Version = release.Version
-	out.Runtime.Bytes, out.Runtime.UnpackedBytes = release.Runtime.Bytes, release.Runtime.UnpackedBytes
-	if localErr == nil && (!published || local == compiled) {
-		if _, err := m.releaseArtifactPath(local.Runtime); err == nil {
-			if _, err := m.releaseArtifactPath(local.Installer); err == nil {
-				out.RunnerPackage = packageView(local.Installer, "")
+	out.Runtime.Bytes, out.Runtime.UnpackedBytes = runner.Runtime.Bytes, runner.Runtime.UnpackedBytes
+	if localErr == nil && (!published || reflect.DeepEqual(local, compiled)) {
+		localRunner, ok := local.Runners[platform]
+		if !ok {
+			return out
+		}
+		if _, err := m.releaseArtifactPath(localRunner.Runtime); err == nil {
+			if _, err := m.releaseArtifactPath(localRunner.Installer); err == nil {
+				out.RunnerPackage = platformPackageView(localRunner.Installer, platform, false)
 				out.Source = "server"
 			}
 		}
-		if _, err := m.releaseArtifactPath(local.Offline); err == nil {
-			out.Offline = packageView(local.Offline, "?variant=offline")
+		if _, err := m.releaseArtifactPath(localRunner.Offline); err == nil {
+			out.Offline = platformPackageView(localRunner.Offline, platform, true)
 		}
 	}
 	return out
@@ -135,20 +158,41 @@ func packageView(artifact releaseArtifact, query string) RunnerPackage {
 	return RunnerPackage{Available: true, Filename: artifact.Filename, SHA256: artifact.SHA256, Bytes: artifact.Bytes,
 		DownloadURL: "/api/runner-package" + query, ChecksumURL: "/api/runner-package/checksum" + query}
 }
+func platformPackageView(artifact releaseArtifact, platform string, offline bool) RunnerPackage {
+	query := ""
+	if platform != releaseinfo.LinuxAMD64 {
+		query = "?platform=" + platform
+	}
+	if offline {
+		if query == "" {
+			query = "?variant=offline"
+		} else {
+			query += "&variant=offline"
+		}
+	}
+	return packageView(artifact, query)
+}
 
 func (m *Manager) RunnerPackagePath(offline bool) (string, RunnerPackage, error) {
+	return m.RunnerPackageFor(releaseinfo.LinuxAMD64, offline)
+}
+func (m *Manager) RunnerPackageFor(platform string, offline bool) (string, RunnerPackage, error) {
 	release, err := m.runnerRelease()
 	if err != nil {
 		return "", RunnerPackage{}, err
 	}
-	artifact, query := release.Installer, ""
+	runner, ok := release.Runners[platform]
+	if !ok {
+		return "", RunnerPackage{}, errors.New("This Runner platform has no staged package")
+	}
+	artifact := runner.Installer
 	if offline {
-		artifact, query = release.Offline, "?variant=offline"
-	} else if _, err := m.releaseArtifactPath(release.Runtime); err != nil {
+		artifact = runner.Offline
+	} else if _, err := m.releaseArtifactPath(runner.Runtime); err != nil {
 		return "", RunnerPackage{}, err
 	}
 	name, err := m.releaseArtifactPath(artifact)
-	return name, packageView(artifact, query), err
+	return name, platformPackageView(artifact, platform, offline), err
 }
 
 // Runtime archives remain content-addressed across releases so a previously
@@ -159,9 +203,22 @@ func (m *Manager) runtimeDownload(w http.ResponseWriter, r *http.Request, _ stor
 		machineError(w, 404, "The pinned Camp runtime is unavailable.")
 		return
 	}
-	filename := "camp-runtime-linux-amd64-" + digest + ".tar.gz"
-	name := filepath.Join(m.config.DataDir, "packages", filename)
-	st, err := os.Lstat(name)
+	filename, name := "", ""
+	var st os.FileInfo
+	var err error
+	for _, platform := range releaseinfo.Platforms() {
+		candidate := releaseinfo.RuntimeFor(platform.ID, digest)
+		candidatePath := filepath.Join(m.config.DataDir, "packages", candidate)
+		info, statErr := os.Lstat(candidatePath)
+		if statErr == nil {
+			filename, name, st = candidate, candidatePath, info
+			break
+		}
+		err = statErr
+	}
+	if st != nil {
+		err = nil
+	}
 	if err != nil || !st.Mode().IsRegular() || st.Size() <= 0 || st.Size() >= maxRunnerPackageBytes {
 		machineError(w, 404, "The pinned Camp runtime is unavailable. Ask an administrator to publish this release, then repeat setup.")
 		return

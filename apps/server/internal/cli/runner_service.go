@@ -163,7 +163,7 @@ func runRunnerService(ctx context.Context, args []string, output io.Writer) erro
 		return errors.New("Install the service from the complete Camp Runner bundle")
 	}
 	binary := filepath.Join(bundle, "camp")
-	if runtimePinJSON != "" {
+	if hasRuntimePin() {
 		pin, err := compiledRuntimePin()
 		if err != nil {
 			return err

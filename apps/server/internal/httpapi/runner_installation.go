@@ -6,12 +6,21 @@ import (
 	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/httptransfer"
+	"github.com/cofy-x/camp/apps/server/internal/releaseinfo"
 )
 
 func (a *API) runnerInstallationRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/runner-installation", a.authorizeRoute("GET /api/runner-installation", func(w http.ResponseWriter, r *http.Request) {
+		platform := r.URL.Query().Get("platform")
+		if platform == "" {
+			platform = releaseinfo.LinuxAMD64
+		}
+		if _, ok := releaseinfo.PlatformFor(platform); !ok {
+			writeError(w, 400, "invalid_request", "Choose a supported Runner platform.")
+			return
+		}
 		if service := a.remote; service != nil {
-			a.write(w, 200, service.RunnerInstallation())
+			a.write(w, 200, service.RunnerInstallationFor(platform))
 			return
 		}
 		writeError(w, 503, "execution_unavailable", "Runner installation is unavailable.")
@@ -23,11 +32,19 @@ func (a *API) runnerInstallationRoutes(mux *http.ServeMux) {
 				return
 			}
 			variant := r.URL.Query().Get("variant")
+			platform := r.URL.Query().Get("platform")
+			if platform == "" {
+				platform = releaseinfo.LinuxAMD64
+			}
+			if _, ok := releaseinfo.PlatformFor(platform); !ok {
+				writeError(w, 400, "invalid_request", "Choose a supported Runner platform.")
+				return
+			}
 			if variant != "" && variant != "offline" {
 				writeError(w, 400, "invalid_request", "Choose the installer or offline package.")
 				return
 			}
-			name, meta, err := a.remote.RunnerPackagePath(variant == "offline")
+			name, meta, err := a.remote.RunnerPackageFor(platform, variant == "offline")
 			if err != nil {
 				writeError(w, 404, "not_found", "Ask an administrator to publish this Camp Runner release.")
 				return

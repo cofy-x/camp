@@ -56,8 +56,8 @@ func (o Options) archive() (string, error) {
 	if o.Role != "server" && o.Role != "runner" {
 		return "", errors.New("unsupported Camp package role")
 	}
-	if o.Role == "runner" && (o.OS != "linux" || o.Arch != "amd64") {
-		return "", errors.New("native Camp Runner requires Ubuntu 24.04 amd64; connect a Linux Runner from the browser")
+	if o.Role == "runner" && !(o.OS == "linux" && o.Arch == "amd64" || o.OS == "darwin" && o.Arch == "arm64") {
+		return "", errors.New("native Camp Runner supports Ubuntu 24.04 amd64 and macOS 15+ Apple Silicon")
 	}
 	if !(o.OS == "linux" && o.Arch == "amd64" || o.OS == "darwin" && (o.Arch == "amd64" || o.Arch == "arm64")) {
 		return "", errors.New("Camp Server packages support Linux amd64 and macOS arm64/amd64")

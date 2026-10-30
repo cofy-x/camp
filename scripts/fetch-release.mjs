@@ -8,6 +8,7 @@ import { command, root } from './lib.mjs';
 import {
   repository,
   serverPlatforms,
+  runnerPlatforms,
   validVersion,
   verifyRelease,
 } from './release.mjs';
@@ -33,7 +34,7 @@ const metadata = async (name) => {
   return JSON.parse(data);
 };
 const catalog = await metadata('release.json');
-assert.equal(catalog.schema, 1);
+assert.equal(catalog.schema, 2);
 assert.equal(catalog.version, version);
 assert.equal(
   catalog.sourceCommit,
@@ -43,17 +44,27 @@ assert.equal(
 assert.match(catalog.image, /^ghcr\.io\/cofy-x\/camp@sha256:[a-f0-9]{64}$/);
 const runner = await metadata('runner-release.json');
 const server = await metadata('server-release.json');
-for (const [key, expected] of [
-  ['installer', 'camp-runner-linux-amd64.tar.gz'],
-  ['offline', 'camp-runner-offline-linux-amd64.tar.gz'],
-  ['runtime', `camp-runtime-linux-amd64-${runner.runtime?.sha256}.tar.gz`],
-  ...serverPlatforms.map((platform) => [
-    platform,
-    `camp-server-${platform}.tar.gz`,
-  ]),
-]) {
-  const artifact = server.servers[key] || runner[key];
-  assert.deepEqual(artifact, catalog.servers[key] || catalog[key]);
+const entries = [
+  ...runnerPlatforms.flatMap((platform) =>
+    ['installer', 'runtime', 'offline'].map((key) => {
+      const artifact = runner.runners[platform][key];
+      assert.deepEqual(artifact, catalog.runners[platform][key]);
+      const expected =
+        key === 'runtime'
+          ? `camp-runtime-${platform}-${artifact.sha256}.tar.gz`
+          : key === 'offline'
+            ? `camp-runner-offline-${platform}.tar.gz`
+            : `camp-runner-${platform}.tar.gz`;
+      return [artifact, expected];
+    }),
+  ),
+  ...serverPlatforms.map((platform) => {
+    const artifact = server.servers[platform];
+    assert.deepEqual(artifact, catalog.servers[platform]);
+    return [artifact, `camp-server-${platform}.tar.gz`];
+  }),
+];
+for (const [artifact, expected] of entries) {
   assert.equal(artifact.filename, expected);
   assert.match(artifact.sha256, /^[a-f0-9]{64}$/);
   assert.ok(
@@ -100,16 +111,15 @@ for (const [key, expected] of [
   );
 }
 await verifyRelease(directory, version, catalog.sourceCommit);
+const host = `${process.platform}-${process.arch === 'x64' ? 'amd64' : process.arch}`;
+assert.ok(serverPlatforms.includes(host));
 await command('tar', [
   '-xzf',
-  join(directory, catalog.server.filename),
+  join(directory, catalog.servers[host].filename),
   '-C',
   directory,
 ]);
-await cp(
-  join(directory, 'camp-server-linux-amd64/camp'),
-  join(directory, 'camp'),
-);
+await cp(join(directory, `camp-server-${host}/camp`), join(directory, 'camp'));
 console.log(
   `Downloaded and verified public ${version} assets without credentials.`,
 );

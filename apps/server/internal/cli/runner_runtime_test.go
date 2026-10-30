@@ -18,13 +18,31 @@ import (
 	"testing"
 
 	"github.com/cofy-x/camp/apps/server/internal/daemon"
+	"github.com/cofy-x/camp/apps/server/internal/releaseinfo"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
 )
 
 func runtimeArchiveFixture(t *testing.T) ([]byte, runtimePin) {
+	return runtimeArchiveFor(t, "linux/x64")
+}
+func runtimeArchiveFor(t *testing.T, platform string) ([]byte, runtimePin) {
 	t.Helper()
 	directory, manifest := fixtureBundle(t)
-	manifest.Schema, manifest.Role = 2, "runner-runtime"
+	manifest.Schema, manifest.Role, manifest.Platform = 2, "runner-runtime", platform
+	definition, ok := releaseinfo.PlatformForRuntime(platform)
+	if !ok {
+		t.Fatal("unsupported fixture platform")
+	}
+	if platform == "darwin/arm64" {
+		manifest.LayerFS.Image = ""
+		for _, name := range []string{"images/layerfs.tar", "runtime/layerfs-runtime/installed.json"} {
+			delete(manifest.Files, name)
+			if err := os.Remove(filepath.Join(directory, name)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
 	delete(manifest.Files, "bin/camp")
 	if err := os.Remove(filepath.Join(directory, "bin/camp")); err != nil {
 		t.Fatal(err)
@@ -61,7 +79,7 @@ func runtimeArchiveFixture(t *testing.T) ([]byte, runtimePin) {
 			return err
 		}
 		relative, _ := filepath.Rel(directory, name)
-		header.Name = filepath.ToSlash(filepath.Join("camp-runtime-linux-amd64", relative))
+		header.Name = filepath.ToSlash(filepath.Join("camp-runtime-"+definition.ID, relative))
 		if err := archive.WriteHeader(header); err != nil {
 			return err
 		}
@@ -91,7 +109,7 @@ func runtimeArchiveFixture(t *testing.T) ([]byte, runtimePin) {
 		t.Fatal(err)
 	}
 	manifestDigest := sha256.Sum256(manifestData)
-	return content.Bytes(), runtimePin{Schema: 1, Platform: "linux/x64", ProtocolVersion: p.Version, SHA256: hex.EncodeToString(digest[:]), ManifestSHA256: hex.EncodeToString(manifestDigest[:]), Bytes: int64(content.Len()), UnpackedBytes: size}
+	return content.Bytes(), runtimePin{Schema: 1, Platform: platform, ProtocolVersion: p.Version, SHA256: hex.EncodeToString(digest[:]), ManifestSHA256: hex.EncodeToString(manifestDigest[:]), Bytes: int64(content.Len()), UnpackedBytes: size}
 }
 
 func TestManagedRuntimeInstallsOnceAndKeepsIdentity(t *testing.T) {
@@ -326,7 +344,7 @@ func TestRuntimeExtractionRejectsUnsafeArchives(t *testing.T) {
 		}
 		_ = archive.Close()
 		_ = compressed.Close()
-		if err := extractRuntime(context.Background(), &content, t.TempDir(), 0); err == nil {
+		if err := extractRuntime(context.Background(), &content, t.TempDir(), 0, "linux-amd64"); err == nil {
 			t.Fatal("Unsafe archive was extracted", header.Name)
 		}
 	}
@@ -351,5 +369,38 @@ func TestRuntimeFailureClearsPreviousReadinessWithoutReplacingIdentity(t *testin
 	var report p.ReadinessReport
 	if json.Unmarshal(data, &report) != nil || report.Ready || report.CheckedAt == "" {
 		t.Fatal("Failed installation retained stale readiness")
+	}
+}
+
+func TestMacRuntimeInstallsWithoutLinuxAndRejectsForeignPin(t *testing.T) {
+	content, pin := runtimeArchiveFor(t, "darwin/arm64")
+	directory := t.TempDir()
+	offline := filepath.Join(directory, pin.filename())
+	if err := os.WriteFile(offline, content, 0600); err != nil {
+		t.Fatal(err)
+	}
+	installed, err := installRuntime(t.Context(), daemon.Config{DataDir: directory}, pin, io.Discard, offline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(installed, "runtime/layerfs-runtime/installed.json")); !os.IsNotExist(err) {
+		t.Fatal("Mac runtime included Linux backend", err)
+	}
+	foreign := pin
+	foreign.Platform = "linux/x64"
+	if _, err := verifyPinnedRuntime(installed, foreign); err == nil {
+		t.Fatal("foreign runtime pin was accepted")
+	}
+	old := runtimePinJSON
+	t.Cleanup(func() { runtimePinJSON = old })
+	host, _ := releaseinfo.HostPlatform()
+	foreign.Platform = "darwin/arm64"
+	if host.RuntimePlatform == foreign.Platform {
+		foreign.Platform = "linux/x64"
+	}
+	data, _ := json.Marshal(foreign)
+	runtimePinJSON = string(data)
+	if _, err := compiledRuntimePin(); err == nil {
+		t.Fatal("installer accepted a runtime for another host")
 	}
 }

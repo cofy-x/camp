@@ -4,13 +4,15 @@ Camp serves one trusted team from one Server. Ordinary members use a browser; pe
 
 ## Supported deployment
 
-The native Runner package targets **Ubuntu 24.04 amd64**. Its host requires Docker Engine with a local Unix socket and local volume access, `/dev/fuse`, Bubblewrap with working user/PID namespaces, Git and Bash. The fixed native binaries use the platform's system libraries; setup reports missing prerequisites without installing packages or changing host policy.
+The native Runner packages target **Ubuntu 24.04 amd64** and **macOS 15+ Apple Silicon**. Mac uses a native local workspace and Seatbelt, without Docker, Linux VM, FUSE or root. Use the original unprivileged account for setup and operation; Intel Mac supports Server only. Native tool installations require explicit read/execute grants described in the [native Runner contract](native-runner.md#operator-setup-and-lifecycle).
+
+The Linux Runner uses LayerFS. Its host requires Docker Engine with a local Unix socket and local volume access, `/dev/fuse`, Bubblewrap with working user/PID namespaces, Git and Bash. The fixed native binaries use the platform's system libraries; setup reports missing prerequisites without installing packages or changing host policy.
 
 Runner discovers the selected local engine's volume directory through Docker's system-info API, including custom Docker data directories. That directory must be directly accessible to the privileged Runner account; a remote Docker endpoint cannot provide this execution environment.
 
-The LayerFS local-volume backend requires privileged filesystem access. Docker group membership alone is insufficient. Use the same dedicated privileged account for setup, foreground operation and service installation. Native services require root-owned private storage and refuse another account's existing journal. Unprivileged/rootless native execution is unsupported. Treat the Runner operator as a trusted privileged host owner; tool containers receive no Docker control. Ubuntu policy may require an administrator-approved Bubblewrap profile.
+The LayerFS local-volume backend requires privileged filesystem access. Docker group membership alone is insufficient. Use the same dedicated privileged account for setup, foreground operation and service installation. Linux native services require root-owned private storage and refuse another account's existing journal. Unprivileged/rootless Linux execution is unsupported. Treat the Runner operator as a trusted privileged host owner; tool containers receive no Docker control. Ubuntu policy may require an administrator-approved Bubblewrap profile.
 
-Server packages target Linux amd64 and macOS arm64/amd64. Server needs Git and private storage, without Docker, DSH or LayerFS. Its [lightweight image](../Dockerfile) omits native execution and optional PDF/DOCX reader dependencies. For readers on a Linux binary Server deployment, see the [document runtime](../tools/document-runtime/README.md). macOS supports discussion, uploads, versioned text files, human review and remote Linux Runners. PDF/DOCX text preparation and controlled Server-host directory import currently require Linux; originals remain downloadable. Browser access from Windows requires no CLI. Mac/Windows browser and Compose usage does not imply native Runner support.
+Server packages target Linux amd64 and macOS arm64/amd64. Server needs Git and private storage, without Docker, DSH or LayerFS. Its [lightweight image](../Dockerfile) omits native execution and optional PDF/DOCX reader dependencies. For readers on a Linux binary Server deployment, see the [document runtime](../tools/document-runtime/README.md). macOS Server supports discussion, uploads, versioned text files, human review and independent supported Runners. PDF/DOCX text preparation and controlled Server-host directory import currently require Linux; originals remain downloadable. Browser access from Windows requires no CLI. Mac/Windows browser and Compose usage does not imply native Runner support.
 
 ## Choose a version
 
@@ -29,7 +31,7 @@ go install github.com/cofy-x/camp@v0.1.0-alpha.2
 camp
 ```
 
-Put Go's binary installation directory on PATH. This entrypoint downloads the same complete Server archive as a manual installation; it does not compile an API-only development Server or require Node/pnpm. `camp runner ...` selects the matching Linux Runner installer instead. The original `v0.1.0-alpha.1` has no root command and must be installed from its archives.
+Put Go's binary installation directory on PATH. This entrypoint downloads the same complete Server archive as a manual installation; it does not compile an API-only development Server or require Node/pnpm. `camp runner ...` selects the matching native Runner installer instead. Releases through `v0.1.0-alpha.2` contain only the Linux Runner; Mac execution requires a release listing `darwin-arm64` Runner assets. The original `v0.1.0-alpha.1` has no root command and must be installed from its archives.
 
 The launcher derives its immutable version from Go's build information. It never selects `latest`, substitutes another platform or advances an existing installation. Downloads use system TLS and only GitHub release redirects, without Camp credentials. Archive/checksum names are fixed by version, role and platform. Checksums establish release-channel integrity, not a separate publisher signature.
 
@@ -47,7 +49,7 @@ brew install cofy-x/camp/camp
 camp
 ```
 
-The explicit repository URL is required because this tap lives in the Camp repository. The fully qualified formula selects Camp's own package. The formula currently pins `v0.1.0-alpha.2`; release maintainers update it in a reviewed PR after public verification. `brew upgrade cofy-x/camp/camp` is an explicit installation update; stop Camp and retain a full backup first. Homebrew keeps team data outside its Cellar and never starts a Camp service. Native execution still requires the separate Linux Runner.
+The explicit repository URL is required because this tap lives in the Camp repository. The fully qualified formula selects Camp's own package. The formula currently pins `v0.1.0-alpha.2`; release maintainers update it in a reviewed PR after public verification. `brew upgrade cofy-x/camp/camp` is an explicit installation update; stop Camp and retain a full backup first. Homebrew keeps team data outside its Cellar and never starts a Camp service. The currently pinned formula predates the Mac Runner. A formula for a release containing Mac Runner assets can run `camp runner setup` directly: its compiled catalog pins the native runtime without a second installer download. Intel Mac still connects a separate supported Runner.
 
 ### Standalone Server
 
@@ -72,7 +74,7 @@ Loopback HTTP is available for development. Remote machine APIs require TLS at C
 
 ## Connect a Runner
 
-Open **Runners → Connect Runner**, download the installer and checksum, and create a one-use connection code. Ownership comes from that authenticated member; registration alone grants no other Agent access. The UI shows both installer download and setup runtime transfer, with an offline package available on demand.
+Open **Runners → Connect Runner**, choose the execution platform, download its installer and checksum, and create a one-use connection code. Ownership comes from that authenticated member; registration alone grants no other Agent access. The UI shows both installer download and setup runtime transfer, with an offline package available on demand.
 
 ```sh
 sha256sum -c camp-runner-linux-amd64.tar.gz.sha256
@@ -80,6 +82,8 @@ tar -xzf camp-runner-linux-amd64.tar.gz
 cd camp-runner-linux-amd64
 ./camp runner setup
 ```
+
+On Mac, verify with `shasum -a 256 -c camp-runner-darwin-arm64.tar.gz.sha256`, extract that archive and run the same `./camp runner setup` command as the unprivileged operator. A complete published Server/Homebrew binary also supports `camp runner setup` using the embedded platform runtime pin.
 
 Interactive setup asks for Server URL, machine name and private storage, then reads the code with terminal echo disabled. It reuses an existing registration without another code. Follow the printed absolute foreground command. Setup does not start a service.
 
@@ -92,15 +96,15 @@ For automation, supply all connection fields and a private code file; explicit `
 ./camp runner status --data-dir /private/camp-runner
 ```
 
-For a new Runner, setup checks the supported platform, root account and basic host prerequisites before reading the connection code or registering. It then saves registration, downloads the compiled-in runtime version/digest/size from GitHub Releases, validates archive/files/links, loads the fixed image and performs isolated file/write/export/cleanup self-tests. It uses no model call. Public downloads use a separate client with no Camp credential or private Server CA configuration, allowing only HTTPS redirects within GitHub's release services. Failures identify a controlled DNS, TLS, connection, timeout, cancellation, redirect or interrupted-transfer class without exposing signed URLs or transport credentials. Runtime extraction stages privately and publishes its verified cache atomically. Changed digests and unverified native files cannot become executable dependencies. `run` checks the installation but never installs or upgrades it.
+For a new Runner, setup checks the supported platform, execution account and basic host prerequisites before reading the connection code or registering. It then saves registration, downloads the compiled-in runtime version/digest/size from GitHub Releases, validates archive/files/links, loads the fixed image on Linux and performs isolated file/write/export/cleanup self-tests. It uses no model call. Public downloads use a separate client with no Camp credential or private Server CA configuration, allowing only HTTPS redirects within GitHub's release services. Failures identify a controlled DNS, TLS, connection, timeout, cancellation, redirect or interrupted-transfer class without exposing signed URLs or transport credentials. Runtime extraction stages privately and publishes its verified cache atomically. Changed digests and unverified native files cannot become executable dependencies. `run` checks the installation but never installs or upgrades it.
 
 For an explicitly staged Server mirror, add `--runtime-source server` to setup. This choice persists across setup retries; `--runtime-source github` selects the public source again. Neither source silently falls back to another version or host. A development installer without a public version uses its enrolled Server. Offline setup always prefers its adjacent matching archive, independently of the saved download source.
 
 Failure retains registration. Fix the reported issue and repeat setup with the same data directory to reuse the identity and verified cache. Explicit setup can quarantine/repair a damaged cache while preserving journal and sessions. A revoked identity needs a new code and directory; it is never silently replaced. `run` can connect with execution unavailable and report Needs attention. Status separates connection observations and their freshness from the last execution check.
 
-Use the same root account and absolute private directory for setup, foreground operation and services. A host failure before enrollment creates no Runner identity. If an earlier installation registered under another account, stop it and inspect its saved state under that account; do not change ownership of its journal or silently enroll a replacement. If replacement is intended, explicitly revoke the old Runner in Camp and use a new code and separate root-owned directory.
+Use the same execution account and absolute private directory for setup, foreground operation and services: privileged on Linux, unprivileged on Mac. A host failure before enrollment creates no Runner identity. If an earlier installation registered under another account, stop it and inspect its saved state under that account; do not change ownership of its journal or silently enroll a replacement. If replacement is intended, explicitly revoke the old Runner in Camp and use a new code and separate root-owned directory.
 
-Keep the installer at a stable absolute path; runtime cache and private data have separate lifetimes. For offline runtime installation, verify/extract `camp-runner-offline-linux-amd64.tar.gz`, then run the same setup command. It detects the adjacent exact archive and validates it identically. Registration and work still need Server connectivity. The smaller installer moves runtime transfer to setup; it does not remove total download or disk cost.
+Keep the installer at a stable absolute path; runtime cache and private data have separate lifetimes. For offline runtime installation, verify/extract `camp-runner-offline-linux-amd64.tar.gz`, (or `camp-runner-offline-darwin-arm64.tar.gz` on Mac), then run the same setup command. It detects the adjacent exact archive and validates it identically. Registration and work still need Server connectivity. The smaller installer moves runtime transfer to setup; it does not remove total download or disk cost.
 
 ## Choose operation mode
 
@@ -113,6 +117,10 @@ Foreground `run` is enough. On systemd hosts an operator can separately choose:
 ```
 
 `install` writes/reloads only the managed unit; `start` runs now; `enable-boot` opts into boot startup. `stop`, `status`, `disable-boot` and `remove` are separate actions. Remove stops/disables the managed unit while preserving data. Camp never elevates itself or changes an unrelated service. Revoked credentials or permanent protocol rejection exit with status 78, which the managed service does not restart.
+
+On Mac, the same `service install`, `start`, `stop`, `status` and `remove` commands manage a private launchd job. `enable-login` and `disable-login` separately opt into or out of login startup. Installation starts nothing. A stopped or failed process remains stopped until explicitly started; network reconnection is owned by the running daemon. Removal preserves identity, journal and resource data.
+
+When stopped, repeat setup with `--tool-root /absolute/tool/version` to replace saved native read/execute grants, or `--clear-tool-roots` to revoke them. Omission retains existing grants. Use narrow canonical installations, such as a specific Homebrew Cellar version; home, credential and Runner storage trees are refused. A grant does not authorize tool credentials, signing services, GUI automation or network. See [tool and lifecycle boundaries](native-runner.md#operator-setup-and-lifecycle).
 
 Back in Camp, distinguish **installed, connected, execution ready, model configured and first task succeeded**. Run First Task explicitly creates/shares an owned Agent and requests model-backed file work on the chosen Room. Self-test and fixture success cannot substitute for recorded native task success. Configure Agent targets, grants and personal/team defaults in Agents/Runners; no machine choice is needed for each ordinary message.
 
@@ -134,7 +142,7 @@ Use Server and Runner from the same release for the supported installation path.
 
 ## Build and publish a release
 
-The [Release workflow](../.github/workflows/release.yml) is manually dispatched on `main` with a fixed version. It verifies that the exact source has passed Source, Browser and Fixture CI and that the tag is unused. A fresh privileged Ubuntu builder installs pinned dependencies, builds all packages, runs Native recovery and online/offline installation checks, tests the Server image, and stages only the reviewed artifact allowlist. A separate job publishes to GitHub Releases and GHCR. Publishing permissions are confined to those jobs; pull requests do not automatically run the privileged release build.
+The [Release workflow](../.github/workflows/release.yml) is manually dispatched on `main` with a fixed version. It verifies that the exact source has passed Source, Browser and Fixture CI and that the tag is unused. An ARM64 Mac builder creates the pinned native Mac runtime and installers without Linux dependencies. The privileged Ubuntu builder imports that contribution, builds the Linux packages and matching Server catalog, runs Native recovery and online/offline installation checks, tests the Server image, and stages only the reviewed artifact allowlist. A separate job publishes to GitHub Releases and GHCR. Publishing permissions are confined to those jobs; pull requests do not automatically run the privileged release build.
 
 Maintainers can manually dispatch the same workflow on a trusted development branch with `validate-only=true` to check Native packages before merging. This mode has read-only repository permissions, retains CI artifacts, and creates no tag, Release or registry image. Its report explicitly leaves Source/Browser/Fixture acceptance and public distribution ungranted. Publishing still requires the normal mode on reviewed `main`.
 
@@ -171,13 +179,16 @@ node scripts/smoke-server-image.mjs camp-server:v0.1.0-alpha.1
 - `dist/camp-runner-offline-linux-amd64.tar.gz`: installer plus identical runtime.
 - `dist/camp-server-linux-amd64.tar.gz`: standalone Server, embedded Dashboard and licenses.
 - `dist/camp-server-darwin-arm64.tar.gz` and `dist/camp-server-darwin-amd64.tar.gz`: complete macOS Servers with the same fixed Runner descriptor.
+- `dist/camp-runner-darwin-arm64.tar.gz`, its digest-addressed native runtime and `dist/camp-runner-offline-darwin-arm64.tar.gz`: unprivileged Mac execution.
 - Archive checksums, `dist/runner-release.json` and `dist/server-release.json`: fixed source/version, protocol and artifact identities. The published `release.json` also binds the registry digest.
 
-The runtime has its own file/link manifest, licenses and fixed image. Native dependencies stay pinned; only foreign-platform node-pty prebuilds are excluded and recorded. Normalized tar metadata/order keeps unchanged runtime content stable across installer rebuilds. Digests establish integrity, not a publisher signature; use a trusted release channel. Optional document parsing is Server-side and absent from Runner runtime packages.
+Each runtime has its own file/link manifest and licenses. Only Linux includes the fixed LayerFS image; Mac excludes the Linux runtime, image and Rust toolchain. Native dependencies stay pinned; only foreign-platform node-pty prebuilds are excluded and recorded. A portable Go archive writer normalizes tar metadata/order and keeps unchanged runtime content stable across installer rebuilds. Digests establish integrity, not a publisher signature; use a trusted release channel. Optional document parsing is Server-side and absent from Runner runtime packages.
+
+Each native builder emits a schema-2 `runner-release-<platform>.json` contribution. Both contributions must agree on version, source and protocol before the schema-2 `runner-release.json` combines their `runners` entries. The published `release.json` also uses schema 2. The Server embeds the complete catalog; older schema-1 package metadata must be replaced with the matching release catalog, without changing Runner identity or retained digest runtimes.
 
 Runtime packaging precedes installer hashing; the Server then embeds that exact Runner descriptor. The final release catalog can hash the Server without a circular self-hash. A release build refuses dirty source. Unversioned `make package-daemon` creates local development packages; `make build-server-image` builds the development Server image. The `release` Docker target consumes the already verified Server bundle instead of rebuilding a different binary.
 
-`server-release.json` and `release.json` list the exact supported archives in `servers`; `server` is the matching Linux artifact used by the container/native harness. Release verification rejects missing platforms, changed identities or checksums. The Linux builder cross-compiles Mac packages, then actual Apple Silicon and Intel Mac workers verify the relocated archives, embedded UI, authentication, versioned files and restart persistence before publication. Ordinary CI also builds each Mac Server and exercises discussion/file work in Mac WebKit. These checks establish Server behavior, not a macOS native Runner.
+`server-release.json` and `release.json` list the exact supported archives in `servers`; `server` is the matching Linux artifact used by the container/native harness. Release verification rejects missing platforms, changed identities or checksums. The Linux builder cross-compiles Mac packages, then actual Apple Silicon and Intel Mac workers verify the relocated archives, embedded UI, authentication, versioned files and restart persistence before publication. Ordinary CI also builds each Mac Server and exercises discussion/file work in Mac WebKit. Those Server checks remain separate from actual Mac ARM64 Runner installation acceptance on macOS 15 and 26. The release gate runs the same immutable archives through relocated online/offline setup, native DSH work, checks, publication and backup/restore, without host Node or paid model requests.
 
 Publication generates a versioned `camp.rb` Homebrew formula from verified archive digests. Update the maintained [tap formula](../Formula/camp.rb) from that asset in a reviewed PR after public verification; it installs the complete Server and Git without enabling a service. Both Mac CI workers install/test its actual public archive and run that release's full Server lifecycle through Homebrew, verifying the test driver's source commit against the release catalog. This keeps future API changes independent of the previously published tap version. Main-branch CI also clones the public tap; PR CI uses its reviewed checkout. Tagged Go installation is separately checked on Linux and both Mac architectures after publication. Sanitized platform/package, Homebrew and public-Go reports are retained with the release.
 
