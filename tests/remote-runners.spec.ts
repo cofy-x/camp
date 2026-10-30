@@ -51,6 +51,7 @@ async function mockRunners(page: Page) {
   await page.route('**/api/runner-installation', (route) =>
     route.fulfill({
       json: {
+        target: 'linux-amd64',
         platform: 'Ubuntu 24.04 amd64',
         available: false,
         downloadUrl: '',
@@ -416,6 +417,7 @@ test('Connect Runner uses the fixed public release and exposes offline verificat
   await page.route('**/api/runner-installation', (route) =>
     route.fulfill({
       json: {
+        target: 'linux-amd64',
         platform: 'Ubuntu 24.04 amd64',
         version: 'v0.1.0-alpha.1',
         source: 'github',
@@ -482,6 +484,7 @@ test('Connect Runner distinguishes the small installer from runtime downloads an
   await page.route('**/api/runner-installation', (route) =>
     route.fulfill({
       json: {
+        target: 'linux-amd64',
         platform: 'Ubuntu 24.04 amd64',
         version: 'v0.1.0-alpha.1',
         source: 'server',
@@ -1080,4 +1083,223 @@ test('Runner onboarding reports observed readiness and explicitly sends the firs
   expect(requests[0].body.preferredRunnerId).toBe(runner.id);
   expect(requests[2].body.recipientAgentIds).toEqual(['first-task-agent']);
   expect(requests[2].body.content).toContain('Read the file back using a tool');
+});
+
+function platformPackage(target: string) {
+  const mac = target === 'darwin-arm64';
+  const filename = `camp-runner-${target}.tar.gz`;
+  const downloadUrl = `/api/runner-package${mac ? '?platform=darwin-arm64' : ''}`;
+  return {
+    target,
+    platform: mac ? 'macOS 15+ Apple Silicon' : 'Ubuntu 24.04 amd64',
+    platforms: [
+      { id: 'linux-amd64', name: 'Ubuntu 24.04 amd64' },
+      { id: 'darwin-arm64', name: 'macOS 15+ Apple Silicon' },
+    ],
+    source: 'server',
+    available: true,
+    filename,
+    downloadUrl,
+    checksumUrl: `${downloadUrl.replace('/runner-package', '/runner-package/checksum')}`,
+    bytes: 6_600_000,
+    runtime: {
+      bytes: mac ? 210_000_000 : 316_000_000,
+      unpackedBytes: 650_000_000,
+    },
+    offline: {
+      available: true,
+      filename: `camp-runner-offline-${target}.tar.gz`,
+      downloadUrl: `${downloadUrl}${mac ? '&' : '?'}variant=offline`,
+      checksumUrl: `/api/runner-package/checksum?platform=${target}&variant=offline`,
+      bytes: 216_000_000,
+    },
+  };
+}
+
+test('Connect Runner selects native Mac packages with the keyboard and preserves the connection draft', async ({
+  page,
+}, info) => {
+  await mockRunners(page);
+  await page.route('**/api/runner-installation*', (route) =>
+    route.fulfill({
+      json: platformPackage(
+        new URL(route.request().url()).searchParams.get('platform') ??
+          'linux-amd64',
+      ),
+    }),
+  );
+  await signIn(page);
+  await openApp(page, 'Runners');
+  const panel = await connectRunner(page);
+  await panel.getByLabel('Runner name', { exact: true }).fill('Studio Mac');
+  const platform = panel.getByRole('combobox', {
+    name: 'Runner platform',
+    exact: true,
+  });
+  await platform.focus();
+  await platform.press('End');
+  await platform.press('Enter');
+  await expect(platform).toHaveValue('darwin-arm64');
+  await expect(
+    panel.getByRole('link', { name: 'Download for Mac (7 MB)', exact: true }),
+  ).toHaveAttribute('href', '/api/runner-package?platform=darwin-arm64');
+  await expect(
+    panel.getByRole('link', { name: /Download for Linux/ }),
+  ).toHaveCount(0);
+  await expect(panel).toContainText('without sudo');
+  const requirements = panel.getByText('Requirements and offline install', {
+    exact: true,
+  });
+  await requirements.focus();
+  await requirements.press('Enter');
+  await expect(panel).toContainText('Docker, Linux and FUSE are not required.');
+  await expect(panel).toContainText(
+    'shasum -a 256 -c camp-runner-darwin-arm64.tar.gz.sha256',
+  );
+  await expect(
+    panel.getByRole('link', {
+      name: 'Full offline package (216 MB)',
+      exact: true,
+    }),
+  ).toHaveAttribute(
+    'href',
+    '/api/runner-package?platform=darwin-arm64&variant=offline',
+  );
+  await expect(panel.getByLabel('Runner name', { exact: true })).toHaveValue(
+    'Studio Mac',
+  );
+  expect(
+    await panel.evaluate(
+      (element) => element.scrollWidth > element.clientWidth,
+    ),
+  ).toBe(false);
+  if (['chromium', 'touch'].includes(info.project.name)) {
+    await panel
+      .getByRole('heading', { name: 'Connect a machine', exact: true })
+      .scrollIntoViewIfNeeded();
+    await runnerApp(page).screenshot({
+      path: info.outputPath('runners-native-mac.png'),
+    });
+  }
+  await runnerApp(page)
+    .getByRole('button', { name: 'Back to Runners', exact: true })
+    .click();
+  const returned = await connectRunner(page);
+  await expect(
+    returned.getByRole('combobox', { name: 'Runner platform', exact: true }),
+  ).toHaveValue('darwin-arm64');
+  await expect(returned.getByLabel('Runner name', { exact: true })).toHaveValue(
+    'Studio Mac',
+  );
+});
+
+test('Late platform metadata cannot replace another download or create another connection code', async ({
+  page,
+}) => {
+  await mockRunners(page);
+  let announce!: () => void;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    announce = resolve;
+  });
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/runner-installation*', async (route) => {
+    const target =
+      new URL(route.request().url()).searchParams.get('platform') ??
+      'linux-amd64';
+    if (target === 'darwin-arm64') {
+      announce();
+      await released;
+    }
+    await route.fulfill({ json: platformPackage(target) });
+  });
+  let codes = 0;
+  await page.route('**/api/runner-enrollments', (route) => {
+    if (route.request().method() === 'GET')
+      return route.fulfill({ json: { enrollments: [] } });
+    codes++;
+    return route.fulfill({
+      json: {
+        enrollment: {
+          id: 'platform-code',
+          name: 'Retained machine',
+          expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        },
+        token: 'private-platform-test-code',
+      },
+    });
+  });
+  await signIn(page);
+  await openApp(page, 'Runners');
+  const panel = await connectRunner(page);
+  await panel
+    .getByLabel('Runner name', { exact: true })
+    .fill('Retained machine');
+  await panel
+    .getByRole('button', { name: 'Create Connection Code', exact: true })
+    .click();
+  await expect(
+    panel.getByLabel('Connection code', { exact: true }),
+  ).toHaveValue('private-platform-test-code');
+  const chooser = panel.getByRole('combobox', {
+    name: 'Runner platform',
+    exact: true,
+  });
+  await chooser.selectOption('darwin-arm64');
+  await held;
+  await expect(panel.getByRole('link', { name: /Download for/ })).toHaveCount(
+    0,
+  );
+  await chooser.selectOption('linux-amd64');
+  release();
+  await expect(
+    panel.getByRole('link', { name: 'Download for Linux (7 MB)', exact: true }),
+  ).toHaveAttribute('href', '/api/runner-package');
+  await expect(
+    panel.getByRole('link', { name: /Download for Mac/ }),
+  ).toHaveCount(0);
+  await expect(
+    panel.getByLabel('Connection code', { exact: true }),
+  ).toHaveValue('private-platform-test-code');
+  expect(codes).toBe(1);
+});
+
+test('Mac diagnostics show the reported native adapters without inventing LayerFS', async ({
+  page,
+}, info) => {
+  await mockRunners(page);
+  const mac: Runner = {
+    ...runners[0],
+    name: 'Studio Mac',
+    online: true,
+    capabilities: {
+      executor: 'native',
+      ready: true,
+      slots: 1,
+      platform: 'darwin/arm64',
+      workspace: 'native-local',
+      sandbox: 'seatbelt',
+      checkpoint: 'local-capture',
+      dshVersion: '0.2.1-rc.3',
+    },
+  };
+  await page.route('**/api/runners', (route) =>
+    route.fulfill({ json: { runners: [mac] } }),
+  );
+  await signIn(page);
+  await openApp(page, 'Runners');
+  const detail = runnerDetail(page);
+  await detail.getByRole('tab', { name: 'Diagnostics', exact: true }).click();
+  await expect(detail).toContainText('Mac native');
+  await expect(detail).toContainText('Native local directory');
+  await expect(detail).toContainText('Seatbelt');
+  await expect(detail).toContainText('Sealed local capture');
+  await expect(detail).not.toContainText('LayerFS');
+  await expect(detail).toContainText('Not yet verified by completed work.');
+  if (['chromium', 'touch'].includes(info.project.name))
+    await runnerApp(page).screenshot({
+      path: info.outputPath('runners-mac-diagnostics.png'),
+    });
 });

@@ -79,6 +79,47 @@ func TestRemoteManagementAuthorityAndSafeRunnerView(t *testing.T) {
 	}
 }
 
+func TestRunnerReportedAdaptersReachBrowserWithoutPrivateFields(t *testing.T) {
+	f, runner := remoteTeamFixture(t)
+	for _, facts := range []map[string]string{
+		{"platform": "darwin/arm64", "workspace": "native-local", "sandbox": "seatbelt", "checkpoint": "local-capture"},
+		{"platform": "linux/amd64", "workspace": "layerfs", "sandbox": "linux-container", "checkpoint": "layerfs"},
+	} {
+		capabilities := map[string]any{"executor": "native", "ready": true, "slots": 1, "fingerprint": "private-fingerprint", "toolRoots": []string{"/private/operator/tool"}}
+		for key, value := range facts {
+			capabilities[key] = value
+		}
+		encoded, err := json.Marshal(capabilities)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = f.store.ConnectRunner(context.Background(), runner.ID, storage.RunnerConnection{StorageID: runner.StorageID, Runtime: "native", Slots: 1, Capabilities: encoded})
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := teamRequest(t, f, f.memberCookie, "GET", "/api/runners", nil)
+		requireHTTP(t, response, http.StatusOK)
+		var list struct {
+			Runners []struct {
+				Capabilities map[string]any `json:"capabilities"`
+			} `json:"runners"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &list); err != nil || len(list.Runners) != 1 {
+			t.Fatal("runner list", response.Body.String(), err)
+		}
+		for key, value := range facts {
+			if list.Runners[0].Capabilities[key] != value {
+				t.Errorf("reported %s was lost: %s", key, response.Body.String())
+			}
+		}
+		for _, private := range []string{"private-fingerprint", "private-storage-identity", "toolRoots", "/private/operator/tool"} {
+			if strings.Contains(response.Body.String(), private) {
+				t.Errorf("browser report leaked %q", private)
+			}
+		}
+	}
+}
+
 func TestRoomRunnerRevisionAndSourceImportReceipt(t *testing.T) {
 	f, runner := remoteTeamFixture(t)
 	route := "/api/rooms/" + f.room.ID + "/runner"

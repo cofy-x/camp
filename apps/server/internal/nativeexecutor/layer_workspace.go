@@ -18,6 +18,10 @@ type layerWorkspace struct {
 	sandbox  *layerfs.Sandbox
 }
 
+func (*layerRuntime) Facts() workspace.Facts {
+	return workspace.Facts{Workspace: "layerfs", Sandbox: "linux-container", Checkpoint: "layerfs", LayerFSVersion: "1.1.0"}
+}
+
 func (m *layerRuntime) Prepare(ctx context.Context, spec workspace.Spec) (workspace.Instance, error) {
 	w := &layerWorkspace{provider: m}
 	var err error

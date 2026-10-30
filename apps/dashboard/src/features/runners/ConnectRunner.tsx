@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button } from '@cofy-x/camp-platinum';
+import { Button, Select } from '@cofy-x/camp-platinum';
 import { useTeam } from '../../team/TeamContext';
 import { runnersApi, type Enrollment, type EnrollmentRecord } from './api';
 import { runnerSetupCommand } from './presentation';
@@ -15,7 +15,8 @@ export function ConnectRunner({
 }) {
   const { revision, refresh } = useTeam();
   const [name, setName] = useState('');
-  const [installation, setInstallation] = useState<Awaited<
+  const [platform, setPlatform] = useState('linux-amd64');
+  const [observedInstallation, setInstallation] = useState<Awaited<
     ReturnType<typeof runnersApi.installation>
   > | null>(null);
   const [installationError, setInstallationError] = useState('');
@@ -28,9 +29,13 @@ export function ConnectRunner({
   useEffect(() => {
     const controller = new AbortController();
     void runnersApi
-      .installation(controller.signal)
+      .installation(controller.signal, platform)
       .then((value) => {
         if (!controller.signal.aborted) {
+          if (value.target !== platform)
+            throw new Error(
+              'The download does not match the selected platform. Retry the download.',
+            );
           setInstallation(value);
           setInstallationError('');
         }
@@ -43,6 +48,10 @@ export function ConnectRunner({
               : 'Could not load the Runner download.',
           );
       });
+    return () => controller.abort();
+  }, [revision, platform]);
+  useEffect(() => {
+    const controller = new AbortController();
     void runnersApi
       .enrollments(controller.signal)
       .then(({ enrollments }) => {
@@ -61,6 +70,9 @@ export function ConnectRunner({
       });
     return () => controller.abort();
   }, [revision]);
+  const mac = platform === 'darwin-arm64';
+  const installation =
+    observedInstallation?.target === platform ? observedInstallation : null;
   const latest =
     enrollments.find((item) => item.id === enrollment?.enrollment.id) ??
     enrollment?.enrollment;
@@ -120,15 +132,33 @@ export function ConnectRunner({
 
   return (
     <section className="camp-runner-connect" aria-label="Connect Runner">
-      <h2>Connect a Linux machine</h2>
+      <h2>Connect a machine</h2>
       <section
         className="camp-runner-connect-step"
         aria-label="Install Camp Runner"
       >
         <h3>1. Get Camp Runner</h3>
+        <label>
+          Runner platform
+          <Select
+            aria-label="Runner platform"
+            value={platform}
+            onChange={(event) => {
+              setPlatform(event.target.value);
+              setInstallation(null);
+              setInstallationError('');
+            }}
+          >
+            <option value="linux-amd64">Ubuntu 24.04 amd64</option>
+            <option value="darwin-arm64">
+              Mac · Apple Silicon · macOS 15+
+            </option>
+          </Select>
+        </label>
         <p>
-          {installation?.platform ?? 'Linux'}. Run setup and the Runner as root,
-          using the same private data directory.
+          {mac
+            ? 'Run setup and the Runner as your regular Mac account, without sudo.'
+            : 'Ubuntu 24.04 amd64. Run setup and the Runner as root, using the same private data directory.'}
         </p>
         {installationError ? (
           <p className="app-error" role="alert">
@@ -147,7 +177,7 @@ export function ConnectRunner({
                     href={installation.downloadUrl}
                     download={installation.filename}
                   >
-                    Download for Linux
+                    Download for {mac ? 'Mac' : 'Linux'}
                     {installation.bytes ? ` (${size(installation.bytes)})` : ''}
                   </a>
                   {installation.checksumUrl && (
@@ -179,7 +209,11 @@ export function ConnectRunner({
             {(installation.available || installation.offline?.available) && (
               <details className="camp-runner-install-options">
                 <summary>Requirements and offline install</summary>
-                <p>Requires Docker Engine, FUSE, Bubblewrap, Git and Bash.</p>
+                <p>
+                  {mac
+                    ? 'Requires Git. Executes Mac tools in a private local workspace with Seatbelt. Docker, Linux and FUSE are not required.'
+                    : 'Requires Docker Engine, FUSE, Bubblewrap, Git and Bash.'}
+                </p>
                 {installation.source === 'server' && installation.version && (
                   <p>
                     This Server mirrors the fixed release. For setup without
@@ -191,7 +225,7 @@ export function ConnectRunner({
                   before extracting:
                 </p>
                 <pre>
-                  <code>{`sha256sum -c ${installation.available ? installation.filename : installation.offline!.filename}.sha256\ntar -xzf ${installation.available ? installation.filename : installation.offline!.filename}`}</code>
+                  <code>{`${mac ? 'shasum -a 256' : 'sha256sum'} -c ${installation.available ? installation.filename : installation.offline!.filename}.sha256\ntar -xzf ${installation.available ? installation.filename : installation.offline!.filename}`}</code>
                 </pre>
                 {installation.offline?.available && (
                   <p>
@@ -235,7 +269,7 @@ export function ConnectRunner({
           <>
             <p role="status">
               {latest.name} registered. Finish setup and start the Runner on its
-              Linux machine.
+              machine.
             </p>
             <div className="app-actions">
               <Button
@@ -268,6 +302,10 @@ export function ConnectRunner({
                 )}
               </code>
             </pre>
+            <p className="camp-runner-hint">
+              With the same Camp version installed through Homebrew or Go, use{' '}
+              <code>camp</code> instead of <code>./camp</code>.
+            </p>
             <p>
               Paste this code when setup asks. It is shown once; save it before
               hiding.
@@ -344,7 +382,11 @@ export function ConnectRunner({
                   maxLength={100}
                   disabled={pending}
                   onChange={(event) => setName(event.target.value)}
-                  placeholder="For example, Studio Linux"
+                  placeholder={
+                    mac
+                      ? 'For example, Studio Mac'
+                      : 'For example, Studio Linux'
+                  }
                 />
               </label>
               <Button primary type="submit" disabled={pending || !name.trim()}>

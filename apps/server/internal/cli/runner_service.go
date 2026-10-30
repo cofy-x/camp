@@ -168,8 +168,10 @@ func runRunnerService(ctx context.Context, args []string, output io.Writer) erro
 		if err != nil {
 			return err
 		}
-		if action == "install" && config.BundleDir != pin.cache(directory) {
-			return errors.New("Complete setup with this installer before installing its service")
+		if action == "install" {
+			if err := verifyServiceRuntime(directory, config.BundleDir, pin); err != nil {
+				return err
+			}
 		}
 		binary, err = os.Executable()
 		if err != nil {

@@ -20,6 +20,10 @@ type ReadinessReport struct {
 }
 
 type Capabilities struct {
+	Platform       string           `json:"platform,omitempty"`
+	Workspace      string           `json:"workspace,omitempty"`
+	Sandbox        string           `json:"sandbox,omitempty"`
+	Checkpoint     string           `json:"checkpoint,omitempty"`
 	Readiness      *ReadinessReport `json:"readiness,omitempty"`
 	Executor       string           `json:"executor"`
 	Ready          bool             `json:"ready"`

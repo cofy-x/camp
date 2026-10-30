@@ -61,6 +61,8 @@ const data = path.join(dir, 'data');
 const cwd = path.join(dir, 'unrelated-working-directory');
 let child;
 let runner;
+let macServiceInstalled = false;
+let serviceCleanupError;
 let calls = 0;
 let previousConfig;
 let previousImport;
@@ -527,6 +529,23 @@ try {
     true,
     JSON.stringify(assigned?.capabilities),
   );
+  assert.equal(
+    assigned.capabilities.platform,
+    `${process.platform}/${process.arch === 'x64' ? 'amd64' : process.arch}`,
+  );
+  assert.equal(
+    assigned.capabilities.workspace,
+    mac ? 'native-local' : 'layerfs',
+  );
+  assert.equal(
+    assigned.capabilities.sandbox,
+    mac ? 'seatbelt' : 'linux-container',
+  );
+  assert.equal(
+    assigned.capabilities.checkpoint,
+    mac ? 'local-capture' : 'layerfs',
+  );
+  if (mac) assert.equal(assigned.capabilities.layerfsVersion, undefined);
   assert.equal(assigned.firstTaskRunId, '');
   assert.equal(assigned.firstTaskSucceededAt, '');
   assert.equal(assigned.modelConfigured, true);
@@ -626,6 +645,53 @@ try {
   assert.equal(review.status, 'delivered');
   await stop(runner);
   runner = undefined;
+  if (mac) {
+    const service = async (action) =>
+      command(
+        path.join(bundle, 'camp'),
+        ['runner', 'service', action, '--data-dir', runnerData],
+        { cwd, env: runnerEnv },
+      );
+    await service('install');
+    macServiceInstalled = true;
+    await service('start');
+    await until(
+      'Background Runner reconnect',
+      () => api('/api/runners'),
+      ({ runners }) =>
+        runners.some(
+          (item) =>
+            item.id === assigned.id && item.online && item.capabilities.ready,
+        ),
+    );
+    await service('status');
+    await service('stop');
+    await until(
+      'Background Runner stopped',
+      () => api('/api/runners'),
+      ({ runners }) =>
+        runners.some((item) => item.id === assigned.id && !item.online),
+    );
+    await service('remove');
+    macServiceInstalled = false;
+    const retained = JSON.parse(
+      await readFile(path.join(runnerData, 'daemon.json'), 'utf8'),
+    );
+    for (const field of [
+      'runnerId',
+      'storageId',
+      'registrationId',
+      'credential',
+    ])
+      assert.ok(
+        retained[field] === savedConfig[field],
+        `Service lifecycle replaced ${field}`,
+      );
+    assert.ok(
+      (await readFile(path.join(runnerData, 'journal.sqlite'))).length > 0,
+    );
+    assert.equal(calls, 2, 'Service restart replayed a model request');
+  }
   await stop(child);
   child = undefined;
   // Distribution caches are rebuildable. Back up all remaining business state,
@@ -727,6 +793,7 @@ try {
           'human-approval-and-delivery',
           'stopped-backup-and-restore',
           'cleanup',
+          ...(mac ? ['launchd-background-lifecycle'] : []),
           ...(upgrading
             ? [
                 'cross-version-runner-upgrade',
@@ -740,7 +807,7 @@ try {
           upgrading
             ? 'upgrades-other-than-named-baseline'
             : 'cross-version-upgrade',
-          mac ? 'launchd-service-installation' : 'systemd-service-installation',
+          mac ? 'login-autostart' : 'systemd-service-installation',
         ],
       },
       null,
@@ -748,9 +815,35 @@ try {
     )}\n`,
   );
 } finally {
+  if (macServiceInstalled) {
+    try {
+      await command(
+        path.join(bundle, 'camp'),
+        [
+          'runner',
+          'service',
+          'remove',
+          '--data-dir',
+          path.join(dir, "Runner's private data"),
+        ],
+        { cwd, env: { PATH: '/usr/bin:/bin', HOME: dir, LANG: 'C.UTF-8' } },
+      );
+    } catch (error) {
+      serviceCleanupError = error;
+    }
+  }
   if (runner) await stop(runner);
   if (child) await stop(child);
   provider.closeAllConnections();
   await new Promise((resolve) => provider.close(resolve));
-  await rm(dir, { recursive: true, force: true });
+  if (serviceCleanupError)
+    console.error(
+      `Service cleanup failed; retained installation and Runner data at ${dir}`,
+    );
+  else await rm(dir, { recursive: true, force: true });
 }
+if (serviceCleanupError)
+  throw new Error(
+    'The Mac service could not be removed after package verification',
+    { cause: serviceCleanupError },
+  );

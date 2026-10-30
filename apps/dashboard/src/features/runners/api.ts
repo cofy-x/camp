@@ -18,6 +18,10 @@ export interface Runner {
   slots?: number;
   runtime: 'native' | 'fixture' | '';
   capabilities: {
+    platform?: string;
+    workspace?: string;
+    sandbox?: string;
+    checkpoint?: string;
     readiness?: {
       ready: boolean;
       checkedAt: string;
@@ -98,8 +102,10 @@ const json = (method: string, body: unknown) => ({
 });
 
 export const runnersApi = {
-  installation: (signal?: AbortSignal) =>
+  installation: (signal?: AbortSignal, platform = 'linux-amd64') =>
     request<{
+      target: string;
+      platforms: { id: string; name: string }[];
       platform: string;
       version?: string;
       source?: 'github' | 'server';
@@ -118,7 +124,10 @@ export const runnersApi = {
         sha256: string;
         bytes: number;
       };
-    }>('/runner-installation', { signal }),
+    }>(
+      `/runner-installation${platform === 'linux-amd64' ? '' : `?platform=${encodeURIComponent(platform)}`}`,
+      { signal },
+    ),
   defaults: (signal?: AbortSignal) =>
     request<ExecutionDefaults>('/execution-defaults', { signal }),
   saveDefault: (

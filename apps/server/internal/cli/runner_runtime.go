@@ -81,6 +81,28 @@ func (pin runtimePin) cache(directory string) string {
 	return filepath.Join(directory, "runtime", "cache", pin.SHA256)
 }
 
+func verifyServiceRuntime(directory, savedBundle string, pin runtimePin) error {
+	repair := errors.New("Complete setup with this installer before installing its service")
+	if !filepath.IsAbs(savedBundle) {
+		return repair
+	}
+	// Setup may save /var/... while launchd uses /private/var/.... Compare the
+	// same physical cache without rewriting configuration or Runner identity.
+	installed, err := filepath.EvalSymlinks(savedBundle)
+	if err != nil {
+		return errors.Join(repair, err)
+	}
+	expected, err := filepath.EvalSymlinks(pin.cache(directory))
+	if err != nil || installed != expected {
+		return errors.Join(repair, err)
+	}
+	_, err = verifyPinnedRuntime(expected, pin)
+	if err != nil {
+		return errors.Join(repair, err)
+	}
+	return nil
+}
+
 func verifyPinnedRuntime(directory string, pin runtimePin) (bundleManifest, error) {
 	data, err := os.ReadFile(filepath.Join(directory, "manifest.json"))
 	if err != nil {

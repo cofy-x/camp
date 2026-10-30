@@ -30,6 +30,8 @@ func (w *refusedWorkspace) Close(context.Context) error { w.closed++; return w.c
 
 type refusedProvider struct{ workspace *refusedWorkspace }
 
+func (*refusedProvider) Facts() workspace.Facts { return workspace.Facts{} }
+
 func (p *refusedProvider) Prepare(context.Context, workspace.Spec) (workspace.Instance, error) {
 	return p.workspace, errors.New("workspace setup failed")
 }

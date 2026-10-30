@@ -155,7 +155,10 @@ func containsPath(parent, child string) bool {
 }
 
 func (p *nativeWorkspaceProvider) Fingerprint() string { return p.fingerprint }
-func (p *nativeWorkspaceProvider) Ready() error        { p.mu.Lock(); defer p.mu.Unlock(); return p.failure }
+func (*nativeWorkspaceProvider) Facts() workspace.Facts {
+	return workspace.Facts{Workspace: "native-local", Sandbox: "seatbelt", Checkpoint: "local-capture"}
+}
+func (p *nativeWorkspaceProvider) Ready() error { p.mu.Lock(); defer p.mu.Unlock(); return p.failure }
 func (p *nativeWorkspaceProvider) unsafe(err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
