@@ -29,7 +29,7 @@ func Command(c Config, dir string, lock *os.File, test bool) (*exec.Cmd, error) 
 		return nil, err
 	}
 	patch := filepath.Join(dir, "runtime.patch.yml")
-	policy := seatbelt.Policy{Read: []string{c.RuntimeDir, c.NodePath, patch}, Write: []string{home, c.StateDir}, Executable: []string{c.NodePath}, Ports: ports}
+	policy := seatbelt.Policy{Read: []string{c.RuntimeDir, c.NodePath, patch, c.Cwd}, List: []string{filepath.Dir(c.Cwd)}, Write: []string{home, c.StateDir}, Executable: []string{c.NodePath}, Ports: ports}
 	if _, err := seatbelt.Profile(policy); err != nil {
 		return nil, err
 	}
