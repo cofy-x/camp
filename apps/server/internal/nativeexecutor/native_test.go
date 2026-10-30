@@ -123,7 +123,12 @@ func TestNativeExecutorTLSIsolationAndResume(t *testing.T) {
 				return nil
 			}
 		}
-		return executor.Execute(ctx, request, func(kind, text string) error { return nil })
+		return executor.Execute(ctx, request, func(kind, text string) error {
+			if kind == "output" {
+				t.Logf("DSH: %s", text)
+			}
+			return nil
+		})
 	}
 	first := run("first", false)
 	if first.Status != "succeeded" || !first.CleanupConfirmed || !first.SessionResumable || len(first.Checks) != 1 || first.Checks[0].Status != "passed" || first.ArchivePath == "" {
