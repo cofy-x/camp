@@ -6,6 +6,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -271,5 +272,44 @@ func TestApprovedMacGoToolchainBuildsAndRunsNativeMachO(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(active.Directory(), "native-tool.txt"))
 	if err != nil || string(data) != "darwin/arm64\n" {
 		t.Fatal("toolchain did not execute a native Apple Silicon binary", string(data), err)
+	}
+}
+
+// Local acceptance uses fresh test storage, not an enrolled Runner. It retains
+// the production command PATH, sandbox, native owner and capture boundary.
+func TestMacOperatorToolAcceptance(t *testing.T) {
+	command := os.Getenv("CAMP_MAC_ACCEPTANCE_COMMAND")
+	if command == "" {
+		t.Skip("use scripts/qualify-native-mac.mjs --command for an operator tool")
+	}
+	provider, ctx, root := nativeProvider(t)
+	var roots []string
+	if err := json.Unmarshal([]byte(os.Getenv("CAMP_MAC_ACCEPTANCE_TOOL_ROOTS")), &roots); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	provider.config.ToolRoots, err = ResolveToolRoots(root, roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(root, "operator-source")
+	if err := os.Mkdir(source, 0700); err != nil {
+		t.Fatal(err)
+	}
+	active, err := provider.Prepare(ctx, workspace.Spec{Source: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := active.Close(context.Background()); err != nil {
+			t.Error("operator workspace cleanup", err)
+		}
+	}()
+	frame, err := active.Call(ctx, sandboxexec.Request{Operation: "command", Command: command, TimeoutMS: 40000, MaxOutputBytes: 4096}, nil)
+	if err != nil || frame.Code != float64(0) || !frame.Clean {
+		t.Fatal("operator command failed", frame, err)
+	}
+	if _, err := active.Capture(ctx, filepath.Join(root, "operator-capture.tar"), "operator acceptance", nil); err != nil {
+		t.Fatal("operator capture failed", err)
 	}
 }

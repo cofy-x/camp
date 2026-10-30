@@ -24,6 +24,7 @@ on:
       - '.github/workflows/release.yml'
       - 'Makefile'
       - 'scripts/smoke-bundle.mjs'
+      - 'scripts/qualify-native-mac.mjs'
       - 'tools/release-archive/**'
       - 'apps/server/internal/releaseinfo/**'
       - 'internal/launcher/**'
@@ -92,6 +93,8 @@ jobs:
           CAMP_TEST_DSH_RUNTIME: ${{ github.workspace }}/tools/dsh-runtime
           CAMP_MAC_BENCHMARK_OUTPUT: ${{ github.workspace }}/dist/native-mac/local-checkpoint.json
         run: go test -count=1 -timeout=240s -v ./apps/server/internal/nativeexecutor -run '^TestNativeLocalCheckpointMeasurements$'
+      - name: Check the operator's retained local qualification command
+        run: node scripts/qualify-native-mac.mjs --tool-root "$(go env GOROOT)" --command 'go version'
       - name: Build and relocate the complete native Runner packages
         run: |
           make install build

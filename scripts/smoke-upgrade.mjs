@@ -8,7 +8,7 @@ import { baselineLauncher, upgradeBaseline } from './upgrade.mjs';
 assert.equal(
   process.platform,
   'linux',
-  'The first public baseline only published Linux amd64.',
+  'Runner upgrade acceptance currently targets Linux amd64.',
 );
 assert.equal(process.arch, 'x64');
 const identity = await releaseIdentity();

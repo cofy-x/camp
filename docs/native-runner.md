@@ -80,4 +80,18 @@ Measure local-only and hybrid paths on the same deterministic workloads: a small
 
 macOS CI can qualify native execution without nested virtualization. The user will additionally run the retained real-machine acceptance tool against their authorized toolchain. Do not label a Linux source test, simulated process owner or mocked worker as Mac native/hybrid acceptance. Expose a backend as ready only after its actual permission, process and workspace self-test passes.
 
+### Local Mac and toolchain acceptance
+
+On an actual Apple Silicon Mac, use a Camp checkout with the pinned Node/Go toolchains. Prepare only its owned development dependencies, then run the [local qualification command](../scripts/qualify-native-mac.mjs):
+
+```sh
+make install-dsh install-project-runtime
+node scripts/qualify-native-mac.mjs
+node scripts/qualify-native-mac.mjs --tool-root "$(go env GOROOT)" --command 'go version'
+```
+
+The command builds the trusted helper and runs actual permission, network, descendant, dependency, workspace, DSH and lifecycle tests, including compiling and executing an ARM64 Mach-O program with the approved Go SDK. An optional `--command` runs inside a fresh private native workspace with only the repeated `--tool-root` read/execute grants. It uses the production command PATH, denies command networking, confirms cleanup and captures the result. For another toolchain, choose its narrow canonical installation and a command that exercises it; it receives neither host credentials nor signing/GUI services. Source toolchains and development dependencies are prerequisites, not part of the installed Runner's requirements.
+
+Each invocation creates a new mode-600 JSON report under `dist/native-mac/`; `--output` selects a new filename and refuses replacement. The report retains source identity/dirty state, host/CPU, runtime pins, command digest and individual pass/fail/skip outcomes, excluding command text, output, host tool paths and credentials. Local failure output can contain tool diagnostics. No `.env`, enrolled Runner configuration, identity or journal is loaded or rewritten. Package installation, existing-data upgrades and Mac-to-Linux transport remain separate evidence. macOS 15/26 CI also exercises this same command; its results do not establish the user's M4/toolchain until that machine runs it.
+
 Implementation order: record this contract and comparison; qualify Seatbelt and the process owner; extract backend-independent tools/lifecycle; implement native workspaces and the hybrid proof; select defaults from those results; then update packaging, diagnostics, onboarding and immutable release verification. UI changes need before/after evidence. Review and squash merge each PR after its applicable checks pass; keep unqualified paths explicit rather than claiming completion.
