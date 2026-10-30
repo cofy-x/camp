@@ -68,6 +68,7 @@ const report = {
   tests: [],
   untested: [
     'public package installation',
+    'background service lifecycle (qualified separately with packages)',
     'existing Runner registration and journal upgrades',
     'Mac to Linux LayerFS worker transport',
     'paid model providers',
@@ -86,10 +87,16 @@ try {
       '-p=1',
       '-count=1',
       '-timeout=240s',
+      // An interrupted diagnostic must not leave a standalone service fixture.
+      // Actual packaged launchd lifecycle has independent CI/release acceptance.
+      '-skip=^TestMacBackgroundServiceActualLaunchd$',
       ...[
         'processowner',
         'seatbelt',
         'nativejob',
+        'resources',
+        'runnertools',
+        'sandboxexec',
         'cli',
         'daemon',
         'projectenv',
@@ -136,6 +143,7 @@ try {
     'TestApprovedMacGoToolchainBuildsAndRunsNativeMachO',
     'TestApprovedMacToolchainFindsUsrBinTools',
     'TestActualNativeReadWriteAndControlPorts',
+    'TestNativeMaterializationNeverMergesPathAliases',
     'TestLaunchdCoalitionOwnsDetachedChildren',
     'TestOwnedJobCleansAfterParentDeath',
     'TestNativeCommandReadWriteNetworkAndReceipts',
