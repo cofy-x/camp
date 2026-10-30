@@ -82,6 +82,10 @@ func runInstall(ctx context.Context, options Options, project, store string) (in
 	if err := os.Mkdir(home, 0700); err != nil {
 		return -1, err
 	}
+	runtimeDirectory := filepath.Join(store, "runtime")
+	if err := os.MkdirAll(runtimeDirectory, 0700); err != nil {
+		return -1, err
+	}
 	ports, err := seatbelt.ControlPorts(network.Origin())
 	if err != nil {
 		return -1, err
@@ -91,6 +95,7 @@ func runInstall(ctx context.Context, options Options, project, store string) (in
 		return -1, err
 	}
 	env := []string{"PATH=" + filepath.Dir(options.NodePath) + ":/usr/bin:/bin", "HOME=" + home, "TMPDIR=" + home, "XDG_CACHE_HOME=" + filepath.Join(home, "cache"), "XDG_DATA_HOME=" + home, "XDG_STATE_HOME=" + home, "CI=true", "NO_COLOR=1", "LANG=en_US.UTF-8", "npm_config_manage_package_manager_versions=false", "npm_config_update_notifier=false", "npm_config_userconfig=/dev/null", "npm_config_globalconfig=/dev/null", "npm_config_audit=false", "HTTPS_PROXY=" + network.URL(), "HTTP_PROXY=" + network.URL(), "npm_config_https_proxy=" + network.URL(), "npm_config_proxy=" + network.URL()}
+	env = append(env, "XDG_RUNTIME_DIR="+runtimeDirectory)
 	output := &installOutput{options: options, network: network, cancel: cancel}
 	result, err := nativejob.Run(ctx, options.HelperPath, options.JobRoot, nativejob.Spec{Argv: []string{options.PnpmPath, "install", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--store-dir=" + store, "--package-import-method=copy", "--reporter=append-only"}, Directory: project, Env: env, Policy: policy, TimeoutMS: 180000, MaxOutput: 16 << 20}, strings.NewReader(""), output, output)
 	cleanup, stop := context.WithTimeout(context.Background(), 10*time.Second)
