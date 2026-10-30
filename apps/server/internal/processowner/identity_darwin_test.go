@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -54,6 +55,7 @@ func TestOwnedJobHelper(t *testing.T) {
 		}
 	}
 	if role == "detached" {
+		signal.Ignore(syscall.SIGTERM)
 		id, err := Observe(os.Getpid())
 		if err != nil {
 			t.Fatal(err)
@@ -62,14 +64,37 @@ func TestOwnedJobHelper(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "detached.json"), data, 0600); err != nil {
 			t.Fatal(err)
 		}
+		_ = os.Stdin.Close()
+		_ = os.Stdout.Close()
+		_ = os.Stderr.Close()
 	}
 	for range 3000 {
+		if role == "root" {
+			var parent Identity
+			data, readErr := os.ReadFile(filepath.Join(dir, "parent.json"))
+			if readErr == nil && json.Unmarshal(data, &parent) == nil {
+				actual, observeErr := Observe(parent.PID)
+				if observeErr != nil || actual.UniqueID != parent.UniqueID {
+					self, err := Observe(os.Getpid())
+					if err != nil {
+						t.Fatal(err)
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					err = (Owner{Root: self}).Terminate(ctx)
+					cancel()
+					if err != nil {
+						t.Fatal(err)
+					}
+					return
+				}
+			}
+		}
 		_ = os.WriteFile(filepath.Join(dir, role+".heartbeat"), []byte(time.Now().String()), 0600)
 		time.Sleep(10 * time.Millisecond)
 	}
 }
 
-func launchOwnedJob(t *testing.T) (Identity, Identity) {
+func launchOwnedJob(t *testing.T) (Identity, Identity, string) {
 	t.Helper()
 	dir := t.TempDir()
 	binary, err := os.Executable()
@@ -103,14 +128,14 @@ func launchOwnedJob(t *testing.T) (Identity, Identity) {
 		rootData, rootErr := os.ReadFile(filepath.Join(dir, "root.json"))
 		childData, childErr := os.ReadFile(filepath.Join(dir, "detached.json"))
 		if rootErr == nil && childErr == nil && json.Unmarshal(rootData, &root) == nil && json.Unmarshal(childData, &child) == nil {
-			return root, child
+			return root, child, dir
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	logs, _ := os.ReadFile(filepath.Join(dir, "stdout"))
 	errors, _ := os.ReadFile(filepath.Join(dir, "stderr"))
 	t.Fatalf("job did not report identities: %s %s", logs, errors)
-	return root, child
+	return root, child, dir
 }
 
 func TestLaunchdCoalitionOwnsDetachedChildren(t *testing.T) {
@@ -121,8 +146,8 @@ func TestLaunchdCoalitionOwnsDetachedChildren(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, detached := launchOwnedJob(t)
-	other, otherDetached := launchOwnedJob(t)
+	first, detached, _ := launchOwnedJob(t)
+	other, otherDetached, _ := launchOwnedJob(t)
 	if first.Coalition == self.Coalition || first.Coalition == other.Coalition || detached.Coalition != first.Coalition || otherDetached.Coalition != other.Coalition {
 		t.Fatalf("not independent kernel ownership: self=%+v first=%+v detached=%+v other=%+v other detached=%+v", self, first, detached, other, otherDetached)
 	}
@@ -151,4 +176,44 @@ func TestLaunchdCoalitionOwnsDetachedChildren(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Log("independent launchd coalitions contain double-fork/setsid children; generation-bound signals and exact cleanup passed")
+}
+
+func TestOwnedJobCleansAfterParentDeath(t *testing.T) {
+	if os.Getenv("CAMP_TEST_MAC_NATIVE") != "1" {
+		t.Skip("set CAMP_TEST_MAC_NATIVE=1 on an actual Mac")
+	}
+	parent := exec.Command("/bin/sleep", "30")
+	if err := parent.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = parent.Process.Kill(); _ = parent.Wait() }()
+	id, err := Observe(parent.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, detached, dir := launchOwnedJob(t)
+	self, err := Observe(os.Getpid())
+	if err != nil || root.Coalition == self.Coalition || detached.Coalition != root.Coalition {
+		t.Fatal("the job lacks independent ownership", err)
+	}
+	data, _ := json.Marshal(id)
+	if err := os.WriteFile(filepath.Join(dir, "parent.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := parent.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = parent.Wait()
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		members, err := Members(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(members) == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("a detached child outlived its watched parent")
 }
