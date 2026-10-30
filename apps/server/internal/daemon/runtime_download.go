@@ -80,7 +80,11 @@ func DownloadPublicRuntime(ctx context.Context, version, digest string, size int
 	if !releaseinfo.ValidDigest(digest) || size <= 0 || size >= releaseinfo.MaxArtifactBytes {
 		return errors.New("Invalid pinned runtime download")
 	}
-	target, err := releaseinfo.DownloadURL(version, releaseinfo.RuntimeName(digest))
+	platform, ok := releaseinfo.HostPlatform()
+	if !ok {
+		return errors.New("No native runtime is available for this platform")
+	}
+	target, err := releaseinfo.DownloadURL(version, releaseinfo.RuntimeFor(platform.ID, digest))
 	if err != nil {
 		return err
 	}

@@ -178,7 +178,7 @@ On Mac use service enable-login / disable-login to choose login startup.
 		if bundle == "" {
 			bundle = config.BundleDir
 		}
-		if config.Executor == "native" && runtimePinJSON != "" {
+		if config.Executor == "native" && hasRuntimePin() {
 			pin, err := compiledRuntimePin()
 			if err != nil {
 				return err
@@ -269,7 +269,7 @@ On Mac use service enable-login / disable-login to choose login startup.
 	var manifest bundleManifest
 	launcherBundle := bundle
 	if executor == "native" && !development {
-		if bundle == "" || runtimePinJSON != "" {
+		if bundle == "" || hasRuntimePin() {
 			pin, err := compiledRuntimePin()
 			if err != nil {
 				return err

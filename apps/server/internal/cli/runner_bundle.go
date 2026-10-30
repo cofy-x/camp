@@ -77,8 +77,10 @@ func verifyRunnerBundle(directory string) (bundleManifest, error) {
 	}
 	legacyBundle := manifest.Schema == 1 && manifest.Role == "runner"
 	managedRuntime := manifest.Schema == 2 && manifest.Role == "runner-runtime"
-	if (!legacyBundle && !managedRuntime) || manifest.Platform != "linux/x64" || !strings.HasPrefix(manifest.LayerFS.Image, "sha256:") || !digestPattern.MatchString(strings.TrimPrefix(manifest.LayerFS.Image, "sha256:")) {
-		return manifest, errors.New("This is not a supported Linux amd64 Camp Runner bundle")
+	linux := manifest.Platform == "linux/x64"
+	mac := manifest.Platform == "darwin/arm64" && managedRuntime
+	if (!legacyBundle && !managedRuntime) || (!linux && !mac) || (linux && (!strings.HasPrefix(manifest.LayerFS.Image, "sha256:") || !digestPattern.MatchString(strings.TrimPrefix(manifest.LayerFS.Image, "sha256:")))) || (mac && manifest.LayerFS.Image != "") {
+		return manifest, errors.New("This is not a supported Camp Runner bundle")
 	}
 	inside := func(relative string) (string, error) {
 		if !filepath.IsLocal(relative) || filepath.ToSlash(filepath.Clean(relative)) != relative {
@@ -139,7 +141,17 @@ func verifyRunnerBundle(directory string) (bundleManifest, error) {
 			return manifest, fmt.Errorf("Bundle link escapes installation: %s", relative)
 		}
 	}
-	requiredFiles := []string{"bin/node", "bin/camp-sandbox", "images/layerfs.tar", "runtime/dsh-runtime/package.json", "runtime/layerfs-runtime/installed.json"}
+	requiredFiles := []string{"bin/node", "bin/camp-sandbox", "runtime/dsh-runtime/package.json"}
+	if linux {
+		requiredFiles = append(requiredFiles, "images/layerfs.tar", "runtime/layerfs-runtime/installed.json")
+	} else {
+		requiredFiles = append(requiredFiles, "runtime/project-runtime/package.json")
+		for name := range manifest.Files {
+			if strings.HasPrefix(name, "images/") || strings.HasPrefix(name, "runtime/layerfs-runtime/") {
+				return manifest, errors.New("The Mac native runtime must not include a Linux execution backend")
+			}
+		}
+	}
 	if legacyBundle {
 		requiredFiles = append(requiredFiles, "bin/camp")
 	}

@@ -26,20 +26,25 @@ var versionPattern = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|
 var assetPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 type Artifact struct {
-	Filename      string `json:"filename"`
-	SHA256        string `json:"sha256"`
-	Bytes         int64  `json:"bytes"`
-	UnpackedBytes int64  `json:"unpackedBytes"`
+	Filename       string `json:"filename"`
+	SHA256         string `json:"sha256"`
+	Bytes          int64  `json:"bytes"`
+	UnpackedBytes  int64  `json:"unpackedBytes"`
+	ManifestSHA256 string `json:"manifestSHA256,omitempty"`
+}
+
+type RunnerArtifacts struct {
+	Installer Artifact `json:"installer"`
+	Runtime   Artifact `json:"runtime"`
+	Offline   Artifact `json:"offline"`
 }
 
 type Descriptor struct {
-	Schema          int      `json:"schema"`
-	Version         string   `json:"version,omitempty"`
-	SourceCommit    string   `json:"sourceCommit,omitempty"`
-	ProtocolVersion int      `json:"protocolVersion,omitempty"`
-	Installer       Artifact `json:"installer"`
-	Runtime         Artifact `json:"runtime"`
-	Offline         Artifact `json:"offline"`
+	Schema          int                        `json:"schema"`
+	Version         string                     `json:"version,omitempty"`
+	SourceCommit    string                     `json:"sourceCommit,omitempty"`
+	ProtocolVersion int                        `json:"protocolVersion,omitempty"`
+	Runners         map[string]RunnerArtifacts `json:"runners"`
 }
 
 func ValidVersion(value string) bool { return versionPattern.MatchString(value) }
@@ -62,16 +67,21 @@ func Parse(data []byte) (Descriptor, error) {
 		return descriptor, err
 	}
 	var extra any
-	if decoder.Decode(&extra) != io.EOF || descriptor.Schema != 1 {
+	if decoder.Decode(&extra) != io.EOF || descriptor.Schema != 2 || len(descriptor.Runners) == 0 || len(descriptor.Runners) > len(Platforms()) {
 		return descriptor, errors.New("Unsupported Runner release descriptor")
 	}
-	for _, artifact := range []Artifact{descriptor.Installer, descriptor.Runtime, descriptor.Offline} {
-		if !ValidDigest(artifact.SHA256) || artifact.Bytes <= 0 || artifact.Bytes >= MaxArtifactBytes || artifact.UnpackedBytes <= 0 || artifact.UnpackedBytes > 8<<30 {
-			return descriptor, errors.New("Invalid Runner release artifact")
+	for platform, runner := range descriptor.Runners {
+		if _, ok := PlatformFor(platform); !ok {
+			return descriptor, errors.New("Unsupported Runner release platform")
 		}
-	}
-	if descriptor.Installer.Filename != InstallerName || descriptor.Offline.Filename != OfflineName || descriptor.Runtime.Filename != RuntimeName(descriptor.Runtime.SHA256) {
-		return descriptor, errors.New("Invalid Runner release filename")
+		for _, artifact := range []Artifact{runner.Installer, runner.Runtime, runner.Offline} {
+			if !ValidDigest(artifact.SHA256) || artifact.Bytes <= 0 || artifact.Bytes >= MaxArtifactBytes || artifact.UnpackedBytes <= 0 || artifact.UnpackedBytes > 8<<30 {
+				return descriptor, errors.New("Invalid Runner release artifact")
+			}
+		}
+		if runner.Installer.Filename != InstallerFor(platform) || runner.Offline.Filename != OfflineFor(platform) || runner.Runtime.Filename != RuntimeFor(platform, runner.Runtime.SHA256) || !ValidDigest(runner.Runtime.ManifestSHA256) || runner.Installer.ManifestSHA256 != "" || runner.Offline.ManifestSHA256 != "" {
+			return descriptor, errors.New("Invalid Runner release filename")
+		}
 	}
 	if descriptor.Version != "" {
 		commit, err := hex.DecodeString(descriptor.SourceCommit)

@@ -19,6 +19,14 @@ on:
       - 'tools/dsh-runtime/**'
       - 'apps/server/cmd/camp-sandbox/**'
       - 'tools/seatbelt-runtime/**'
+      - 'scripts/package-*.mjs'
+      - 'scripts/release.mjs'
+      - '.github/workflows/release.yml'
+      - 'Makefile'
+      - 'scripts/smoke-bundle.mjs'
+      - 'tools/release-archive/**'
+      - 'apps/server/internal/releaseinfo/**'
+      - 'internal/launcher/**'
       - '.github/workflows/native-mac.yml'
   workflow_dispatch:
 
@@ -29,7 +37,7 @@ jobs:
   native:
     name: Native boundary / ${{ matrix.host }}
     runs-on: ${{ matrix.host }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -84,6 +92,22 @@ jobs:
           CAMP_TEST_DSH_RUNTIME: ${{ github.workspace }}/tools/dsh-runtime
           CAMP_MAC_BENCHMARK_OUTPUT: ${{ github.workspace }}/dist/native-mac/local-checkpoint.json
         run: go test -count=1 -timeout=240s -v ./apps/server/internal/nativeexecutor -run '^TestNativeLocalCheckpointMeasurements$'
+      - name: Build and relocate the complete native Runner packages
+        run: |
+          make install build
+          node scripts/package-runner.mjs
+          node scripts/smoke-bundle.mjs online
+          node scripts/smoke-bundle.mjs offline
+      - name: Retain native installation evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-installation-${{ matrix.host }}
+          path: |
+            dist/smoke-*.json
+            dist/runner-release-darwin-arm64.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Retain native sandbox denials on failure
         if: failure()
         run: sudo /usr/bin/log show --last 3m --style compact --predicate 'subsystem == "com.apple.sandbox.reporting"' | tee dist/native-mac/sandbox-denials.log > /dev/null

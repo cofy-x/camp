@@ -163,10 +163,13 @@ try {
   assert.equal(installation.source, 'github');
   assert.equal(installation.version, release.version);
   assert.equal(installation.available, true);
-  assert.equal(installation.sha256, release.installer.sha256);
+  assert.equal(
+    installation.sha256,
+    release.runners['linux-amd64'].installer.sha256,
+  );
   assert.equal(
     installation.downloadUrl,
-    `https://github.com/cofy-x/camp/releases/download/${release.version}/${release.installer.filename}`,
+    `https://github.com/cofy-x/camp/releases/download/${release.version}/${release.runners['linux-amd64'].installer.filename}`,
   );
   const page = await request(origin);
   const html = page.text;

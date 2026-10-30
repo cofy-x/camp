@@ -33,7 +33,9 @@ for (const mode of ['online', 'offline', 'upgrade']) {
   assert.equal(report.sourceCommit, identity.sourceCommit);
   assert.equal(
     report.archiveSHA256,
-    mode === 'offline' ? runner.offline.sha256 : runner.installer.sha256,
+    mode === 'offline'
+      ? runner.runners['linux-amd64'].offline.sha256
+      : runner.runners['linux-amd64'].installer.sha256,
   );
   if (mode === 'upgrade') {
     assert.equal(report.fromVersion, upgradeBaseline);

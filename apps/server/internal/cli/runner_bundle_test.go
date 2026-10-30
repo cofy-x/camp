@@ -18,7 +18,7 @@ func fixtureBundle(t *testing.T) (string, bundleManifest) {
 		Bytes  int64  `json:"bytes"`
 	}{}, Symlinks: map[string]string{}}
 	manifest.LayerFS.Image = "sha256:" + fmt.Sprintf("%064d", 1)
-	for _, name := range []string{"bin/camp", "bin/node", "bin/camp-sandbox", "images/layerfs.tar", "runtime/dsh-runtime/package.json", "runtime/layerfs-runtime/installed.json"} {
+	for _, name := range []string{"bin/camp", "bin/node", "bin/camp-sandbox", "images/layerfs.tar", "runtime/dsh-runtime/package.json", "runtime/project-runtime/package.json", "runtime/layerfs-runtime/installed.json"} {
 		content := []byte("fixture:" + name)
 		path := filepath.Join(directory, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {

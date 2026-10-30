@@ -1,24 +1,24 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { createReadStream } from 'node:fs';
-import { lstat, readFile, readdir } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import {
+  lstat,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
-import { command, root } from './lib.mjs';
+import { command, go, root } from './lib.mjs';
 
 const execute = promisify(execFile);
 export const repository = 'cofy-x/camp';
 export const serverPlatforms = ['linux-amd64', 'darwin-arm64', 'darwin-amd64'];
 export const versionPattern =
   /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$/;
-export const deterministicTar = [
-  '--sort=name',
-  '--mtime=@0',
-  '--owner=0',
-  '--group=0',
-  '--numeric-owner',
-  '--format=gnu',
-];
+export const runnerPlatforms = ['linux-amd64', 'darwin-arm64'];
 
 export function validVersion(version) {
   return (
@@ -60,9 +60,79 @@ export async function serverBuildFlags(identity) {
       throw new Error(
         'Build matching Runner packages before the release Server.',
       );
+    runnerEntries(runner);
     flags += ` -X github.com/cofy-x/camp/apps/server/internal/releaseinfo.manifestBase64=${data.toString('base64')}`;
   }
   return flags;
+}
+
+function runnerEntries(descriptor, { partial = false } = {}) {
+  const platforms = Object.keys(descriptor.runners ?? {});
+  if (
+    descriptor.schema !== 2 ||
+    platforms.length === 0 ||
+    platforms.some((platform) => !runnerPlatforms.includes(platform)) ||
+    (!partial && platforms.length !== runnerPlatforms.length)
+  )
+    throw new Error(
+      'The release requires the complete supported Runner platform set.',
+    );
+  return platforms.flatMap((platform) => {
+    const runner = descriptor.runners[platform];
+    if (!runner || !/^[a-f0-9]{64}$/.test(runner.runtime?.manifestSHA256))
+      throw new Error('Invalid runtime manifest identity.');
+    return [
+      [runner.installer, `camp-runner-${platform}.tar.gz`],
+      [
+        runner.runtime,
+        `camp-runtime-${platform}-${runner.runtime.sha256}.tar.gz`,
+      ],
+      [runner.offline, `camp-runner-offline-${platform}.tar.gz`],
+    ];
+  });
+}
+
+// Native builders contribute one platform each. The Server embeds the combined
+// catalog only after both contributions agree on source, version and protocol.
+export async function mergeRunnerReleases(directory, identity, options = {}) {
+  let combined;
+  for (const platform of runnerPlatforms) {
+    let descriptor;
+    try {
+      descriptor = JSON.parse(
+        await readFile(
+          join(directory, `runner-release-${platform}.json`),
+          'utf8',
+        ),
+      );
+    } catch (error) {
+      if (options.partial && error.code === 'ENOENT') continue;
+      throw error;
+    }
+    runnerEntries(descriptor, { partial: true });
+    if (
+      Object.keys(descriptor.runners).join(',') !== platform ||
+      descriptor.version !==
+        (identity.published ? identity.version : undefined) ||
+      descriptor.sourceCommit !==
+        (identity.published ? identity.sourceCommit : undefined)
+    )
+      throw new Error(
+        'Runner contribution identity differs from its native builder.',
+      );
+    if (!combined) combined = { ...descriptor, runners: {} };
+    if (descriptor.protocolVersion !== combined.protocolVersion)
+      throw new Error('Runner contributions use different protocols.');
+    combined.runners[platform] = descriptor.runners[platform];
+  }
+  runnerEntries(combined ?? {}, options);
+  const destination = join(directory, 'runner-release.json');
+  await writeFile(
+    `${destination}.pending`,
+    `${JSON.stringify(combined, null, 2)}\n`,
+  );
+  await rename(`${destination}.pending`, destination);
+  return combined;
 }
 
 export function installationNotes(identity, role) {
@@ -93,14 +163,8 @@ export async function treeBytes(directory) {
 
 export async function archiveTree(directory) {
   const filename = `${directory}.tar.gz`;
-  await command('tar', [
-    ...deterministicTar,
-    '-czf',
-    filename,
-    '-C',
-    dirname(directory),
-    basename(directory),
-  ]);
+  await rm(filename, { force: true });
+  await command(go, ['run', './tools/release-archive', directory, filename]);
   return {
     filename: basename(filename),
     sha256: await hashFile(filename),
@@ -118,9 +182,12 @@ export async function verifyRelease(directory, version, sourceCommit) {
     JSON.parse(await readFile(join(directory, name), 'utf8'));
   const runner = await read('runner-release.json');
   const server = await read('server-release.json');
-  for (const descriptor of [runner, server])
+  for (const [descriptor, schema] of [
+    [runner, 2],
+    [server, 1],
+  ])
     if (
-      descriptor.schema !== 1 ||
+      descriptor.schema !== schema ||
       descriptor.version !== version ||
       descriptor.sourceCommit !== sourceCommit
     )
@@ -146,22 +213,17 @@ export async function verifyRelease(directory, version, sourceCommit) {
     throw new Error(
       'The container Server must match the Linux Server package.',
     );
-  const artifacts = [
-    runner.installer,
-    runner.runtime,
-    runner.offline,
-    ...serverPlatforms.map((platform) => server.servers[platform]),
+  const entries = [
+    ...runnerEntries(runner),
+    ...serverPlatforms.map((platform) => [
+      server.servers[platform],
+      `camp-server-${platform}.tar.gz`,
+    ]),
   ];
-  const expected = [
-    'camp-runner-linux-amd64.tar.gz',
-    `camp-runtime-linux-amd64-${runner.runtime?.sha256}.tar.gz`,
-    'camp-runner-offline-linux-amd64.tar.gz',
-    ...serverPlatforms.map((platform) => `camp-server-${platform}.tar.gz`),
-  ];
-  for (const [index, artifact] of artifacts.entries()) {
+  for (const [artifact, expected] of entries) {
     if (
       !artifact ||
-      artifact.filename !== expected[index] ||
+      artifact.filename !== expected ||
       !/^[a-f0-9]{64}$/.test(artifact.sha256) ||
       !Number.isSafeInteger(artifact.bytes) ||
       artifact.bytes <= 0 ||
@@ -189,5 +251,5 @@ export async function verifyRelease(directory, version, sourceCommit) {
         `Release checksum differs from its descriptor: ${artifact.filename}`,
       );
   }
-  return { runner, server, artifacts };
+  return { runner, server, artifacts: entries.map(([artifact]) => artifact) };
 }

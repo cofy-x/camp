@@ -46,9 +46,42 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release-preflight.mjs
 
+  mac_runner_build:
+    name: Build native Mac Runner
+    needs: preflight
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.preflight.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Build pinned native runtime and both installation variants
+        run: |
+          make install install-dsh install-project-runtime build-sandbox
+          node scripts/package-runner.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-runner-build
+          path: |
+            dist/camp-runner-darwin-arm64.tar.gz*
+            dist/camp-runner-offline-darwin-arm64.tar.gz*
+            dist/camp-runtime-darwin-arm64-*.tar.gz*
+            dist/runner-release-darwin-arm64.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
   build:
     name: Native build and installation
-    needs: preflight
+    needs: [preflight, mac_runner_build]
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -63,6 +96,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: macos-runner-build
+          path: dist/mac-runner-input
       - name: Prepare this disposable native builder
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
@@ -89,6 +126,8 @@ jobs:
           build="/tmp/camp-release-build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           printf 'path=%s\n' "$build" >> "$GITHUB_OUTPUT"
           git clone --no-hardlinks "$GITHUB_WORKSPACE" "$build"
+          sudo mkdir -p "$build/dist"
+          sudo cp -a "$GITHUB_WORKSPACE/dist/mac-runner-input/." "$build/dist/"
           sudo chown -R root:root "$build"
           cd "$build"
           sudo env PATH="$PATH" HOME=/root DOCKER_HOST="$DOCKER_HOST" \
@@ -120,6 +159,10 @@ jobs:
           path: |
             ${{ steps.builder.outputs.path }}/dist/release/camp-server-darwin*
             ${{ steps.builder.outputs.path }}/dist/release/server-release.json
+            ${{ steps.builder.outputs.path }}/dist/release/runner-release.json
+            ${{ steps.builder.outputs.path }}/dist/release/camp-runner-darwin-arm64.tar.gz*
+            ${{ steps.builder.outputs.path }}/dist/release/camp-runner-offline-darwin-arm64.tar.gz*
+            ${{ steps.builder.outputs.path }}/dist/release/camp-runtime-darwin-arm64-*.tar.gz*
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -159,10 +202,47 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  mac_runner:
+    name: Verify Mac Runner / ${{ matrix.host }}
+    needs: [preflight, build]
+    runs-on: ${{ matrix.host }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [macos-15, macos-26]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.preflight.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: macos-server-packages
+          path: dist
+      - name: Check the same immutable Runner packages online and offline
+        run: |
+          tar -xzf dist/camp-server-darwin-arm64.tar.gz -C dist
+          cp dist/camp-server-darwin-arm64/camp dist/camp
+          node scripts/smoke-bundle.mjs online
+          node scripts/smoke-bundle.mjs offline
+          cp dist/smoke-online.json dist/runner-verification-${{ matrix.host }}-online.json
+          cp dist/smoke-offline.json dist/runner-verification-${{ matrix.host }}-offline.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-runner-verification-${{ matrix.host }}
+          path: dist/runner-verification-*.json
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: Publish fixed version
     if: ${{ !inputs.validate-only }}
-    needs: [preflight, build, mac_server]
+    needs: [preflight, build, mac_server, mac_runner]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -191,6 +271,11 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: server-verification-*
+          merge-multiple: true
+          path: dist/release
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: macos-runner-verification-*
           merge-multiple: true
           path: dist/release
       - name: Publish verified archives and immutable Server image
@@ -271,9 +356,47 @@ jobs:
           overwrite: true
           retention-days: 7
 
+  verify_mac:
+    name: Public native Mac installation
+    needs: [preflight, publish]
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.preflight.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Download and check fixed public assets without credentials
+        id: download
+        run: node scripts/fetch-release.mjs
+      - name: Verify anonymous online native installation
+        id: online
+        run: node scripts/smoke-bundle.mjs github
+      - name: Verify anonymous offline native installation
+        id: offline
+        run: node scripts/smoke-bundle.mjs github-offline
+      - name: Record actual public Mac installation outcomes
+        if: always()
+        env:
+          CAMP_MAC_DOWNLOAD_OUTCOME: ${{ steps.download.outcome }}
+          CAMP_MAC_ONLINE_OUTCOME: ${{ steps.online.outcome }}
+          CAMP_MAC_OFFLINE_OUTCOME: ${{ steps.offline.outcome }}
+        run: node scripts/record-mac-runner-install.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: public-mac-runner-verification
+          path: dist/public-mac-runner-verification.json
+          if-no-files-found: error
+          retention-days: 7
+
   evidence:
     name: Retain public verification evidence
-    needs: [publish, verify, go_install]
+    needs: [publish, verify, verify_mac, go_install]
     if: ${{ always() && needs.publish.result == 'success' && needs.verify.result != 'cancelled' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -288,6 +411,10 @@ jobs:
         with:
           pattern: go-install-verification-*
           merge-multiple: true
+          path: evidence
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: public-mac-runner-verification
           path: evidence
       - name: Append verification evidence without replacing assets
         env:

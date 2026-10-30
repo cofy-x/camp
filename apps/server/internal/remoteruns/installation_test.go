@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
+	"github.com/cofy-x/camp/apps/server/internal/releaseinfo"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
 	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
@@ -18,11 +19,12 @@ import (
 func TestPublishedInstallationNeedsNoServerPackagesAndRejectsOtherMirrors(t *testing.T) {
 	directory := t.TempDir()
 	m := &Manager{config: Config{DataDir: directory}}
-	release := runnerRelease{Schema: 1, Version: "v0.1.0-alpha.1", SourceCommit: strings.Repeat("a", 40), ProtocolVersion: p.Version,
+	linux := releaseinfo.RunnerArtifacts{
 		Installer: releaseArtifact{Filename: runnerPackageName, SHA256: strings.Repeat("a", 64), Bytes: 10, UnpackedBytes: 20},
-		Runtime:   releaseArtifact{Filename: "camp-runtime-linux-amd64-" + strings.Repeat("c", 64) + ".tar.gz", SHA256: strings.Repeat("c", 64), Bytes: 20, UnpackedBytes: 30},
+		Runtime:   releaseArtifact{Filename: "camp-runtime-linux-amd64-" + strings.Repeat("c", 64) + ".tar.gz", SHA256: strings.Repeat("c", 64), ManifestSHA256: strings.Repeat("d", 64), Bytes: 20, UnpackedBytes: 30},
 		Offline:   releaseArtifact{Filename: runnerOfflinePackageName, SHA256: strings.Repeat("b", 64), Bytes: 30, UnpackedBytes: 40},
 	}
+	release := runnerRelease{Schema: 2, Version: "v0.1.0-alpha.1", SourceCommit: strings.Repeat("a", 40), ProtocolVersion: p.Version, Runners: map[string]releaseinfo.RunnerArtifacts{releaseinfo.LinuxAMD64: linux}}
 	assertPublic := func() {
 		t.Helper()
 		meta := m.runnerInstallation(release, true)
@@ -35,7 +37,7 @@ func TestPublishedInstallationNeedsNoServerPackagesAndRejectsOtherMirrors(t *tes
 	if err := os.Mkdir(packages, 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, artifact := range []releaseArtifact{release.Installer, release.Runtime, release.Offline} {
+	for _, artifact := range []releaseArtifact{linux.Installer, linux.Runtime, linux.Offline} {
 		if err := os.WriteFile(filepath.Join(packages, artifact.Filename), []byte(strings.Repeat("x", int(artifact.Bytes))), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -65,13 +67,15 @@ func TestRunnerReleasePublicationRequiresCompleteInstallerAndRuntime(t *testing.
 		t.Fatal(err)
 	}
 	m := &Manager{config: Config{DataDir: directory}}
-	release := runnerRelease{Schema: 1,
+	linux := releaseinfo.RunnerArtifacts{
 		Installer: releaseArtifact{Filename: runnerPackageName, SHA256: strings.Repeat("a", 64), Bytes: 10, UnpackedBytes: 20},
 		Offline:   releaseArtifact{Filename: runnerOfflinePackageName, SHA256: strings.Repeat("b", 64), Bytes: 30, UnpackedBytes: 40},
-		Runtime:   releaseArtifact{Filename: "camp-runtime-linux-amd64-" + strings.Repeat("c", 64) + ".tar.gz", SHA256: strings.Repeat("c", 64), Bytes: 20, UnpackedBytes: 30},
+		Runtime:   releaseArtifact{Filename: "camp-runtime-linux-amd64-" + strings.Repeat("c", 64) + ".tar.gz", SHA256: strings.Repeat("c", 64), ManifestSHA256: strings.Repeat("d", 64), Bytes: 20, UnpackedBytes: 30},
 	}
+	release := runnerRelease{Schema: 2, Runners: map[string]releaseinfo.RunnerArtifacts{releaseinfo.LinuxAMD64: linux}}
 	publish := func() {
 		t.Helper()
+		release.Runners[releaseinfo.LinuxAMD64] = linux
 		raw, _ := json.Marshal(release)
 		if err := os.WriteFile(filepath.Join(packages, "runner-release.json"), raw, 0600); err != nil {
 			t.Fatal(err)
@@ -84,44 +88,44 @@ func TestRunnerReleasePublicationRequiresCompleteInstallerAndRuntime(t *testing.
 		}
 	}
 	publish()
-	write(release.Installer)
+	write(linux.Installer)
 	if m.RunnerInstallation().Available {
 		t.Fatal("installer advertised without runtime")
 	}
-	write(release.Runtime)
+	write(linux.Runtime)
 	meta := m.RunnerInstallation()
 	if !meta.Available || meta.Offline.Available || meta.Bytes != 10 || meta.Runtime.Bytes != 20 || meta.Runtime.UnpackedBytes != 30 {
 		t.Fatalf("wrong sizes or availability: %+v", meta)
 	}
-	write(release.Offline)
+	write(linux.Offline)
 	if !m.RunnerInstallation().Offline.Available {
 		t.Fatal("offline archive not advertised")
 	}
-	if err := os.Remove(filepath.Join(packages, release.Runtime.Filename)); err != nil {
+	if err := os.Remove(filepath.Join(packages, linux.Runtime.Filename)); err != nil {
 		t.Fatal(err)
 	}
 	if m.RunnerInstallation().Available || !m.RunnerInstallation().Offline.Available {
 		t.Fatal("offline option should work independently of runtime hosting")
 	}
-	write(release.Runtime)
-	if err := os.WriteFile(filepath.Join(packages, release.Runtime.Filename), []byte("partial"), 0600); err != nil {
+	write(linux.Runtime)
+	if err := os.WriteFile(filepath.Join(packages, linux.Runtime.Filename), []byte("partial"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if m.RunnerInstallation().Available {
 		t.Fatal("partial runtime advertised")
 	}
-	write(release.Runtime)
-	release.Installer.Filename = "../secret"
+	write(linux.Runtime)
+	linux.Installer.Filename = "../secret"
 	publish()
 	if m.RunnerInstallation().Available || m.RunnerInstallation().Offline.Available {
 		t.Fatal("unsafe descriptor accepted")
 	}
-	release.Installer.Filename = runnerPackageName
+	linux.Installer.Filename = runnerPackageName
 	publish()
 	if err := os.Remove(filepath.Join(packages, runnerPackageName)); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join(packages, release.Runtime.Filename), filepath.Join(packages, runnerPackageName)); err != nil {
+	if err := os.Symlink(filepath.Join(packages, linux.Runtime.Filename), filepath.Join(packages, runnerPackageName)); err != nil {
 		t.Fatal(err)
 	}
 	if m.RunnerInstallation().Available {

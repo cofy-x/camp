@@ -41,12 +41,24 @@ type runtimePin struct {
 func compiledRuntimePin() (runtimePin, error) {
 	var pin runtimePin
 	if runtimePinJSON == "" {
-		return pin, errors.New("Use the Camp Runner installer or the complete offline package")
-	}
-	if err := json.Unmarshal([]byte(runtimePinJSON), &pin); err != nil {
+		release, present, err := releaseinfo.Embedded()
+		if err != nil {
+			return pin, err
+		}
+		platform, supported := releaseinfo.HostPlatform()
+		if !present || !supported {
+			return pin, errors.New("Use a supported Camp release or Runner installer; source builds require --development-runtime")
+		}
+		runner, ok := release.Runners[platform.ID]
+		if !ok {
+			return pin, errors.New("This release does not include a Runner runtime for this platform")
+		}
+		pin = runtimePin{Schema: 1, ReleaseVersion: release.Version, Platform: platform.RuntimePlatform, ProtocolVersion: release.ProtocolVersion, SHA256: runner.Runtime.SHA256, ManifestSHA256: runner.Runtime.ManifestSHA256, Bytes: runner.Runtime.Bytes, UnpackedBytes: runner.Runtime.UnpackedBytes}
+	} else if err := json.Unmarshal([]byte(runtimePinJSON), &pin); err != nil {
 		return pin, errors.New("The Camp Runner installer has an invalid runtime pin")
 	}
-	if pin.Schema != 1 || pin.Platform != "linux/x64" || pin.ProtocolVersion != p.Version || !digestPattern.MatchString(pin.SHA256) || !digestPattern.MatchString(pin.ManifestSHA256) || pin.Bytes <= 0 || pin.Bytes >= releaseinfo.MaxArtifactBytes || pin.UnpackedBytes <= 0 || pin.UnpackedBytes > 8<<30 {
+	platform, supported := releaseinfo.HostPlatform()
+	if !supported || pin.Schema != 1 || pin.Platform != platform.RuntimePlatform || pin.ProtocolVersion != p.Version || !digestPattern.MatchString(pin.SHA256) || !digestPattern.MatchString(pin.ManifestSHA256) || pin.Bytes <= 0 || pin.Bytes >= releaseinfo.MaxArtifactBytes || pin.UnpackedBytes <= 0 || pin.UnpackedBytes > 8<<30 {
 		return pin, errors.New("The Camp Runner installer has an unsupported runtime pin")
 	}
 	if pin.ReleaseVersion != "" && !releaseinfo.ValidVersion(pin.ReleaseVersion) {
@@ -55,7 +67,16 @@ func compiledRuntimePin() (runtimePin, error) {
 	return pin, nil
 }
 
-func (pin runtimePin) filename() string { return "camp-runtime-linux-amd64-" + pin.SHA256 + ".tar.gz" }
+func hasRuntimePin() bool {
+	_, present, _ := releaseinfo.Embedded()
+	return runtimePinJSON != "" || present
+}
+
+func (pin runtimePin) target() string {
+	platform, _ := releaseinfo.PlatformForRuntime(pin.Platform)
+	return platform.ID
+}
+func (pin runtimePin) filename() string { return releaseinfo.RuntimeFor(pin.target(), pin.SHA256) }
 func (pin runtimePin) cache(directory string) string {
 	return filepath.Join(directory, "runtime", "cache", pin.SHA256)
 }
@@ -70,7 +91,7 @@ func verifyPinnedRuntime(directory string, pin runtimePin) (bundleManifest, erro
 		return bundleManifest{}, errors.New("The installed runtime manifest differs from this installer’s fixed release")
 	}
 	manifest, err := verifyRunnerBundle(directory)
-	if err == nil && manifest.Role != "runner-runtime" {
+	if err == nil && (manifest.Role != "runner-runtime" || manifest.Platform != pin.Platform) {
 		err = errors.New("The pinned artifact is not a Camp execution runtime")
 	}
 	return manifest, err
@@ -195,7 +216,7 @@ func installRuntime(ctx context.Context, config daemon.Config, pin runtimePin, o
 	}
 	defer os.RemoveAll(stage)
 	fmt.Fprintln(output, "Verifying and installing the fixed runtime…")
-	if err := extractRuntime(ctx, archive, stage, pin.UnpackedBytes); err != nil {
+	if err := extractRuntime(ctx, archive, stage, pin.UnpackedBytes, pin.target()); err != nil {
 		return "", err
 	}
 	if _, err := verifyPinnedRuntime(stage, pin); err != nil {
@@ -219,7 +240,11 @@ func installRuntime(ctx context.Context, config daemon.Config, pin runtimePin, o
 	return destination, nil
 }
 
-func extractRuntime(ctx context.Context, input io.Reader, directory string, expectedBytes int64) error {
+func extractRuntime(ctx context.Context, input io.Reader, directory string, expectedBytes int64, platform string) error {
+	if _, supported := releaseinfo.PlatformFor(platform); !supported {
+		return errors.New("Unsupported runtime archive platform")
+	}
+	prefix := "camp-runtime-" + platform
 	compressed, err := gzip.NewReader(input)
 	if err != nil {
 		return err
@@ -241,10 +266,10 @@ func extractRuntime(ctx context.Context, input io.Reader, directory string, expe
 			return err
 		}
 		name := strings.TrimSuffix(header.Name, "/")
-		if name == "camp-runtime-linux-amd64" && header.Typeflag == tar.TypeDir {
+		if name == prefix && header.Typeflag == tar.TypeDir {
 			continue
 		}
-		name, ok := strings.CutPrefix(name, "camp-runtime-linux-amd64/")
+		name, ok := strings.CutPrefix(name, prefix+"/")
 		if !ok || !filepath.IsLocal(name) || path.Clean(name) != name || strings.Contains(name, "\\") || seen[name] || len(seen) >= 100000 {
 			return errors.New("The runtime archive contains an invalid or duplicate path")
 		}

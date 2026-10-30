@@ -58,6 +58,30 @@ for (const platform of ['darwin-arm64', 'darwin-amd64']) {
   macReports.push(report);
 }
 acceptance.macServers = macReports;
+acceptance.macRunners = [];
+for (const host of ['macos-15', 'macos-26']) {
+  for (const mode of ['online', 'offline']) {
+    const report = JSON.parse(
+      await readFile(
+        join(directory, `runner-verification-${host}-${mode}.json`),
+        'utf8',
+      ),
+    );
+    assert.equal(report.status, 'passed');
+    assert.equal(report.platform, 'darwin');
+    assert.equal(report.architecture, 'arm64');
+    assert.equal(report.version, identity.version);
+    assert.equal(report.sourceCommit, identity.sourceCommit);
+    assert.equal(
+      report.archiveSHA256,
+      runner.runners['darwin-arm64'][
+        mode === 'online' ? 'installer' : 'offline'
+      ].sha256,
+    );
+    acceptance.macRunners.push({ host, ...report });
+  }
+}
+
 await writeFile(
   join(directory, 'acceptance.json'),
   `${JSON.stringify(acceptance, null, 2)}\n`,
@@ -112,14 +136,11 @@ await writeFile(
   join(directory, 'release.json'),
   `${JSON.stringify(
     {
-      schema: 1,
+      schema: 2,
       version: identity.version,
       sourceCommit: identity.sourceCommit,
       protocolVersion: runner.protocolVersion,
-      platform: 'linux/amd64',
-      installer: runner.installer,
-      runtime: runner.runtime,
-      offline: runner.offline,
+      runners: runner.runners,
       server: server.server,
       servers: server.servers,
       image,
@@ -149,7 +170,7 @@ filenames.push('SHA256SUMS');
 const notes = join(root, 'dist/release-notes.md');
 await writeFile(
   notes,
-  `Camp ${identity.version} publishes Linux amd64 and macOS arm64/amd64 Servers, a Go-installable entrypoint, the small Camp Runner installer, its fixed runtime and an offline installer containing that same runtime. Native Runner support is Ubuntu 24.04 amd64. Mac users connect a supported Linux Runner; macOS is a Server platform, not a native execution platform.
+  `Camp ${identity.version} publishes Linux amd64 and macOS arm64/amd64 Servers, a Go-installable entrypoint, the small Camp Runner installer, its fixed runtime and an offline installer containing that same runtime. Native Runner support includes Ubuntu 24.04 amd64 and macOS 15+ Apple Silicon. Mac execution uses a local native workspace and Seatbelt; no Docker, Linux VM, FUSE or root account is required.
 
 Install using the [versioned guide](https://github.com/${repository}/blob/${identity.version}/docs/install.md). Verify SHA256SUMS before extraction. Server image: \`${image}\`.
 

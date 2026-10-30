@@ -1,6 +1,6 @@
 # Camp
 
-Camp is a trusted team's Agent workspace with a Platinum browser desktop. One Server owns team discussion and versioned files; independent Linux Runners execute Agent work. Members use shared Agents from a browser. A project import or programming language manifest is not required to discuss or draft a document.
+Camp is a trusted team's Agent workspace with a Platinum browser desktop. One Server owns team discussion and versioned files; independent Linux and Mac ARM64 Runners execute Agent work. Members use shared Agents from a browser. A project import or programming language manifest is not required to discuss or draft a document.
 
 Start development at [AGENTS.md](AGENTS.md). The long-term contracts are [architecture](docs/architecture.md), [API](docs/api.md), [design](docs/design.md), [execution](docs/dsh.md) and [installation](docs/install.md).
 
@@ -55,7 +55,7 @@ camp
 
 Check [supported Runner hosts and prerequisites](docs/install.md#supported-deployment) before connecting a machine. Server and Runner remain independent processes even on one host. For local protocol and recovery development with two simulated machines, use the [Docker Compose harness](tools/remote-dev/README.md).
 
-The Go entrypoint downloads and verifies the full fixed-version product on first use; no Node/pnpm or source checkout is required. Put Go's binary installation directory on PATH. See [Go installation](docs/install.md#go-installation) for cache/recovery behavior and [Homebrew installation](docs/install.md#homebrew-installation) for the maintained tap. Native Agent work requires a supported Linux Runner, including when Server runs on Mac.
+The Go entrypoint downloads and verifies the full fixed-version product on first use; no Node/pnpm or source checkout is required. Put Go's binary installation directory on PATH. See [Go installation](docs/install.md#go-installation) for cache/recovery behavior and [Homebrew installation](docs/install.md#homebrew-installation) for the maintained tap. Native Agent work uses a supported Runner: Linux with LayerFS or Mac ARM64 with a native workspace and Seatbelt. Published versions through alpha.2 contain only Linux Runner assets; check the chosen release catalog before installing a Mac Runner.
 
 ## Local development
 
