@@ -180,9 +180,53 @@ test('Library private editing, publication, source handoff and revision conflict
   await library(page)
     .getByRole('button', { name: 'Edit Text', exact: true })
     .click();
+  await page.evaluate(() => {
+    const events: unknown[] = [];
+    (
+      window as typeof window & { campEditorEvents: unknown[] }
+    ).campEditorEvents = events;
+    for (const name of [
+      'beforeinput',
+      'input',
+      'change',
+      'focusin',
+      'focusout',
+    ])
+      document.addEventListener(
+        name,
+        (event) => {
+          const target = event.target;
+          if (target instanceof HTMLTextAreaElement)
+            events.push({
+              name,
+              time: performance.now(),
+              value: target.value,
+              connected: target.isConnected,
+              active: document.activeElement === target,
+            });
+        },
+        true,
+      );
+  });
   await library(page)
     .getByLabel('Document content', { exact: true })
     .fill('My local revision stays safe.');
+  console.log(
+    'EDITOR AFTER FILL',
+    await page.evaluate(() => ({
+      events: (window as typeof window & { campEditorEvents: unknown[] })
+        .campEditorEvents,
+      value: (
+        document.querySelector(
+          '[aria-label="Document content"]',
+        ) as HTMLTextAreaElement
+      )?.value,
+      backup: Object.entries(sessionStorage).filter(([key]) =>
+        key.includes(':document:'),
+      ),
+    })),
+  );
+
   const files = await (
     await page.request.get(`/api/resources/${room.resourceId}/files`)
   ).json();
@@ -202,6 +246,21 @@ test('Library private editing, publication, source handoff and revision conflict
     .getByRole('button', { name: 'Publish Changes', exact: true })
     .click();
   await expect(library(page).getByRole('alert')).toBeVisible();
+  console.log(
+    'EDITOR AFTER CONFLICT',
+    await page.evaluate(() => ({
+      events: (window as typeof window & { campEditorEvents: unknown[] })
+        .campEditorEvents,
+      value: (
+        document.querySelector(
+          '[aria-label="Document content"]',
+        ) as HTMLTextAreaElement
+      )?.value,
+      backup: Object.entries(sessionStorage).filter(([key]) =>
+        key.includes(':document:'),
+      ),
+    })),
+  );
   await expect(
     library(page).getByLabel('Document content', { exact: true }),
   ).toHaveValue('My local revision stays safe.');
