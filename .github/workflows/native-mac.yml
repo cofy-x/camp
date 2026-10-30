@@ -64,6 +64,11 @@ jobs:
         env:
           CAMP_TEST_DSH_RUNTIME: ${{ github.workspace }}/tools/dsh-runtime
         run: go test -race -count=1 -timeout=240s -v ./apps/server/internal/nativeexecutor
+      - name: Measure native local workspace and checkpoint cost
+        env:
+          CAMP_TEST_DSH_RUNTIME: ${{ github.workspace }}/tools/dsh-runtime
+          CAMP_MAC_BENCHMARK_OUTPUT: ${{ github.workspace }}/dist/native-mac/local-checkpoint.json
+        run: go test -count=1 -timeout=240s -v ./apps/server/internal/nativeexecutor -run '^TestNativeLocalCheckpointMeasurements$'
       - name: Retain native sandbox denials on failure
         if: failure()
         run: sudo /usr/bin/log show --last 3m --style compact --predicate 'subsystem == "com.apple.sandbox.reporting"' | tee dist/native-mac/sandbox-denials.log > /dev/null
