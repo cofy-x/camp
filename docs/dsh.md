@@ -1,8 +1,8 @@
 # DSH and LayerFS execution
 
-The [native Runner design and acceptance contract](native-runner.md) defines the Mac-native execution investigation and separates sandbox, workspace, process and checkpoint ownership. It does not change the released Linux support below.
+The [native Runner design and acceptance contract](native-runner.md) separates sandbox, workspace, process and checkpoint ownership. Source supports Linux LayerFS execution and Mac ARM64 native local workspaces; published package support follows the exact release's [installation guide](install.md).
 
-DSH owns model sessions and the model/tool loop. Camp Server owns admission, permissions, model credentials, durable scheduling and publication. Runner owns execution authorization, native state, cleanup and retained transport results. LayerFS owns rebuildable workspaces and checkpoints. Server and Runner remain separate processes even on one host; all Agent work uses the remote protocol. Native Agent execution requires LayerFS and reports unavailable when it is missing.
+DSH owns model sessions and the model/tool loop. Camp Server owns admission, permissions, model credentials, durable scheduling and publication. Runner owns execution authorization, native state, cleanup and retained transport results. Workspace providers own rebuildable files and capture. Server and Runner remain separate processes even on one host; all Agent work uses the remote protocol. Linux uses LayerFS; the Mac local provider requires no Linux environment.
 
 ## Public integration
 
@@ -10,9 +10,13 @@ The maintained pins are in the [DSH manifest](../tools/dsh-runtime/package.json)
 
 Each Run starts a separate DSH process using `initialize`, `session/resume`, `session/prompt`, `session/wait` and `shutdown`. The [production overlay](../apps/server/internal/dsh/remote_overlay.go) freezes persona, replaces filesystem/shell providers, and disables persistent/background shells, image tools and automatic model retry. Ordinary requests expose no collaboration coordination tools.
 
-DSH runs inside Bubblewrap with private sessions/configuration and an empty read-only `/workspace` placeholder. File/command tools call a random Run-scoped loopback capability endpoint. The private Node bridge uses public LayerFS SDK entrypoints; Go pins each Sandbox to its full Docker container ID. Commands see `/workspace` and exact read-only evidence under `/references`, without model keys, proxy credentials, Docker control, Git authority or other sessions.
+On Linux, DSH runs inside Bubblewrap with private sessions/configuration and an empty read-only `/workspace` placeholder. File/command tools call a random Run-scoped loopback capability endpoint. The private Node bridge uses public LayerFS SDK entrypoints; Go pins each Sandbox to its full Docker container ID. Commands see `/workspace` and exact read-only evidence under `/references`, without model keys, proxy credentials, Docker control, Git authority or other sessions.
+
+On macOS 15+ ARM64, the unprivileged provider creates an owned local copy, using APFS clones when supported. Its stable session namespace preserves DSH's stored directory while each request receives fresh frozen input. File tools and commands use the same actual native paths. DSH can read that authorized workspace, its pinned runtime and private state; writes go through the capability service. Its Seatbelt profile permits only IPv4 TCP connections to the attempt's private control ports. A Go relay retains the Server model capability and TLS trust. Commands and configured checks have no network or DSH/model capability. Read-only Agents cannot run commands or mutate files.
 
 Read-only Agents have structured read/list/search capabilities and no shell/write endpoint. This is a capability boundary; the underlying FUSE mount is writable. Writable commands run as a nonroot user under the trusted helper. Its subreaper, process identities, framed output and seccomp policy supervise descendants and deny IP sockets. Unknown cleanup makes the entire frozen container unusable; main-process exit alone is insufficient. Commands must be quiescent before checks, checkpoint, export and publication.
+
+Mac commands and DSH each have an independently owned launchd resource coalition. The trusted process owner observes kernel PID generations and confirms cleanup even after detached children or client death. Seatbelt grants literal roots and the ancestor metadata needed to traverse OS aliases; listing an owned directory does not grant reads of its children. Unknown cleanup blocks capture/publication and suspends the Runner. Captured regular files use the existing binary/mode/path/size policy. Interrupted native copies are retained under `native-recovery` after startup proves quiescence; recovery never publishes them or replays a prompt.
 
 ## Environment and persistence
 
