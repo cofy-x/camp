@@ -57,7 +57,7 @@ Upload/preparation completion belongs to its original Room/Thread and never send
 
 Completed results lead with publication/capture/check facts, then exact-version files, then output. Errors remain visible. Deletion-only results retain changes and patch access. A file list does not prove successful capture; interrupted or partial check evidence cannot show Passed or remain Running after termination. Conversation and inspector use the same record interpretation.
 
-Short replies stay inline; long replies disclose the full original Markdown and citations. The first paragraph can be an earlier intention, so do not synthesize a conclusion from it. Remember expansion per message/account browser session; collapse restores focus. Follow-up references retain the complete message. Reading, previewing and downloading start no work and do not steal later reading position. Ask agent preserves Room versus existing Thread scope; Reply in thread explicitly creates that scope.
+Short replies stay inline; long replies disclose the full original Markdown and citations. Keep Markdown controls mounted across desktop updates so focus, text selection and an in-progress pointer click survive. The first paragraph can be an earlier intention, so do not synthesize a conclusion from it. Remember expansion per message/account browser session; collapse restores focus. Follow-up references retain the complete message. Reading, previewing and downloading start no work and do not steal later reading position. Ask agent preserves Room versus existing Thread scope; Reply in thread explicitly creates that scope.
 
 ## Library and human review
 
