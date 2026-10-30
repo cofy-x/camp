@@ -1,4 +1,4 @@
-package layerfs
+package runnertools
 
 import (
 	"bytes"
@@ -147,7 +147,7 @@ func (t *Tools) shell(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		err = nil
 	}
 	if err != nil || !frame.Clean {
-		var preparation *helperError
+		var preparation *BackendError
 		clean := errors.As(err, &preparation)
 		t.mu.Lock()
 		command.clean = clean

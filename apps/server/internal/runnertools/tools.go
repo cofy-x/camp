@@ -1,4 +1,4 @@
-package layerfs
+package runnertools
 
 import (
 	"context"
@@ -34,7 +34,7 @@ type toolCommand struct {
 // Tools exposes one Run's narrow capabilities to its private DSH process. The
 // token is not exposed to model tools, container processes, or dashboard APIs.
 type Tools struct {
-	sandbox  *Sandbox
+	sandbox  Backend
 	readOnly bool
 	token    string
 	lease    chan struct{}
@@ -51,7 +51,7 @@ type Tools struct {
 	failOnce sync.Once
 }
 
-func NewTools(ctx context.Context, sandbox *Sandbox, readOnly bool) (*Tools, error) {
+func NewTools(ctx context.Context, sandbox Backend, readOnly bool) (*Tools, error) {
 	var secret [32]byte
 	if _, err := rand.Read(secret[:]); err != nil {
 		return nil, err

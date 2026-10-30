@@ -17,6 +17,7 @@ import (
 
 	"github.com/cofy-x/camp/apps/server/internal/layerfs"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
+	"github.com/cofy-x/camp/apps/server/internal/runnertools"
 	"github.com/cofy-x/camp/apps/server/internal/sandboxexec"
 )
 
@@ -77,7 +78,7 @@ func HostChecks(config Config) p.ReadinessReport {
 
 // SelfTest exercises the production workspace, command supervisor, artifact export
 // and cleanup without a model request. It must run before admitting any work.
-func (e *Executor) SelfTest(ctx context.Context) (report p.ReadinessReport) {
+func (e *layerRuntime) SelfTest(ctx context.Context) (report p.ReadinessReport) {
 	report = HostChecks(e.config)
 	add := func(id, label string, err error) {
 		status, detail := "passed", ""
@@ -109,7 +110,7 @@ func (e *Executor) SelfTest(ctx context.Context) (report p.ReadinessReport) {
 	}
 	var prepared layerfs.PreparedProject
 	var workspace layerfs.Workspace
-	var tools *layerfs.Tools
+	var tools *runnertools.Tools
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
@@ -143,7 +144,10 @@ func (e *Executor) SelfTest(ctx context.Context) (report p.ReadinessReport) {
 		return
 	}
 	var sandbox *layerfs.Sandbox
-	sandbox, tools, err = e.installSandbox(ctx, workspace, "", false)
+	sandbox, err = e.installSandbox(ctx, workspace, "")
+	if err == nil {
+		tools, err = runnertools.NewTools(ctx, sandbox, false)
+	}
 	if err == nil {
 		var frame sandboxexec.Frame
 		frame, err = sandbox.Call(ctx, sandboxexec.Request{Operation: "command", Argv: []string{"bash", "-c", "test \"$(id -u)\" != 0 && test -z \"${DEEPSEEK_API_KEY+x}${CAMP_TOOL_TOKEN+x}\" && test \"$(cat source.txt)\" = 'Camp source stays unchanged' && printf 'Camp Runner self-test\\n' > result.txt && test \"$(cat result.txt)\" = 'Camp Runner self-test'"}, Cwd: "/workspace", TimeoutMS: 15000, MaxOutputBytes: 4096}, func(sandboxexec.Frame) error { return nil })

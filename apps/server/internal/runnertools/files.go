@@ -1,4 +1,4 @@
-package layerfs
+package runnertools
 
 import (
 	"bytes"
@@ -77,7 +77,7 @@ func mapFileError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var helper *helperError
+	var helper *BackendError
 	if !errors.As(err, &helper) {
 		return err
 	}

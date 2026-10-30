@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cofy-x/camp/apps/server/internal/runnertools"
 	"github.com/cofy-x/camp/apps/server/internal/sandboxexec"
 )
 
@@ -48,12 +49,7 @@ func (s *Sandbox) fail(cause error) error {
 	return s.failure
 }
 
-type helperError struct {
-	Code    string
-	Message string
-}
-
-func (e *helperError) Error() string { return e.Message }
+type helperError = runnertools.BackendError
 
 type frameReader struct {
 	pending []byte

@@ -6,7 +6,7 @@ DSH owns model sessions and the model/tool loop. Camp Server owns admission, per
 
 ## Public integration
 
-The maintained pins are in the [DSH manifest](../tools/dsh-runtime/package.json), its lockfile and [LayerFS pin](../tools/layerfs-runtime/pin.json). Runtime installation uses private Camp directories and public APIs, never modifies shared checkouts. [DSH wire lifecycle](../tools/dsh-runtime/README.md), [Camp tool protocol](../tools/dsh-runtime/camp-tools/README.md), [LayerFS bridge](../tools/layerfs-runtime/README.md) and [sandbox helper](../apps/server/internal/sandboxexec/README.md) own adapter details.
+The maintained pins are in the [DSH manifest](../tools/dsh-runtime/package.json), its lockfile and [LayerFS pin](../tools/layerfs-runtime/pin.json). Runtime installation uses private Camp directories and public APIs, never modifies shared checkouts. [DSH wire lifecycle](../tools/dsh-runtime/README.md), [Camp tool protocol](../tools/dsh-runtime/camp-tools/README.md), [LayerFS bridge](../tools/layerfs-runtime/README.md) and [sandbox helper](../apps/server/internal/sandboxexec/README.md) own adapter details. The [workspace contract](../apps/server/internal/workspace/workspace.go) and [tool backend](../apps/server/internal/runnertools/backend.go) separate those implementations from the shared execution loop and Runner journal/publication ownership.
 
 Each Run starts a separate DSH process using `initialize`, `session/resume`, `session/prompt`, `session/wait` and `shutdown`. The [production overlay](../apps/server/internal/dsh/remote_overlay.go) freezes persona, replaces filesystem/shell providers, and disables persistent/background shells, image tools and automatic model retry. Ordinary requests expose no collaboration coordination tools.
 

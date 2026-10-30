@@ -19,6 +19,7 @@ import (
 
 	"github.com/cofy-x/camp/apps/server/internal/layerfs"
 	"github.com/cofy-x/camp/apps/server/internal/projectenv"
+	"github.com/cofy-x/camp/apps/server/internal/runnertools"
 	"github.com/cofy-x/camp/apps/server/internal/sandboxexec"
 )
 
@@ -138,7 +139,7 @@ func (m *Manager) prepareLayerFS(ctx context.Context, e *execution, dir, referen
 			return err
 		}
 	}
-	e.tools, err = layerfs.NewTools(ctx, e.sandbox, input.AgentSnapshot.Access == "read")
+	e.tools, err = runnertools.NewTools(ctx, e.sandbox, input.AgentSnapshot.Access == "read")
 	return err
 }
 

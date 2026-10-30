@@ -15,14 +15,14 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/sandboxexec"
 )
 
-func (e *Executor) installSandbox(ctx context.Context, workspace layerfs.Workspace, references string, readOnly bool) (*layerfs.Sandbox, *layerfs.Tools, error) {
+func (e *layerRuntime) installSandbox(ctx context.Context, workspace layerfs.Workspace, references string) (*layerfs.Sandbox, error) {
 	id, err := e.docker.Resolve(ctx, workspace.ContainerName)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	sandbox := &layerfs.Sandbox{Docker: e.docker, ContainerID: id, User: strconv.Itoa(workspace.UID) + ":" + strconv.Itoa(workspace.GID), Roots: sandboxexec.Roots{Workspace: workspace.MountPath, References: "/references"}}
 	if err = sandbox.Setup(ctx, e.helper); err != nil {
-		return sandbox, nil, err
+		return sandbox, err
 	}
 	if references != "" {
 		err = filepath.WalkDir(references, func(name string, entry fs.DirEntry, walkErr error) error {
@@ -55,11 +55,10 @@ func (e *Executor) installSandbox(ctx context.Context, workspace layerfs.Workspa
 			return e.docker.InstallFile(ctx, sandbox.ContainerID, target, data, 0444)
 		})
 		if err != nil {
-			return sandbox, nil, err
+			return sandbox, err
 		}
 	}
-	tools, err := layerfs.NewTools(ctx, sandbox, readOnly)
-	return sandbox, tools, err
+	return sandbox, nil
 }
 
 // Dependency copies are trusted installer output, not model-created files.

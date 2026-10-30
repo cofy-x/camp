@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cofy-x/camp/apps/server/internal/workspace"
 	"io"
 	"os"
 	"os/exec"
@@ -75,11 +76,7 @@ type Checkpoint struct {
 	Commit      json.RawMessage `json:"commit"`
 }
 
-type ExportedArchive struct {
-	ArchivePath string `json:"archivePath"`
-	Bytes       int64  `json:"bytes"`
-	SHA256      string `json:"sha256"`
-}
+type ExportedArchive = workspace.Archive
 
 type BridgeError struct {
 	Code    string          `json:"code"`
