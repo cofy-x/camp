@@ -5,6 +5,8 @@ on:
     paths:
       - 'apps/server/internal/processowner/**'
       - 'apps/server/internal/seatbelt/**'
+      - 'apps/server/internal/nativejob/**'
+      - 'apps/server/cmd/camp-sandbox/**'
       - 'tools/seatbelt-runtime/**'
       - '.github/workflows/native-mac.yml'
   workflow_dispatch:
@@ -40,6 +42,13 @@ jobs:
         env:
           CAMP_TEST_MAC_NATIVE: '1'
         run: go test -race -count=1 -timeout=120s -v ./apps/server/internal/processowner ./apps/server/internal/seatbelt
+      - name: Build the trusted native command owner
+        run: go build -o dist/native-mac/camp-sandbox ./apps/server/cmd/camp-sandbox
+      - name: Check native command lifecycle and cleanup receipts
+        env:
+          CAMP_TEST_MAC_NATIVE: '1'
+          CAMP_MAC_HELPER: ${{ github.workspace }}/dist/native-mac/camp-sandbox
+        run: go test -race -count=1 -timeout=180s -v ./apps/server/internal/nativejob
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
