@@ -70,6 +70,9 @@ func Worker(ctx context.Context, name string) error {
 		return err
 	}
 	defer connection.Close()
+	if err := save(filepath.Join(filepath.Dir(name), "worker-owner.json"), self); err != nil {
+		return err
+	}
 	w := &wire{connection: connection}
 	if err := w.send(frame{Type: "hello", Token: spec.Token, Owner: self}); err != nil {
 		return err

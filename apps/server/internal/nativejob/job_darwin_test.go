@@ -230,6 +230,12 @@ func TestNativeClientDeathCleansBeforeAnyRecoveryReceipt(t *testing.T) {
 	if err := Reconcile(context.Background(), root); err == nil {
 		t.Fatal("lost result became confirmed success")
 	}
+	if err := Recover(context.Background(), root); err != nil {
+		t.Fatal(err)
+	}
+	if err := Reconcile(context.Background(), root); err == nil {
+		t.Fatal("recovery invented a successful result")
+	}
 	// A killed client cannot unregister the nonpersistent launchd job itself.
 	data, _ = os.ReadFile(filepath.Join(dir, "launch.json"))
 	var launch Spec

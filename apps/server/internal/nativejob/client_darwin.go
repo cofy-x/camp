@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/processowner"
@@ -96,6 +97,9 @@ func Client(ctx context.Context, name string, input io.Reader, output, diagnosti
 		spec.Domain = fmt.Sprintf("user/%d", os.Getuid())
 	}
 	dir := filepath.Dir(name)
+	if err = save(filepath.Join(dir, "client.json"), self); err != nil {
+		return 1, err
+	}
 	launch := filepath.Join(dir, "launch.json")
 	if err = save(launch, spec); err != nil {
 		return 1, err
@@ -238,6 +242,96 @@ func Reconcile(ctx context.Context, root string) error {
 		var result Result
 		if json.Unmarshal(data, &result) != nil || !result.Clean {
 			return errors.New("Native job cleanup was not confirmed")
+		}
+	}
+	return nil
+}
+
+// Recover can establish process quiescence after a Runner restart. It never
+// creates a success receipt or captures the old workspace. The daemon retains
+// the interrupted operation and chooses whether its confirmed archive uploads.
+func Recover(ctx context.Context, root string) error {
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	self, err := processowner.Observe(os.Getpid())
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "job-") {
+			return errors.New("Unrecognized native job storage")
+		}
+		dir := filepath.Join(root, entry.Name())
+		readIdentity := func(name string) (processowner.Identity, bool, error) {
+			data, err := os.ReadFile(filepath.Join(dir, name))
+			if errors.Is(err, os.ErrNotExist) {
+				return processowner.Identity{}, false, nil
+			}
+			var identity processowner.Identity
+			if err != nil || json.Unmarshal(data, &identity) != nil || identity.PID <= 1 || identity.Version == 0 || identity.Coalition == 0 || identity.Boot == "" {
+				return identity, false, errors.New("Invalid native job identity receipt")
+			}
+			return identity, true, nil
+		}
+		client, found, err := readIdentity("client.json")
+		if err != nil {
+			return err
+		}
+		if found && client.Boot == self.Boot {
+			if client.PID == self.PID {
+				return errors.New("Native recovery cannot stop its own client")
+			}
+			if err := processowner.Signal(client, int(syscall.SIGKILL)); err != nil && !errors.Is(err, syscall.ESRCH) {
+				return err
+			}
+		}
+		for _, name := range []string{"owner.json", "worker-owner.json"} {
+			owner, found, err := readIdentity(name)
+			if err != nil {
+				return err
+			}
+			if found && owner.Boot == self.Boot {
+				if owner.Coalition == self.Coalition {
+					return errors.New("Native recovery requires independently owned jobs")
+				}
+				if err := (processowner.Owner{Root: owner}).Terminate(ctx); err != nil {
+					return err
+				}
+			}
+		}
+		launch, err := readSpec(filepath.Join(dir, "launch.json"))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		// readSpec deliberately hides filesystem errors; distinguish an absent
+		// pre-admission file without treating malformed launch data as absent.
+		if _, statErr := os.Lstat(filepath.Join(dir, "launch.json")); errors.Is(statErr, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256([]byte(filepath.Join(dir, "request.json")))
+		expected := fmt.Sprintf("dev.cofy.camp.job.%x", sum[:12])
+		if launch.Label != expected || launch.Domain != fmt.Sprintf("gui/%d", os.Getuid()) && launch.Domain != fmt.Sprintf("user/%d", os.Getuid()) {
+			return errors.New("Invalid native job launch receipt")
+		}
+		_ = exec.CommandContext(ctx, "/bin/launchctl", "bootout", launch.Domain+"/"+launch.Label).Run()
+		// A just-starting worker publishes its identity before admission. Check
+		// again after unregistering the job to close that startup window.
+		owner, found, err := readIdentity("worker-owner.json")
+		if err != nil {
+			return err
+		}
+		if found && owner.Boot == self.Boot {
+			if err := (processowner.Owner{Root: owner}).Terminate(ctx); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
