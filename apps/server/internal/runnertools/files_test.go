@@ -1,4 +1,4 @@
-package layerfs
+package runnertools
 
 import (
 	"context"
@@ -34,12 +34,12 @@ func (f *fileFixture) call(_ context.Context, request sandboxexec.Request, _ fun
 	switch request.Operation {
 	case "stat", "lstat":
 		if !exists {
-			return sandboxexec.Frame{}, &helperError{Code: "not_found", Message: "Missing file."}
+			return sandboxexec.Frame{}, &BackendError{Code: "not_found", Message: "Missing file."}
 		}
 		return sandboxexec.Frame{Type: "result", Info: info}, nil
 	case "read":
 		if !exists {
-			return sandboxexec.Frame{}, &helperError{Code: "not_found", Message: "Missing file."}
+			return sandboxexec.Frame{}, &BackendError{Code: "not_found", Message: "Missing file."}
 		}
 		start := min(request.Offset, int64(len(content)))
 		end := int64(len(content))
@@ -53,7 +53,7 @@ func (f *fileFixture) call(_ context.Context, request sandboxexec.Request, _ fun
 		}
 		current, present := f.files[request.Path]
 		if (request.ExpectedVersion == "missing" && present) || (request.ExpectedVersion != "missing" && (!present || fixtureVersion(current) != request.ExpectedVersion)) {
-			return sandboxexec.Frame{}, &helperError{Code: "version_conflict", Message: "File changed."}
+			return sandboxexec.Frame{}, &BackendError{Code: "version_conflict", Message: "File changed."}
 		}
 		f.files[request.Path] = request.Data
 		info.Version, info.Size = fixtureVersion(request.Data), int64(len(request.Data))

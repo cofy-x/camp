@@ -7,12 +7,12 @@ import (
 	"path"
 	"time"
 
-	"github.com/cofy-x/camp/apps/server/internal/layerfs"
 	"github.com/cofy-x/camp/apps/server/internal/projectenv"
+	"github.com/cofy-x/camp/apps/server/internal/runnertools"
 	"github.com/cofy-x/camp/apps/server/internal/sandboxexec"
 )
 
-func (e *Executor) verifyChecks(ctx context.Context, sandbox *layerfs.Sandbox, profile projectenv.Profile, result *Result, record Emit) error {
+func (e *Executor) verifyChecks(ctx context.Context, sandbox runnertools.Backend, profile projectenv.Profile, result *Result, record Emit) error {
 	if len(profile.Checks) > 0 {
 		if err := record("status", "checking"); err != nil {
 			return err

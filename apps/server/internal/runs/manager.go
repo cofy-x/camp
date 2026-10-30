@@ -16,6 +16,7 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/layerfs"
 	"github.com/cofy-x/camp/apps/server/internal/projectenv"
 	"github.com/cofy-x/camp/apps/server/internal/resources"
+	"github.com/cofy-x/camp/apps/server/internal/runnertools"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -63,7 +64,7 @@ type execution struct {
 	environment                    *projectenv.Environment
 	workspace                      layerfs.Workspace
 	sandbox                        *layerfs.Sandbox
-	tools                          *layerfs.Tools
+	tools                          *runnertools.Tools
 	cleanupErr                     error
 	layerProject                   string
 	finishing                      bool

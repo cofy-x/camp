@@ -9,13 +9,13 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/cofy-x/camp/apps/server/internal/layerfs"
+	"github.com/cofy-x/camp/apps/server/internal/workspace"
 )
 
 // Persist the immutable artifact before releasing the native workspace. This
 // manifest is not a cleanup receipt: only the daemon's later journal transaction
 // makes the operation eligible to resume upload after a crash.
-func persistExport(archive layerfs.ExportedArchive) error {
+func persistExport(archive workspace.Archive) error {
 	file, err := os.Open(archive.ArchivePath)
 	if err != nil {
 		return err

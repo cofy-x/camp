@@ -16,7 +16,7 @@ type preparedUsage struct {
 
 // Allocation and idle eviction share a lifecycle lock. It never guards model
 // execution or the scheduler; multiple workspaces can use the same baseline.
-func (m *Executor) acquirePreparedProject(ctx context.Context, request layerfs.PrepareRequest) (layerfs.PreparedProject, error) {
+func (m *layerRuntime) acquirePreparedProject(ctx context.Context, request layerfs.PrepareRequest) (layerfs.PreparedProject, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	prepared, err := m.bridge.Prepare(ctx, request)
@@ -38,7 +38,7 @@ func (m *Executor) acquirePreparedProject(ctx context.Context, request layerfs.P
 	return prepared, nil
 }
 
-func (m *Executor) releasePreparedProject(ctx context.Context, id string) error {
+func (m *layerRuntime) releasePreparedProject(ctx context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if usage := m.projects[id]; usage != nil {
@@ -54,7 +54,7 @@ func (m *Executor) releasePreparedProject(ctx context.Context, id string) error 
 
 // The public SDK also refuses removal if any incomplete or active workspace
 // receipt exists. Failed cleanup therefore retains the entry and fails closed.
-func (m *Executor) prunePreparedProjects(ctx context.Context, remove func(context.Context, string) error) error {
+func (m *layerRuntime) prunePreparedProjects(ctx context.Context, remove func(context.Context, string) error) error {
 	for {
 		idle, oldest, expired := 0, "", ""
 		for id, usage := range m.projects {

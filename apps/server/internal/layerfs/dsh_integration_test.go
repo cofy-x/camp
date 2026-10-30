@@ -21,6 +21,7 @@ import (
 
 	"github.com/cofy-x/camp/apps/server/internal/dsh"
 	"github.com/cofy-x/camp/apps/server/internal/execution"
+	"github.com/cofy-x/camp/apps/server/internal/runnertools"
 	"github.com/cofy-x/camp/apps/server/internal/sandboxexec"
 )
 
@@ -82,7 +83,7 @@ func TestLayerFSDSHIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer docker.Close()
-	open := func(toolCtx context.Context, runID string, readOnly bool) (Workspace, *Sandbox, *Tools) {
+	open := func(toolCtx context.Context, runID string, readOnly bool) (Workspace, *Sandbox, *runnertools.Tools) {
 		t.Helper()
 		workspace, err := bridge.Create(ctx, CreateRequest{ProjectID: prepared.ProjectID, RunID: runID})
 		if err != nil {
@@ -104,7 +105,7 @@ func TestLayerFSDSHIntegration(t *testing.T) {
 		if err := docker.InstallFile(ctx, container, "/references/evidence.txt", []byte("Pinned source evidence.\n"), 0444); err != nil {
 			t.Fatal(err)
 		}
-		tools, err := NewTools(toolCtx, sandbox, readOnly)
+		tools, err := runnertools.NewTools(toolCtx, sandbox, readOnly)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -216,7 +217,7 @@ func TestLayerFSDSHIntegration(t *testing.T) {
 	t.Log("Real DSH providers, Go capability RPC, LayerFS edits, isolated commands, detached-child cleanup on completion and cancellation, read-only catalog, checkpoint/export and original preservation passed.")
 }
 
-func nativeDSH(t *testing.T, ctx context.Context, node, runtime, directory string, tools *Tools, readOnly bool, calls []nativeToolCall, expectCancellation bool) string {
+func nativeDSH(t *testing.T, ctx context.Context, node, runtime, directory string, tools *runnertools.Tools, readOnly bool, calls []nativeToolCall, expectCancellation bool) string {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(directory, "state"), 0700); err != nil {
 		t.Fatal(err)

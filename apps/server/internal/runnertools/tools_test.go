@@ -1,4 +1,4 @@
-package layerfs
+package runnertools
 
 import (
 	"bytes"
@@ -14,9 +14,16 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/sandboxexec"
 )
 
+type testBackend struct{}
+
+func (*testBackend) Failure() error { return nil }
+func (*testBackend) Call(context.Context, sandboxexec.Request, func(sandboxexec.Frame) error) (sandboxexec.Frame, error) {
+	return sandboxexec.Frame{}, nil
+}
+
 func testTools(t *testing.T, readOnly bool) *Tools {
 	t.Helper()
-	tools, err := NewTools(context.Background(), &Sandbox{}, readOnly)
+	tools, err := NewTools(context.Background(), &testBackend{}, readOnly)
 	if err != nil {
 		t.Fatal(err)
 	}

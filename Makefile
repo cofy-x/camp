@@ -37,7 +37,7 @@ build-sandbox:
 
 test-layerfs: build-sandbox
 	node --test tools/layerfs-runtime/test/*.test.mjs tools/dsh-runtime/camp-tools/*.test.mjs
-	CAMP_TEST_LAYERFS_RUNTIME="$(CURDIR)/tools/layerfs-runtime" CAMP_TEST_DSH_RUNTIME="$(CURDIR)/tools/dsh-runtime" $(GO) test -race ./apps/server/internal/layerfs ./apps/server/internal/sandboxexec -count=1
+	CAMP_TEST_LAYERFS_RUNTIME="$(CURDIR)/tools/layerfs-runtime" CAMP_TEST_DSH_RUNTIME="$(CURDIR)/tools/dsh-runtime" $(GO) test -race ./apps/server/internal/layerfs ./apps/server/internal/runnertools ./apps/server/internal/sandboxexec -count=1
 
 test-project-env:
 	CAMP_PROJECT_ENV_TEST=1 $(GO) test -race ./apps/server/internal/projectenv ./apps/server/internal/execution ./apps/server/internal/resources

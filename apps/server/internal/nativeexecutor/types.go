@@ -1,4 +1,4 @@
-// Package nativeexecutor owns Linux DSH and LayerFS execution without business
+// Package nativeexecutor owns platform DSH and workspace execution without business
 // persistence. The daemon owns delivery, authorization, and durable receipts.
 package nativeexecutor
 
