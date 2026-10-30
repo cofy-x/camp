@@ -88,7 +88,7 @@ func openNativeWorkspace(ctx context.Context, config Config) (workspace.Provider
 	fingerprint := sha256.New()
 	_, _ = fingerprint.Write(helper)
 	_, _ = fingerprint.Write(manifest)
-	_, _ = io.WriteString(fingerprint, "camp-native-local-v2-stable-namespace\x00"+config.NodePath)
+	_, _ = io.WriteString(fingerprint, "camp-native-local-v3-dependency-network\x00"+config.NodePath)
 	for _, module := range []string{"coordination", "discovery", "filesystem", "shell", "transport"} {
 		data, err := os.ReadFile(filepath.Join(config.RuntimeDir, "camp-tools", module+".mjs"))
 		if err != nil {
@@ -144,8 +144,10 @@ func openNativeWorkspace(ctx context.Context, config Config) (workspace.Provider
 		if !operation.IsDir() {
 			continue
 		}
-		if err := nativejob.Recover(ctx, filepath.Join(config.DataDir, "operations", operation.Name(), "native-dsh-jobs")); err != nil {
-			return nil, err
+		for _, kind := range []string{"native-dsh-jobs", "native-dependency-jobs"} {
+			if err := nativejob.Recover(ctx, filepath.Join(config.DataDir, "operations", operation.Name(), kind)); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return provider, nil

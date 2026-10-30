@@ -96,11 +96,16 @@ func (e *Executor) Execute(ctx context.Context, input Request, emit Emit) (resul
 		}
 		if err == nil {
 			options := projectenv.Options{Profile: &profile, NodePath: e.config.NodePath, ProjectDir: filepath.Join(dir, "project"), CacheDir: filepath.Join(e.config.DataDir, "environments", digest(input.ResourceID)), Lock: e.config.Lock, Output: func(text string) error { return record("environment", text) }}
+			options.HelperPath, options.JobRoot = e.config.SandboxHelper, filepath.Join(dir, "native-dependency-jobs")
 			if profile.Kind == "node" && profile.PackageManager != "node" {
 				options.PnpmPath, err = projectenv.FindPnpm(e.config.RuntimeDir)
 			}
 			if err == nil {
 				environment, err = projectenv.Prepare(ctx, options)
+			}
+			if projectenv.CleanupUnconfirmed(err) {
+				result.CleanupConfirmed = false
+				e.unsafe(err)
 			}
 		}
 	} else {

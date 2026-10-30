@@ -217,7 +217,7 @@ func (d *Daemon) pruneTerminalScratch(ctx context.Context) error {
 func (d *Daemon) pruneAcknowledged(ctx context.Context, id string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.active[id] != nil {
+	if d.active[id] != nil || d.failure != nil {
 		return
 	}
 	var state string
