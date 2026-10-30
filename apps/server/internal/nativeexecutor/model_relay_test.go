@@ -73,10 +73,15 @@ func TestNativeRelayFreezesRouteAuthorityAndNeverFollowsRedirects(t *testing.T) 
 	if status != http.StatusBadGateway || strings.Contains(body, "unrelated.invalid") || calls.Load() != 2 {
 		t.Fatal("redirect escaped or request replayed", status, body, calls.Load())
 	}
-	for _, base := range []string{"http://127.0.0.1:1", "https://user:password@host.invalid", "https://host.invalid/?forward=1"} {
+	for _, base := range []string{"http://remote.invalid:1", "https://user:password@host.invalid", "https://host.invalid/?forward=1"} {
 		if other, err := openModelRelay(context.Background(), base, "capability", ""); err == nil {
 			other.close()
 			t.Fatal("unsafe upstream accepted", base)
 		}
 	}
+	local, err := openModelRelay(context.Background(), "http://127.0.0.1:1/attempt", "local-capability", "")
+	if err != nil {
+		t.Fatal("the enrolled localhost origin became unusable", err)
+	}
+	_ = local.close()
 }

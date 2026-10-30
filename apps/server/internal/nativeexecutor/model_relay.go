@@ -28,8 +28,12 @@ type modelRelay struct {
 
 func openModelRelay(ctx context.Context, baseURL, capability, caFile string) (*modelRelay, error) {
 	target, err := url.Parse(baseURL)
-	if err != nil || target.Scheme != "https" || target.Host == "" || target.User != nil || target.RawQuery != "" || target.Fragment != "" || capability == "" {
-		return nil, errors.New("The native model relay requires one authenticated HTTPS origin and path")
+	if err != nil || target.Host == "" || target.User != nil || target.RawQuery != "" || target.Fragment != "" || capability == "" {
+		return nil, errors.New("The native model relay requires one authenticated origin and path")
+	}
+	ip := net.ParseIP(target.Hostname())
+	if target.Scheme != "https" && (target.Scheme != "http" || target.Hostname() != "localhost" && (ip == nil || !ip.IsLoopback())) {
+		return nil, errors.New("The native model relay requires HTTPS except on localhost")
 	}
 	target.Path = strings.TrimRight(target.Path, "/") + "/v1/messages"
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}

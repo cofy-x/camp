@@ -106,6 +106,9 @@ func Command(helper, root string, spec Spec) (*exec.Cmd, string, error) {
 }
 
 func Run(ctx context.Context, helper, root string, spec Spec, input io.Reader, stdout, stderr io.Writer) (Result, error) {
+	if ctx.Err() != nil {
+		return Result{Code: 130, Clean: true, Reason: "cancelled"}, nil
+	}
 	cmd, directory, err := Command(helper, root, spec)
 	if err != nil {
 		return Result{}, err

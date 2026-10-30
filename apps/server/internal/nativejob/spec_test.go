@@ -1,6 +1,8 @@
 package nativejob
 
 import (
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,5 +25,18 @@ func TestPrivateSpecAcceptsTheToolScriptLimitAndRejectsPublicFiles(t *testing.T)
 	}
 	if _, err := readSpec(name); err == nil {
 		t.Fatal("a public job configuration was admitted")
+	}
+}
+
+func TestAlreadyCancelledJobNeverCreatesOrStartsAClient(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	root := filepath.Join(t.TempDir(), "not-created")
+	result, err := Run(ctx, "/missing-helper", root, Spec{}, strings.NewReader(""), io.Discard, io.Discard)
+	if err != nil || !result.Clean || result.Reason != "cancelled" {
+		t.Fatal(result, err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatal("cancelled work was admitted", err)
 	}
 }
