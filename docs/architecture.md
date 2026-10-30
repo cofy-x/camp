@@ -1,5 +1,7 @@
 # Camp architecture
 
+The [native Runner design](native-runner.md) owns the cross-platform execution boundaries and qualification requirements; the implementation described below remains the released Linux path until those checks establish another backend.
+
 Camp has one trusted team's single Server, React desktop and independent Linux Runners. The [Server composition](../apps/server/internal/server/server.go) uses `remoteruns`; it never starts the legacy local Run scheduler or a DSH/LayerFS bridge. SQLite and immutable Git objects own shared results. LayerFS is disposable execution state.
 
 Server owns identity/permissions, admission/scheduling, model proxy, durable files, review and notifications. Runner actively connects to Server and owns its journal, deduplication, local scheduling, lease watchdog, reconnection reconciliation and artifact upload/cleanup. Native executor prepares tools, calls DSH/LayerFS and checks/exports results without the business database. DSH owns the model/tool loop; LayerFS owns rebuildable execution workspaces. Even on one machine, Server and Runner are separate processes using the same remote protocol. Server has no Agent-execution dependency on host Docker, DSH or LayerFS.

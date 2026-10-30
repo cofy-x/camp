@@ -1,5 +1,7 @@
 # DSH and LayerFS execution
 
+The [native Runner design and acceptance contract](native-runner.md) defines the Mac-native execution investigation and separates sandbox, workspace, process and checkpoint ownership. It does not change the released Linux support below.
+
 DSH owns model sessions and the model/tool loop. Camp Server owns admission, permissions, model credentials, durable scheduling and publication. Runner owns execution authorization, native state, cleanup and retained transport results. LayerFS owns rebuildable workspaces and checkpoints. Server and Runner remain separate processes even on one host; all Agent work uses the remote protocol. Native Agent execution requires LayerFS and reports unavailable when it is missing.
 
 ## Public integration
