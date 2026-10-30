@@ -176,10 +176,10 @@ jobs:
           go test -race ./internal/launcher
           make build smoke-production
           node scripts/smoke-upgrade.mjs
-      - name: Check discussion and versioned files in Mac WebKit
+      - name: Check authentication, discussion and versioned files in Mac WebKit
         run: >-
           make test-e2e E2E_INSTALL_ARGS=webkit
-          E2E_ARGS="--project=webkit tests/team-desktop.spec.ts --grep 'first-run discussion|Library private editing'"
+          E2E_ARGS="--project=webkit tests/auth-validation.spec.ts tests/team-desktop.spec.ts --grep 'username constraints|first-run discussion|Library private editing'"
       - name: Check Homebrew installation from the fixed public archives
         if: ${{ hashFiles('Formula/camp.rb') != '' }}
         run: node scripts/verify-homebrew.mjs
