@@ -85,7 +85,7 @@ func TestInformationalCommandsHaveNoStorageSideEffects(t *testing.T) {
 		{[]string{"serve", "--addr", "invalid", "--data-dir", dataDir, "--help"}, "Usage: " + appName + " serve"},
 		{[]string{"serve", "--env-file", "missing-file", "--help"}, "Usage: " + appName + " serve"},
 		{[]string{"runner", "--help"}, "--development-runtime Use installed source runtimes (contributors only)"},
-		{[]string{"runner", "setup", "--help"}, "Use the same root account and private data directory for setup, run and service."},
+		{[]string{"runner", "setup", "--help"}, "Native Runner supports macOS 15+ on Apple Silicon"},
 		{[]string{"runner", "service", "--help"}, "Usage: camp runner"},
 		{[]string{"version"}, appName + " test-version\n"},
 		{[]string{"--version"}, appName + " test-version\n"},

@@ -99,6 +99,7 @@ func Run(ctx context.Context, config Config, output io.Writer) error {
 		config.Native.DataDir = config.DataDir
 		config.Native.Lock = lock
 		config.Native.CAFile = config.CAFile
+		config.Native.ToolRoots = append([]string(nil), config.ToolRoots...)
 		initCtx, stop := context.WithTimeout(ctx, 90*time.Second)
 		if config.NativeUnavailable != "" {
 			err = errors.New(config.NativeUnavailable)

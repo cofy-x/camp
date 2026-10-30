@@ -27,6 +27,14 @@ Commands and configured checks have no network by default, including direct IPv4
 
 Camp must qualify a process owner that handles background children, changed process groups, double forks, `setsid`, ignored signals, closed stdio and parent death. Use kernel-observed process identities; do not signal a reused PID, another Run or an unrelated user process. A process-group kill alone is insufficient. If termination or ownership cannot be established, mark cleanup unknown, block capture/publication and suspend execution. Do not silently weaken the policy, enable unsandboxed execution or switch to a VM.
 
+## Operator setup and lifecycle
+
+Mac setup runs as the original unprivileged account and recognizes interactive terminals, hiding the connection code and restoring terminal echo. Repeated setup uses the saved registration and private journal. Source builds use `--development-runtime`; complete native packages have a separate distribution acceptance.
+
+During stopped setup, repeat `--tool-root /absolute/tool/directory` to replace the saved native tool grants, or use `--clear-tool-roots` to revoke them. Omitting both retains previous grants. Grants resolve aliases to existing directories and permit read/execute only. Broad host roots, home ancestors, Runner storage and SSH/cloud/Keychain credential trees are refused. Prefer a specific tool installation, such as a resolved Homebrew Cellar version or Xcode toolchain; a tool upgrade that changes its canonical path requires an explicit grant update. These grants affect command PATH and sandbox authority, without inheriting the operator's environment or authorizing signing/network services.
+
+The Mac `runner service` commands manage a private launchd job under the same account. `install` requires the complete package and writes its configuration without starting a process or enabling login startup. `start` runs independently of the terminal; `stop` requests graceful shutdown. `enable-login` and `disable-login` separately manage the corresponding owned LaunchAgent file. `remove` stops the owned job and removes service files while retaining registration, journal, workspaces and resources. Changing tool grants or updating service installation requires the Runner to be stopped. The daemon reconnects itself; a process that exits remains stopped until explicitly started, preventing initialization replay after an error requiring attention. Plain source runtimes support foreground execution.
+
 ## Workspace alternatives
 
 | Combination | Mac-native tools | Linux dependency | Cost and consistency |

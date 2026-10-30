@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -20,6 +21,17 @@ import (
 )
 
 type sourceFlags map[string]string
+
+type toolRootFlags []string
+
+func (r *toolRootFlags) String() string { return "/absolute/tool/directory" }
+func (r *toolRootFlags) Set(value string) error {
+	if !filepath.IsAbs(value) || len(*r) >= 32 {
+		return errors.New("Provide at most 32 absolute --tool-root directories")
+	}
+	*r = append(*r, filepath.Clean(value))
+	return nil
+}
 
 func (s *sourceFlags) String() string { return "alias=/absolute/directory" }
 func (s *sourceFlags) Set(value string) error {
@@ -56,9 +68,10 @@ and checks isolated execution without a model request. The offline package inclu
 the same runtime. Existing verified runtime downloads are reused.
 Model settings stay on Camp Server. No separate DSH or LayerFS installation is needed.
 Scripts provide --server, --name, --data-dir and --code-file explicitly.
-Native Runner requires Ubuntu 24.04 amd64, Docker, FUSE and Bubblewrap.
-Use the same root account and private data directory for setup, run and service.
-Rootless execution is unsupported; never change ownership of an existing journal.
+Native Runner supports macOS 15+ on Apple Silicon with an unprivileged account,
+or Ubuntu 24.04 amd64 with root, Docker, FUSE and Bubblewrap. Mac commands use
+Seatbelt and a private local workspace, without Docker or FUSE. Use the same
+account and private data directory for setup, run and service.
 
 Options:
   --data-dir path    Private Runner storage (default: user config directory/camp/runner)
@@ -68,12 +81,15 @@ Options:
   --ca-file path     Additional CA trust bundle; TLS verification remains enabled
   --slots count      Concurrent local operations (default 1)
   --source alias=path Register an authorized snapshot source (repeatable)
+  --tool-root path   Mac read/execute grant for a tool directory (repeatable; replaces saved grants)
+  --clear-tool-roots Revoke all saved Mac tool grants during stopped setup
   --docker-socket path Local Docker socket (default /var/run/docker.sock)
   --runtime-source github|server Public release (default) or an explicitly staged Server mirror
   --development-runtime Use installed source runtimes (contributors only)
 
 Setup never installs a system service. Service installation, starting it, and
 running it at boot are separate explicit actions. Removing a service keeps data.
+On Mac use service enable-login / disable-login to choose login startup.
 `)
 		return err
 	}
@@ -89,7 +105,8 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 	var directory, server, name, codeFile, caFile, executor, bundle, docker, runtimeSource string
 	var slots int
 	var sources sourceFlags
-	var development bool
+	var toolRoots toolRootFlags
+	var development, clearToolRoots bool
 	flags.StringVar(&directory, "data-dir", "", "private Runner directory")
 	if action == "setup" {
 		flags.StringVar(&server, "server", "", "Camp origin")
@@ -98,6 +115,8 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 		flags.StringVar(&caFile, "ca-file", "", "additional CA trust bundle")
 		flags.IntVar(&slots, "slots", 1, "concurrent operations")
 		flags.Var(&sources, "source", "authorized source alias=path")
+		flags.Var(&toolRoots, "tool-root", "approved Mac tool directory; replaces saved tool roots")
+		flags.BoolVar(&clearToolRoots, "clear-tool-roots", false, "revoke saved Mac tool grants")
 		flags.StringVar(&executor, "executor", "native", "native or explicit fixture protocol tests")
 		flags.StringVar(&bundle, "bundle-dir", runnerBundleDirectory(), "Camp installation directory")
 		flags.StringVar(&runtimeSource, "runtime-source", "", "github release or server mirror")
@@ -202,6 +221,22 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 	if runtimeSource != "" && runtimeSource != "github" && runtimeSource != "server" {
 		return errors.New("Runtime source must be github or server")
 	}
+	if clearToolRoots && len(toolRoots) > 0 {
+		return errors.New("Choose --tool-root or --clear-tool-roots")
+	}
+	if runtime.GOOS != "darwin" && (clearToolRoots || len(toolRoots) > 0) {
+		return errors.New("Native tool roots apply only to Mac Runners")
+	}
+	updateToolRoots := clearToolRoots || len(toolRoots) > 0
+	if !updateToolRoots {
+		toolRoots = previous.ToolRoots
+	}
+	if len(toolRoots) > 0 {
+		toolRoots, err = nativeexecutor.ResolveToolRoots(directory, toolRoots)
+		if err != nil {
+			return err
+		}
+	}
 	if loadErr == nil && len(sources) > 0 && !maps.Equal(map[string]string(sources), previous.Sources) {
 		return errors.New("Source aliases differ from this Runner's saved configuration. --source is for initial setup; stop this Runner and edit the sources map in its private daemon.json, then restart with the same data directory. Do not replace its identity or journal")
 	}
@@ -225,7 +260,7 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 				if err := json.NewEncoder(output).Encode(report); err != nil {
 					return err
 				}
-				return errors.New("Complete the native host requirements before connecting a Runner. Use the same root account and private data directory for setup and operation")
+				return errors.New("Complete the native host requirements before connecting a Runner. Use the same account and private data directory for setup and operation")
 			}
 		}
 	}
@@ -298,9 +333,15 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 			return errors.New("The connection code is too large")
 		}
 	}
-	config, err := daemon.Join(ctx, daemon.Config{DataDir: directory, ServerURL: strings.TrimRight(server, "/"), Name: name, CAFile: caFile, CAFileSet: explicitCA, Executor: executor, Slots: slots, Sources: sources, BundleDir: bundle, DockerSocket: docker, RuntimeSource: runtimeSource}, string(data))
+	config, err := daemon.Join(ctx, daemon.Config{DataDir: directory, ServerURL: strings.TrimRight(server, "/"), Name: name, CAFile: caFile, CAFileSet: explicitCA, Executor: executor, Slots: slots, Sources: sources, ToolRoots: toolRoots, BundleDir: bundle, DockerSocket: docker, RuntimeSource: runtimeSource}, string(data))
 	if err != nil {
 		return err
+	}
+	if updateToolRoots {
+		if err := daemon.SaveToolRoots(config, toolRoots); err != nil {
+			return err
+		}
+		config.ToolRoots = toolRoots
 	}
 	fmt.Fprintln(output, "Connected account:", config.Name, "— registration saved.")
 	config.DockerSocket = docker
@@ -317,7 +358,7 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 			return err
 		}
 	}
-	if executor == "native" && !development {
+	if executor == "native" && !development && runtime.GOOS == "linux" {
 		fmt.Fprintln(output, "Preparing the fixed execution image…")
 		installationErr = loadRunnerImage(ctx, bundle, docker, manifest.LayerFS.Image)
 	}
@@ -325,7 +366,9 @@ running it at boot are separate explicit actions. Removing a service keeps data.
 		return err
 	}
 	if executor == "native" {
-		report, err := saveRunnerReadiness(ctx, directory, runnerNative(bundle, docker), installationErr)
+		native := runnerNative(bundle, docker)
+		native.ToolRoots = append([]string(nil), config.ToolRoots...)
+		report, err := saveRunnerReadiness(ctx, directory, native, installationErr)
 		if err != nil {
 			return err
 		}

@@ -116,6 +116,9 @@ func (s runnerService) apply(ctx context.Context, action, binary, directory stri
 	}
 }
 func runRunnerService(ctx context.Context, args []string, output io.Writer) error {
+	if runtime.GOOS == "darwin" {
+		return runMacRunnerService(ctx, args, output)
+	}
 	if len(args) == 0 {
 		return errors.New("Choose service install, start, stop, status, enable-boot, disable-boot or remove")
 	}
