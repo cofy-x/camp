@@ -343,13 +343,56 @@ export function Radio({
   children,
   label,
   className = '',
+  onKeyDown,
   ...props
 }: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & {
   label?: ReactNode;
 }) {
   return (
     <label className={`p9-radio ${className}`}>
-      <input type="radio" {...props} />
+      <input
+        type="radio"
+        {...props}
+        onKeyDown={(event) => {
+          onKeyDown?.(event);
+          if (
+            event.defaultPrevented ||
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey ||
+            !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(
+              event.key,
+            )
+          )
+            return;
+          const input = event.currentTarget;
+          if (!input.name || input.matches(':disabled')) return;
+          // Own arrow navigation so wrapping is consistent across browsers.
+          const root = input.getRootNode() as ParentNode;
+          const group = Array.from(
+            root.querySelectorAll<HTMLInputElement>(
+              'input[type="radio"]:enabled',
+            ),
+          ).filter(
+            (radio) =>
+              radio.name === input.name &&
+              radio.form === input.form &&
+              radio.getClientRects().length > 0 &&
+              getComputedStyle(radio).visibility === 'visible' &&
+              !radio.closest('[inert]'),
+          );
+          const index = group.indexOf(input);
+          if (index < 0) return;
+          const direction = ['ArrowRight', 'ArrowDown'].includes(event.key)
+            ? 1
+            : -1;
+          const target =
+            group[(index + direction + group.length) % group.length];
+          event.preventDefault();
+          target.focus();
+          if (target !== input) target.click();
+        }}
+      />
       <span>{label ?? children}</span>
     </label>
   );
