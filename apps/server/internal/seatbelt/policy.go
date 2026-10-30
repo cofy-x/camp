@@ -109,6 +109,10 @@ func Profile(policy Policy) (string, error) {
 	add("file-read*", read)
 	add("file-read* file-write*", write)
 	add("process-exec", executable)
+	// Executable mappings are a separate Seatbelt operation. Grant them only
+	// for readable runtime/tool roots, never for unrelated host file data.
+	add("file-map-executable", read)
+	add("file-map-executable", executable)
 	b.WriteString("(allow file-write-data file-ioctl (literal \"/dev/null\"))\n")
 	for _, port := range policy.Ports {
 		if port == 0 {
