@@ -81,7 +81,7 @@ export function WindowFrame({
           : undefined,
       }}
       onPointerDownCapture={() => {
-        if (!active && !overview) activateWindow(win.id);
+        if (!overview) activateWindow(win.id);
       }}
     >
       <div
