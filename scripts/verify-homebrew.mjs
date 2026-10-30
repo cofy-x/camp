@@ -5,21 +5,35 @@ import { release } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { command, root, scratch } from './lib.mjs';
-import { homebrewFormula } from './homebrew.mjs';
-import { hashFile } from './release.mjs';
+import { verifyPublishedFormula } from './homebrew.mjs';
+import { hashFile, validVersion } from './release.mjs';
 
 assert.equal(process.platform, 'darwin');
 const execute = promisify(execFile);
 const formula = join(root, 'Formula/camp.rb');
 const text = await readFile(formula, 'utf8');
 const version = `v${text.match(/^ {2}version "([^"]+)"$/m)?.[1]}`;
+assert.ok(validVersion(version));
 const response = await fetch(
   `https://github.com/cofy-x/camp/releases/download/${version}/server-release.json`,
   { signal: AbortSignal.timeout(30000) },
 );
 assert.equal(response.status, 200);
 const descriptor = await response.json();
-assert.equal(text, homebrewFormula(descriptor));
+assert.equal(descriptor.version, version);
+const [publishedFormula, publishedChecksums] = await Promise.all(
+  ['camp.rb', 'SHA256SUMS'].map(async (name) => {
+    const response = await fetch(
+      `https://github.com/cofy-x/camp/releases/download/${version}/${name}`,
+      { signal: AbortSignal.timeout(30000) },
+    );
+    assert.equal(response.status, 200);
+    const content = await response.text();
+    assert.ok(Buffer.byteLength(content) < 64 << 10);
+    return content;
+  }),
+);
+verifyPublishedFormula(text, publishedFormula, publishedChecksums);
 const publicTap =
   process.env.GITHUB_EVENT_NAME === 'push' &&
   process.env.GITHUB_REF === 'refs/heads/main';

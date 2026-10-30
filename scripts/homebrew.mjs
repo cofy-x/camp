@@ -1,7 +1,21 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { root } from './lib.mjs';
 import { validVersion } from './release.mjs';
+
+// A template change must not rewrite an older immutable release's formula.
+export function verifyPublishedFormula(text, published, checksums) {
+  assert.equal(text, published, 'Use the exact published formula.');
+  const entries = [...checksums.matchAll(/^([a-f0-9]{64}) {2}camp\.rb$/gm)];
+  assert.equal(entries.length, 1, 'Require one published formula checksum.');
+  assert.equal(
+    createHash('sha256').update(text).digest('hex'),
+    entries[0][1],
+    'The formula differs from the fixed release checksum.',
+  );
+}
 
 export function homebrewFormula(descriptor) {
   if (!validVersion(descriptor.version))
