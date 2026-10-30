@@ -110,119 +110,146 @@ test('first-run discussion, private drafts, threads and explicit agent requests'
   expect(runs.runs).toEqual([]);
 });
 
-test('Library private editing, publication, source handoff and revision conflict', async ({
-  page,
-}, testInfo) => {
-  const name = `writing-${testInfo.project.name}`;
-  const room = await createRoom(page, name);
-  await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
-    .click();
-  await newDocument(
+for (const inputMode of ['fill', 'keyboard'] as const) {
+  test(`Library private editing, publication, source handoff and revision conflict (${inputMode})`, async ({
     page,
-    'guide.md',
-    '# Onboarding\nPrepare an account and agree on an owner.',
-  );
-  await expect
-    .poll(
-      async () =>
-        (
-          await (
-            await page.request.get(
-              `/api/me/drafts/document?key=${room.resourceId}:guide.md`,
-            )
-          ).json()
-        ).draft.value?.content,
-    )
-    .toContain('Prepare an account');
-  const before = await (
-    await page.request.get(`/api/resources/${room.resourceId}/files`)
-  ).json();
-  expect(before.files).toEqual([]);
-  await library(page)
-    .getByRole('button', { name: 'Publish Changes', exact: true })
-    .click();
-  await expect(
-    library(page).getByText('Published to shared files.', { exact: true }),
-  ).toBeVisible();
-  await library(page)
-    .getByRole('button', { name: 'Back to Preview', exact: true })
-    .click();
-  await library(page)
-    .getByRole('button', { name: 'History', exact: true })
-    .click();
-  await expect(
-    library(page).getByText(/Browser Owner.*Checks not run/),
-  ).toBeVisible();
-  await library(page)
-    .getByRole('button', { name: 'History', exact: true })
-    .click();
-  await expect(
-    library(page).getByRole('combobox', { name: 'Use in room', exact: true }),
-  ).toHaveValue(room.id);
-  await library(page)
-    .getByRole('button', { name: 'Add to Message', exact: true })
-    .click();
-  await expect(workspace(page)).toHaveClass(/is-active/);
-  await expect(
-    workspace(page)
-      .getByRole('form', { name: 'Room composer' })
-      .getByText('guide.md', { exact: true }),
-  ).toBeVisible();
-  expect(
-    (await (await page.request.get(`/api/rooms/${room.id}/messages`)).json())
-      .messages,
-  ).toEqual([]);
-  await post(page, name, 'Please review the attached guide with me.');
-  await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
-    .click();
-  await library(page)
-    .getByRole('button', { name: 'Edit Text', exact: true })
-    .click();
-  await library(page)
-    .getByLabel('Document content', { exact: true })
-    .fill('My local revision stays safe.');
-  const files = await (
-    await page.request.get(`/api/resources/${room.resourceId}/files`)
-  ).json();
-  const save = await mutate(
-    page,
-    `/resources/${room.resourceId}/files`,
-    {
-      requestId: randomUUID(),
-      expectedCommit: files.commit,
-      path: 'guide.md',
-      content: 'Another teammate changed the shared file.',
-    },
-    'PUT',
-  );
-  expect(save.ok()).toBeTruthy();
-  await library(page)
-    .getByRole('button', { name: 'Publish Changes', exact: true })
-    .click();
-  await expect(library(page).getByRole('alert')).toBeVisible();
-  await expect(
-    library(page).getByLabel('Document content', { exact: true }),
-  ).toHaveValue('My local revision stays safe.');
-  await library(page)
-    .getByRole('button', { name: 'Compare Shared Version', exact: true })
-    .click();
-  await expect(
-    library(page).getByText('Another teammate changed the shared file.', {
+  }, testInfo) => {
+    const name = `writing-${testInfo.project.name}-${inputMode}-${testInfo.repeatEachIndex}`;
+    const room = await createRoom(page, name);
+    await workspace(page)
+      .getByRole('button', { name: 'Library', exact: true })
+      .click();
+    await newDocument(
+      page,
+      'guide.md',
+      '# Onboarding\nPrepare an account and agree on an owner.',
+    );
+    await expect
+      .poll(
+        async () =>
+          (
+            await (
+              await page.request.get(
+                `/api/me/drafts/document?key=${room.resourceId}:guide.md`,
+              )
+            ).json()
+          ).draft.value?.content,
+      )
+      .toContain('Prepare an account');
+    const before = await (
+      await page.request.get(`/api/resources/${room.resourceId}/files`)
+    ).json();
+    expect(before.files).toEqual([]);
+    await library(page)
+      .getByRole('button', { name: 'Publish Changes', exact: true })
+      .click();
+    await expect(
+      library(page).getByText('Published to shared files.', { exact: true }),
+    ).toBeVisible();
+    await library(page)
+      .getByRole('button', { name: 'Back to Preview', exact: true })
+      .click();
+    await library(page)
+      .getByRole('button', { name: 'History', exact: true })
+      .click();
+    await expect(
+      library(page).getByText(/Browser Owner.*Checks not run/),
+    ).toBeVisible();
+    await library(page)
+      .getByRole('button', { name: 'History', exact: true })
+      .click();
+    await expect(
+      library(page).getByRole('combobox', { name: 'Use in room', exact: true }),
+    ).toHaveValue(room.id);
+    await library(page)
+      .getByRole('button', { name: 'Add to Message', exact: true })
+      .click();
+    await expect(workspace(page)).toHaveClass(/is-active/);
+    await expect(
+      workspace(page)
+        .getByRole('form', { name: 'Room composer' })
+        .getByText('guide.md', { exact: true }),
+    ).toBeVisible();
+    expect(
+      (await (await page.request.get(`/api/rooms/${room.id}/messages`)).json())
+        .messages,
+    ).toEqual([]);
+    await post(page, name, 'Please review the attached guide with me.');
+    await workspace(page)
+      .getByRole('button', { name: 'Library', exact: true })
+      .click();
+    await library(page)
+      .getByRole('button', { name: 'Edit Text', exact: true })
+      .click();
+    const editor = library(page).getByLabel('Document content', {
       exact: true,
-    }),
-  ).toBeVisible();
-  await library(page)
-    .getByRole('button', { name: 'Use This Baseline', exact: true })
-    .click();
-  await library(page)
-    .getByRole('button', { name: 'Publish Changes', exact: true })
-    .click();
-  await expect(
-    library(page).getByText('Published to shared files.', { exact: true }),
-  ).toBeVisible();
-});
+    });
+    await expect(editor).toHaveValue(
+      '# Onboarding\nPrepare an account and agree on an owner.',
+    );
+    await editor.focus();
+    await expect(editor).toBeFocused();
+    if (inputMode === 'keyboard') {
+      await editor.press('ControlOrMeta+A');
+      await editor.pressSequentially('My local revision stays safe.');
+    } else {
+      await editor.fill('My local revision stays safe.');
+    }
+    // Confirm that native input landed before changing the shared baseline.
+    // Conflict handling below still runs without waiting for private autosave.
+    await expect(editor).toHaveValue('My local revision stays safe.');
+    const files = await (
+      await page.request.get(`/api/resources/${room.resourceId}/files`)
+    ).json();
+    const save = await mutate(
+      page,
+      `/resources/${room.resourceId}/files`,
+      {
+        requestId: randomUUID(),
+        expectedCommit: files.commit,
+        path: 'guide.md',
+        content: 'Another teammate changed the shared file.',
+      },
+      'PUT',
+    );
+    expect(save.ok()).toBeTruthy();
+    const publication = page.waitForRequest(
+      (request) =>
+        request.method() === 'PUT' &&
+        new URL(request.url()).pathname ===
+          `/api/resources/${room.resourceId}/files`,
+    );
+    await library(page)
+      .getByRole('button', { name: 'Publish Changes', exact: true })
+      .click();
+    expect((await publication).postDataJSON()).toMatchObject({
+      path: 'guide.md',
+      content: 'My local revision stays safe.',
+      expectedCommit: files.commit,
+    });
+    await expect(library(page).getByRole('alert')).toBeVisible();
+    await expect(
+      library(page).getByLabel('Document content', { exact: true }),
+    ).toHaveValue('My local revision stays safe.');
+    await library(page)
+      .getByRole('button', { name: 'Compare Shared Version', exact: true })
+      .click();
+    await expect(
+      library(page).getByText('Another teammate changed the shared file.', {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await library(page)
+      .getByRole('button', { name: 'Use This Baseline', exact: true })
+      .click();
+    await library(page)
+      .getByRole('button', { name: 'Publish Changes', exact: true })
+      .click();
+    await expect(
+      library(page).getByText('Published to shared files.', { exact: true }),
+    ).toBeVisible();
+  });
+}
 
 test('invited teammate, human mentions outside Workspace and account revocation', async ({
   page,
