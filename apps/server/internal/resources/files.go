@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"unicode"
@@ -320,6 +321,31 @@ func writeSnapshot(directory string, files snapshot) error {
 		closeErr := opened.Close()
 		if err := errors.Join(writeErr, closeErr); err != nil {
 			return err
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		// APFS may resolve differently spelled parent directories to one inode.
+		// O_EXCL protects file collisions; compare the actual complete namespace
+		// as well so case/Unicode aliases never silently change frozen input.
+		count := 0
+		err := fs.WalkDir(root.FS(), ".", func(name string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			if _, ok := files[name]; !ok {
+				return errors.New("This filesystem cannot preserve the project's case or Unicode path spelling")
+			}
+			count++
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if count != len(files) {
+			return errors.New("This filesystem merged distinct project paths")
 		}
 	}
 	return nil

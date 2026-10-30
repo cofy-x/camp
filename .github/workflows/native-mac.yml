@@ -57,7 +57,7 @@ jobs:
           CAMP_MAC_HELPER: ${{ github.workspace }}/dist/native-mac/camp-sandbox
         run: go test -race -count=1 -timeout=180s -v ./apps/server/internal/nativejob
       - name: Check native file capabilities
-        run: go test -race -count=1 -timeout=120s -v ./apps/server/internal/sandboxexec ./apps/server/internal/runnertools
+        run: go test -race -count=1 -timeout=120s -v ./apps/server/internal/sandboxexec ./apps/server/internal/runnertools ./apps/server/internal/resources
       - name: Install the pinned DSH runtime
         run: node tools/dsh-runtime/install.mjs
       - name: Check actual native DSH, capture, continuation and collaboration
