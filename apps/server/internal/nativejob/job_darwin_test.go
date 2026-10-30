@@ -170,6 +170,9 @@ func TestNativeNormalExitAndTimeoutRemoveDetachedWriters(t *testing.T) {
 			if err != nil || !result.Clean || (result.Code == 0) == hold {
 				t.Fatalf("tree result: %+v %v %s", result, err, output.String())
 			}
+			if _, err := os.Stat(filepath.Join(spec.Directory, "child.pid")); err != nil {
+				t.Fatalf("detached writer never started: %+v %v %s", result, err, output.String())
+			}
 			assertQuiescent(t, root)
 		})
 	}
@@ -192,9 +195,6 @@ func TestNativeClientDeathCleansBeforeAnyRecoveryReceipt(t *testing.T) {
 	for {
 		if _, err := os.Stat(filepath.Join(spec.Directory, "child.pid")); err == nil {
 			break
-		}
-		if _, err := os.Stat(filepath.Join(spec.Directory, "child.pid")); err != nil {
-			t.Fatalf("detached writer never started: %+v %v %s", result, err, output.String())
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("child did not start")
