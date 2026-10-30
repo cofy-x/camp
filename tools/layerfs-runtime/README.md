@@ -74,6 +74,8 @@ At native executor startup, Go calls `Bridge.Reset` before admitting work. Serve
 
 ## Checks and their scope
 
+The [native-directory checkpoint proof](hybrid/README.md) separately qualifies public administrative file transfer, generation receipts, remounted bytes/modes and measured Linux costs. It establishes neither a shipped Mac transport nor a complete-VM comparison.
+
 The keyless native probe imports binary and text files, creates isolated Sandboxes, writes and checkpoints a memo, exports exact bytes, reads public history, verifies orderly reopen, and removes its Store. It also checks that non-root commands cannot read Store files, daemon setup, or PID 1 credentials. The daemon TCP endpoint rejects unauthenticated plaintext and invalid Noise records; the probe separately inventories Unix sockets. These observations do not by themselves establish the command supervisor's network boundary.
 
 The Go transport tests cover exclusive ownership, private configuration, environment filtering, cancellation, late responses, malformed protocol, and process reaping. Native Go tests cover independent Workspaces, archive identity, existing-output preservation, and startup discard after a bridge crash with a missing receipt and stopped daemon, while preserving another runtime home's active Sandbox. DSH tool and supervisor integration tests are separate gates.
