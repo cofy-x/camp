@@ -185,17 +185,23 @@ export function AuthGate({ children }: { children: ReactNode }) {
               </label>
             )}
             <label>
-              Username
+              <span id="camp-username-label">Username</span>
               <input
                 className="p9-field"
                 required
                 minLength={3}
                 maxLength={32}
-                pattern="[a-z][a-z0-9_-]{2,31}"
+                pattern="[a-z][a-z0-9_\-]{2,31}"
                 autoComplete="username"
+                aria-labelledby="camp-username-label"
+                aria-describedby="camp-username-hint"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
               />
+              <small id="camp-username-hint">
+                3–32 lowercase letters, numbers, hyphens or underscores. Start
+                with a letter.
+              </small>
             </label>
             <label>
               Password
