@@ -46,15 +46,24 @@ async function catalog(page: Page, kind: 'member' | 'agent') {
 test('a saved avatar stays stable and updates an existing conversation in another session', async ({
   page,
   context,
-}) => {
-  const before = await profile(page);
-  expect(before.avatar).toMatch(/^member-/);
+}, info) => {
   const choices = await catalog(page, 'member');
-  const target =
-    choices[
-      (choices.findIndex((entry) => entry.id === before.avatar) + 1) %
-        choices.length
-    ];
+  const original = await profile(page);
+  const last = choices.at(-1)!;
+  expect(
+    (
+      await mutate(
+        page,
+        '/me/avatar',
+        { avatar: last.id, expectedAvatar: original.avatar },
+        'PATCH',
+      )
+    ).ok(),
+  ).toBe(true);
+  await errors.get(page)!.reload();
+  const before = await profile(page);
+  expect(before.avatar).toBe(last.id);
+  const target = choices[0];
   const room = await createRoom(
     page,
     `Avatar Room ${randomUUID().slice(0, 8)}`,
@@ -97,11 +106,27 @@ test('a saved avatar stays stable and updates an existing conversation in anothe
     exact: true,
   });
   await expect(current).toBeFocused();
+  await settings(page).screenshot({
+    path: info.outputPath('avatar-keyboard-before.png'),
+  });
   await current.press('ArrowRight');
   const radio = settings(page).getByRole('radio', {
     name: target.name,
     exact: true,
   });
+  await expect(radio).toBeChecked();
+  await settings(page).screenshot({
+    path: info.outputPath('avatar-keyboard-after.png'),
+  });
+  await expect(radio).toBeFocused();
+  await radio.press('ArrowLeft');
+  await expect(current).toBeChecked();
+  await expect(current).toBeFocused();
+  await current.press('ArrowDown');
+  await expect(radio).toBeChecked();
+  await radio.press('ArrowUp');
+  await expect(current).toBeChecked();
+  await current.press('ArrowRight');
   await expect(radio).toBeChecked();
   await radio.press('Tab');
   await page.keyboard.press('Shift+Tab');

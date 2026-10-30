@@ -211,17 +211,18 @@ test('real fixture work keeps its queued Runner, cancels once, and delivers the 
   );
   expect(queued.runnerId).toBe(a.runner.id);
   expect(next.runnerId).toBe(b.runner.id);
+  await runStatus(page, next.id, 'queued');
   await workspace(page)
     .getByTestId('agent-work')
     .filter({ has: page.getByText('Working', { exact: true }) })
     .getByRole('button', { name: 'Stop', exact: true })
     .click();
   await runStatus(page, first.id, 'cancelled');
-  expect((await runStatus(page, queued.id, 'succeeded')).runnerId).toBe(
-    a.runner.id,
-  );
+  const firstResult = await runStatus(page, queued.id, 'succeeded');
+  expect(firstResult.runnerId).toBe(a.runner.id);
   const result = await runStatus(page, next.id, 'succeeded');
   expect(result.runnerId).toBe(b.runner.id);
+  expect(result.baselineCommit).toBe(firstResult.resultCommit);
   expect(result.published).toBe(true);
   const { messages } = await (
     await page.request.get(

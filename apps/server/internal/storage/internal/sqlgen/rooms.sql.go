@@ -385,6 +385,19 @@ func (q *Queries) FinishConversation(ctx context.Context, arg FinishConversation
 	return err
 }
 
+const firstQueuedAgentRun = `-- name: FirstQueuedAgentRun :one
+SELECT id FROM runs WHERE agent_id=? AND status='queued'
+    AND COALESCE(json_extract(snapshot,'$.cancellationReason'),'')=''
+    ORDER BY created_at,id LIMIT 1
+`
+
+func (q *Queries) FirstQueuedAgentRun(ctx context.Context, agentID string) (string, error) {
+	row := q.db.QueryRowContext(ctx, firstQueuedAgentRun, agentID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getAgent = `-- name: GetAgent :one
 SELECT id, name, handle, icon, instructions, access, enabled, revision, created_at, updated_at, owner_user_id, preferred_runner_id, avatar FROM agents WHERE id=?
 `

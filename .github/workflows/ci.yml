@@ -86,6 +86,14 @@ jobs:
           make test-e2e
           E2E_INSTALL_ARGS="--with-deps $BROWSER_ENGINE"
           E2E_ARGS="--project=$BROWSER_PROJECT"
+      - name: Retain radio keyboard evidence
+        if: ${{ steps.browser_tests.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: radio-keyboard-${{ matrix.project }}-${{ github.run_attempt }}
+          path: test-results/**/avatar-keyboard-*.png
+          if-no-files-found: error
+          retention-days: 7
       - name: Retain browser failure evidence
         if: ${{ failure() && steps.browser_tests.outcome == 'failure' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -262,8 +262,8 @@ func TestThreadContextAndCursorDoNotLeakOtherThreads(t *testing.T) {
 }
 func TestWorkspaceEventsCursorAndRecoverySelection(t *testing.T) {
 	s, r, _ := roomFixture(t)
-	queued := sendRoom(t, s, r, "queued")
 	active := sendRoom(t, s, r, "active")
+	queued := sendRoom(t, s, r, "queued")
 	if _, e := s.ClaimRun(ctx, active.Runs[0].ID); e != nil {
 		t.Fatal(e)
 	}

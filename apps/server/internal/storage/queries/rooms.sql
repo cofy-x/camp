@@ -85,6 +85,10 @@ SELECT snapshot FROM runs WHERE room_id=@room_id AND resource_id=@resource_id
     AND json_extract(snapshot,'$.resultCommit')=@commit_id ORDER BY created_at DESC,id DESC LIMIT 1;
 -- name: ActiveAgentRun :one
 SELECT id FROM runs WHERE agent_id=? AND status IN ('preparing','running','checking','cancelling') LIMIT 1;
+-- name: FirstQueuedAgentRun :one
+SELECT id FROM runs WHERE agent_id=? AND status='queued'
+    AND COALESCE(json_extract(snapshot,'$.cancellationReason'),'')=''
+    ORDER BY created_at,id LIMIT 1;
 -- name: NextRunEventSequence :one
 SELECT CAST(COALESCE(MAX(seq),0)+1 AS INTEGER) FROM run_events WHERE run_id=?;
 -- name: CreateRunEvent :exec
