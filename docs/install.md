@@ -27,11 +27,11 @@ Early releases use numbered `alpha`, `beta` and `rc` versions. Alpha/beta versio
 Starting with `v0.1.0-alpha.2`, install the root entrypoint using the [pinned Go toolchain](../README.md#local-development):
 
 ```sh
-go install github.com/cofy-x/camp@v0.1.0-alpha.2
+go install github.com/cofy-x/camp@v0.1.0-alpha.3
 camp
 ```
 
-Put Go's binary installation directory on PATH. This entrypoint downloads the same complete Server archive as a manual installation; it does not compile an API-only development Server or require Node/pnpm. `camp runner ...` selects the matching native Runner installer instead. Releases through `v0.1.0-alpha.2` contain only the Linux Runner; Mac execution requires a release listing `darwin-arm64` Runner assets. The original `v0.1.0-alpha.1` has no root command and must be installed from its archives.
+Put Go's binary installation directory on PATH. This entrypoint downloads the same complete Server archive as a manual installation; it does not compile an API-only development Server or require Node/pnpm. `camp runner ...` selects the matching native Runner installer instead. Mac Runner packages are included from `v0.1.0-alpha.3`; earlier releases contain only Linux Runner assets. The original `v0.1.0-alpha.1` has no root command and must be installed from its archives.
 
 The launcher derives its immutable version from Go's build information. It never selects `latest`, substitutes another platform or advances an existing installation. Downloads use system TLS and only GitHub release redirects, without Camp credentials. Archive/checksum names are fixed by version, role and platform. Checksums establish release-channel integrity, not a separate publisher signature.
 
