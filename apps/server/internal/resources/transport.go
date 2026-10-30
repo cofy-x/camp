@@ -146,6 +146,7 @@ func CaptureStableSource(ctx context.Context, source, destination string) error 
 	if !filepath.IsAbs(source) || filepath.Clean(source) != source {
 		return errors.New("Source must be a normalized absolute directory")
 	}
+	source = canonicalSystemPath(source)
 	resolved, err := filepath.EvalSymlinks(source)
 	if err != nil || resolved != source {
 		return errors.New("Source cannot contain symbolic links")

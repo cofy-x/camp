@@ -41,6 +41,20 @@ type Policy struct {
 	ExcludeNames []string
 }
 
+// macOS exposes these fixed system aliases. Canonicalizing only these prefixes
+// keeps ordinary temporary/user-selected paths usable while retaining rejection
+// of caller-controlled symlinks anywhere in the remaining source path.
+func canonicalSystemPath(name string) string {
+	if runtime.GOOS == "darwin" {
+		for _, alias := range []string{"/var", "/tmp", "/etc"} {
+			if name == alias || strings.HasPrefix(name, alias+"/") {
+				return "/private" + name
+			}
+		}
+	}
+	return name
+}
+
 // Exclude host configuration and credentials; reject results containing these paths.
 func excluded(name string) bool {
 	name = strings.ToLower(name)

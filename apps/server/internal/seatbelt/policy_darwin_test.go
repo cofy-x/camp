@@ -54,6 +54,11 @@ func TestActualNativeReadWriteAndControlPorts(t *testing.T) {
 	}
 	defer listener.Close()
 	port := uint16(listener.Addr().(*net.TCPAddr).Port)
+	ipv6, err := net.Listen("tcp6", net.JoinHostPort("::1", strconv.Itoa(int(port))))
+	if err != nil {
+		t.Fatal("IPv6 control-isolation fixture", err)
+	}
+	defer ipv6.Close()
 	for _, allowed := range []bool{false, true} {
 		policy.Ports = nil
 		if allowed {
@@ -68,6 +73,11 @@ func TestActualNativeReadWriteAndControlPorts(t *testing.T) {
 		output, err := cmd.CombinedOutput()
 		if (err == nil) != allowed {
 			t.Fatalf("loopback allowed=%v: %v %s", allowed, err, output)
+		}
+		cmd = exec.CommandContext(ctx, "/usr/bin/sandbox-exec", "-p", profile, "/usr/bin/nc", "-6", "-z", "-w", "1", "::1", strconv.Itoa(int(port)))
+		cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + work, "TMPDIR=" + work}
+		if output, err := cmd.CombinedOutput(); err == nil {
+			t.Fatalf("IPv6 listener inherited an IPv4-only grant: %s", output)
 		}
 	}
 	for _, broad := range []string{"/", "/Users", "/System", "/System/Volumes/Data", "/opt/homebrew"} {

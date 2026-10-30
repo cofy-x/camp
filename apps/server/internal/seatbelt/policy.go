@@ -155,7 +155,7 @@ func Profile(policy Policy) (string, error) {
 		if port == 0 {
 			return "", errors.New("Sandbox control ports must be nonzero")
 		}
-		fmt.Fprintf(&b, "(allow network-outbound (remote ip \"localhost:%d\"))\n", port)
+		fmt.Fprintf(&b, "(allow network-outbound (remote ip \"127.0.0.1:%d\"))\n", port)
 	}
 	return b.String(), nil
 }
