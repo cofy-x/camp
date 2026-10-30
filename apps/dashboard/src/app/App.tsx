@@ -38,6 +38,10 @@ function CampDesktop() {
   const openApp = useCallback((appId: string) => {
     desktopRef.current?.openApp(appId);
   }, []);
+  const getActivationRevision = useCallback(
+    () => desktopRef.current?.getActivationRevision() ?? 0,
+    [],
+  );
 
   if (!bootstrap)
     return (
@@ -61,7 +65,10 @@ function CampDesktop() {
     );
 
   return (
-    <TeamProvider openApp={openApp}>
+    <TeamProvider
+      openApp={openApp}
+      getActivationRevision={getActivationRevision}
+    >
       <PreferencesContext.Provider value={appearance}>
         <TeamDesktop
           apps={apps}

@@ -6,6 +6,7 @@ function desktopAPI(): DesktopAPI {
   return {
     windows: [],
     activeWindowId: null,
+    getActivationRevision: vi.fn(() => 0),
     openApp: vi.fn(() => 'opened'),
     closeWindow: vi.fn(async () => true),
     focusWindow: vi.fn(),

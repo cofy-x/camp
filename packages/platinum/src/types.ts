@@ -83,6 +83,8 @@ export type DialogResult = { button: string; value: string } | null;
 export interface DesktopAPI {
   windows: DesktopWindow[];
   activeWindowId: string | null;
+  // Changes on activation commands, including choosing an already active app.
+  getActivationRevision: () => number;
   openApp: (
     appId: string,
     params?: WindowParams,

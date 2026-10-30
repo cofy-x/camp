@@ -64,9 +64,11 @@ export function useTeam() {
 export function TeamProvider({
   children,
   openApp,
+  getActivationRevision,
 }: {
   children: ReactNode;
   openApp: (appId: string) => void;
+  getActivationRevision: () => number;
 }) {
   const { user } = useAccount();
   const [name, setName] = useState('Camp');
@@ -76,6 +78,7 @@ export function TeamProvider({
   const [revision, setRevision] = useState(0);
   const [event, setEvent] = useState<WorkspaceEvent | null>(null);
   const [navigation, setNavigation] = useState<NavigationIntent | null>(null);
+  const navigationRequest = useRef(0);
   const [navigationError, setNavigationError] = useState('');
   const [connection, setConnection] =
     useState<TeamState['connection']>('connecting');
@@ -166,7 +169,14 @@ export function TeamProvider({
   );
   const navigate = useCallback(
     async (value: NavigationTarget): Promise<boolean> => {
+      const request = ++navigationRequest.current;
+      const activation = getActivationRevision();
       const saved = await flushPrivateDrafts();
+      if (
+        request !== navigationRequest.current ||
+        activation !== getActivationRevision()
+      )
+        return false;
       if (!saved) {
         setNavigationError(
           'A private draft could not be saved. Resolve its error before switching documents.',
@@ -181,7 +191,7 @@ export function TeamProvider({
       openApp(value.app ?? 'workspace');
       return true;
     },
-    [openApp],
+    [openApp, getActivationRevision],
   );
   const state = useMemo(
     () => ({
