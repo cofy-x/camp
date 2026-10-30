@@ -178,3 +178,98 @@ func TestNativeReadOnlyWorkspaceRejectsCommandsAndWrites(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeToolGrantAllowsExecutionWithoutHostCredentialsOrToolWrites(t *testing.T) {
+	provider, ctx, root := nativeProvider(t)
+	tool, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(tool, "approved-native-tool")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\ntest -z \"${CAMP_TEST_HOST_SECRET+x}\" || exit 10\nif cat \"$1\" >/dev/null 2>&1; then exit 11; fi\nif touch \"$0.changed\" 2>/dev/null; then exit 12; fi\nprintf 'native tool ran\\n' > native-result.txt\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	credential := filepath.Join(root, "private-credential")
+	if err := os.WriteFile(credential, []byte("host-only"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CAMP_TEST_HOST_SECRET", "host-only")
+	source := filepath.Join(root, "source")
+	if err := os.Mkdir(source, 0700); err != nil {
+		t.Fatal(err)
+	}
+	active, err := provider.Prepare(ctx, workspace.Spec{Source: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer active.Close(context.Background())
+	request := sandboxexec.Request{Operation: "command", Argv: []string{executable, credential}, TimeoutMS: 10000, MaxOutputBytes: 4096}
+	frame, err := active.Call(ctx, request, nil)
+	if err != nil || frame.Code == float64(0) {
+		t.Fatal("an unapproved executable was admitted", frame, err)
+	}
+	provider.config.ToolRoots, err = ResolveToolRoots(root, []string{tool})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Argv[0] = "approved-native-tool"
+	frame, err = active.Call(ctx, request, nil)
+	if err != nil || frame.Code != float64(0) || !frame.Clean {
+		t.Fatal("approved native tool failed", frame, err)
+	}
+	data, err := os.ReadFile(filepath.Join(active.Directory(), "native-result.txt"))
+	if err != nil || string(data) != "native tool ran\n" {
+		t.Fatal("tool did not use this workspace", err)
+	}
+}
+
+func TestNativeMacHostDoesNotRequireDockerOrFuse(t *testing.T) {
+	if os.Getenv("CAMP_TEST_DSH_RUNTIME") == "" {
+		t.Skip("requires native Mac qualification")
+	}
+	report := HostChecks(Config{DockerSocket: "/nonexistent/camp-docker.sock"})
+	for _, check := range report.Checks {
+		if check.Status != "passed" {
+			t.Fatal("native Mac prerequisite failed", check)
+		}
+		if check.ID == "docker" || check.ID == "fuse" || check.ID == "bubblewrap" || check.ID == "root" {
+			t.Fatal("Mac acquired a Linux prerequisite", check)
+		}
+	}
+}
+
+func TestApprovedMacGoToolchainBuildsAndRunsNativeMachO(t *testing.T) {
+	provider, ctx, root := nativeProvider(t)
+	compiler, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler, err = filepath.EvalSymlinks(compiler)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.config.ToolRoots, err = ResolveToolRoots(root, []string{filepath.Dir(filepath.Dir(compiler))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(root, "go-source")
+	if err := os.Mkdir(source, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "main.go"), []byte("package main\nimport \"runtime\"\nfunc main(){println(runtime.GOOS+\"/\"+runtime.GOARCH)}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	active, err := provider.Prepare(ctx, workspace.Spec{Source: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer active.Close(context.Background())
+	frame, err := active.Call(ctx, sandboxexec.Request{Operation: "command", Command: "CGO_ENABLED=0 GOTOOLCHAIN=local go build -o native-tool main.go && ./native-tool > native-tool.txt 2>&1", TimeoutMS: 40000, MaxOutputBytes: 4096}, nil)
+	if err != nil || frame.Code != float64(0) || !frame.Clean {
+		t.Fatal("approved native compilation failed", frame, err)
+	}
+	data, err := os.ReadFile(filepath.Join(active.Directory(), "native-tool.txt"))
+	if err != nil || string(data) != "darwin/arm64\n" {
+		t.Fatal("toolchain did not execute a native Apple Silicon binary", string(data), err)
+	}
+}

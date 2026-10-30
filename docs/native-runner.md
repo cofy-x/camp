@@ -33,6 +33,14 @@ Prepared Node dependencies are a separate trusted operation, with a frozen lockf
 
 Before exposing this path, prove a locked pnpm install, disabled install scripts, cache reuse, host credential/config denial, public package transfer and private-destination rejection on actual Mac ARM64. Confirm all owned descendants before publishing a ready cache marker or deleting staging files. Unknown cleanup retains staging/receipts, suspends execution and is recovered without replay at Runner startup. Model commands and configured checks continue to receive no package-network capability. Linux's existing dependency path remains independently qualified.
 
+## Operator setup and lifecycle
+
+Mac setup runs as the original unprivileged account and recognizes interactive terminals, hiding the connection code and restoring terminal echo. Repeated setup uses the saved registration and private journal. Source builds use `--development-runtime`; complete native packages have a separate distribution acceptance.
+
+During stopped setup, repeat `--tool-root /absolute/tool/directory` to replace the saved native tool grants, or use `--clear-tool-roots` to revoke them. Omitting both retains previous grants. Grants resolve aliases to existing directories and permit read/execute only. Broad host roots, home ancestors, Runner storage and SSH/cloud/Keychain credential trees are refused. Prefer a specific tool installation, such as a resolved Homebrew Cellar version or Xcode toolchain; a tool upgrade that changes its canonical path requires an explicit grant update. These grants affect command PATH and sandbox authority, without inheriting the operator's environment or authorizing signing/network services.
+
+The Mac `runner service` commands manage a private launchd job under the same account. `install` requires the complete package and writes its configuration without starting a process or enabling login startup. `start` runs independently of the terminal; `stop` requests graceful shutdown. `enable-login` and `disable-login` separately manage the corresponding owned LaunchAgent file. `remove` stops the owned job and removes service files while retaining registration, journal, workspaces and resources. Changing tool grants or updating service installation requires the Runner to be stopped. The daemon reconnects itself; a process that exits remains stopped until explicitly started, preventing initialization replay after an error requiring attention. Plain source runtimes support foreground execution.
+
 ## Workspace alternatives
 
 | Combination | Mac-native tools | Linux dependency | Cost and consistency |

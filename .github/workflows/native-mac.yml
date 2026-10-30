@@ -7,6 +7,8 @@ on:
       - 'apps/server/internal/seatbelt/**'
       - 'apps/server/internal/nativejob/**'
       - 'apps/server/internal/nativeexecutor/**'
+      - 'apps/server/internal/cli/**'
+      - 'apps/server/internal/daemon/**'
       - 'apps/server/internal/execution/**'
       - 'apps/server/internal/projectenv/**'
       - 'tools/project-runtime/**'
@@ -58,6 +60,10 @@ jobs:
           CAMP_TEST_MAC_NATIVE: '1'
           CAMP_MAC_HELPER: ${{ github.workspace }}/dist/native-mac/camp-sandbox
         run: go test -race -count=1 -timeout=180s -v ./apps/server/internal/nativejob
+      - name: Check background lifecycle, hidden terminal input and saved tool grants
+        env:
+          CAMP_TEST_MAC_NATIVE: '1'
+        run: go test -race -count=1 -timeout=180s -v ./apps/server/internal/cli ./apps/server/internal/daemon
       - name: Check native file capabilities
         run: go test -race -count=1 -timeout=120s -v ./apps/server/internal/sandboxexec ./apps/server/internal/runnertools ./apps/server/internal/resources
       - name: Install the pinned DSH runtime

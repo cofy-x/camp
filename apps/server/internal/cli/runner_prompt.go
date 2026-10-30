@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/cofy-x/camp/apps/server/internal/daemon"
@@ -41,7 +42,11 @@ func runnerNextSteps(output io.Writer, bundle, directory string) error {
 		return err
 	}
 	command, data := runnerShellArgument(executable), runnerShellArgument(directory)
-	_, err = fmt.Fprintf(output, "Setup complete.\nRun in foreground: %s runner run --data-dir %s\nOptional service: %s runner service install --data-dir %s\nStart the installed service: %s runner service start --data-dir %s\nBoot startup is a separate choice: %s runner service enable-boot --data-dir %s\n", command, data, command, data, command, data, command, data)
+	startup, label := "enable-boot", "Boot startup"
+	if runtime.GOOS == "darwin" {
+		startup, label = "enable-login", "Login startup"
+	}
+	_, err = fmt.Fprintf(output, "Setup complete.\nRun in foreground: %s runner run --data-dir %s\nOptional service: %s runner service install --data-dir %s\nStart the installed service: %s runner service start --data-dir %s\n%s is a separate choice: %s runner service %s --data-dir %s\n", command, data, command, data, command, data, label, command, startup, data)
 	return err
 }
 
@@ -91,7 +96,7 @@ func promptRunnerSetup(input io.Reader, output io.Writer, location runnerSetupLo
 	if location.name == "" {
 		name, _ := os.Hostname()
 		if name == "" {
-			name = "linux-runner"
+			name = runtime.GOOS + "-runner"
 		}
 		location.name, err = runnerPrompt(input, output, "Machine name", name)
 		if err != nil {

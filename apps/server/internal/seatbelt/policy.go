@@ -54,6 +54,12 @@ func ControlPorts(endpoints ...string) ([]uint16, error) {
 	return ports, nil
 }
 
+// ValidateRoots checks explicit filesystem grants without compiling a profile.
+func ValidateRoots(paths []string) error {
+	_, err := literalPaths(paths)
+	return err
+}
+
 func literalPaths(paths []string) ([]string, error) {
 	seen := map[string]bool{}
 	for _, name := range paths {
@@ -66,7 +72,7 @@ func literalPaths(paths []string) ([]string, error) {
 		}
 		for _, spelling := range []string{name, resolved} {
 			home, homeErr := os.UserHomeDir()
-			if homeErr == nil && spelling == home {
+			if homeErr == nil && (spelling == home || strings.HasPrefix(home, spelling+string(filepath.Separator))) {
 				return nil, errors.New("Sandbox grants cannot expose the user's entire home")
 			}
 			switch spelling {

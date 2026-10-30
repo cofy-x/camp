@@ -50,7 +50,10 @@ A complete SSE `message_stop` durably ends one request before forwarding its fin
 This is a development workflow; members use the [packaged installer](install.md). Run from the Camp repository root on a host meeting its native prerequisites:
 
 ```sh
-make install-dsh install-project-runtime install-layerfs
+make install-dsh install-project-runtime
+# Linux LayerFS backend only:
+make install-layerfs
+make build-sandbox
 make build
 ./dist/camp runner setup --development-runtime \
   --server http://127.0.0.1:3001 --name dev-runner \
@@ -58,7 +61,7 @@ make build
 ./dist/camp runner run --data-dir "$PWD/.data/runner-dev"
 ```
 
-Create the code in Runners and keep its file private. `--development-runtime` is required for an unbundled source binary. Runner runtime paths come from process variables (`CAMP_DSH_RUNTIME`, `CAMP_LAYERFS_RUNTIME`, `CAMP_SANDBOX_HELPER`, `CAMP_DSH_NODE`) or source-relative defaults, not Server's private `.env`; keep the working directory or provide absolute paths. `CAMP_DOCKER_SOCKET` chooses the local socket. No model key belongs in Runner configuration.
+Create the code in Runners and keep its file private. `--development-runtime` is required for an unbundled source binary. On macOS 15+ ARM64, skip `make install-layerfs`, use the original unprivileged account, and optionally provide explicit `--tool-root` directories as described in the [native operator contract](native-runner.md#operator-setup-and-lifecycle). Linux uses the privileged account required by LayerFS. Runner runtime paths come from process variables (`CAMP_DSH_RUNTIME`, `CAMP_LAYERFS_RUNTIME`, `CAMP_SANDBOX_HELPER`, `CAMP_DSH_NODE`) or source-relative defaults, not Server's private `.env`; keep the working directory or provide absolute paths. `CAMP_DOCKER_SOCKET` chooses the Linux local socket. No model key belongs in Runner configuration.
 
 `CAMP_DAEMON_DATA_DIR` optionally lets `make dev` start an already registered local Runner with the same development Server origin. It does not enroll or install a service. [Installation](install.md) owns packaged cache repair and explicit service lifecycle.
 

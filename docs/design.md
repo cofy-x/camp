@@ -83,7 +83,7 @@ Collaboration start shows goal, participants, first Agent, finite allowance and 
 
 ## Review checklist
 
-Choose scenes affected by the change; shared desktop changes need broader coverage. Record viewport, browser, device scale, content, window bounds and interaction state for reproducible comparisons. Keep generated screenshots/reports ignored.
+Choose scenes affected by the change; shared desktop changes need broader coverage. Record viewport, browser, device scale, content, window bounds and interaction state for reproducible comparisons. UI pull requests embed before/after screenshots directly as GitHub image attachments so reviewers can see the comparison without downloading an archive. CI artifacts retain supporting traces and reports. Keep generated screenshots/reports ignored.
 
 | Scene | Inspect |
 | --- | --- |

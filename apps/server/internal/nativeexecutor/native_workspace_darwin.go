@@ -96,16 +96,12 @@ func openNativeWorkspace(ctx context.Context, config Config) (workspace.Provider
 		}
 		_, _ = fingerprint.Write(data)
 	}
-	for index, root := range config.ToolRoots {
-		resolved, err := filepath.EvalSymlinks(root)
-		if err != nil || !filepath.IsAbs(root) || containsPath(resolved, config.DataDir) || containsPath(config.DataDir, resolved) {
-			return nil, errors.New("Approved tool roots cannot expose Runner storage or its ancestors")
-		}
-		if _, err := seatbelt.Profile(seatbelt.Policy{Read: []string{resolved}, Executable: []string{resolved}}); err != nil {
-			return nil, err
-		}
-		config.ToolRoots[index] = resolved
-		_, _ = io.WriteString(fingerprint, "\x00"+resolved)
+	config.ToolRoots, err = ResolveToolRoots(config.DataDir, config.ToolRoots)
+	if err != nil {
+		return nil, err
+	}
+	for _, root := range config.ToolRoots {
+		_, _ = io.WriteString(fingerprint, "\x00"+root)
 	}
 	provider := &nativeWorkspaceProvider{config: config, root: filepath.Join(config.DataDir, "native-workspaces"), fingerprint: hex.EncodeToString(fingerprint.Sum(nil))}
 	if err := os.MkdirAll(provider.root, 0700); err != nil {
