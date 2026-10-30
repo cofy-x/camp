@@ -126,20 +126,43 @@ func allowedFilePath(name string) bool {
 		(name == "/workspace" || strings.HasPrefix(name, "/workspace/") || name == "/references" || strings.HasPrefix(name, "/references/"))
 }
 
+func (t *Tools) logicalPath(name string) string {
+	for _, root := range []struct{ actual, logical string }{{t.workspacePath, "/workspace"}, {t.referencesPath, "/references"}} {
+		if root.actual != "" && (name == root.actual || strings.HasPrefix(name, root.actual+"/")) {
+			return root.logical + strings.TrimPrefix(name, root.actual)
+		}
+	}
+	return name
+}
+
+func (t *Tools) virtualFilePath(name, cwd string) (string, error) {
+	return virtualFilePath(t.logicalPath(name), t.logicalPath(cwd))
+}
+
+func (t *Tools) displayPath(name string) string {
+	for _, root := range []struct{ actual, logical string }{{t.workspacePath, "/workspace"}, {t.referencesPath, "/references"}} {
+		if root.actual != "" && (name == root.logical || strings.HasPrefix(name, root.logical+"/")) {
+			return root.actual + strings.TrimPrefix(name, root.logical)
+		}
+	}
+	return name
+}
+
 func (t *Tools) target(name string) fileTarget {
 	digest := sha256.Sum256([]byte(t.token + "\x00" + name))
-	return fileTarget{Key: hex.EncodeToString(digest[:]), Path: name}
+	return fileTarget{Key: hex.EncodeToString(digest[:]), Path: t.displayPath(name)}
 }
 
 func (t *Tools) targetPath(target *fileTarget) (string, error) {
-	if target == nil || !allowedFilePath(target.Path) || len(target.Path) > 4096 {
+	if target == nil || !allowedFilePath(t.logicalPath(target.Path)) || len(target.Path) > 4096 {
 		return "", fileProblem("FS_SANDBOX_DENIED", "The file target is not valid for this execution.")
 	}
-	expected := t.target(target.Path)
-	if subtle.ConstantTimeCompare([]byte(target.Key), []byte(expected.Key)) != 1 {
+	name := t.logicalPath(target.Path)
+	expected := t.target(name)
+	if target.Path != expected.Path || subtle.ConstantTimeCompare([]byte(target.Key), []byte(expected.Key)) != 1 {
 		return "", fileProblem("FS_SANDBOX_DENIED", "The file target is not valid for this execution.")
 	}
-	return target.Path, nil
+	return name, nil
 }
 
 func (t *Tools) fileCall(ctx context.Context, request sandboxexec.Request) (sandboxexec.Frame, error) {
@@ -164,7 +187,7 @@ func (t *Tools) fileOperation(ctx context.Context, input json.RawMessage) (any, 
 		return nil, err
 	}
 	if request.Operation == "resolve" || request.Operation == "lstat" {
-		name, err := virtualFilePath(request.Path, request.Cwd)
+		name, err := t.virtualFilePath(request.Path, request.Cwd)
 		if err != nil {
 			return nil, err
 		}

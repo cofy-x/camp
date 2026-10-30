@@ -34,21 +34,22 @@ type toolCommand struct {
 // Tools exposes one Run's narrow capabilities to its private DSH process. The
 // token is not exposed to model tools, container processes, or dashboard APIs.
 type Tools struct {
-	sandbox  Backend
-	readOnly bool
-	token    string
-	lease    chan struct{}
-	ctx      context.Context
-	cancel   context.CancelFunc
-	call     func(context.Context, sandboxexec.Request, func(sandboxexec.Frame) error) (sandboxexec.Frame, error)
-	server   *http.Server
-	listener net.Listener
-	mu       sync.Mutex
-	commands map[string]*toolCommand
-	closed   bool
-	sealed   bool
-	failed   chan struct{}
-	failOnce sync.Once
+	sandbox                       Backend
+	readOnly                      bool
+	token                         string
+	lease                         chan struct{}
+	ctx                           context.Context
+	cancel                        context.CancelFunc
+	call                          func(context.Context, sandboxexec.Request, func(sandboxexec.Frame) error) (sandboxexec.Frame, error)
+	server                        *http.Server
+	listener                      net.Listener
+	mu                            sync.Mutex
+	commands                      map[string]*toolCommand
+	closed                        bool
+	sealed                        bool
+	failed                        chan struct{}
+	failOnce                      sync.Once
+	workspacePath, referencesPath string
 }
 
 func NewTools(ctx context.Context, sandbox Backend, readOnly bool) (*Tools, error) {
@@ -62,6 +63,9 @@ func NewTools(ctx context.Context, sandbox Backend, readOnly bool) (*Tools, erro
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	t := &Tools{sandbox: sandbox, readOnly: readOnly, token: hex.EncodeToString(secret[:]), lease: make(chan struct{}, 1), ctx: ctx, cancel: cancel, call: sandbox.Call, listener: listener, commands: map[string]*toolCommand{}, failed: make(chan struct{})}
+	if namespace, ok := sandbox.(interface{ PathRoots() (string, string) }); ok {
+		t.workspacePath, t.referencesPath = namespace.PathRoots()
+	}
 	t.server = &http.Server{Handler: http.HandlerFunc(t.serve), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 15 * time.Second, MaxHeaderBytes: 8 << 10}
 	go func() { _ = t.server.Serve(listener) }()
 	return t, nil

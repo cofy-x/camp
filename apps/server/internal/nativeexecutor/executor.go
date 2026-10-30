@@ -153,12 +153,13 @@ func (e *Executor) Execute(ctx context.Context, input Request, emit Emit) (resul
 		coordinator, err = newCoordination(ctx, *input.Task, persist, tools.Seal)
 	}
 	nativeCompleted := false
+	dshSettled := true
 	if err == nil {
 		stateDir := filepath.Join(e.config.DataDir, "sessions", digest(input.SessionKey))
 		err = os.MkdirAll(stateDir, 0700)
 		var overlay []byte
 		if err == nil {
-			overlay, err = dsh.RemoteOverlay(input.Persona, input.Access == "read", input.Task != nil)
+			overlay, err = dsh.RemoteOverlayAt(input.Persona, input.Access == "read", executionPaths(active.Directory(), stateDir, e.config.RuntimeDir), input.Task != nil)
 		}
 		if err == nil {
 			err = os.WriteFile(filepath.Join(dir, "runtime.patch.yml"), overlay, 0600)
@@ -168,7 +169,8 @@ func (e *Executor) Execute(ctx context.Context, input Request, emit Emit) (resul
 			if coordinator != nil {
 				config.CoordinationEndpoint, config.CoordinationToken = coordinator.endpoint(), coordinator.token
 			}
-			cmd, commandErr := execution.Command(config, dir, e.config.Lock, false)
+			config.Cwd, config.TimeoutMS = active.Directory(), input.Timeout.Milliseconds()
+			cmd, finishCommand, commandErr := e.dshCommand(ctx, config, dir)
 			err = commandErr
 			if err == nil {
 				stopWatch := make(chan struct{})
@@ -179,10 +181,16 @@ func (e *Executor) Execute(ctx context.Context, input Request, emit Emit) (resul
 					case <-stopWatch:
 					}
 				}()
-				code, runErr := dsh.Run(ctx, cmd, dsh.Config{Model: input.Model, MaxTokens: input.MaxTokens, MaxSteps: input.MaxSteps, Resume: input.Resume}, input.SessionID, input.Prompt, func(event dsh.Event) error { return record(event.Type, event.Text) })
+				code, runErr := dsh.Run(ctx, cmd, dsh.Config{Model: input.Model, MaxTokens: input.MaxTokens, MaxSteps: input.MaxSteps, Resume: input.Resume, Cwd: active.Directory()}, input.SessionID, input.Prompt, func(event dsh.Event) error { return record(event.Type, event.Text) })
 				close(stopWatch)
+				cleanupErr := finishCommand()
+				if cleanupErr != nil {
+					dshSettled = false
+					result.CleanupConfirmed = false
+					e.unsafe(cleanupErr)
+				}
 				result.ExitCode = &code
-				err = runErr
+				err = errors.Join(runErr, cleanupErr)
 				nativeCompleted = err == nil
 			}
 		}
@@ -194,10 +202,10 @@ func (e *Executor) Execute(ctx context.Context, input Request, emit Emit) (resul
 			err = errors.New("Collaboration ended without a coordination decision")
 		}
 	}
-	toolsSettled := true
+	toolsSettled := dshSettled
 	if tools != nil {
 		closeErr := tools.Close()
-		toolsSettled = closeErr == nil
+		toolsSettled = toolsSettled && closeErr == nil
 		err = errors.Join(err, closeErr)
 	}
 	if err == nil {

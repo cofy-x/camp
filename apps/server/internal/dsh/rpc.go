@@ -21,6 +21,7 @@ type Config struct {
 	MaxTokens int
 	MaxSteps  int
 	Resume    bool
+	Cwd       string
 }
 
 type Event struct {
@@ -217,7 +218,11 @@ func Run(ctx context.Context, cmd *exec.Cmd, c Config, session, prompt string, e
 		}
 	}
 	_, runErr := func() (json.RawMessage, error) {
-		result, err := rpc("initialize", map[string]any{"cwd": "/workspace", "provider": "deepseek-official", "model": c.Model, "maxTokens": c.MaxTokens})
+		cwd := c.Cwd
+		if cwd == "" {
+			cwd = "/workspace"
+		}
+		result, err := rpc("initialize", map[string]any{"cwd": cwd, "provider": "deepseek-official", "model": c.Model, "maxTokens": c.MaxTokens})
 		if err != nil {
 			return nil, err
 		}

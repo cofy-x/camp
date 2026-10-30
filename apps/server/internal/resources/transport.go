@@ -90,7 +90,13 @@ func (manager *Manager) ImportArchive(ctx context.Context, resourceID string, in
 // WriteArchive packs a private, quiescent directory using the normal file policy.
 // Unlike an import, prohibited files are rejected rather than silently omitted.
 func WriteArchive(ctx context.Context, directory string, output io.Writer) error {
-	files, err := readSnapshot(ctx, directory, false)
+	return WriteArchiveWithPolicy(ctx, directory, output, Policy{})
+}
+
+// WriteArchiveWithPolicy excludes only explicitly prepared dependency names;
+// the normal path, link, credential and size rejection rules still apply.
+func WriteArchiveWithPolicy(ctx context.Context, directory string, output io.Writer, policy Policy) error {
+	files, err := readSnapshotWithPolicy(ctx, directory, false, policy)
 	if err != nil {
 		return err
 	}
