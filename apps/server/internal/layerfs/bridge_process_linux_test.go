@@ -83,7 +83,8 @@ func TestBridgeDiesWithParentBeforeHomeCanBeReused(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		data, err := os.ReadFile(filepath.Join(config.Home, "parent-test-pid"))
-		if err == nil {
+		parsed, parseErr := strconv.Atoi(string(data))
+		if err == nil && parseErr == nil && parsed > 1 {
 			pid = string(data)
 			break
 		}
