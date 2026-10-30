@@ -61,8 +61,8 @@ const runnerBinary = process.env.CAMP_SMOKE_RUNNER_BINARY
   ? path.resolve(process.env.CAMP_SMOKE_RUNNER_BINARY)
   : path.join(bundle, 'camp');
 assert.ok(
-  !process.env.CAMP_SMOKE_RUNNER_BINARY || (publicDownload && !offline),
-  'A provided Runner entrypoint requires the public online scenario.',
+  !process.env.CAMP_SMOKE_RUNNER_BINARY || (!offline && !upgrading),
+  'A provided Runner entrypoint requires an online scenario.',
 );
 const data = path.join(dir, 'data');
 const cwd = path.join(dir, 'unrelated-working-directory');
@@ -777,6 +777,9 @@ try {
         entrypoint: process.env.CAMP_SMOKE_RUNNER_BINARY
           ? 'provided-binary'
           : 'runner-installer',
+        entrypointBinarySHA256: createHash('sha256')
+          .update(await readFile(runnerBinary))
+          .digest('hex'),
         version: release.version || 'dev',
         sourceCommit: release.sourceCommit || '',
         archiveSHA256: artifact.sha256,

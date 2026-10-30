@@ -60,7 +60,7 @@ for (const platform of ['darwin-arm64', 'darwin-amd64']) {
 acceptance.macServers = macReports;
 acceptance.macRunners = [];
 for (const host of ['macos-15', 'macos-26']) {
-  for (const mode of ['online', 'offline']) {
+  for (const mode of ['online', 'offline', 'server-entrypoint']) {
     const report = JSON.parse(
       await readFile(
         join(directory, `runner-verification-${host}-${mode}.json`),
@@ -72,6 +72,10 @@ for (const host of ['macos-15', 'macos-26']) {
     assert.equal(report.architecture, 'arm64');
     assert.equal(report.version, identity.version);
     assert.equal(report.sourceCommit, identity.sourceCommit);
+    if (mode === 'server-entrypoint') {
+      assert.equal(report.entrypoint, 'provided-binary');
+      assert.match(report.entrypointBinarySHA256, /^[a-f0-9]{64}$/);
+    }
     assert.equal(
       report.archiveSHA256,
       runner.runners['darwin-arm64'][
