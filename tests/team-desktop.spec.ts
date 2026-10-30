@@ -177,9 +177,6 @@ test('Library private editing, publication, source handoff and revision conflict
   await workspace(page)
     .getByRole('button', { name: 'Library', exact: true })
     .click();
-  await library(page)
-    .getByRole('button', { name: 'Edit Text', exact: true })
-    .click();
   await page.evaluate(() => {
     const events: unknown[] = [];
     (
@@ -208,6 +205,9 @@ test('Library private editing, publication, source handoff and revision conflict
         true,
       );
   });
+  await library(page)
+    .getByRole('button', { name: 'Edit Text', exact: true })
+    .click();
   await library(page)
     .getByLabel('Document content', { exact: true })
     .fill('My local revision stays safe.');

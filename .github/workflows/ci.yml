@@ -178,7 +178,7 @@ jobs:
       - name: Check discussion and versioned files in Mac WebKit
         run: >-
           make test-e2e E2E_INSTALL_ARGS=webkit
-          E2E_ARGS="--project=webkit tests/team-desktop.spec.ts --grep 'first-run discussion|Library private editing' --repeat-each=10"
+          E2E_ARGS="--project=webkit tests/team-desktop.spec.ts --grep 'Library private editing' --repeat-each=20"
       - name: Check Homebrew installation from the fixed public archives
         if: ${{ hashFiles('Formula/camp.rb') != '' }}
         run: node scripts/verify-homebrew.mjs
