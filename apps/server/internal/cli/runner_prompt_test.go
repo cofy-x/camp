@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -91,7 +92,11 @@ func TestGuidedRunnerSetupAndSavedIdentity(t *testing.T) {
 	if enrollment.Name != "Studio Runner" || enrollment.Token != "private-connection-code" || secretReads != 1 {
 		t.Fatal("Guided values or secret input were lost", enrollment.Name, secretReads)
 	}
-	for _, label := range []string{"Private Runner data directory", "Camp Server URL", "Machine name", "input is hidden", "Run in foreground", "Optional service", "Boot startup is a separate choice"} {
+	startup := "Boot startup is a separate choice"
+	if runtime.GOOS == "darwin" {
+		startup = "Login startup is a separate choice"
+	}
+	for _, label := range []string{"Private Runner data directory", "Camp Server URL", "Machine name", "input is hidden", "Run in foreground", "Optional service", startup} {
 		if !strings.Contains(output.String(), label) {
 			t.Error("Missing guided setup content", label)
 		}
@@ -219,11 +224,15 @@ func TestSetupFollowupCommandsUseQuotedAbsoluteLauncher(t *testing.T) {
 	if err := runnerNextSteps(&output, bundle, directory); err != nil {
 		t.Fatal(err)
 	}
+	startup, argument := "Boot startup is a separate choice: ", "runner\nservice\nenable-boot\n--data-dir\n"
+	if runtime.GOOS == "darwin" {
+		startup, argument = "Login startup is a separate choice: ", "runner\nservice\nenable-login\n--data-dir\n"
+	}
 	for _, step := range []struct{ label, arguments string }{
 		{"Run in foreground: ", "runner\nrun\n--data-dir\n"},
 		{"Optional service: ", "runner\nservice\ninstall\n--data-dir\n"},
 		{"Start the installed service: ", "runner\nservice\nstart\n--data-dir\n"},
-		{"Boot startup is a separate choice: ", "runner\nservice\nenable-boot\n--data-dir\n"},
+		{startup, argument},
 	} {
 		found := false
 		for _, line := range strings.Split(output.String(), "\n") {

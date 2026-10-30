@@ -32,6 +32,14 @@ func macServiceLabel(directory string) string {
 	return fmt.Sprintf("dev.cofy.camp.runner.%x", digest[:8])
 }
 
+func macServiceDomain(ctx context.Context) string {
+	domain := "gui/" + strconv.Itoa(os.Geteuid())
+	if exec.CommandContext(ctx, "/bin/launchctl", "print", domain).Run() != nil {
+		domain = "user/" + strconv.Itoa(os.Geteuid())
+	}
+	return domain
+}
+
 func macServicePlist(binary, directory string) ([]byte, error) {
 	for _, value := range []string{binary, directory} {
 		if !filepath.IsAbs(value) || strings.ContainsAny(value, "\x00\r\n") {
@@ -255,10 +263,7 @@ func runMacRunnerService(ctx context.Context, args []string, output io.Writer) e
 	loaded := func(ctx context.Context, target string) bool {
 		return exec.CommandContext(ctx, "/bin/launchctl", "print", target).Run() == nil
 	}
-	domain := "gui/" + strconv.Itoa(os.Geteuid())
-	if exec.CommandContext(ctx, "/bin/launchctl", "print", domain).Run() != nil {
-		domain = "user/" + strconv.Itoa(os.Geteuid())
-	}
+	domain := macServiceDomain(ctx)
 	manager := macRunnerService{domain: domain, directory: directory, loginDirectory: filepath.Join(home, "Library", "LaunchAgents"), command: run, loaded: loaded}
 	if err := manager.apply(ctx, action, binary); err != nil {
 		return err

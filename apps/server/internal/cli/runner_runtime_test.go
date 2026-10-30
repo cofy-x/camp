@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -214,6 +215,9 @@ func TestPinnedRuntimeDetectsCoherentCacheChangesAndRepairsOnlyCache(t *testing.
 }
 
 func TestHostPreflightPreservesRegistrationWithoutDownload(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux Docker prerequisite; Mac native execution has no Docker dependency")
+	}
 	archive, pin := runtimeArchiveFixture(t)
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests++; _, _ = w.Write(archive) }))
@@ -233,6 +237,9 @@ func TestHostPreflightPreservesRegistrationWithoutDownload(t *testing.T) {
 }
 
 func TestSetupUsesCorrectedDockerSocketBeforePreflight(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux Docker socket repair")
+	}
 	_, pin := runtimeArchiveFixture(t)
 	oldPin := runtimePinJSON
 	encoded, _ := json.Marshal(pin)
@@ -287,6 +294,9 @@ func TestSetupUsesCorrectedDockerSocketBeforePreflight(t *testing.T) {
 }
 
 func TestNewNativeSetupRejectsHostBeforeReadingCodeOrEnrolling(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux Docker prerequisite before enrollment")
+	}
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests++; w.WriteHeader(500) }))
 	defer server.Close()

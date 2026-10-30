@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 )
@@ -26,7 +25,7 @@ func TestMacBackgroundServiceActualLaunchd(t *testing.T) {
 	if output, err := exec.CommandContext(ctx, "go", "build", "-o", binary, "./testdata/mac-service-main.go").CombinedOutput(); err != nil {
 		t.Fatalf("child build: %s %v", output, err)
 	}
-	domain := "user/" + strconv.Itoa(os.Geteuid())
+	domain := macServiceDomain(ctx)
 	manager := macRunnerService{domain: domain, directory: directory, loginDirectory: t.TempDir(), loaded: func(ctx context.Context, target string) bool {
 		return exec.CommandContext(ctx, "/bin/launchctl", "print", target).Run() == nil
 	}, command: func(ctx context.Context, args ...string) error {
@@ -43,6 +42,10 @@ func TestMacBackgroundServiceActualLaunchd(t *testing.T) {
 	})
 	if err := manager.apply(ctx, "install", binary); err != nil {
 		t.Fatal(err)
+	}
+	plist := filepath.Join(directory, "service", macServiceLabel(directory)+".plist")
+	if output, err := exec.CommandContext(ctx, "/usr/bin/plutil", "-lint", plist).CombinedOutput(); err != nil {
+		t.Fatalf("invalid launchd property list: %v %s", err, output)
 	}
 	if _, err := os.Stat(filepath.Join(directory, "service-started")); !os.IsNotExist(err) {
 		t.Fatal("install started child", err)

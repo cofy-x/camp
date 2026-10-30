@@ -222,3 +222,18 @@ func TestNativeToolGrantAllowsExecutionWithoutHostCredentialsOrToolWrites(t *tes
 		t.Fatal("tool did not use this workspace", err)
 	}
 }
+
+func TestNativeMacHostDoesNotRequireDockerOrFuse(t *testing.T) {
+	if os.Getenv("CAMP_TEST_DSH_RUNTIME") == "" {
+		t.Skip("requires native Mac qualification")
+	}
+	report := HostChecks(Config{DockerSocket: "/nonexistent/camp-docker.sock"})
+	for _, check := range report.Checks {
+		if check.Status != "passed" {
+			t.Fatal("native Mac prerequisite failed", check)
+		}
+		if check.ID == "docker" || check.ID == "fuse" || check.ID == "bubblewrap" || check.ID == "root" {
+			t.Fatal("Mac acquired a Linux prerequisite", check)
+		}
+	}
+}
