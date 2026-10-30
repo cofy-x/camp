@@ -29,6 +29,15 @@ test('Library loading failures stop pending states and recover through explicit 
 }, testInfo) => {
   const room = await createRoom(page, `loading-${testInfo.project.name}`);
   await publish(page, room.resourceId, 'Recovered document content.');
+  let holdLibrary = false;
+  let announceHeld!: () => void;
+  let releaseHeld!: () => void;
+  const held = new Promise<void>((resolve) => {
+    announceHeld = resolve;
+  });
+  const released = new Promise<void>((resolve) => {
+    releaseHeld = resolve;
+  });
   // Recover only after the actual Retry click. A live refresh between changing
   // a Node-side flag and clicking can otherwise remove the target first.
   await page.evaluate(() => {
@@ -48,17 +57,19 @@ test('Library loading failures stop pending states and recover through explicit 
   });
 
   await page.route('**/api/library', async (route) => {
-    if (
-      await page.evaluate(
-        () =>
-          (
-            window as typeof window & {
-              campLibraryRecovery: { library: boolean };
-            }
-          ).campLibraryRecovery.library,
-      )
-    )
-      return route.continue();
+    const recovered = await page.evaluate(
+      () =>
+        (
+          window as typeof window & {
+            campLibraryRecovery: { library: boolean };
+          }
+        ).campLibraryRecovery.library,
+    );
+    if (holdLibrary) {
+      announceHeld();
+      await released;
+    }
+    if (recovered) return route.continue();
     await route.fulfill({
       status: 503,
       json: { error: 'Library is temporarily unavailable.' },
@@ -92,9 +103,30 @@ test('Library loading failures stop pending states and recover through explicit 
   );
   await expect(library(page).getByText('Opening Library…')).toHaveCount(0);
 
-  await library(page)
-    .getByRole('button', { name: 'Retry Library', exact: true })
-    .click();
+  const retryLibrary = library(page).getByRole('button', {
+    name: 'Retry Library',
+    exact: true,
+  });
+  const point = await retryLibrary.boundingBox();
+  expect(point).not.toBeNull();
+  holdLibrary = true;
+  await page.mouse.move(
+    point!.x + point!.width / 2,
+    point!.y + point!.height / 2,
+  );
+  await page.mouse.down();
+  // A real workspace event refreshes Library while the pointer is held.
+  // Keep its response pending until the recovery control is checked.
+  await publish(page, room.resourceId, 'Recovered document content.\n');
+  await held;
+  await expect(
+    library(page).getByText('Opening Library…', { exact: true }),
+  ).toBeVisible();
+  await expect(retryLibrary).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('library-retry.png') });
+  holdLibrary = false;
+  releaseHeld();
+  await page.mouse.up();
   await expect(library(page).getByRole('alert')).toContainText(
     'File listing is temporarily unavailable.',
   );

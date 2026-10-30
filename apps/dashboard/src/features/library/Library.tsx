@@ -88,6 +88,7 @@ export function Library({ desktop, window }: AppWindowProps) {
   const [revision, setRevision] = useState(0);
   const editorRequest = useRef(0);
   const editorController = useRef<AbortController | null>(null);
+  const filesErrorScope = useRef('');
   const invalidateEditorRequest = useCallback(() => {
     editorRequest.current += 1;
     if (editorController.current) {
@@ -144,12 +145,12 @@ export function Library({ desktop, window }: AppWindowProps) {
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    setLibraryError('');
     void libraryApi
       .list(controller.signal)
       .then((result) => {
         if (controller.signal.aborted) return;
         setLoading(false);
+        setLibraryError('');
         setResources(result.resources);
         setRooms(result.rooms);
         setResourceId((current) =>
@@ -226,7 +227,11 @@ export function Library({ desktop, window }: AppWindowProps) {
     if (!resourceId) return;
     const controller = new AbortController();
     setFilesLoading(true);
-    setFilesError('');
+    const scope = JSON.stringify([resourceId, version?.commit]);
+    if (filesErrorScope.current !== scope) {
+      filesErrorScope.current = scope;
+      setFilesError('');
+    }
     void Promise.all([
       workspaceApi.files(resourceId, controller.signal, version?.commit),
       libraryApi.history(resourceId, controller.signal),
@@ -234,6 +239,7 @@ export function Library({ desktop, window }: AppWindowProps) {
       .then(([listing, changes]) => {
         if (controller.signal.aborted) return;
         setFilesLoading(false);
+        setFilesError('');
         setFiles(listing.files);
         setCommit(listing.commit);
         setPublications(changes.publications);
