@@ -9,6 +9,7 @@ import {
   releaseIdentity,
   repository,
   verifyRelease,
+  verifyRunnerInstallationReport,
 } from './release.mjs';
 
 import { homebrewFormula } from './homebrew.mjs';
@@ -94,21 +95,7 @@ for (const host of ['macos-15', 'macos-26']) {
         'utf8',
       ),
     );
-    assert.equal(report.status, 'passed');
-    assert.equal(report.platform, 'darwin');
-    assert.equal(report.architecture, 'arm64');
-    assert.equal(report.version, identity.version);
-    assert.equal(report.sourceCommit, identity.sourceCommit);
-    if (mode === 'server-entrypoint') {
-      assert.equal(report.entrypoint, 'provided-binary');
-      assert.match(report.entrypointBinarySHA256, /^[a-f0-9]{64}$/);
-    }
-    assert.equal(
-      report.archiveSHA256,
-      runner.runners['darwin-arm64'][
-        mode === 'online' ? 'installer' : 'offline'
-      ].sha256,
-    );
+    verifyRunnerInstallationReport(report, runner, 'darwin-arm64', mode);
     acceptance.macRunners.push({ host, ...report });
   }
 }
@@ -203,7 +190,7 @@ await writeFile(
   notes,
   `Camp ${identity.version} publishes Linux amd64 and macOS arm64/amd64 Servers, a Go-installable entrypoint, the small Camp Runner installer, its fixed runtime and an offline installer containing that same runtime. Native Runner support includes Ubuntu 24.04 amd64 and macOS 15+ Apple Silicon. Mac execution uses a local native workspace and Seatbelt; no Docker, Linux VM, FUSE or root account is required.
 
-Install using the [versioned guide](https://github.com/${repository}/blob/${identity.version}/docs/install.md). Verify SHA256SUMS before extraction. Server image: \`${image}\`.
+Install this release's CLI with \`go install github.com/cofy-x/camp@${identity.version}\`. On a supported Runner host, \`camp runner setup\` connects the machine. Follow the [versioned guide](https://github.com/${repository}/blob/${identity.version}/docs/install.md). Verify SHA256SUMS before extraction. Server image: \`${image}\`.
 
 This is early development software. Alpha/beta versions may introduce breaking changes. Back up stopped Server and Runner data before an explicit upgrade; never delete data to resolve an incompatibility. Runner protocol: ${runner.protocolVersion}. No automatic runtime installation or upgrade occurs during \`run\`.
 

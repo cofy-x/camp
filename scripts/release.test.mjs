@@ -16,7 +16,63 @@ import {
   runnerPlatforms,
   validVersion,
   verifyRelease,
+  verifyRunnerInstallationReport,
 } from './release.mjs';
+
+test('installation reports bind each entrypoint to its archive kind and source', () => {
+  const descriptor = {
+    version: 'v0.1.0-alpha.3',
+    sourceCommit: 'a'.repeat(40),
+    runners: {
+      'darwin-arm64': {
+        installer: { sha256: '1'.repeat(64) },
+        offline: { sha256: '2'.repeat(64) },
+      },
+    },
+  };
+  for (const scenario of ['online', 'offline', 'server-entrypoint']) {
+    const report = {
+      status: 'passed',
+      platform: 'darwin',
+      architecture: 'arm64',
+      version: descriptor.version,
+      sourceCommit: descriptor.sourceCommit,
+      mode: scenario === 'offline' ? 'offline' : 'online',
+      entrypoint:
+        scenario === 'server-entrypoint'
+          ? 'provided-binary'
+          : 'runner-installer',
+      entrypointBinarySHA256: '3'.repeat(64),
+      archiveSHA256: (scenario === 'offline' ? '2' : '1').repeat(64),
+    };
+    verifyRunnerInstallationReport(
+      report,
+      descriptor,
+      'darwin-arm64',
+      scenario,
+    );
+    for (const changed of [
+      { archiveSHA256: (scenario === 'offline' ? '1' : '2').repeat(64) },
+      { sourceCommit: 'b'.repeat(40) },
+      { mode: scenario === 'offline' ? 'online' : 'offline' },
+      {
+        entrypoint:
+          scenario === 'server-entrypoint'
+            ? 'runner-installer'
+            : 'provided-binary',
+      },
+      { entrypointBinarySHA256: '' },
+    ])
+      assert.throws(() =>
+        verifyRunnerInstallationReport(
+          { ...report, ...changed },
+          descriptor,
+          'darwin-arm64',
+          scenario,
+        ),
+      );
+  }
+});
 
 test('historical Homebrew formulas use their published bytes and unique checksum', () => {
   const legacy =

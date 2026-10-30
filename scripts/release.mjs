@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { createReadStream } from 'node:fs';
@@ -19,6 +20,34 @@ export const serverPlatforms = ['linux-amd64', 'darwin-arm64', 'darwin-amd64'];
 export const versionPattern =
   /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$/;
 export const runnerPlatforms = ['linux-amd64', 'darwin-arm64'];
+
+export function verifyRunnerInstallationReport(
+  report,
+  descriptor,
+  platform,
+  scenario,
+) {
+  assert.ok(runnerPlatforms.includes(platform));
+  assert.ok(['online', 'offline', 'server-entrypoint'].includes(scenario));
+  const [os, arch] = platform.split('-');
+  assert.equal(report.status, 'passed');
+  assert.equal(report.platform, os);
+  assert.equal(report.architecture, arch === 'amd64' ? 'x64' : arch);
+  assert.equal(report.version, descriptor.version);
+  assert.equal(report.sourceCommit, descriptor.sourceCommit);
+  assert.equal(report.mode, scenario === 'offline' ? 'offline' : 'online');
+  assert.equal(
+    report.entrypoint,
+    scenario === 'server-entrypoint' ? 'provided-binary' : 'runner-installer',
+  );
+  assert.match(report.entrypointBinarySHA256, /^[a-f0-9]{64}$/);
+  assert.equal(
+    report.archiveSHA256,
+    descriptor.runners[platform][
+      scenario === 'offline' ? 'offline' : 'installer'
+    ].sha256,
+  );
+}
 
 export function validVersion(version) {
   return (

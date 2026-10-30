@@ -35,7 +35,7 @@ Team members use Camp in a browser. An administrator deploys Camp Server; member
 Choose a fixed version from [GitHub Releases](https://github.com/cofy-x/camp/releases) and follow that version's [installation guide](docs/install.md):
 
 ```sh
-go install github.com/cofy-x/camp@v0.1.0-alpha.2
+go install github.com/cofy-x/camp@v0.1.0-alpha.3
 camp
 ```
 
@@ -55,7 +55,7 @@ camp
 
 Check [supported Runner hosts and prerequisites](docs/install.md#supported-deployment) before connecting a machine. Server and Runner remain independent processes even on one host. For local protocol and recovery development with two simulated machines, use the [Docker Compose harness](tools/remote-dev/README.md).
 
-The Go entrypoint downloads and verifies the full fixed-version product on first use; no Node/pnpm or source checkout is required. Put Go's binary installation directory on PATH. See [Go installation](docs/install.md#go-installation) for cache/recovery behavior and [Homebrew installation](docs/install.md#homebrew-installation) for the maintained tap. Native Agent work uses a supported Runner: Linux with LayerFS or Mac ARM64 with a native workspace and Seatbelt. Published versions through alpha.2 contain only Linux Runner assets; check the chosen release catalog before installing a Mac Runner.
+The Go entrypoint downloads and verifies the full fixed-version product on first use; no Node/pnpm or source checkout is required. Put Go's binary installation directory on PATH. See [Go installation](docs/install.md#go-installation) for cache/recovery behavior and [Homebrew installation](docs/install.md#homebrew-installation) for the maintained tap. Native Agent work uses a supported Runner: Linux with LayerFS or Mac ARM64 with a native workspace and Seatbelt. Mac Runner packages are included from alpha.3; earlier releases contain only Linux Runner assets.
 
 ## Local development
 
