@@ -18,6 +18,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/cofy-x/camp/apps/server/internal/execution"
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
+	"github.com/cofy-x/camp/apps/server/internal/resources"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
 )
 
@@ -99,6 +100,7 @@ func Run(ctx context.Context, config Config, output io.Writer) error {
 		config.Native.DataDir = config.DataDir
 		config.Native.Lock = lock
 		config.Native.CAFile = config.CAFile
+		config.Native.ToolRoots = append([]string(nil), config.ToolRoots...)
 		initCtx, stop := context.WithTimeout(ctx, 90*time.Second)
 		if config.NativeUnavailable != "" {
 			err = errors.New(config.NativeUnavailable)
@@ -243,6 +245,7 @@ func (d *Daemon) sources() []p.Source {
 	private, privateErr := filepath.EvalSymlinks(d.config.DataDir)
 	for alias, directory := range d.config.Sources {
 		item := p.Source{ID: alias, Alias: alias, Revision: sourceRevision(directory), Available: true}
+		directory = resources.CanonicalSystemPath(directory)
 		info, err := os.Lstat(directory)
 		resolved, resolveErr := filepath.EvalSymlinks(directory)
 		relative, relativeErr := filepath.Rel(private, directory)

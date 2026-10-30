@@ -39,6 +39,7 @@ type Config struct {
 	Executor          string                `json:"executor"`
 	Slots             int                   `json:"slots"`
 	Sources           map[string]string     `json:"sources,omitempty"`
+	ToolRoots         []string              `json:"toolRoots,omitempty"`
 	PendingToken      string                `json:"pendingToken,omitempty"`
 	DataDir           string                `json:"-"`
 	Native            nativeexecutor.Config `json:"-"`
@@ -317,4 +318,28 @@ func SaveInstallation(config Config, bundle, docker string) error {
 
 func validRuntimeSource(value string) bool {
 	return value == "" || value == "github" || value == "server"
+}
+
+// SaveToolRoots changes explicit local grants while retaining enrollment and
+// journal identity. A running Runner must be stopped before changing authority.
+func SaveToolRoots(config Config, roots []string) error {
+	lock, err := execution.AcquireLock(config.DataDir)
+	if err != nil {
+		return err
+	}
+	if lock != nil {
+		defer lock.Close()
+	}
+	current, err := LoadConfig(config.DataDir)
+	if err != nil {
+		return err
+	}
+	if current.RunnerID != config.RunnerID || current.StorageID != config.StorageID || current.RegistrationID != config.RegistrationID {
+		return errors.New("Runner identity changed while updating tool grants")
+	}
+	current.ToolRoots, err = nativeexecutor.ResolveToolRoots(current.DataDir, roots)
+	if err != nil {
+		return err
+	}
+	return saveConfig(current)
 }
