@@ -113,6 +113,26 @@ func Profile(policy Policy) (string, error) {
 	add("file-read*", read)
 	add("file-read* file-write*", write)
 	add("process-exec", executable)
+	// A path's ancestors can include OS aliases such as /var. Directory-only
+	// metadata does not cover the symlink itself, so grant only each literal
+	// ancestor needed to reach an approved root. This permits no file data or
+	// directory listing in those ancestors.
+	ancestors := map[string]bool{}
+	for _, roots := range [][]string{read, write, executable} {
+		for _, root := range roots {
+			for parent := filepath.Dir(root); parent != "/"; parent = filepath.Dir(parent) {
+				ancestors[parent] = true
+			}
+		}
+	}
+	var metadata []string
+	for name := range ancestors {
+		metadata = append(metadata, name)
+	}
+	sort.Strings(metadata)
+	for _, name := range metadata {
+		fmt.Fprintf(&b, "(allow file-read-metadata (literal %s))\n", strconv.Quote(name))
+	}
 	// Executable mappings are a separate Seatbelt operation. Grant them only
 	// for readable runtime/tool roots, never for unrelated host file data.
 	add("file-map-executable", read)
