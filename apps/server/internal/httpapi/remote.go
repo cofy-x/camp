@@ -15,6 +15,10 @@ import (
 func (a *API) EnableRemote(manager *remoteruns.Manager) { a.remote = manager }
 
 type runnerCapabilitiesView struct {
+	Platform       string                          `json:"platform,omitempty"`
+	Workspace      string                          `json:"workspace,omitempty"`
+	Sandbox        string                          `json:"sandbox,omitempty"`
+	Checkpoint     string                          `json:"checkpoint,omitempty"`
 	Readiness      *runnerprotocol.ReadinessReport `json:"readiness,omitempty"`
 	Executor       string                          `json:"executor"`
 	Ready          bool                            `json:"ready"`
