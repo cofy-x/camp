@@ -45,7 +45,7 @@ test('first-run discussion, private drafts, threads and explicit agent requests'
   await settings(page)
     .getByRole('button', { name: 'Open Workspace', exact: true })
     .click();
-  const name = `discussion-${testInfo.project.name}`;
+  const name = `discussion-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
   const room = await createRoom(page, name);
   await post(page, name, 'Let us prepare a useful onboarding guide.');
   await expect(
@@ -113,7 +113,7 @@ test('first-run discussion, private drafts, threads and explicit agent requests'
 test('Library private editing, publication, source handoff and revision conflict', async ({
   page,
 }, testInfo) => {
-  const name = `writing-${testInfo.project.name}`;
+  const name = `writing-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
   const room = await createRoom(page, name);
   await workspace(page)
     .getByRole('button', { name: 'Library', exact: true })
