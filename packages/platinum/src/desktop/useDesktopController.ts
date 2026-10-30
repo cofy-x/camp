@@ -57,6 +57,11 @@ export function useDesktopController(
     initialState(props),
   );
   const propsRef = useRef(props);
+  const activationRevision = useRef(0);
+  const getActivationRevision = useCallback(
+    () => activationRevision.current,
+    [],
+  );
   propsRef.current = props;
   const [overview, setOverview] = useState(false);
   const [menu, setMenu] = useState<MenuRequest | null>(null);
@@ -78,6 +83,7 @@ export function useDesktopController(
   }, [layout]);
 
   const activateWindow = useCallback((id: string, reveal = false) => {
+    activationRevision.current++;
     setOverview(false);
     setLayout((current) => {
       const target = current.windows.find((item) => item.id === id);
@@ -102,15 +108,14 @@ export function useDesktopController(
     (id: string) => activateWindow(id, true),
     [activateWindow],
   );
-  const focusDesktop = useCallback(
-    () =>
-      setLayout((current) =>
-        current.activeWindowId === null
-          ? current
-          : { ...current, activeWindowId: null },
-      ),
-    [],
-  );
+  const focusDesktop = useCallback(() => {
+    activationRevision.current++;
+    setLayout((current) =>
+      current.activeWindowId === null
+        ? current
+        : { ...current, activeWindowId: null },
+    );
+  }, []);
   const openApp = useCallback(
     (
       appId: string,
@@ -121,6 +126,7 @@ export function useDesktopController(
         (candidate) => candidate.id === appId,
       );
       if (!app) return '';
+      activationRevision.current++;
       const id = windowIdentity(app, params);
       setOverview(false);
       setLayout((current) => {
@@ -156,6 +162,7 @@ export function useDesktopController(
   );
   const closeWindow = useCallback(async (id: string): Promise<boolean> => {
     if (closing.current.has(id)) return false;
+    activationRevision.current++;
     closing.current.add(id);
     try {
       if ((await closeHandlers.current.get(id)?.()) === false) return false;
@@ -247,6 +254,7 @@ export function useDesktopController(
     () => ({
       windows: layout.windows,
       activeWindowId: layout.activeWindowId,
+      getActivationRevision,
       openApp,
       closeWindow,
       focusWindow,
@@ -255,11 +263,15 @@ export function useDesktopController(
       contextMenu,
       dialog,
       beforeClose,
-      showAllWindows: () => setOverview((current) => !current),
+      showAllWindows: () => {
+        activationRevision.current++;
+        setOverview((current) => !current);
+      },
     }),
     [
       layout.windows,
       layout.activeWindowId,
+      getActivationRevision,
       openApp,
       closeWindow,
       focusWindow,
