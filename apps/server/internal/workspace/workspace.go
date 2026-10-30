@@ -16,6 +16,7 @@ type Archive struct {
 }
 
 type Spec struct {
+	NamespaceKey                                               string
 	Source, BaselineKey, EnvironmentKey, AttemptID, References string
 	ReadOnly                                                   bool
 }

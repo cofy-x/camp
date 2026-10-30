@@ -126,7 +126,7 @@ func (e *Executor) Execute(ctx context.Context, input Request, emit Emit) (resul
 			key = environment.Key
 		}
 		allocationCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
-		active, err = e.backend.Prepare(allocationCtx, workspace.Spec{Source: filepath.Join(dir, "project"), BaselineKey: input.ResourceID + ":" + input.BaselineCommit, EnvironmentKey: key, AttemptID: input.AttemptID, References: input.ReferencesDir, ReadOnly: input.Access == "read"})
+		active, err = e.backend.Prepare(allocationCtx, workspace.Spec{Source: filepath.Join(dir, "project"), BaselineKey: input.ResourceID + ":" + input.BaselineCommit, EnvironmentKey: key, AttemptID: input.AttemptID, NamespaceKey: digest(input.SessionKey), References: input.ReferencesDir, ReadOnly: input.Access == "read"})
 		stop()
 		if err != nil && e.backend.Ready() != nil {
 			result.CleanupConfirmed = false

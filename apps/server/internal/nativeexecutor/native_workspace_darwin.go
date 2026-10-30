@@ -88,7 +88,7 @@ func openNativeWorkspace(ctx context.Context, config Config) (workspace.Provider
 	fingerprint := sha256.New()
 	_, _ = fingerprint.Write(helper)
 	_, _ = fingerprint.Write(manifest)
-	_, _ = io.WriteString(fingerprint, "camp-native-local-v1\x00"+config.NodePath)
+	_, _ = io.WriteString(fingerprint, "camp-native-local-v2-stable-namespace\x00"+config.NodePath)
 	for _, module := range []string{"coordination", "discovery", "filesystem", "shell", "transport"} {
 		data, err := os.ReadFile(filepath.Join(config.RuntimeDir, "camp-tools", module+".mjs"))
 		if err != nil {
@@ -116,12 +116,23 @@ func openNativeWorkspace(ctx context.Context, config Config) (workspace.Provider
 		return nil, err
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "attempt-") {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "attempt-") && !strings.HasPrefix(entry.Name(), "session-") {
 			return nil, errors.New("Unrecognized native workspace storage")
 		}
 		// Recovery establishes cleanup for an interrupted attempt. It never
 		// captures or republishes the previous mutable directory.
 		if err := nativejob.Recover(ctx, filepath.Join(provider.root, entry.Name(), "jobs")); err != nil {
+			return nil, err
+		}
+		recovery := filepath.Join(config.DataDir, "native-recovery")
+		if err := os.MkdirAll(recovery, 0700); err != nil {
+			return nil, err
+		}
+		retained, err := os.MkdirTemp(recovery, entry.Name()+"-")
+		if err != nil {
+			return nil, err
+		}
+		if err := os.Rename(filepath.Join(provider.root, entry.Name()), filepath.Join(retained, "workspace-state")); err != nil {
 			return nil, err
 		}
 	}
@@ -158,11 +169,26 @@ func (p *nativeWorkspaceProvider) Prepare(ctx context.Context, spec workspace.Sp
 	if err := p.Ready(); err != nil {
 		return nil, err
 	}
-	root, err := os.MkdirTemp(p.root, "attempt-")
+	var root string
+	var err error
+	if spec.NamespaceKey != "" {
+		decoded, decodeErr := hex.DecodeString(spec.NamespaceKey)
+		if decodeErr != nil || len(decoded) != 32 {
+			return nil, errors.New("Invalid native workspace namespace")
+		}
+		root = filepath.Join(p.root, "session-"+spec.NamespaceKey)
+		err = os.Mkdir(root, 0700)
+	} else {
+		root, err = os.MkdirTemp(p.root, "attempt-")
+	}
 	if err != nil {
 		return nil, err
 	}
 	w := &nativeWorkspace{provider: p, root: root, directory: filepath.Join(root, "workspace"), references: spec.References, jobs: filepath.Join(root, "jobs"), readOnly: spec.ReadOnly}
+	receipt, _ := json.Marshal(struct{ AttemptID, NamespaceKey, BaselineKey string }{spec.AttemptID, spec.NamespaceKey, spec.BaselineKey})
+	if err := os.WriteFile(filepath.Join(root, "workspace.json"), receipt, 0600); err != nil {
+		return w, err
+	}
 	if err := copyDependencies(ctx, spec.Source, w.directory, w.directory); err != nil {
 		return w, err
 	}
