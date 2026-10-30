@@ -21,9 +21,9 @@ func openWorkspaceProvider(ctx context.Context, config Config) (workspace.Provid
 }
 
 func normalizeConfig(config Config) (Config, error) {
-	for _, field := range []*string{&config.DataDir, &config.RuntimeDir} {
+	for _, field := range []*string{&config.DataDir, &config.RuntimeDir, &config.SandboxHelper} {
 		if *field == "" {
-			return config, fmt.Errorf("Native execution requires private storage and a pinned DSH runtime")
+			return config, fmt.Errorf("Native execution requires private storage, a pinned DSH runtime and the trusted helper")
 		}
 		var err error
 		*field, err = filepath.Abs(*field)

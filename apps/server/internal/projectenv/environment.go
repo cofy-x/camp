@@ -24,6 +24,7 @@ import (
 type Options struct {
 	Profile                                  *Profile
 	NodePath, PnpmPath, ProjectDir, CacheDir string
+	HelperPath, JobRoot                      string
 	Lock                                     *os.File
 	Output                                   func(string) error
 }
@@ -87,7 +88,7 @@ func toolVersion(ctx context.Context, executable, expected string) error {
 }
 
 // Prepare publishes only successful installs. All package installation executes
-// inside Bubblewrap without install scripts, host npm configuration, or secrets.
+// inside the platform sandbox without install scripts, host config, or secrets.
 func Prepare(ctx context.Context, options Options) (*Environment, error) {
 	if options.Profile != nil && options.Profile.Kind == "command" {
 		if err := Validate(*options.Profile); err != nil {
@@ -144,7 +145,12 @@ func Prepare(ctx context.Context, options Options) (*Environment, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(temporary)
+	retain := false
+	defer func() {
+		if !retain {
+			_ = os.RemoveAll(temporary)
+		}
+	}()
 	project := filepath.Join(temporary, "project")
 	if err := resources.CopySourceWithPolicy(ctx, options.ProjectDir, project, SnapshotPolicy(profile)); err != nil {
 		return nil, err
@@ -176,14 +182,14 @@ func Prepare(ctx context.Context, options Options) (*Environment, error) {
 	if err := emit(options, "Installing locked dependencies with pnpm 12.11.2; package install scripts are disabled.\n"); err != nil {
 		return nil, err
 	}
-	cmd, err := execution.ProjectCommand(execution.ProjectConfig{NodePath: options.NodePath, PnpmPath: options.PnpmPath, ProjectDir: project, CacheDir: store, Network: true, Arguments: []string{"/pnpm", "install", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--store-dir=/store", "--package-import-method=copy", "--reporter=append-only"}}, options.Lock)
-	if err != nil {
-		return nil, err
-	}
 	installContext, cancel := context.WithTimeout(ctx, 180*time.Second)
 	defer cancel()
-	code, err := execution.RunTests(installContext, cmd, func(line string) error { return emit(options, line) })
+	code, err := runInstall(installContext, options, project, store)
+	retain = CleanupUnconfirmed(err)
 	if err != nil || code != 0 {
+		if err == nil {
+			err = errors.New("The package manager did not complete installation")
+		}
 		return nil, fmt.Errorf("Dependency preparation failed (exit %d): %w", code, err)
 	}
 	if err := ctx.Err(); err != nil {

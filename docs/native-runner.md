@@ -27,6 +27,12 @@ Commands and configured checks have no network by default, including direct IPv4
 
 Camp must qualify a process owner that handles background children, changed process groups, double forks, `setsid`, ignored signals, closed stdio and parent death. Use kernel-observed process identities; do not signal a reused PID, another Run or an unrelated user process. A process-group kill alone is insufficient. If termination or ownership cannot be established, mark cleanup unknown, block capture/publication and suspend execution. Do not silently weaken the policy, enable unsandboxed execution or switch to a VM.
 
+## Dependency preparation boundary
+
+Prepared Node dependencies are a separate trusted operation, with a frozen lockfile and lifecycle scripts/pnpm hooks disabled. On Mac, qualify it through the same kernel-owned process lifecycle as native commands, with a writable staging project/store, private HOME/TMP and no ambient credentials. The package manager must not receive general networking: an authenticated, per-install loopback CONNECT broker can reach public HTTPS endpoints on port 443, validating every resolved address and dialing the checked address directly. Private/loopback/link-local/reserved destinations, other ports/methods, unauthenticated clients, local binding and direct DNS/IP/Unix networking remain denied. The tunnel preserves end-to-end TLS verification rather than intercepting package TLS.
+
+Before exposing this path, prove a locked pnpm install, disabled install scripts, cache reuse, host credential/config denial, public package transfer and private-destination rejection on actual Mac ARM64. Confirm all owned descendants before publishing a ready cache marker or deleting staging files. Unknown cleanup retains staging/receipts, suspends execution and is recovered without replay at Runner startup. Model commands and configured checks continue to receive no package-network capability. Linux's existing dependency path remains independently qualified.
+
 ## Operator setup and lifecycle
 
 Mac setup runs as the original unprivileged account and recognizes interactive terminals, hiding the connection code and restoring terminal echo. Repeated setup uses the saved registration and private journal. Source builds use `--development-runtime`; complete native packages have a separate distribution acceptance.

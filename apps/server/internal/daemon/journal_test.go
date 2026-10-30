@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -417,5 +418,49 @@ func TestSourceCannotContainSymlinkedRunnerData(t *testing.T) {
 	result, _, err := d.capture(context.Background(), command, t.TempDir(), func(string, string) error { return nil })
 	if err == nil || result.Archive != nil || !strings.Contains(err.Error(), "overlaps private Runner data") {
 		t.Fatal("private Runner credentials entered an archive", result, err)
+	}
+}
+
+func TestAcknowledgementRetainsRecoveryReceiptsWhileRunnerIsSuspended(t *testing.T) {
+	directory := t.TempDir()
+	j, err := openJournal(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.db.Close()
+	ctx := context.Background()
+	command := testCommand()
+	if _, err := j.accept(ctx, command); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.begin(ctx, command.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.finish(ctx, command.OperationID, p.Result{CompletionID: "unknown", Status: "interrupted", CleanupConfirmed: false}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.receipt(ctx, command.OperationID, p.Receipt{Disposition: "committed", Status: "interrupted"}); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(directory, "operations", command.OperationID, "native-dependency-jobs")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	receipt := filepath.Join(root, "owner.json")
+	if err := os.WriteFile(receipt, []byte("retained process identity"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	d := &Daemon{config: Config{DataDir: directory}, journal: j, output: io.Discard, active: map[string]*activeOperation{}, failure: errors.New("cleanup unknown")}
+	d.pruneAcknowledged(ctx, command.OperationID)
+	if _, err := os.Stat(receipt); err != nil {
+		t.Fatal("Server receipt discarded unconfirmed process recovery state", err)
+	}
+	// This startup-only cleanup is called after native recovery has independently
+	// confirmed quiescence; it never changes the already interrupted result.
+	if err := d.pruneTerminalScratch(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(receipt); !os.IsNotExist(err) {
+		t.Fatal("confirmed startup cleanup did not retire acknowledged scratch", err)
 	}
 }
