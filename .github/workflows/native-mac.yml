@@ -6,6 +6,13 @@ on:
       - 'apps/server/internal/processowner/**'
       - 'apps/server/internal/seatbelt/**'
       - 'apps/server/internal/nativejob/**'
+      - 'apps/server/internal/nativeexecutor/**'
+      - 'apps/server/internal/execution/**'
+      - 'apps/server/internal/dsh/**'
+      - 'apps/server/internal/runnertools/**'
+      - 'apps/server/internal/sandboxexec/**'
+      - 'apps/server/internal/workspace/**'
+      - 'tools/dsh-runtime/**'
       - 'apps/server/cmd/camp-sandbox/**'
       - 'tools/seatbelt-runtime/**'
       - '.github/workflows/native-mac.yml'
@@ -49,6 +56,19 @@ jobs:
           CAMP_TEST_MAC_NATIVE: '1'
           CAMP_MAC_HELPER: ${{ github.workspace }}/dist/native-mac/camp-sandbox
         run: go test -race -count=1 -timeout=180s -v ./apps/server/internal/nativejob
+      - name: Check native file capabilities
+        run: go test -race -count=1 -timeout=120s -v ./apps/server/internal/sandboxexec ./apps/server/internal/runnertools ./apps/server/internal/resources
+      - name: Install the pinned DSH runtime
+        run: node tools/dsh-runtime/install.mjs
+      - name: Check actual native DSH, capture, continuation and collaboration
+        env:
+          CAMP_TEST_DSH_RUNTIME: ${{ github.workspace }}/tools/dsh-runtime
+        run: go test -race -count=1 -timeout=240s -v ./apps/server/internal/nativeexecutor
+      - name: Measure native local workspace and checkpoint cost
+        env:
+          CAMP_TEST_DSH_RUNTIME: ${{ github.workspace }}/tools/dsh-runtime
+          CAMP_MAC_BENCHMARK_OUTPUT: ${{ github.workspace }}/dist/native-mac/local-checkpoint.json
+        run: go test -count=1 -timeout=240s -v ./apps/server/internal/nativeexecutor -run '^TestNativeLocalCheckpointMeasurements$'
       - name: Retain native sandbox denials on failure
         if: failure()
         run: sudo /usr/bin/log show --last 3m --style compact --predicate 'subsystem == "com.apple.sandbox.reporting"' | tee dist/native-mac/sandbox-denials.log > /dev/null

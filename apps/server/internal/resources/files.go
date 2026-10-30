@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"unicode"
@@ -38,6 +39,20 @@ type snapshot map[string]file
 // Policy contains optional environment exclusions, separate from path safety.
 type Policy struct {
 	ExcludeNames []string
+}
+
+// macOS exposes these fixed system aliases. Canonicalizing only these prefixes
+// keeps ordinary temporary/user-selected paths usable while retaining rejection
+// of caller-controlled symlinks anywhere in the remaining source path.
+func canonicalSystemPath(name string) string {
+	if runtime.GOOS == "darwin" {
+		for _, alias := range []string{"/var", "/tmp", "/etc"} {
+			if name == alias || strings.HasPrefix(name, alias+"/") {
+				return "/private" + name
+			}
+		}
+	}
+	return name
 }
 
 // Exclude host configuration and credentials; reject results containing these paths.
@@ -320,6 +335,31 @@ func writeSnapshot(directory string, files snapshot) error {
 		closeErr := opened.Close()
 		if err := errors.Join(writeErr, closeErr); err != nil {
 			return err
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		// APFS may resolve differently spelled parent directories to one inode.
+		// O_EXCL protects file collisions; compare the actual complete namespace
+		// as well so case/Unicode aliases never silently change frozen input.
+		count := 0
+		err := fs.WalkDir(root.FS(), ".", func(name string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			if _, ok := files[name]; !ok {
+				return errors.New("This filesystem cannot preserve the project's case or Unicode path spelling")
+			}
+			count++
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if count != len(files) {
+			return errors.New("This filesystem merged distinct project paths")
 		}
 	}
 	return nil

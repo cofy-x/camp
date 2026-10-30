@@ -128,7 +128,16 @@ func (t *Tools) shell(ctx context.Context, w http.ResponseWriter, r *http.Reques
 	var frame sandboxexec.Frame
 	err := t.acquire(execCtx)
 	if err == nil {
-		frame, err = t.call(execCtx, sandboxexec.Request{Operation: "command", Command: input.Command, Cwd: input.Workdir, TimeoutMS: input.TimeoutMS, MaxOutputBytes: 8 << 20}, func(event sandboxexec.Frame) error {
+		cwd, cwdErr := t.virtualFilePath(".", input.Workdir)
+		if cwdErr != nil {
+			t.release()
+			emit(map[string]any{"type": "error", "cleanupConfirmed": true, "error": map[string]string{"code": "FS_SANDBOX_DENIED", "message": cwdErr.Error()}})
+			t.mu.Lock()
+			command.clean = true
+			t.mu.Unlock()
+			return
+		}
+		frame, err = t.call(execCtx, sandboxexec.Request{Operation: "command", Command: input.Command, Cwd: cwd, TimeoutMS: input.TimeoutMS, MaxOutputBytes: 8 << 20}, func(event sandboxexec.Frame) error {
 			switch event.Type {
 			case "stdout", "stderr":
 				stream := &stdout

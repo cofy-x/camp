@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,25 @@ func HostChecks(config Config) p.ReadinessReport {
 			status, detail = "failed", err.Error()
 		}
 		report.Checks = append(report.Checks, p.ReadinessCheck{ID: id, Label: label, Status: status, Detail: detail})
+	}
+	if runtime.GOOS == "darwin" {
+		var platformErr error
+		version, err := exec.Command("/usr/bin/sw_vers", "-productVersion").Output()
+		major, parseErr := strconv.Atoi(strings.Split(strings.TrimSpace(string(version)), ".")[0])
+		if err != nil || parseErr != nil || major < 15 || runtime.GOARCH != "arm64" {
+			platformErr = errors.New("Native Mac Runner requires macOS 15 or later on ARM64")
+		}
+		add("platform", "Supported platform", platformErr)
+		var accountErr error
+		if os.Geteuid() == 0 {
+			accountErr = errors.New("Run the Mac Runner as your unprivileged account; preserve the existing Runner data directory")
+		}
+		add("permissions", "Machine permissions", accountErr)
+		for _, tool := range []struct{ id, label, name string }{{"seatbelt", "Seatbelt isolation", "/usr/bin/sandbox-exec"}, {"launchd", "Owned native jobs", "/bin/launchctl"}, {"git", "Git", "git"}, {"bash", "Bash", "/bin/bash"}} {
+			_, err := exec.LookPath(tool.name)
+			add(tool.id, tool.label, err)
+		}
+		return report
 	}
 	var platformErr error
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {

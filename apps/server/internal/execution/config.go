@@ -16,6 +16,9 @@ type Config struct {
 	RemoteTools                             bool
 	ToolEndpoint, ToolToken                 string
 	CoordinationEndpoint, CoordinationToken string
+	// Native job paths are used only by the Darwin process adapter.
+	HelperPath, JobRoot, Cwd string
+	TimeoutMS                int64
 }
 
 // Mount exposes a prepared dependency directory at a relative project path.

@@ -46,7 +46,7 @@ type frame struct {
 func readSpec(name string) (Spec, error) {
 	var spec Spec
 	info, err := os.Lstat(name)
-	if err != nil || !filepath.IsAbs(name) || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > 64<<10 {
+	if err != nil || !filepath.IsAbs(name) || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > 1<<20 {
 		return spec, errors.New("Native job configuration must be a private bounded regular file")
 	}
 	data, err := os.ReadFile(name)
@@ -106,6 +106,9 @@ func Command(helper, root string, spec Spec) (*exec.Cmd, string, error) {
 }
 
 func Run(ctx context.Context, helper, root string, spec Spec, input io.Reader, stdout, stderr io.Writer) (Result, error) {
+	if ctx.Err() != nil {
+		return Result{Code: 130, Clean: true, Reason: "cancelled"}, nil
+	}
 	cmd, directory, err := Command(helper, root, spec)
 	if err != nil {
 		return Result{}, err

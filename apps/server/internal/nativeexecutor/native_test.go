@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -24,8 +25,8 @@ import (
 
 func TestNativeExecutorTLSIsolationAndResume(t *testing.T) {
 	layerRuntime, dshRuntime := os.Getenv("CAMP_TEST_LAYERFS_RUNTIME"), os.Getenv("CAMP_TEST_DSH_RUNTIME")
-	if layerRuntime == "" || dshRuntime == "" {
-		t.Skip("Set CAMP_TEST_LAYERFS_RUNTIME and CAMP_TEST_DSH_RUNTIME to run real Linux execution")
+	if dshRuntime == "" || runtime.GOOS != "darwin" && layerRuntime == "" {
+		t.Skip("Set the native DSH runtime and, on Linux, the LayerFS runtime")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -55,6 +56,10 @@ func TestNativeExecutorTLSIsolationAndResume(t *testing.T) {
 		}
 		if number >= 3 {
 			resumed.Store(strings.Contains(string(body), "native-runner-memory-token"))
+		}
+		if number == 3 && !strings.Contains(string(body), "Finish collaboration with the Camp tool") {
+			content = map[string]any{"type": "tool_use", "id": "resume-write", "name": "bash", "input": map[string]string{"description": "Use the current resumed workspace", "command": "test -f result.txt && test -f brief.txt && printf resumed > resumed.txt"}}
+			stop = "tool_use"
 		}
 		if strings.Contains(string(body), "Finish collaboration with the Camp tool") {
 			if !strings.Contains(string(body), "camp_finish") {
@@ -122,7 +127,12 @@ func TestNativeExecutorTLSIsolationAndResume(t *testing.T) {
 				return nil
 			}
 		}
-		return executor.Execute(ctx, request, func(kind, text string) error { return nil })
+		return executor.Execute(ctx, request, func(kind, text string) error {
+			if kind == "output" {
+				t.Logf("DSH: %s", text)
+			}
+			return nil
+		})
 	}
 	first := run("first", false)
 	if first.Status != "succeeded" || !first.CleanupConfirmed || !first.SessionResumable || len(first.Checks) != 1 || first.Checks[0].Status != "passed" || first.ArchivePath == "" {
@@ -144,6 +154,19 @@ func TestNativeExecutorTLSIsolationAndResume(t *testing.T) {
 	second := run("second", true)
 	if second.Status != "succeeded" || !second.SessionResumable || !resumed.Load() {
 		t.Fatalf("resume: %+v; native context=%v", second, resumed.Load())
+	}
+	resumedArchive, err := os.Open(second.ArchivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumedDirectory := filepath.Join(data, "verified-resume")
+	err = resources.ExtractArchive(ctx, resumedArchive, resumedDirectory)
+	_ = resumedArchive.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(resumedDirectory, "resumed.txt")); err != nil || string(data) != "resumed" {
+		t.Fatal("resumed tools did not use the current workspace", err)
 	}
 	before := calls.Load()
 	third := run("coordination", true)

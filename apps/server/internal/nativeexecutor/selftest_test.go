@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -36,8 +37,8 @@ func TestSelfTestRequiresCapturedResult(t *testing.T) {
 }
 func TestNativeReadinessSelfTest(t *testing.T) {
 	layerRuntime, dshRuntime := os.Getenv("CAMP_TEST_LAYERFS_RUNTIME"), os.Getenv("CAMP_TEST_DSH_RUNTIME")
-	if layerRuntime == "" || dshRuntime == "" {
-		t.Skip("Set native runtime paths for isolated Linux self-test")
+	if dshRuntime == "" || runtime.GOOS != "darwin" && layerRuntime == "" {
+		t.Skip("Set the native DSH runtime and, on Linux, the LayerFS runtime")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()

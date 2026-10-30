@@ -87,6 +87,21 @@ func (e *failure) Error() string { return e.message }
 
 func problem(code, message string) error { return &failure{code, message} }
 
+// FileCall accepts trusted roots from a workspace provider. All paths remain
+// logical capability paths; errors are framed exactly like the short-lived
+// helper. Process execution uses a separate platform owner.
+func FileCall(ctx context.Context, request Request) (Frame, error) {
+	frame, err := files(ctx, request)
+	if err == nil {
+		return frame, nil
+	}
+	var known *failure
+	if errors.As(err, &known) {
+		return Frame{Type: "error", Code: known.code, Message: known.message}, nil
+	}
+	return Frame{}, err
+}
+
 type frameWriter struct {
 	mu  sync.Mutex
 	out io.Writer

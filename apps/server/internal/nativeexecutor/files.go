@@ -107,6 +107,9 @@ func copyDependencies(ctx context.Context, source, target, project string) error
 		if total > 2<<30 {
 			return errors.New("Prepared dependencies exceed 2 GiB")
 		}
+		if cloned, err := cloneDependencyFile(name, destination, 0644|info.Mode().Perm()&0111); cloned || err != nil {
+			return err
+		}
 		input, err := os.Open(name)
 		if err != nil {
 			return err

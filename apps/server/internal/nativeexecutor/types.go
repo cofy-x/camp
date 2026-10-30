@@ -13,6 +13,7 @@ import (
 )
 
 type Config struct {
+	ToolRoots                                                                             []string
 	DataDir, RuntimeDir, LayerFSRuntimeDir, SandboxHelper, DockerSocket, NodePath, CAFile string
 	Lock                                                                                  *os.File
 }

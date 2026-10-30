@@ -48,6 +48,7 @@ func (manager *Manager) ImportWithPolicy(ctx context.Context, projectID, sourceP
 	if !filepath.IsAbs(sourcePath) || filepath.Clean(sourcePath) != sourcePath {
 		return ImportResult{}, errors.New("The project source must be a normalized absolute directory path")
 	}
+	sourcePath = canonicalSystemPath(sourcePath)
 	resolved, err := filepath.EvalSymlinks(sourcePath)
 	if err != nil || resolved != sourcePath {
 		return ImportResult{}, errors.New("The project source cannot contain symbolic links or missing directories")
@@ -56,6 +57,7 @@ func (manager *Manager) ImportWithPolicy(ctx context.Context, projectID, sourceP
 	if err != nil {
 		return ImportResult{}, errors.New("Cannot resolve the project storage path")
 	}
+	managedRoot = canonicalSystemPath(managedRoot)
 	dataRoot := filepath.Dir(managedRoot)
 	if resolvedData, err := filepath.EvalSymlinks(dataRoot); err == nil {
 		dataRoot = resolvedData

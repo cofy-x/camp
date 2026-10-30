@@ -1,6 +1,6 @@
 # Native Runner execution and workspace design
 
-Status: active design and acceptance contract. The released implementation is still the Linux Runner described in [execution](dsh.md). A passing source check does not establish macOS isolation or packaged Runner readiness.
+Status: design and acceptance contract. Source implements Linux LayerFS and Mac ARM64 native local execution. Mac package distribution has its own release acceptance; a passing source check does not establish installation readiness.
 
 ## Ownership and platform goals
 
@@ -37,11 +37,15 @@ Camp must qualify a process owner that handles background children, changed proc
 
 Native local execution is the first qualification target. Workspace selection is independent of the sandbox selection: adopting Seatbelt does not remove LayerFS. Keep the Linux implementation and investigate the hybrid against the same input, capture and cancellation contract before deciding its Mac default.
 
+The Mac local provider is the default implementation: no Docker, Linux VM, FUSE or root account is required. Its native command owner, protected file operations, DSH/TLS relay, binary/mode capture, continuation, cancellation, collaboration decisions and failure boundaries are exercised on actual macOS 15 and 26 ARM64 CI. Retained measurements separately cover local preparation/capture and the Linux Store proof; hosts and transport scopes must remain explicit. Stable per-session directory names solve DSH's persisted working-directory contract without broadening reads to earlier attempts. Each request still starts from frozen input, and old interrupted copies are moved to private recovery storage only after cleanup is established.
+
 LayerFS's worker forwards SDK calls; its Linux FUSE mount does not become a Mac working directory. A Mac process needs a local materialization or a separately implemented filesystem transport. Do not put the Store on virtiofs/APFS or claim zero-copy native access. Linux Store openers must retain the upstream shared kernel and local filesystem requirements.
 
 For the hybrid proof, the Mac tree is the sole active writer. Start from a frozen generation; seal tool admission, finish configured checks and confirm all descendants before capture. Transfer one complete bounded snapshot into an owned worker Workspace through trusted administrative operations, then Commit and record the native archive digest, worker Commit and generation. Never synchronize in the background while tools write. Apply failures or a lost Commit reply retain the native capture and an uncertain checkpoint receipt; do not resend the mutation or report the worker's older tree as current. Only an acknowledged matching generation can supply a required checkpoint.
 
 Compare a complete snapshot with incremental synchronization. An incremental route must represent deletes, renames, executable modes, binary files and excluded dependency trees, not just copy changed file bytes. APFS case folding, Unicode normalization and symlink behavior must be checked explicitly. A fresh Store per checkpoint loses shared history/deduplication and is not an equivalent implementation. Mounting Linux FUSE back into macOS introduces another runtime and permission boundary and is not assumed to be lightweight.
+
+The pinned public `fs.apply` can publish a batch of regular-file writes, deletes, directory changes and chmods once, without making the native working directory a FUSE mount. It has no create-symlink change, so a mirror of Camp's accepted publication files is distinct from a complete working-tree checkpoint with dependencies and links. The official worker encodes binary buffers as base64 in length-prefixed JSON and buffers complete authenticated frames; logical changed bytes therefore understate wire and memory costs. A Camp checkpoint-only Linux worker with streamed capture input is a possible separate adapter, not a complete Runner VM. It must preserve the same Store, single-writer generation receipts and uncertainty rules. Mac transport and Linux ARM64 worker qualification remain separate from an in-process Linux Store proof.
 
 ## Evidence and acceptance
 

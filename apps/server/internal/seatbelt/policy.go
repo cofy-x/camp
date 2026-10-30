@@ -14,6 +14,8 @@ import (
 )
 
 type Policy struct {
+	// List grants only the directory's own entries, without reading children.
+	List       []string
 	Read       []string
 	Write      []string
 	Executable []string
@@ -83,6 +85,10 @@ func literalPaths(paths []string) ([]string, error) {
 }
 
 func Profile(policy Policy) (string, error) {
+	list, err := literalPaths(policy.List)
+	if err != nil {
+		return "", err
+	}
 	read, err := literalPaths(append(append([]string{}, systemRead...), policy.Read...))
 	if err != nil {
 		return "", err
@@ -111,6 +117,13 @@ func Profile(policy Policy) (string, error) {
 		}
 	}
 	add("file-read*", read)
+	for _, name := range list {
+		info, err := os.Stat(name)
+		if err != nil || !info.IsDir() {
+			return "", errors.New("Directory listing grants require a directory")
+		}
+		fmt.Fprintf(&b, "(allow file-read-data (literal %s))\n", strconv.Quote(name))
+	}
 	add("file-read* file-write*", write)
 	add("process-exec", executable)
 	// A path's ancestors can include OS aliases such as /var. Directory-only
@@ -142,7 +155,7 @@ func Profile(policy Policy) (string, error) {
 		if port == 0 {
 			return "", errors.New("Sandbox control ports must be nonzero")
 		}
-		fmt.Fprintf(&b, "(allow network-outbound (remote ip \"localhost:%d\"))\n", port)
+		fmt.Fprintf(&b, "(allow network-outbound (require-all (remote tcp \"localhost:%d\") (socket-domain AF_INET)))\n", port)
 	}
 	return b.String(), nil
 }
