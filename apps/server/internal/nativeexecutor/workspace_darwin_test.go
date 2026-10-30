@@ -237,3 +237,39 @@ func TestNativeMacHostDoesNotRequireDockerOrFuse(t *testing.T) {
 		}
 	}
 }
+
+func TestApprovedMacGoToolchainBuildsAndRunsNativeMachO(t *testing.T) {
+	provider, ctx, root := nativeProvider(t)
+	compiler, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler, err = filepath.EvalSymlinks(compiler)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.config.ToolRoots, err = ResolveToolRoots(root, []string{filepath.Dir(filepath.Dir(compiler))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(root, "go-source")
+	if err := os.Mkdir(source, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "main.go"), []byte("package main\nimport \"runtime\"\nfunc main(){println(runtime.GOOS+\"/\"+runtime.GOARCH)}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	active, err := provider.Prepare(ctx, workspace.Spec{Source: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer active.Close(context.Background())
+	frame, err := active.Call(ctx, sandboxexec.Request{Operation: "command", Command: "CGO_ENABLED=0 GOTOOLCHAIN=local go build -o native-tool main.go && ./native-tool > native-tool.txt 2>&1", TimeoutMS: 40000, MaxOutputBytes: 4096}, nil)
+	if err != nil || frame.Code != float64(0) || !frame.Clean {
+		t.Fatal("approved native compilation failed", frame, err)
+	}
+	data, err := os.ReadFile(filepath.Join(active.Directory(), "native-tool.txt"))
+	if err != nil || string(data) != "darwin/arm64\n" {
+		t.Fatal("toolchain did not execute a native Apple Silicon binary", string(data), err)
+	}
+}

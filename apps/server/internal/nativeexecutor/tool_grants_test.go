@@ -29,7 +29,7 @@ func TestToolGrantsResolveAliasesAndProtectPrivateStorage(t *testing.T) {
 			t.Fatal("broad or private ancestor grant was accepted", bad)
 		}
 	}
-	for _, secret := range []string{private, filepath.Join(home, ".ssh"), filepath.Join(home, "Library", "Keychains")} {
+	for _, secret := range []string{private, filepath.Join(home, ".ssh"), filepath.Join(home, ".azure"), filepath.Join(home, ".docker"), filepath.Join(home, ".kube"), filepath.Join(home, "Library", "Keychains")} {
 		if err := os.MkdirAll(filepath.Join(secret, "child"), 0700); err != nil {
 			t.Fatal(err)
 		}

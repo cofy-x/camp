@@ -28,7 +28,10 @@ func ResolveToolRoots(directory string, roots []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	protected := []string{data, filepath.Join(home, ".ssh"), filepath.Join(home, ".aws"), filepath.Join(home, ".gnupg"), filepath.Join(home, ".config"), filepath.Join(home, "Library", "Keychains")}
+	protected := []string{data, "/Library/Keychains"}
+	for _, name := range []string{".ssh", ".aws", ".azure", ".gnupg", ".config", ".docker", ".kube", ".npmrc", ".netrc", ".pypirc", ".git-credentials", "Library/Keychains"} {
+		protected = append(protected, filepath.Join(home, name))
+	}
 	resolved := make([]string, 0, len(roots))
 	for _, root := range roots {
 		if err := seatbelt.ValidateRoots([]string{root}); err != nil {
