@@ -112,6 +112,56 @@ func runtimeArchiveFor(t *testing.T, platform string) ([]byte, runtimePin) {
 	return content.Bytes(), runtimePin{Schema: 1, Platform: platform, ProtocolVersion: p.Version, SHA256: hex.EncodeToString(digest[:]), ManifestSHA256: hex.EncodeToString(manifestDigest[:]), Bytes: int64(content.Len()), UnpackedBytes: size}
 }
 
+func TestServiceRuntimeAcceptsCanonicalAliasesAndRejectsWrongOrDamagedCache(t *testing.T) {
+	for _, platform := range []string{"linux/x64", "darwin/arm64"} {
+		t.Run(platform, func(t *testing.T) {
+			archive, pin := runtimeArchiveFor(t, platform)
+			directory, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			alias := filepath.Join(t.TempDir(), "saved directory alias")
+			if err := os.Symlink(directory, alias); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"daemon.json", "journal.sqlite"} {
+				if err := os.WriteFile(filepath.Join(directory, name), []byte("preserve:"+name), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			offline := filepath.Join(directory, "offline.tar.gz")
+			if err := os.WriteFile(offline, archive, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := installRuntime(context.Background(), daemon.Config{DataDir: directory}, pin, io.Discard, offline); err != nil {
+				t.Fatal(err)
+			}
+			for _, paths := range [][2]string{{directory, pin.cache(alias)}, {alias, pin.cache(directory)}} {
+				if err := verifyServiceRuntime(paths[0], paths[1], pin); err != nil {
+					t.Fatal("the verified physical runtime was rejected through an alias", err)
+				}
+			}
+			wrong := pin
+			wrong.SHA256 = strings.Repeat("a", 64)
+			if err := verifyServiceRuntime(directory, pin.cache(directory), wrong); err == nil {
+				t.Fatal("another installer's runtime was accepted")
+			}
+			if err := os.WriteFile(filepath.Join(pin.cache(directory), "bin/node"), []byte("damaged"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := verifyServiceRuntime(directory, pin.cache(alias), pin); err == nil {
+				t.Fatal("damaged runtime was accepted through an alias")
+			}
+			for _, name := range []string{"daemon.json", "journal.sqlite"} {
+				data, err := os.ReadFile(filepath.Join(directory, name))
+				if err != nil || string(data) != "preserve:"+name {
+					t.Fatal("service verification changed retained data", name, err)
+				}
+			}
+		})
+	}
+}
+
 func TestManagedRuntimeInstallsOnceAndKeepsIdentity(t *testing.T) {
 	archive, pin := runtimeArchiveFixture(t)
 	downloads := 0

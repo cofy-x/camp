@@ -257,8 +257,8 @@ func runMacRunnerService(ctx context.Context, args []string, output io.Writer) e
 			if err != nil {
 				return err
 			}
-			if config.BundleDir != pin.cache(directory) {
-				return errors.New("Complete setup with this installer before installing its service")
+			if err := verifyServiceRuntime(directory, config.BundleDir, pin); err != nil {
+				return err
 			}
 		} else {
 			bundle := runnerBundleDirectory()
