@@ -32,6 +32,9 @@ func openComponents(root int, name string, flags int) (int, error) {
 		options := unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC | unix.O_NOFOLLOW
 		if index == len(parts)-1 {
 			options = flags | unix.O_CLOEXEC | unix.O_NOFOLLOW | unix.O_NONBLOCK
+			if flags&unix.O_SYMLINK != 0 {
+				options &^= unix.O_NOFOLLOW
+			}
 		}
 		next, err := unix.Openat(current, part, options, 0)
 		_ = unix.Close(current)
