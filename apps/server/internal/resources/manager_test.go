@@ -72,7 +72,11 @@ func TestImportCaptureContinueAndExport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if imported.Files != 2 || imported.SourcePath != source || !commitPattern.MatchString(imported.Commit) {
+	canonicalSource, err := filepath.EvalSymlinks(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported.Files != 2 || imported.SourcePath != canonicalSource || !commitPattern.MatchString(imported.Commit) {
 		t.Fatalf("Incorrect import result: %+v", imported)
 	}
 	run := t.TempDir()

@@ -57,6 +57,7 @@ func (manager *Manager) ImportWithPolicy(ctx context.Context, projectID, sourceP
 	if err != nil {
 		return ImportResult{}, errors.New("Cannot resolve the project storage path")
 	}
+	managedRoot = canonicalSystemPath(managedRoot)
 	dataRoot := filepath.Dir(managedRoot)
 	if resolvedData, err := filepath.EvalSymlinks(dataRoot); err == nil {
 		dataRoot = resolvedData
