@@ -57,6 +57,13 @@ const artifact = offline
 // A real native Run, with deterministic local provider responses and no key.
 const dir = await mkdtemp(path.join(tmpdir(), 'camp-release-'));
 const bundle = path.join(dir, "relocated Runner's installation");
+const runnerBinary = process.env.CAMP_SMOKE_RUNNER_BINARY
+  ? path.resolve(process.env.CAMP_SMOKE_RUNNER_BINARY)
+  : path.join(bundle, 'camp');
+assert.ok(
+  !process.env.CAMP_SMOKE_RUNNER_BINARY || (publicDownload && !offline),
+  'A provided Runner entrypoint requires the public online scenario.',
+);
 const data = path.join(dir, 'data');
 const cwd = path.join(dir, 'unrelated-working-directory');
 let child;
@@ -386,7 +393,7 @@ try {
       .digest('hex');
   }
   const { output: setupOutput, exit: setupCode } = await setupWith(
-    path.join(bundle, 'camp'),
+    runnerBinary,
     token,
   );
   assert.equal(setupCode, 0, setupOutput);
@@ -457,7 +464,7 @@ try {
       path.join(bundle, `${release.runners[target].runtime.filename}.held`),
     );
   await command(
-    path.join(bundle, 'camp'),
+    runnerBinary,
     [
       'runner',
       'setup',
@@ -503,11 +510,17 @@ try {
     .find((line) => line.startsWith('Run in foreground: '))
     ?.slice('Run in foreground: '.length);
   assert.ok(foregroundCommand, 'Setup did not provide a foreground command');
-  runner = spawn('/bin/sh', ['-c', `exec ${foregroundCommand}`], {
-    cwd,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { PATH: '/usr/bin:/bin', HOME: dir, LANG: 'C.UTF-8' },
-  });
+  runner = spawn(
+    process.env.CAMP_SMOKE_RUNNER_BINARY ? runnerBinary : '/bin/sh',
+    process.env.CAMP_SMOKE_RUNNER_BINARY
+      ? ['runner', 'run', '--data-dir', runnerData]
+      : ['-c', `exec ${foregroundCommand}`],
+    {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { PATH: '/usr/bin:/bin', HOME: dir, LANG: 'C.UTF-8' },
+    },
+  );
   let runnerOutput = '';
   for (const stream of [runner.stdout, runner.stderr])
     stream.on('data', (chunk) => {
@@ -648,7 +661,7 @@ try {
   if (mac) {
     const service = async (action) =>
       command(
-        path.join(bundle, 'camp'),
+        runnerBinary,
         ['runner', 'service', action, '--data-dir', runnerData],
         { cwd, env: runnerEnv },
       );
@@ -761,6 +774,9 @@ try {
         schema: 1,
         status: 'passed',
         mode,
+        entrypoint: process.env.CAMP_SMOKE_RUNNER_BINARY
+          ? 'provided-binary'
+          : 'runner-installer',
         version: release.version || 'dev',
         sourceCommit: release.sourceCommit || '',
         archiveSHA256: artifact.sha256,
@@ -818,7 +834,7 @@ try {
   if (macServiceInstalled) {
     try {
       await command(
-        path.join(bundle, 'camp'),
+        runnerBinary,
         [
           'runner',
           'service',

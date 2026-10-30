@@ -470,11 +470,20 @@ jobs:
           CAMP_SMOKE_BINARY: ${{ runner.temp }}/camp-go-bin/camp
           XDG_CACHE_HOME: ${{ runner.temp }}/camp-go-cache
         run: node scripts/smoke-production.mjs
+      - name: Verify native Mac setup, execution and service through the Go entrypoint
+        if: matrix.platform == 'darwin-arm64'
+        id: runner
+        env:
+          CAMP_SMOKE_RUNNER_BINARY: ${{ runner.temp }}/camp-go-bin/camp
+        run: |
+          node scripts/fetch-release.mjs
+          node scripts/smoke-bundle.mjs github
       - name: Record actual Go installation results
         if: ${{ always() }}
         env:
           CAMP_GO_INSTALL_OUTCOME: ${{ steps.install.outcome }}
           CAMP_GO_SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          CAMP_GO_RUNNER_OUTCOME: ${{ steps.runner.outcome }}
         run: node scripts/record-go-install.mjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() }}
