@@ -1,7 +1,21 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { root } from './lib.mjs';
 import { validVersion } from './release.mjs';
+
+// A template change must not rewrite an older immutable release's formula.
+export function verifyPublishedFormula(text, published, checksums) {
+  assert.equal(text, published, 'Use the exact published formula.');
+  const entries = [...checksums.matchAll(/^([a-f0-9]{64}) {2}camp\.rb$/gm)];
+  assert.equal(entries.length, 1, 'Require one published formula checksum.');
+  assert.equal(
+    createHash('sha256').update(text).digest('hex'),
+    entries[0][1],
+    'The formula differs from the fixed release checksum.',
+  );
+}
 
 export function homebrewFormula(descriptor) {
   if (!validVersion(descriptor.version))
@@ -49,7 +63,8 @@ export function homebrewFormula(descriptor) {
   def caveats
     <<~EOS
       Run camp to start a local Server, then open http://127.0.0.1:3001.
-      No service starts automatically. Native Agent work requires a supported Linux Runner.
+      No service starts automatically. Connect a Runner with camp runner setup.
+      Native execution supports Apple Silicon macOS 15+ and Ubuntu 24.04 amd64.
       Team data lives separately from this installation in the OS user configuration directory.
     EOS
   end

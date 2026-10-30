@@ -189,6 +189,9 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: macos-server-packages
@@ -206,7 +209,7 @@ jobs:
     name: Verify Mac Runner / ${{ matrix.host }}
     needs: [preflight, build]
     runs-on: ${{ matrix.host }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -220,10 +223,18 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: macos-server-packages
           path: dist
+      - name: Qualify the exact source boundary and retain native checkpoint measurements
+        run: |
+          make install-dsh install-project-runtime
+          node scripts/qualify-native-mac.mjs --tool-root "$(go env GOROOT)" --command 'go version' --output dist/runner-boundary-${{ matrix.host }}.json
+          CAMP_TEST_DSH_RUNTIME="$PWD/tools/dsh-runtime" CAMP_MAC_BENCHMARK_OUTPUT="$PWD/dist/runner-checkpoint-${{ matrix.host }}.json" go test -count=1 -timeout=240s -v ./apps/server/internal/nativeexecutor -run '^TestNativeLocalCheckpointMeasurements$'
       - name: Check the same immutable Runner packages online and offline
         run: |
           tar -xzf dist/camp-server-darwin-arm64.tar.gz -C dist
@@ -232,10 +243,15 @@ jobs:
           node scripts/smoke-bundle.mjs offline
           cp dist/smoke-online.json dist/runner-verification-${{ matrix.host }}-online.json
           cp dist/smoke-offline.json dist/runner-verification-${{ matrix.host }}-offline.json
+          CAMP_SMOKE_RUNNER_BINARY="$PWD/dist/camp" node scripts/smoke-bundle.mjs online
+          cp dist/smoke-online.json dist/runner-verification-${{ matrix.host }}-server-entrypoint.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-runner-verification-${{ matrix.host }}
-          path: dist/runner-verification-*.json
+          path: |
+            dist/runner-verification-*.json
+            dist/runner-boundary-*.json
+            dist/runner-checkpoint-*.json
           if-no-files-found: error
           retention-days: 7
 
@@ -470,11 +486,20 @@ jobs:
           CAMP_SMOKE_BINARY: ${{ runner.temp }}/camp-go-bin/camp
           XDG_CACHE_HOME: ${{ runner.temp }}/camp-go-cache
         run: node scripts/smoke-production.mjs
+      - name: Verify native Mac setup, execution and service through the Go entrypoint
+        if: matrix.platform == 'darwin-arm64'
+        id: runner
+        env:
+          CAMP_SMOKE_RUNNER_BINARY: ${{ runner.temp }}/camp-go-bin/camp
+        run: |
+          node scripts/fetch-release.mjs
+          node scripts/smoke-bundle.mjs github
       - name: Record actual Go installation results
         if: ${{ always() }}
         env:
           CAMP_GO_INSTALL_OUTCOME: ${{ steps.install.outcome }}
           CAMP_GO_SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          CAMP_GO_RUNNER_OUTCOME: ${{ steps.runner.outcome }}
         run: node scripts/record-go-install.mjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() }}

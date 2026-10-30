@@ -57,6 +57,13 @@ const artifact = offline
 // A real native Run, with deterministic local provider responses and no key.
 const dir = await mkdtemp(path.join(tmpdir(), 'camp-release-'));
 const bundle = path.join(dir, "relocated Runner's installation");
+const runnerBinary = process.env.CAMP_SMOKE_RUNNER_BINARY
+  ? path.resolve(process.env.CAMP_SMOKE_RUNNER_BINARY)
+  : path.join(bundle, 'camp');
+assert.ok(
+  !process.env.CAMP_SMOKE_RUNNER_BINARY || (!offline && !upgrading),
+  'A provided Runner entrypoint requires an online scenario.',
+);
 const data = path.join(dir, 'data');
 const cwd = path.join(dir, 'unrelated-working-directory');
 let child;
@@ -67,6 +74,7 @@ let calls = 0;
 let previousConfig;
 let previousImport;
 let previousJournal;
+const timings = {};
 
 async function until(label, read, accept) {
   const deadline = Date.now() + 180000;
@@ -292,6 +300,7 @@ try {
   const runnerEnv = { PATH: '/usr/bin:/bin', HOME: dir, LANG: 'C.UTF-8' };
 
   async function setupWith(executable, code, legacy = false) {
+    const started = performance.now();
     const source = legacy
       ? ['--runtime-source', 'github']
       : !publicDownload
@@ -312,7 +321,7 @@ try {
       setup.once('error', reject);
       setup.once('exit', resolve);
     });
-    return { output, exit };
+    return { output, exit, elapsedMs: performance.now() - started };
   }
 
   if (upgrading) {
@@ -385,10 +394,12 @@ try {
       .update(await readFile(path.join(runnerData, 'journal.sqlite')))
       .digest('hex');
   }
-  const { output: setupOutput, exit: setupCode } = await setupWith(
-    path.join(bundle, 'camp'),
-    token,
-  );
+  const {
+    output: setupOutput,
+    exit: setupCode,
+    elapsedMs: setupMs,
+  } = await setupWith(runnerBinary, token);
+  timings.setupMs = setupMs;
   assert.equal(setupCode, 0, setupOutput);
   if (publicDownload && !offline && !upgrading)
     assert.ok(
@@ -456,8 +467,9 @@ try {
       path.join(bundle, release.runners[target].runtime.filename),
       path.join(bundle, `${release.runners[target].runtime.filename}.held`),
     );
+  const repeatSetupStarted = performance.now();
   await command(
-    path.join(bundle, 'camp'),
+    runnerBinary,
     [
       'runner',
       'setup',
@@ -470,6 +482,7 @@ try {
     ],
     { cwd, env: { PATH: '/usr/bin:/bin', HOME: dir, LANG: 'C.UTF-8' } },
   );
+  timings.repeatSetupMs = performance.now() - repeatSetupStarted;
   const repeatedConfig = JSON.parse(
     await readFile(path.join(runnerData, 'daemon.json'), 'utf8'),
   );
@@ -503,11 +516,17 @@ try {
     .find((line) => line.startsWith('Run in foreground: '))
     ?.slice('Run in foreground: '.length);
   assert.ok(foregroundCommand, 'Setup did not provide a foreground command');
-  runner = spawn('/bin/sh', ['-c', `exec ${foregroundCommand}`], {
-    cwd,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { PATH: '/usr/bin:/bin', HOME: dir, LANG: 'C.UTF-8' },
-  });
+  runner = spawn(
+    process.env.CAMP_SMOKE_RUNNER_BINARY ? runnerBinary : '/bin/sh',
+    process.env.CAMP_SMOKE_RUNNER_BINARY
+      ? ['runner', 'run', '--data-dir', runnerData]
+      : ['-c', `exec ${foregroundCommand}`],
+    {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { PATH: '/usr/bin:/bin', HOME: dir, LANG: 'C.UTF-8' },
+    },
+  );
   let runnerOutput = '';
   for (const stream of [runner.stdout, runner.stderr])
     stream.on('data', (chunk) => {
@@ -648,12 +667,13 @@ try {
   if (mac) {
     const service = async (action) =>
       command(
-        path.join(bundle, 'camp'),
+        runnerBinary,
         ['runner', 'service', action, '--data-dir', runnerData],
         { cwd, env: runnerEnv },
       );
     await service('install');
     macServiceInstalled = true;
+    const serviceStarted = performance.now();
     await service('start');
     await until(
       'Background Runner reconnect',
@@ -664,6 +684,7 @@ try {
             item.id === assigned.id && item.online && item.capabilities.ready,
         ),
     );
+    timings.serviceReadyMs = performance.now() - serviceStarted;
     await service('status');
     await service('stop');
     await until(
@@ -761,6 +782,12 @@ try {
         schema: 1,
         status: 'passed',
         mode,
+        entrypoint: process.env.CAMP_SMOKE_RUNNER_BINARY
+          ? 'provided-binary'
+          : 'runner-installer',
+        entrypointBinarySHA256: createHash('sha256')
+          .update(await readFile(runnerBinary))
+          .digest('hex'),
         version: release.version || 'dev',
         sourceCommit: release.sourceCommit || '',
         archiveSHA256: artifact.sha256,
@@ -775,6 +802,7 @@ try {
         completedAt: new Date().toISOString(),
         platform: process.platform,
         architecture: process.arch,
+        timings,
         model: {
           kind: 'deterministic-local-provider',
           requests: calls,
@@ -818,7 +846,7 @@ try {
   if (macServiceInstalled) {
     try {
       await command(
-        path.join(bundle, 'camp'),
+        runnerBinary,
         [
           'runner',
           'service',

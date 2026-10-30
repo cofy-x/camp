@@ -1,9 +1,9 @@
 import { join } from 'node:path';
 import { command, go } from './lib.mjs';
 
-// The original public release predates the root Go package. The current small
-// launcher can still verify/run its immutable standalone Server/Runner assets.
-export const upgradeBaseline = 'v0.1.0-alpha.1';
+// Qualify the latest public installation, including its retained Runner journal.
+// The current launcher verifies and runs the immutable baseline archives.
+export const upgradeBaseline = 'v0.1.0-alpha.2';
 
 export async function baselineLauncher(directory, role) {
   const binary = join(directory, 'baseline-camp');

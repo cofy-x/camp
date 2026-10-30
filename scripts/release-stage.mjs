@@ -20,6 +20,7 @@ assert.equal(upgrade.status, 'passed');
 assert.equal(upgrade.version, identity.version);
 assert.equal(upgrade.sourceCommit, identity.sourceCommit);
 assert.equal(upgrade.sourceModified, false);
+assert.equal(upgrade.fromVersion, upgradeBaseline);
 assert.equal(
   upgrade.binarySHA256,
   await hashFile(join(directory, 'camp-server-linux-amd64/camp')),

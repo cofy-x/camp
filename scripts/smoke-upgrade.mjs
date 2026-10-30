@@ -2,15 +2,11 @@ import assert from 'node:assert/strict';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { binary, command, root, scratch } from './lib.mjs';
-import { hashFile, releaseIdentity } from './release.mjs';
+import { hashFile, releaseIdentity, serverPlatforms } from './release.mjs';
 import { baselineLauncher, upgradeBaseline } from './upgrade.mjs';
 
-assert.equal(
-  process.platform,
-  'linux',
-  'The first public baseline only published Linux amd64.',
-);
-assert.equal(process.arch, 'x64');
+const platform = `${process.platform}-${process.arch === 'x64' ? 'amd64' : process.arch}`;
+assert.ok(serverPlatforms.includes(platform));
 const identity = await releaseIdentity();
 const directory = await scratch();
 try {
@@ -35,7 +31,7 @@ try {
     fromVersion: upgradeBaseline,
     binarySHA256: await hashFile(binary),
     completedAt: new Date().toISOString(),
-    platform: 'linux-amd64',
+    platform,
     checks: [
       'public-baseline-data',
       'authentication-session',

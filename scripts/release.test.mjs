@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:net';
@@ -7,7 +8,7 @@ import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { root } from './lib.mjs';
-import { homebrewFormula } from './homebrew.mjs';
+import { homebrewFormula, verifyPublishedFormula } from './homebrew.mjs';
 import {
   hashFile,
   mergeRunnerReleases,
@@ -16,6 +17,26 @@ import {
   validVersion,
   verifyRelease,
 } from './release.mjs';
+
+test('historical Homebrew formulas use their published bytes and unique checksum', () => {
+  const legacy =
+    'class Camp < Formula\n  # Previous release instructions\nend\n';
+  const checksum = `${createHash('sha256').update(legacy).digest('hex')}  camp.rb\n`;
+  verifyPublishedFormula(legacy, legacy, checksum);
+  assert.throws(() =>
+    verifyPublishedFormula(`${legacy}# changed\n`, legacy, checksum),
+  );
+  assert.throws(() =>
+    verifyPublishedFormula(legacy, `${legacy}# changed\n`, checksum),
+  );
+  assert.throws(() =>
+    verifyPublishedFormula(legacy, legacy, `${checksum}${checksum}`),
+  );
+  assert.throws(() => verifyPublishedFormula(legacy, legacy, ''));
+  assert.throws(() =>
+    verifyPublishedFormula(legacy, legacy, `${'0'.repeat(64)}  camp.rb\n`),
+  );
+});
 
 test('release CI resolves only an actual local Docker Unix socket', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'camp-docker-socket-'));
