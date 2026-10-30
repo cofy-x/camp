@@ -146,6 +146,13 @@ func claimRun(ctx context.Context, q *sqlgen.Queries, id string) (out Run, err e
 		} else if !errors.Is(e, sql.ErrNoRows) {
 			return e
 		}
+		first, e := q.FirstQueuedAgentRun(ctx, r.AgentID)
+		if e != nil {
+			return e
+		}
+		if first != r.ID {
+			return problem("run_busy", "This agent has earlier queued work.")
+		}
 		resource, e := q.GetResource(ctx, r.ResourceID)
 		if e != nil {
 			return e

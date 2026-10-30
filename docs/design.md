@@ -45,7 +45,7 @@ Preserve text selection, copy/paste, editing shortcuts and IME composition. Shad
 
 Adapt to application-window width through wrapping, stacking and scrolling. Narrow Settings/Agents/Runners replace sidebars with the shared pop-up. Narrow Workspace uses one Room identity/switcher with unread indicators and a separate action row. Long paths/titles wrap without widening the window. Narrow desktop mode keeps active-app identity and access to inactive windows.
 
-Mouse and touch use the same compact visual control dimensions. Control Strip transparent hit regions may expand independently; they must not cover a window. Keep safe-area handling, close/return/save actions and keyboard focus reachable. Avoid page-wide horizontal overflow. Wide document tables may have their own labelled, keyboard-accessible horizontal scroll region.
+Mouse and touch use the same compact visual control dimensions. Control Strip transparent hit regions may expand independently; they must not cover a window. Keep safe-area handling, close/return/save actions and keyboard focus reachable. Radio arrow keys move and select within the same native group, wrapping at both ends and skipping unavailable choices; Tab leaves the group. Avoid page-wide horizontal overflow. Wide document tables may have their own labelled, keyboard-accessible horizontal scroll region.
 
 ## Conversation and results
 
