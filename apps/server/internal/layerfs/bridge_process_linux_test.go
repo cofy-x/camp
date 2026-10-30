@@ -111,6 +111,21 @@ func TestBridgeDiesWithParentBeforeHomeCanBeReused(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	// A zombie cannot perform SDK work, but the kernel may still be completing
+	// deferred descriptor release. The inherited flock is the ownership
+	// authority; wait for it rather than inferring release from process state.
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		ownership, err := openBridgeLock(config.Home)
+		if err == nil {
+			_ = ownership.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the terminated SDK retained home ownership: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	other, err := OpenBridge(context.Background(), config)
 	if err != nil {
 		t.Fatalf("the terminated SDK retained home ownership: %v", err)

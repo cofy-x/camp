@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/Ephemeral-AI-Lab/layerfs.git",
-  "commit": "caebd268dc376865e964f33f78047f7918763190",
+  "commit": "35d36575c1eb4d23d4b54534a7030d855db890e7",
   "version": "1.1.0",
   "rust": "1.85.1",
   "node": "24.16.0",

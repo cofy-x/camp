@@ -10,4 +10,4 @@ ENV LD_LIBRARY_PATH=/usr/local/lib/camp
 ENV COREPACK_ENABLE_NETWORK=0
 RUN test "$(/usr/local/bin/node --version)" = "v24.16.0" && test "$(/usr/local/bin/pnpm --version)" = "12.11.2"
 RUN /usr/bin/setpriv --reuid=501 --regid=20 --clear-groups /usr/local/bin/node --check /opt/camp/layerfs/export.mjs
-LABEL camp.runtime="layerfs" camp.layerfs.commit="caebd268dc376865e964f33f78047f7918763190"
+LABEL camp.runtime="layerfs" camp.layerfs.commit="35d36575c1eb4d23d4b54534a7030d855db890e7"
