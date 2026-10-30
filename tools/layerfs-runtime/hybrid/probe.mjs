@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { createCipheriv } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import {

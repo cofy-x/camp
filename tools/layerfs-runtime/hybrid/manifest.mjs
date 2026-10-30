@@ -20,7 +20,12 @@ export async function manifest(directory, excludeNames = ['node_modules']) {
       if (++visited > 30000)
         throw new Error('Checkpoint exceeds its entry limit');
       const local = relative ? `${relative}/${name}` : name;
-      if (local.length > 1024 || /[\\\x00-\x1f]/u.test(local))
+      if (
+        local.length > 1024 ||
+        [...local].some(
+          (character) => character === '\\' || character.codePointAt(0) < 32,
+        )
+      )
         throw new Error('Unsupported checkpoint path');
       const folded = local.normalize('NFC').toLowerCase();
       if (spellings.has(folded) && spellings.get(folded) !== local)
