@@ -59,7 +59,32 @@ for (const platform of ['darwin-arm64', 'darwin-amd64']) {
 }
 acceptance.macServers = macReports;
 acceptance.macRunners = [];
+acceptance.macQualification = [];
 for (const host of ['macos-15', 'macos-26']) {
+  const boundary = JSON.parse(
+    await readFile(join(directory, `runner-boundary-${host}.json`), 'utf8'),
+  );
+  assert.equal(boundary.status, 'passed');
+  assert.equal(boundary.sourceCommit, identity.sourceCommit);
+  assert.equal(boundary.modified, false);
+  assert.equal(boundary.host.platform, 'darwin/arm64');
+  const checkpoints = JSON.parse(
+    await readFile(join(directory, `runner-checkpoint-${host}.json`), 'utf8'),
+  );
+  assert.equal(checkpoints.platform, 'darwin/arm64');
+  assert.equal(checkpoints.modelCalled, false);
+  assert.equal(checkpoints.linuxRequired, false);
+  assert.equal(checkpoints.observations.length, 9);
+  for (const workload of ['text', '10000-files', '128-MiB-binary'])
+    for (const iteration of [0, 1, 2]) {
+      const observation = checkpoints.observations.find(
+        (item) => item.workload === workload && item.iteration === iteration,
+      );
+      assert.ok(observation);
+      assert.ok(observation.prepareMs >= 0 && observation.captureMs >= 0);
+      assert.ok(observation.archiveBytes > 0 && observation.rssKiB > 0);
+    }
+  acceptance.macQualification.push({ host, boundary, checkpoints });
   for (const mode of ['online', 'offline', 'server-entrypoint']) {
     const report = JSON.parse(
       await readFile(

@@ -132,7 +132,18 @@ try {
       status: Action,
       seconds: Elapsed,
     }));
-  const required = ['TestApprovedMacGoToolchainBuildsAndRunsNativeMachO'];
+  const required = [
+    'TestApprovedMacGoToolchainBuildsAndRunsNativeMachO',
+    'TestApprovedMacToolchainFindsUsrBinTools',
+    'TestActualNativeReadWriteAndControlPorts',
+    'TestLaunchdCoalitionOwnsDetachedChildren',
+    'TestOwnedJobCleansAfterParentDeath',
+    'TestNativeCommandReadWriteNetworkAndReceipts',
+    'TestNativeNormalExitAndTimeoutRemoveDetachedWriters',
+    'TestNativeClientDeathCleansBeforeAnyRecoveryReceipt',
+    'TestNativeLockedPnpmInstallAndCacheWithoutAmbientConfiguration',
+    'TestNativeUnknownPreparationRetainsStagingAndNeverPublishesReady',
+  ];
   if (values.command) required.push('TestMacOperatorToolAcceptance');
   if (
     !failed &&

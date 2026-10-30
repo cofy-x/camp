@@ -63,9 +63,9 @@ func runRunnerWithInput(ctx context.Context, args []string, output io.Writer, in
   status --data-dir /private/camp-runner
   service <install|start|stop|status|enable-boot|disable-boot|remove> --data-dir /private/camp-runner
 
-Setup connects to Camp, installs its fixed runtime once, loads its execution image,
-and checks isolated execution without a model request. The offline package includes
-the same runtime. Existing verified runtime downloads are reused.
+Setup connects to Camp, installs its fixed runtime once, and checks isolated
+execution without a model request. Linux setup also prepares the execution image.
+The offline package includes the same runtime. Verified downloads are reused.
 Model settings stay on Camp Server. No separate DSH or LayerFS installation is needed.
 Scripts provide --server, --name, --data-dir and --code-file explicitly.
 Native Runner supports macOS 15+ on Apple Silicon with an unprivileged account,

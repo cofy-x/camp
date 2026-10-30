@@ -74,6 +74,7 @@ let calls = 0;
 let previousConfig;
 let previousImport;
 let previousJournal;
+const timings = {};
 
 async function until(label, read, accept) {
   const deadline = Date.now() + 180000;
@@ -299,6 +300,7 @@ try {
   const runnerEnv = { PATH: '/usr/bin:/bin', HOME: dir, LANG: 'C.UTF-8' };
 
   async function setupWith(executable, code, legacy = false) {
+    const started = performance.now();
     const source = legacy
       ? ['--runtime-source', 'github']
       : !publicDownload
@@ -319,7 +321,7 @@ try {
       setup.once('error', reject);
       setup.once('exit', resolve);
     });
-    return { output, exit };
+    return { output, exit, elapsedMs: performance.now() - started };
   }
 
   if (upgrading) {
@@ -392,10 +394,12 @@ try {
       .update(await readFile(path.join(runnerData, 'journal.sqlite')))
       .digest('hex');
   }
-  const { output: setupOutput, exit: setupCode } = await setupWith(
-    runnerBinary,
-    token,
-  );
+  const {
+    output: setupOutput,
+    exit: setupCode,
+    elapsedMs: setupMs,
+  } = await setupWith(runnerBinary, token);
+  timings.setupMs = setupMs;
   assert.equal(setupCode, 0, setupOutput);
   if (publicDownload && !offline && !upgrading)
     assert.ok(
@@ -463,6 +467,7 @@ try {
       path.join(bundle, release.runners[target].runtime.filename),
       path.join(bundle, `${release.runners[target].runtime.filename}.held`),
     );
+  const repeatSetupStarted = performance.now();
   await command(
     runnerBinary,
     [
@@ -477,6 +482,7 @@ try {
     ],
     { cwd, env: { PATH: '/usr/bin:/bin', HOME: dir, LANG: 'C.UTF-8' } },
   );
+  timings.repeatSetupMs = performance.now() - repeatSetupStarted;
   const repeatedConfig = JSON.parse(
     await readFile(path.join(runnerData, 'daemon.json'), 'utf8'),
   );
@@ -667,6 +673,7 @@ try {
       );
     await service('install');
     macServiceInstalled = true;
+    const serviceStarted = performance.now();
     await service('start');
     await until(
       'Background Runner reconnect',
@@ -677,6 +684,7 @@ try {
             item.id === assigned.id && item.online && item.capabilities.ready,
         ),
     );
+    timings.serviceReadyMs = performance.now() - serviceStarted;
     await service('status');
     await service('stop');
     await until(
@@ -794,6 +802,7 @@ try {
         completedAt: new Date().toISOString(),
         platform: process.platform,
         architecture: process.arch,
+        timings,
         model: {
           kind: 'deterministic-local-provider',
           requests: calls,

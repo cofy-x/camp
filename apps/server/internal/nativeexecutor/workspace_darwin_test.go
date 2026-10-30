@@ -275,6 +275,41 @@ func TestApprovedMacGoToolchainBuildsAndRunsNativeMachO(t *testing.T) {
 	}
 }
 
+func TestApprovedMacToolchainFindsUsrBinTools(t *testing.T) {
+	provider, ctx, root := nativeProvider(t)
+	toolRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := filepath.Join(toolRoot, "usr", "bin", "camp-native-sdk-tool")
+	if err := os.MkdirAll(filepath.Dir(tool), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\nprintf native-sdk > native-sdk.txt\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	provider.config.ToolRoots, err = ResolveToolRoots(root, []string{toolRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(root, "sdk-source")
+	if err := os.Mkdir(source, 0700); err != nil {
+		t.Fatal(err)
+	}
+	active, err := provider.Prepare(ctx, workspace.Spec{Source: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer active.Close(context.Background())
+	frame, err := active.Call(ctx, sandboxexec.Request{Operation: "command", Command: "camp-native-sdk-tool", TimeoutMS: 10000, MaxOutputBytes: 4096}, nil)
+	if err != nil || frame.Code != float64(0) || !frame.Clean {
+		t.Fatal("approved SDK usr/bin tool was not found", frame, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(active.Directory(), "native-sdk.txt")); err != nil || string(data) != "native-sdk" {
+		t.Fatal("approved SDK tool did not execute", err)
+	}
+}
+
 // Local acceptance uses fresh test storage, not an enrolled Runner. It retains
 // the production command PATH, sandbox, native owner and capture boundary.
 func TestMacOperatorToolAcceptance(t *testing.T) {

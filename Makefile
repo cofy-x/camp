@@ -36,7 +36,7 @@ install-layerfs:
 	node tools/layerfs-runtime/install.mjs
 
 build-sandbox:
-	CGO_ENABLED=0 $(GO) build -trimpath -o dist/camp-sandbox ./apps/server/cmd/camp-sandbox
+	CGO_ENABLED=0 $(GO) build -trimpath -buildvcs=false -o dist/camp-sandbox ./apps/server/cmd/camp-sandbox
 
 test-layerfs: build-sandbox
 	node --test tools/layerfs-runtime/test/*.test.mjs tools/dsh-runtime/camp-tools/*.test.mjs

@@ -40,6 +40,7 @@ await command(
   [
     'build',
     '-trimpath',
+    '-buildvcs=false',
     '-o',
     join(root, 'dist/camp-sandbox'),
     './apps/server/cmd/camp-sandbox',
