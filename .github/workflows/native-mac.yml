@@ -49,6 +49,9 @@ jobs:
           CAMP_TEST_MAC_NATIVE: '1'
           CAMP_MAC_HELPER: ${{ github.workspace }}/dist/native-mac/camp-sandbox
         run: go test -race -count=1 -timeout=180s -v ./apps/server/internal/nativejob
+      - name: Retain native sandbox denials on failure
+        if: failure()
+        run: sudo /usr/bin/log show --last 3m --style compact --predicate 'subsystem == "com.apple.sandbox.reporting"' > dist/native-mac/sandbox-denials.log
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

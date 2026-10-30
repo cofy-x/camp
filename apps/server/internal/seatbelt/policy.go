@@ -103,7 +103,11 @@ func Profile(policy Policy) (string, error) {
 	b.WriteString("(allow mach-lookup (global-name \"com.apple.system.logger\") (global-name \"com.apple.logd\"))\n")
 	add := func(operation string, roots []string) {
 		for _, root := range roots {
-			fmt.Fprintf(&b, "(allow %s (subpath %s))\n", operation, strconv.Quote(root))
+			filter := "literal"
+			if info, err := os.Stat(root); err == nil && info.IsDir() {
+				filter = "subpath"
+			}
+			fmt.Fprintf(&b, "(allow %s (%s %s))\n", operation, filter, strconv.Quote(root))
 		}
 	}
 	add("file-read*", read)
