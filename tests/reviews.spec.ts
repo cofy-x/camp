@@ -200,12 +200,56 @@ test('two people review, revise and deliver an exact document version', async ({
     );
     await expect(library(reviewer)).toContainText('Saved version · read only');
     await openReview(reviewer, title);
+    let announceSave!: () => void;
+    let releaseSave!: () => void;
+    let finishSave!: () => void;
+    const heldSave = new Promise<void>((resolve) => {
+      announceSave = resolve;
+    });
+    const releasedSave = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    const saved = new Promise<void>((resolve) => {
+      finishSave = resolve;
+    });
+    await reviewer.route('**/api/me/drafts/review', async (route) => {
+      if (route.request().method() !== 'PUT') return route.continue();
+      announceSave();
+      await releasedSave;
+      await route.continue();
+      await route.request().response();
+      finishSave();
+    });
     await detail(reviewer)
       .getByLabel('Review comment', { exact: true })
       .fill('Name the owner and the expected client outcome.');
     await detail(reviewer)
       .getByRole('button', { name: 'Open Document', exact: true })
       .click();
+    await heldSave;
+    // The operator selects Workspace while opening the document still waits
+    // for a private write. Its response must not replace this newer choice.
+    await openApp(reviewer, 'Workspace');
+    await expect(workspace(reviewer)).toHaveClass(/is-active/);
+    releaseSave();
+    await saved;
+    await reviewer.unroute('**/api/me/drafts/review');
+    await expect
+      .poll(
+        async () =>
+          (
+            await (
+              await reviewer.request.get(
+                `/api/me/drafts/review?key=${encodeURIComponent('decision:' + review.id)}`,
+              )
+            ).json()
+          ).draft.value?.comment,
+      )
+      .toBe('Name the owner and the expected client outcome.');
+    await reviewer.screenshot({
+      path: testInfo.outputPath('review-navigation-after-delayed-save.png'),
+    });
+    await expect(workspace(reviewer)).toHaveClass(/is-active/);
     await openReview(reviewer, title);
     await expect(
       detail(reviewer).getByLabel('Review comment', { exact: true }),
