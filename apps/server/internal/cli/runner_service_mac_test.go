@@ -94,3 +94,40 @@ func TestMacServiceRefusesUnmanagedOrLinkedFiles(t *testing.T) {
 		t.Fatal("accepted a linked service file")
 	}
 }
+
+func TestMacServiceFindsRunnerStartedBeforeGuiLogin(t *testing.T) {
+	directory := t.TempDir()
+	user := "user/501/" + macServiceLabel(directory)
+	active := map[string]bool{user: true}
+	var commands [][]string
+	manager := macRunnerService{domain: "gui/501", otherDomains: []string{"user/501"}, directory: directory, loginDirectory: t.TempDir(), loaded: func(_ context.Context, target string) bool { return active[target] }, command: func(_ context.Context, args ...string) error {
+		commands = append(commands, args)
+		if args[0] == "bootout" {
+			delete(active, args[1])
+		}
+		return nil
+	}}
+	data, err := macServicePlist("/Applications/Camp/camp", directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMacPlist(filepath.Join(directory, "service", macServiceLabel(directory)+".plist"), data); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"start", "status", "stop"} {
+		if err := manager.apply(context.Background(), action, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(commands) != 3 || commands[0][0] != "kickstart" || commands[1][0] != "print" || commands[2][0] != "bootout" {
+		t.Fatal("existing Runner was replaced across login domains", commands)
+	}
+	for _, command := range commands {
+		if command[1] != user {
+			t.Fatal("command targeted another login domain", command)
+		}
+	}
+	if len(active) != 0 {
+		t.Fatal("Runner from the prior login context survived stop")
+	}
+}

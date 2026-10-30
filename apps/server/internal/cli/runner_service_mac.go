@@ -23,8 +23,25 @@ const macServiceHeader = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- Manag
 
 type macRunnerService struct {
 	domain, directory, loginDirectory string
+	otherDomains                      []string
 	command                           func(context.Context, ...string) error
 	loaded                            func(context.Context, string) bool
+}
+
+func (s macRunnerService) loadedTargets(ctx context.Context) []string {
+	var targets []string
+	seen := map[string]bool{}
+	for _, domain := range append([]string{s.domain}, s.otherDomains...) {
+		if seen[domain] {
+			continue
+		}
+		seen[domain] = true
+		target := domain + "/" + macServiceLabel(s.directory)
+		if s.loaded(ctx, target) {
+			targets = append(targets, target)
+		}
+	}
+	return targets
 }
 
 func macServiceLabel(directory string) string {
@@ -112,8 +129,9 @@ func (s macRunnerService) apply(ctx context.Context, action, binary string) erro
 	target := s.domain + "/" + label
 	private := filepath.Join(s.directory, "service", label+".plist")
 	login := filepath.Join(s.loginDirectory, label+".plist")
+	loaded := s.loadedTargets(ctx)
 	if action == "install" {
-		if s.loaded(ctx, target) {
+		if len(loaded) > 0 {
 			return errors.New("Stop this Runner service before updating its installation")
 		}
 		data, err := macServicePlist(binary, s.directory)
@@ -139,15 +157,21 @@ func (s macRunnerService) apply(ctx context.Context, action, binary string) erro
 	}
 	switch action {
 	case "start":
-		if s.loaded(ctx, target) {
-			return s.command(ctx, "kickstart", target)
+		if len(loaded) > 1 {
+			return errors.New("This Runner is registered in multiple login domains; stop its service before starting it again")
+		}
+		if len(loaded) == 1 {
+			return s.command(ctx, "kickstart", loaded[0])
 		}
 		return s.command(ctx, "bootstrap", s.domain, private)
 	case "status":
+		if len(loaded) == 1 {
+			target = loaded[0]
+		}
 		return s.command(ctx, "print", target)
 	case "stop", "remove":
-		if s.loaded(ctx, target) {
-			if err := s.command(ctx, "bootout", target); err != nil {
+		for _, current := range loaded {
+			if err := s.command(ctx, "bootout", current); err != nil {
 				return err
 			}
 		}
@@ -264,7 +288,7 @@ func runMacRunnerService(ctx context.Context, args []string, output io.Writer) e
 		return exec.CommandContext(ctx, "/bin/launchctl", "print", target).Run() == nil
 	}
 	domain := macServiceDomain(ctx)
-	manager := macRunnerService{domain: domain, directory: directory, loginDirectory: filepath.Join(home, "Library", "LaunchAgents"), command: run, loaded: loaded}
+	manager := macRunnerService{domain: domain, otherDomains: []string{"gui/" + strconv.Itoa(os.Geteuid()), "user/" + strconv.Itoa(os.Geteuid())}, directory: directory, loginDirectory: filepath.Join(home, "Library", "LaunchAgents"), command: run, loaded: loaded}
 	if err := manager.apply(ctx, action, binary); err != nil {
 		return err
 	}
