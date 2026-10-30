@@ -50,7 +50,7 @@ export function GettingReady({
         }
       : runtime?.status !== 'ready' || !readiness?.ready
         ? {
-            title: 'Connect a Linux Runner',
+            title: 'Connect a Runner',
             detail:
               'Use an Ubuntu 24.04 amd64 machine for Agent work. Mac can run the Server.',
             action: 'Connect Runner…',

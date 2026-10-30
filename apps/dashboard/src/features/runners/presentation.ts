@@ -16,10 +16,18 @@ export function runnerStatus(runner: Runner) {
 export function runnerRuntime(runner: Runner) {
   if (!runner.runtime && !runner.capabilities.executor)
     return 'Awaiting capability report';
-  return runner.runtime === 'fixture' ||
+  if (
+    runner.runtime === 'fixture' ||
     runner.capabilities.executor === 'fixture'
-    ? 'Test executor'
-    : 'DSH + LayerFS';
+  )
+    return 'Test executor';
+  if (
+    runner.capabilities.workspace === 'native-local' &&
+    runner.capabilities.sandbox === 'seatbelt'
+  )
+    return 'Mac native';
+  if (runner.capabilities.workspace === 'layerfs') return 'Linux native';
+  return 'Native execution';
 }
 
 export function runnerQueueMessage(runner: Runner | undefined) {

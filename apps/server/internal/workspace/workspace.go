@@ -21,6 +21,12 @@ type Spec struct {
 	ReadOnly                                                   bool
 }
 
+// Facts describe the opened execution adapter, independently of readiness,
+// enrollment authority and historical task provenance.
+type Facts struct {
+	Workspace, Sandbox, Checkpoint, LayerFSVersion string
+}
+
 type Instance interface {
 	runnertools.Backend
 	// Directory is the model's path namespace, not permission to read host files.
@@ -30,6 +36,7 @@ type Instance interface {
 }
 
 type Provider interface {
+	Facts() Facts
 	Prepare(context.Context, Spec) (Instance, error)
 	SelfTest(context.Context) p.ReadinessReport
 	Fingerprint() string

@@ -40,6 +40,7 @@ func Open(ctx context.Context, config Config) (*Executor, error) {
 	return &Executor{config: config, backend: backend}, nil
 }
 func (e *Executor) Fingerprint() string                            { return e.backend.Fingerprint() }
+func (e *Executor) Facts() workspace.Facts                         { return e.backend.Facts() }
 func (e *Executor) Close() error                                   { return e.backend.Close() }
 func (e *Executor) SelfTest(ctx context.Context) p.ReadinessReport { return e.backend.SelfTest(ctx) }
 func (e *Executor) Ready() error {

@@ -257,7 +257,7 @@ test('Getting Ready guides model, Runner and task setup without starting work', 
   ).toBeVisible();
   stage = 'runner';
   await selectPanel(page, 'readiness', 'Getting Ready');
-  await expect(next.getByRole('heading')).toHaveText('Connect a Linux Runner');
+  await expect(next.getByRole('heading')).toHaveText('Connect a Runner');
   await next
     .getByRole('button', { name: 'Connect Runner…', exact: true })
     .click();

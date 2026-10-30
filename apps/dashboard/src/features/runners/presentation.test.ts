@@ -64,6 +64,38 @@ describe('remote execution facts', () => {
     ).toBe('Access revoked');
     expect(runnerQueueMessage(undefined)).toContain('Choose a Runner');
   });
+  it('uses adapter facts instead of a machine name or assumed LayerFS version', () => {
+    const native: Runner = {
+      ...runner,
+      runtime: 'native',
+      capabilities: {
+        executor: 'native',
+        ready: true,
+        layerfsVersion: 'legacy',
+      },
+    };
+    expect(runnerRuntime(native)).toBe('Native execution');
+    expect(
+      runnerRuntime({
+        ...native,
+        capabilities: {
+          ...native.capabilities,
+          workspace: 'native-local',
+          sandbox: 'seatbelt',
+        },
+      }),
+    ).toBe('Mac native');
+    expect(
+      runnerRuntime({
+        ...native,
+        capabilities: {
+          ...native.capabilities,
+          workspace: 'layerfs',
+          sandbox: 'linux-container',
+        },
+      }),
+    ).toBe('Linux native');
+  });
 });
 
 describe('import response ordering', () => {

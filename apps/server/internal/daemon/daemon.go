@@ -227,13 +227,14 @@ func (d *Daemon) capabilities() p.Capabilities {
 	failure := d.failure
 	d.mu.Unlock()
 	c := p.Capabilities{Readiness: d.readiness, Executor: d.config.Executor, Ready: failure == nil, Slots: d.config.Slots, Fingerprint: fmt.Sprintf("camp-remote-v%d:%s:%s:%s", p.Version, runtime.GOOS, runtime.GOARCH, d.config.Executor)}
-	if d.config.Executor == "native" {
+	c.Platform = runtime.GOOS + "/" + runtime.GOARCH
+	if d.config.Executor == "native" && d.native != nil {
+		facts := d.native.Facts()
+		c.Workspace, c.Sandbox, c.Checkpoint = facts.Workspace, facts.Sandbox, facts.Checkpoint
 		c.DSHVersion = "0.2.1-rc.3"
-		c.LayerFSVersion = "1.1.0"
+		c.LayerFSVersion = facts.LayerFSVersion
 		c.Fingerprint += ":" + c.DSHVersion + ":" + c.LayerFSVersion
-		if d.native != nil {
-			c.Fingerprint += ":" + d.native.Fingerprint()
-		}
+		c.Fingerprint += ":" + d.native.Fingerprint()
 	}
 	if failure != nil {
 		c.Reason = "Execution unavailable: " + failure.Error()

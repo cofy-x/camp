@@ -43,6 +43,48 @@ export function RunnerDiagnostics({ runner }: { runner: Runner }) {
       <dl className="camp-runner-facts">
         <dt>Runtime</dt>
         <dd>{runnerRuntime(runner)}</dd>
+        {runner.capabilities.platform && (
+          <>
+            <dt>Platform</dt>
+            <dd>{runner.capabilities.platform}</dd>
+          </>
+        )}
+        {runner.capabilities.workspace && (
+          <>
+            <dt>Workspace</dt>
+            <dd>
+              {runner.capabilities.workspace === 'native-local'
+                ? 'Native local directory'
+                : runner.capabilities.workspace === 'layerfs'
+                  ? 'LayerFS'
+                  : runner.capabilities.workspace}
+            </dd>
+          </>
+        )}
+        {runner.capabilities.sandbox && (
+          <>
+            <dt>Isolation</dt>
+            <dd>
+              {runner.capabilities.sandbox === 'seatbelt'
+                ? 'Seatbelt'
+                : runner.capabilities.sandbox === 'linux-container'
+                  ? 'Linux container'
+                  : runner.capabilities.sandbox}
+            </dd>
+          </>
+        )}
+        {runner.capabilities.checkpoint && (
+          <>
+            <dt>Checkpoint</dt>
+            <dd>
+              {runner.capabilities.checkpoint === 'local-capture'
+                ? 'Sealed local capture'
+                : runner.capabilities.checkpoint === 'layerfs'
+                  ? 'LayerFS'
+                  : runner.capabilities.checkpoint}
+            </dd>
+          </>
+        )}
         <dt>Execution slots</dt>
         <dd>{runner.capabilities.slots ?? runner.slots ?? 'Not reported'}</dd>
         <dt>Last connected</dt>
@@ -57,12 +99,14 @@ export function RunnerDiagnostics({ runner }: { runner: Runner }) {
             <dd>{runner.capabilities.dshVersion}</dd>
           </>
         )}
-        {runner.capabilities.layerfsVersion && (
-          <>
-            <dt>LayerFS</dt>
-            <dd>{runner.capabilities.layerfsVersion}</dd>
-          </>
-        )}
+        {(runner.capabilities.workspace === 'layerfs' ||
+          runner.capabilities.checkpoint === 'layerfs') &&
+          runner.capabilities.layerfsVersion && (
+            <>
+              <dt>LayerFS</dt>
+              <dd>{runner.capabilities.layerfsVersion}</dd>
+            </>
+          )}
       </dl>
       {readiness && (
         <section className="camp-runner-section" aria-label="Execution checks">

@@ -411,8 +411,8 @@ export function RunnersPanel({ desktop }: { desktop: DesktopAPI }) {
                   <PixelIcon name="computer" size={48} />
                   <h2>Your machines, ready for teamwork</h2>
                   <p>
-                    Connect a Linux machine to execute Agent work for your
-                    Rooms.
+                    Connect a supported Mac or Linux machine to execute Agent
+                    work for your Rooms.
                   </p>
                 </>
               )}

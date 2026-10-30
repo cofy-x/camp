@@ -189,7 +189,8 @@
   flex-direction: column;
   gap: 6px;
 }
-.camp-runner-connect input {
+.camp-runner-connect input,
+.camp-runner-connect .p9-select {
   width: 100%;
   max-width: 320px;
 }
