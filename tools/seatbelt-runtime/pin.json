@@ -1,0 +1,7 @@
+{
+  "repository": "https://github.com/anthropics/sandbox-runtime.git",
+  "referenceCommit": "98a4016d27609ed34dd1fb43d23ed6efb6eeeb77",
+  "package": "@anthropic-ai/sandbox-runtime",
+  "version": "0.0.81",
+  "integrity": "sha512-bjHDu87gjIR7+Oxy9jPiK3v8CvSELCzfpXa3fjqfSKdvlZET2iF51xcXILWPayTpowB3xtZeQVf2JR916nVW/w=="
+}
