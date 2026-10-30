@@ -57,6 +57,10 @@ func TestNativeExecutorTLSIsolationAndResume(t *testing.T) {
 		if number >= 3 {
 			resumed.Store(strings.Contains(string(body), "native-runner-memory-token"))
 		}
+		if number == 3 && !strings.Contains(string(body), "Finish collaboration with the Camp tool") {
+			content = map[string]any{"type": "tool_use", "id": "resume-write", "name": "bash", "input": map[string]string{"description": "Use the current resumed workspace", "command": "test -f result.txt && test -f brief.txt && printf resumed > resumed.txt"}}
+			stop = "tool_use"
+		}
 		if strings.Contains(string(body), "Finish collaboration with the Camp tool") {
 			if !strings.Contains(string(body), "camp_finish") {
 				t.Error("Collaboration tool schema is missing")
@@ -150,6 +154,19 @@ func TestNativeExecutorTLSIsolationAndResume(t *testing.T) {
 	second := run("second", true)
 	if second.Status != "succeeded" || !second.SessionResumable || !resumed.Load() {
 		t.Fatalf("resume: %+v; native context=%v", second, resumed.Load())
+	}
+	resumedArchive, err := os.Open(second.ArchivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumedDirectory := filepath.Join(data, "verified-resume")
+	err = resources.ExtractArchive(ctx, resumedArchive, resumedDirectory)
+	_ = resumedArchive.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(resumedDirectory, "resumed.txt")); err != nil || string(data) != "resumed" {
+		t.Fatal("resumed tools did not use the current workspace", err)
 	}
 	before := calls.Load()
 	third := run("coordination", true)
