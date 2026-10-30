@@ -130,9 +130,11 @@ An operator can add `--source notes=/absolute/notes` during initial setup. Repea
 
 ## Data, upgrades and backup
 
-Release acceptance pins `v0.1.0-alpha.2` as the public upgrade baseline. `node scripts/smoke-upgrade.mjs` creates actual baseline Server data, then starts the current Server against it and verifies authentication/session, discussion, exact versioned file bytes, private drafts and history. This Linux check needs Git, Go and public GitHub access and performs no model call.
+Release acceptance pins `v0.1.0-alpha.2` as the public upgrade baseline. `node scripts/smoke-upgrade.mjs` creates actual baseline Server data, then starts the current Server against it and verifies authentication/session, discussion, exact versioned file bytes, private drafts and history. This check supports Linux amd64 and both Mac Server architectures, needs Git, Go and public GitHub access, and performs no model call. Mac package verification also upgrades that baseline's data using the same immutable Server archives before publication.
 
 On the supported privileged native host, `node scripts/smoke-bundle.mjs upgrade` first installs/runs the baseline Runner and completes a model-free source import. Explicit current-version setup must preserve the identity, credential, storage/registration IDs and exact stopped journal bytes; the upgraded Runner then completes native work, checks, human approval/delivery and backup/restore. The current runtime uses the staged Server mirror before publication. Public verification repeats this as `github-upgrade` using the newly published runtime. Both scenarios use a deterministic provider and record only sanitized evidence. They establish the named baseline, not arbitrary historical upgrades or real-provider success.
+
+The named Runner upgrade targets Linux: `alpha.2` has no Mac Runner. Mac qualification instead checks repeated setup, foreground/background lifecycle and stopped backup/restore without replacing identity. Server data upgrades and Runner installation compatibility remain distinct guarantees.
 
 Gracefully stop Server, then back up its **whole** data directory with permissions: SQLite, Git resources, private configuration and immutable model revisions belong together. Separately stop/back up each Runner's configuration, journal and native sessions when those must be retained. Backups contain credentials. LayerFS Stores are disposable and cannot replace the Git/SQLite backup.
 

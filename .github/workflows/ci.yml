@@ -175,6 +175,7 @@ jobs:
         run: |
           go test -race ./internal/launcher
           make build smoke-production
+          node scripts/smoke-upgrade.mjs
       - name: Check discussion and versioned files in Mac WebKit
         run: >-
           make test-e2e E2E_INSTALL_ARGS=webkit

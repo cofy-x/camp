@@ -12,6 +12,7 @@ import {
 } from './release.mjs';
 
 import { homebrewFormula } from './homebrew.mjs';
+import { upgradeBaseline } from './upgrade.mjs';
 
 const execute = promisify(execFile);
 assert.equal(
@@ -55,6 +56,7 @@ for (const platform of ['darwin-arm64', 'darwin-amd64']) {
   assert.equal(report.version, identity.version);
   assert.equal(report.sourceCommit, identity.sourceCommit);
   assert.equal(report.archiveSHA256, server.servers[platform].sha256);
+  assert.equal(report.upgrade?.fromVersion, upgradeBaseline);
   macReports.push(report);
 }
 acceptance.macServers = macReports;
