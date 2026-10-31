@@ -8,6 +8,7 @@ import {
   mkdtemp,
   mkdir,
   readdir,
+  realpath,
   rename,
   rm,
   writeFile,
@@ -43,9 +44,18 @@ const offline = mode.endsWith('offline');
 const upgrading = mode === 'upgrade' || mode === 'github-upgrade';
 const mac = process.platform === 'darwin' && process.arch === 'arm64';
 const target = mac ? 'darwin-arm64' : 'linux-amd64';
+const checkpointWorker =
+  process.env.CAMP_TEST_WORKSPACE_BACKEND === 'layerfs-worker';
+assert.ok(
+  !checkpointWorker || mac,
+  'The native checkpoint worker fixture requires an ARM64 Mac.',
+);
 if (upgrading && mac)
   throw new Error('The public upgrade baseline has no Mac Runner.');
-const reportFile = path.join(root, `dist/smoke-${mode}.json`);
+const reportFile = path.join(
+  root,
+  `dist/smoke-${checkpointWorker ? 'layerfs-worker-' : ''}${mode}.json`,
+);
 await rm(reportFile, { force: true });
 const release = JSON.parse(
   await readFile(path.join(root, 'dist/runner-release.json'), 'utf8'),
@@ -74,6 +84,7 @@ let calls = 0;
 let previousConfig;
 let previousImport;
 let previousJournal;
+let passed = false;
 const timings = {};
 
 async function until(label, read, accept) {
@@ -295,18 +306,32 @@ try {
     '-',
     '--docker-socket',
     process.env.CAMP_TEST_DOCKER_SOCKET || '/var/run/docker.sock',
+    ...(checkpointWorker
+      ? [
+          '--workspace-backend',
+          'layerfs-worker',
+          '--docker-binary',
+          process.env.CAMP_TEST_DOCKER_BINARY || '/usr/local/bin/docker',
+          ...(process.env.CAMP_TEST_WORKER_IMAGE
+            ? [
+                '--worker-image',
+                path.resolve(process.env.CAMP_TEST_WORKER_IMAGE),
+              ]
+            : []),
+        ]
+      : []),
     ...(upgrading ? ['--source', `upgrade-notes=${sourceDirectory}`] : []),
   ];
   const runnerEnv = { PATH: '/usr/bin:/bin', HOME: dir, LANG: 'C.UTF-8' };
 
-  async function setupWith(executable, code, legacy = false) {
+  async function setupWith(executable, code, legacy = false, extra = []) {
     const started = performance.now();
     const source = legacy
       ? ['--runtime-source', 'github']
       : !publicDownload
         ? ['--runtime-source', 'server']
         : [];
-    const setup = spawn(executable, [...setupArgs, ...source], {
+    const setup = spawn(executable, [...setupArgs, ...source, ...extra], {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: runnerEnv,
@@ -662,8 +687,44 @@ try {
     action: 'deliver',
   }));
   assert.equal(review.status, 'delivered');
-  await stop(runner);
+  if (checkpointWorker) {
+    const ended = new Promise((resolve) => runner.once('close', resolve));
+    runner.kill('SIGKILL');
+    await ended;
+    timings.runnerRestartKind =
+      'actual packaged Runner SIGKILL after confirmed result; uncertain coordinator/worker faults qualified separately';
+  } else await stop(runner);
   runner = undefined;
+  if (checkpointWorker) {
+    const journal = await readFile(path.join(runnerData, 'journal.sqlite'));
+    for (const backend of ['native-local', 'layerfs-worker']) {
+      const switched = await setupWith(runnerBinary, '', false, [
+        '--workspace-backend',
+        backend,
+      ]);
+      assert.equal(switched.exit, 0, switched.output);
+      const current = JSON.parse(
+        await readFile(path.join(runnerData, 'daemon.json'), 'utf8'),
+      );
+      for (const field of [
+        'runnerId',
+        'storageId',
+        'registrationId',
+        'credential',
+      ])
+        assert.equal(current[field], savedConfig[field]);
+      assert.deepEqual(
+        await readFile(path.join(runnerData, 'journal.sqlite')),
+        journal,
+        'Stopped backend selection changed the durable journal',
+      );
+    }
+    assert.equal(
+      calls,
+      2,
+      'Stopped backend selection replayed a model request',
+    );
+  }
   if (mac) {
     const service = async (action) =>
       command(
@@ -712,6 +773,120 @@ try {
       (await readFile(path.join(runnerData, 'journal.sqlite'))).length > 0,
     );
     assert.equal(calls, 2, 'Service restart replayed a model request');
+  }
+  if (checkpointWorker) {
+    const restoredRunner = path.join(dir, "Relocated Runner's stopped backup");
+    const backing = performance.now();
+    await cp(runnerData, restoredRunner, { recursive: true });
+    assert.deepEqual(
+      await readFile(path.join(restoredRunner, 'daemon.json')),
+      await readFile(path.join(runnerData, 'daemon.json')),
+    );
+    assert.deepEqual(
+      await readFile(path.join(restoredRunner, 'journal.sqlite')),
+      await readFile(path.join(runnerData, 'journal.sqlite')),
+    );
+    const checkpoint = async (action, extra = []) => {
+      const command = spawn(
+        runnerBinary,
+        [
+          'runner',
+          'checkpoint',
+          action,
+          '--data-dir',
+          restoredRunner,
+          ...extra,
+        ],
+        { cwd, env: runnerEnv, stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      let output = '',
+        diagnostic = '';
+      command.stdout.on('data', (chunk) => {
+        output += chunk;
+      });
+      command.stderr.on('data', (chunk) => {
+        diagnostic = `${diagnostic}${chunk}`.slice(-8192);
+      });
+      const exit = await new Promise((resolve, reject) => {
+        command.once('error', reject);
+        command.once('close', resolve);
+      });
+      assert.equal(exit, 0, diagnostic);
+      return JSON.parse(output);
+    };
+    const retained = await checkpoint('status');
+    assert.equal(
+      retained.workerObserved,
+      false,
+      'Metadata status fabricated live readiness',
+    );
+    let resultOperation;
+    const restoredRoot = await realpath(restoredRunner);
+    for (const operation of retained.operations) {
+      assert.ok(operation.captureRoot.startsWith(`${restoredRoot}/`));
+      const manifest = JSON.parse(
+        await readFile(
+          path.join(operation.captureRoot, 'manifest.json'),
+          'utf8',
+        ),
+      );
+      if (manifest.entries.some((entry) => entry.path === 'greet.mjs'))
+        resultOperation = operation.operationId;
+    }
+    assert.ok(
+      resultOperation,
+      'Stopped backup lost the complete native result capture',
+    );
+    const destination = path.join(restoredRunner, 'explicit-restores');
+    await mkdir(destination, { mode: 0o700 });
+    for (const fromNative of [true, false]) {
+      const restored = await checkpoint('restore', [
+        '--operation',
+        resultOperation,
+        '--parent',
+        destination,
+        ...(fromNative ? ['--from-native'] : []),
+      ]);
+      assert.deepEqual(
+        await readFile(path.join(restored.root, 'asset.bin')),
+        Buffer.from([0, 1, 255, 128]),
+      );
+      assert.equal(restored.published, false);
+      if (fromNative) assert.equal(restored.currentWorkerVerified, false);
+    }
+    timings.runnerBackupAndCompleteRestoreMs = performance.now() - backing;
+    runner = spawn(
+      runnerBinary,
+      ['runner', 'run', '--data-dir', restoredRunner],
+      { cwd, env: runnerEnv, stdio: ['ignore', 'ignore', 'pipe'] },
+    );
+    runner.stderr.resume();
+    await until(
+      'Runner reconnect from stopped relocated backup',
+      () => api('/api/runners'),
+      ({ runners }) =>
+        runners.some(
+          (item) =>
+            item.id === assigned.id && item.online && item.capabilities.ready,
+        ),
+    );
+    await stop(runner);
+    runner = undefined;
+    const copiedConfig = JSON.parse(
+      await readFile(path.join(restoredRunner, 'daemon.json'), 'utf8'),
+    );
+    for (const field of [
+      'runnerId',
+      'storageId',
+      'registrationId',
+      'credential',
+    ])
+      assert.equal(copiedConfig[field], savedConfig[field]);
+    assert.equal(
+      calls,
+      2,
+      'Restoring the stopped Runner backup replayed a model request',
+    );
   }
   await stop(child);
   child = undefined;
@@ -782,6 +957,12 @@ try {
         schema: 1,
         status: 'passed',
         mode,
+        workspaceBackend: checkpointWorker
+          ? 'layerfs-worker'
+          : mac
+            ? 'native-local'
+            : 'layerfs',
+        ...(checkpointWorker ? { retainedFixtureDirectory: dir } : {}),
         entrypoint: process.env.CAMP_SMOKE_RUNNER_BINARY
           ? 'provided-binary'
           : 'runner-installer',
@@ -822,6 +1003,15 @@ try {
           'stopped-backup-and-restore',
           'cleanup',
           ...(mac ? ['launchd-background-lifecycle'] : []),
+          ...(checkpointWorker
+            ? [
+                'actual-runner-kill-and-restart',
+                'stopped-backend-switch-preserves-identity-and-journal',
+                'stopped-runner-backup-relocation',
+                'complete-capture-native-and-worker-restore',
+                'runner-backup-reconnect-without-model-replay',
+              ]
+            : []),
           ...(upgrading
             ? [
                 'cross-version-runner-upgrade',
@@ -842,6 +1032,7 @@ try {
       2,
     )}\n`,
   );
+  passed = true;
 } finally {
   if (macServiceInstalled) {
     try {
@@ -868,6 +1059,8 @@ try {
     console.error(
       `Service cleanup failed; retained installation and Runner data at ${dir}`,
     );
+  else if (checkpointWorker || !passed)
+    console.log(`Retained private hybrid installation fixture: ${dir}`);
   else await rm(dir, { recursive: true, force: true });
 }
 if (serviceCleanupError)

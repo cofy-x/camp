@@ -119,6 +119,8 @@ async function measured(meta, action) {
     throw error;
   } finally {
     meta.elapsedMs = performance.now() - start - (meta.samplingBeforeMs ?? 0);
+    if (meta.sharedSealMs !== undefined)
+      meta.includingSharedSealMs = meta.elapsedMs + meta.sharedSealMs;
     if (beforeCpu) meta.macCPU = difference(beforeCpu, process.resourceUsage());
     meta.macMaxRSSKiB = process.resourceUsage().maxRSS;
     meta.macMemoryBytes = process.memoryUsage();
@@ -343,8 +345,8 @@ try {
     ['dependencies-links', 6, 128],
   ]) {
     if (process.argv.includes('smoke') && workload !== 'text') continue;
-    const prep = performance.now(),
-      source = await makeFixture(workload, files, bytes);
+    const prep = performance.now();
+    let source = await makeFixture(workload, files, bytes);
     report.observations.push({
       workload,
       phase: 'synthetic-fixture-generation',
@@ -356,41 +358,71 @@ try {
       .digest('hex');
     let lastStream,
       branch = 'main',
-      previous;
+      previous,
+      initialCapture;
+    const disabled = new Set();
     for (const phase of ['full', 'hot', 'incremental', 'unchanged']) {
-      if (phase === 'incremental') await delta(source);
-      // A frozen, private copy for the production Go baseline; materialization
-      // is explicitly measured here, separate from all three checkpoint arms.
-      const frozen = await captureTree(
-        source,
-        path.join(root, 'baseline-inputs'),
+      if (phase === 'incremental') {
+        const preparing = performance.now();
+        const input = await restoreTree(
+          initialCapture,
+          path.join(root, 'delta-sources'),
+        );
+        source = input.root;
+        await delta(source);
+        report.fixtureMaterializations ??= [];
+        report.fixtureMaterializations.push({
+          workload,
+          elapsedMs: performance.now() - preparing,
+          metrics: input.metrics,
+          scope:
+            'retained full and delta inputs for identical Go baseline; separate from checkpoint arms',
+        });
+      }
+      // One actual seal supplies the identical immutable capture to each arm.
+      // Report its CPU/IO independently and add its wall time explicitly to
+      // each end-to-end cost; never infer a separate unmeasured seal sample.
+      const frozen = await measured(
+        { workload, phase, arm: 'native-sealing' },
+        () => captureTree(source, path.join(root, 'shared-captures')),
       );
-      const input = await restoreTree(
-        frozen,
-        path.join(root, 'baseline-sources'),
-      );
+      if (phase === 'full') initialCapture = frozen;
       report.nativeFixtures.push({
         workload,
         iteration,
         phase,
-        source: input.root,
+        source,
         digest: frozen.digest,
         inputCaptureMetrics: frozen.metrics,
-        inputRestoreMetrics: input.metrics,
       });
       const order =
         iteration % 2
           ? ['native-local-full-tree', 'streamed', 'upstream']
           : ['upstream', 'streamed', 'native-local-full-tree'];
       for (const arm of order) {
+        if (disabled.has(arm)) {
+          report.observations.push({
+            workload,
+            phase,
+            arm,
+            error: {
+              code: 'UncertainPriorPhase',
+              message:
+                'Prior failed outcome retained; no operation is blindly replayed.',
+            },
+          });
+          continue;
+        }
         await measured(
-          { workload, phase, arm, expectedDigest: frozen.digest },
+          {
+            workload,
+            phase,
+            arm,
+            expectedDigest: frozen.digest,
+            sharedSealMs: frozen.metrics.scanMs,
+          },
           async () => {
-            const capture = await captureTree(
-              source,
-              path.join(root, `${arm}-captures`),
-            );
-            assert.equal(capture.digest, frozen.digest);
+            const capture = frozen;
             if (arm === 'native-local-full-tree')
               return {
                 capture: capture.metrics,
@@ -453,7 +485,7 @@ try {
               note: 'fs.apply performs the atomic apply and Commit; independent remount uses the same trusted helper and Docker transport as the streamed arm.',
             };
           },
-        ).catch(() => {});
+        ).catch(() => disabled.add(arm));
       }
     }
     if (lastStream) {
@@ -494,10 +526,17 @@ try {
             return { branch: fork, readback };
           },
         ).catch(() => {});
+      } else {
+        for (const phase of ['restore', 'fork'])
+          await measured({ workload, arm: 'upstream', phase }, async () => ({
+            status: 'unsupported',
+            reason:
+              'No complete dependency/link checkpoint is representable through public fs.apply.',
+          }));
       }
     }
   }
-  const expected = process.argv.includes('smoke') ? 19 : 74;
+  const expected = process.argv.includes('smoke') ? 23 : 92;
   report.expectedObservations = expected;
   report.passed =
     report.observations.length === expected &&

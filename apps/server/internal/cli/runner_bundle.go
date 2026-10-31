@@ -150,8 +150,12 @@ func verifyRunnerBundle(directory string) (bundleManifest, error) {
 		requiredFiles = append(requiredFiles, "images/layerfs.tar", "runtime/layerfs-runtime/installed.json")
 	} else {
 		requiredFiles = append(requiredFiles, "runtime/project-runtime/package.json")
+		if manifest.CheckpointWorker.Image != "" {
+			requiredFiles = append(requiredFiles, "runtime/layerfs-worker/installed.json", "runtime/layerfs-worker/pin.json", "runtime/layerfs-worker/client.mjs", "runtime/layerfs-worker/bridge.mjs", "runtime/layerfs-worker/manage.mjs", "runtime/layerfs-runtime/pin.json")
+		}
 		for name := range manifest.Files {
-			if strings.HasPrefix(name, "images/") || strings.HasPrefix(name, "runtime/layerfs-runtime/") {
+			optionalSourcePin := name == "runtime/layerfs-runtime/pin.json" && manifest.CheckpointWorker.Image != ""
+			if strings.HasPrefix(name, "images/") || strings.HasPrefix(name, "runtime/layerfs-runtime/") && !optionalSourcePin {
 				return manifest, errors.New("The Mac native runtime must not include a Linux execution backend")
 			}
 		}

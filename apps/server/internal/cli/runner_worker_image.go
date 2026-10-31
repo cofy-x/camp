@@ -67,7 +67,7 @@ func loadCheckpointImage(ctx context.Context, data, archive, docker, socket stri
 		}
 		return nil
 	}
-	if err := inspect(); err == nil {
+	if err := inspect(); err == nil && archive == "" {
 		return nil
 	}
 	if archive == "" {

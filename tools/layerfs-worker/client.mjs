@@ -81,6 +81,7 @@ export class WorkerClient {
       const result = spawnSync(dockerBinary, args, {
         env: environment,
         encoding: 'utf8',
+        maxBuffer: 96 << 20,
       });
       if (result.error || result.status !== 0)
         throw failure(

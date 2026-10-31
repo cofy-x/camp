@@ -31,6 +31,10 @@ if (!linux && !mac)
 const target = linux ? 'linux-amd64' : 'darwin-arm64';
 const runtimePlatform = `${process.platform}/${process.arch}`;
 const prebuild = `${process.platform}-${process.arch}`;
+if (process.argv.slice(2).some((arg) => arg !== '--checkpoint-worker'))
+  throw new Error(
+    'Usage: node scripts/package-runner.mjs [--checkpoint-worker]',
+  );
 if (process.versions.node !== '24.16.0') throw new Error('Use Node 24.16.0.');
 const destination = path.join(root, `dist/camp-runtime-${target}`);
 const staging = `${destination}.staging`;
@@ -99,6 +103,61 @@ try {
       );
   }
   let linuxMetadata = {};
+  if (mac && process.argv.includes('--checkpoint-worker')) {
+    const worker = path.join(root, 'tools/layerfs-worker');
+    const installed = JSON.parse(
+      await readFile(path.join(worker, 'installed.json'), 'utf8'),
+    );
+    const descriptor = JSON.parse(
+      await readFile(
+        path.join(root, 'dist/checkpoint-worker-release.json'),
+        'utf8',
+      ),
+    );
+    if (
+      descriptor.image !== installed.image ||
+      descriptor.sourceCommit !== installed.commit ||
+      descriptor.platform !== 'linux/arm64' ||
+      (await hash(path.join(root, 'dist', descriptor.artifact.filename))) !==
+        descriptor.artifact.sha256
+    )
+      throw new Error(
+        'Package the matching fixed optional ARM64 worker artifact first.',
+      );
+    for (const name of [
+      'bridge.mjs',
+      'client.mjs',
+      'checkpoint.mjs',
+      'home.mjs',
+      'administration.mjs',
+      'manage.mjs',
+      'contracts.mjs',
+      'tree.mjs',
+      'transfer.mjs',
+      'protocol.mjs',
+      'state.mjs',
+      'pin.json',
+      'README.md',
+    ])
+      await copy(path.join(worker, name), `runtime/layerfs-worker/${name}`);
+    const publicInstallation = { ...installed };
+    delete publicInstallation.buildContext;
+    await json('runtime/layerfs-worker/installed.json', publicInstallation);
+    await copy(
+      path.join(root, 'tools/layerfs-runtime/pin.json'),
+      'runtime/layerfs-runtime/pin.json',
+    );
+    linuxMetadata = {
+      checkpointWorker: {
+        version: descriptor.version,
+        commit: descriptor.sourceCommit,
+        image: descriptor.image,
+        filename: descriptor.artifact.filename,
+        archiveSHA256: descriptor.artifact.sha256,
+        archiveBytes: descriptor.artifact.bytes,
+      },
+    };
+  }
   if (linux) {
     const layer = path.join(root, 'tools/layerfs-runtime');
     const installed = JSON.parse(

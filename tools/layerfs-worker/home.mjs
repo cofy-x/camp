@@ -1,7 +1,7 @@
 import { mkdir, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { WorkerClient } from './client.mjs';
-import { MacCheckpoints } from './checkpoint.mjs';
+import { MacCheckpoints, resolveCapture } from './checkpoint.mjs';
 import { uuidPattern } from './contracts.mjs';
 import { failure, readState } from './state.mjs';
 
@@ -45,6 +45,7 @@ export async function openHome(config) {
   }
   const checkpoints = new MacCheckpoints({
     root: path.join(selected.root, 'checkpoints'),
+    captureBase: config.home,
     worker,
     runnerId: config.runnerId,
     storageId: config.storageId,
@@ -73,7 +74,7 @@ export async function findOperation(home, operationId) {
     const record = await readState(
       path.join(root, 'checkpoints', 'operations', `${operationId}.json`),
     );
-    if (record) return { root, record };
+    if (record) return { root, record: resolveCapture(record, home) };
   }
   throw failure(
     'NotFound',

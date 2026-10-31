@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import {
   chmod,
+  cp,
   link,
   lstat,
   mkdir,
@@ -14,7 +15,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { MacCheckpoints } from '../checkpoint.mjs';
+import { MacCheckpoints, resolveCapture } from '../checkpoint.mjs';
 import { saveState } from '../state.mjs';
 import { captureTree } from '../tree.mjs';
 
@@ -53,6 +54,7 @@ async function fixture(t) {
     state: 'confirmed',
     binding,
     captureRoot: capture.root,
+    captureRelative: path.relative(root, capture.root),
   });
   await saveState(manager.namespaceFile(binding.workspaceId), {
     storeId: binding.storeId,
@@ -62,6 +64,39 @@ async function fixture(t) {
   });
   return { manager, binding, capture, source };
 }
+
+test('a stopped private backup resolves captures under its new home and rejects escaping references', async (t) => {
+  const { manager, binding, capture } = await fixture(t);
+  const moved = await mkdtemp(
+    path.join(os.tmpdir(), 'camp-relocated-capture-'),
+  );
+  t.after(() => rm(moved, { recursive: true, force: true }));
+  await cp(manager.captureBase, moved, { recursive: true });
+  await rm(capture.root, { recursive: true });
+  const restored = new MacCheckpoints({
+    root: path.join(moved, 'checkpoints'),
+    worker: manager.worker,
+    runnerId: 'runner',
+    storageId: 'storage',
+  });
+  const retained = await restored.retained(binding.operationId);
+  assert.equal(retained.digest, capture.digest);
+  assert.ok(retained.root.startsWith(`${moved}/`));
+  const view = await restored.publication(binding.operationId, [
+    'node_modules',
+  ]);
+  assert.equal(
+    await readFile(path.join(view.directory, 'result'), 'utf8'),
+    'frozen result',
+  );
+  assert.throws(
+    () => resolveCapture({ captureRelative: '../other/capture' }, moved),
+    { code: 'Unauthorized' },
+  );
+  assert.throws(() => resolveCapture({ captureRoot: capture.root }, moved), {
+    code: 'RelocatedLegacyCapture',
+  });
+});
 
 test('publication derives frozen regular bytes, retains the full checkpoint and flattens hardlink aliases', async (t) => {
   const { manager, binding, capture, source } = await fixture(t);

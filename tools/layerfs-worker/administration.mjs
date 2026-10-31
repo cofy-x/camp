@@ -3,7 +3,7 @@ import { lstat, mkdir, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { WorkerClient } from './client.mjs';
-import { MacCheckpoints } from './checkpoint.mjs';
+import { MacCheckpoints, resolveCapture } from './checkpoint.mjs';
 import { findOperation, selectedEpoch } from './home.mjs';
 import { uuidPattern } from './contracts.mjs';
 import { failure, readState, saveState } from './state.mjs';
@@ -77,7 +77,7 @@ export async function administer(config) {
             path.join(root, 'checkpoints', 'operations', name),
           );
           operations.push({
-            ...describe(record),
+            ...describe(resolveCapture(record, home)),
             selectedEpoch: root === selected.root,
           });
         }
@@ -167,6 +167,7 @@ export async function administer(config) {
       });
       const checkpoints = new MacCheckpoints({
         root: path.join(epochRoot, 'checkpoints'),
+        captureBase: home,
         worker,
         runnerId: config.runnerId,
         storageId: config.storageId,
@@ -252,6 +253,7 @@ export async function administer(config) {
   try {
     const checkpoints = new MacCheckpoints({
       root: path.join(root, 'checkpoints'),
+      captureBase: home,
       worker,
       runnerId: config.runnerId,
       storageId: config.storageId,
@@ -335,6 +337,7 @@ async function observeReconstruction(config, home) {
   try {
     const manager = new MacCheckpoints({
       root: path.join(root, 'checkpoints'),
+      captureBase: home,
       worker,
       runnerId: config.runnerId,
       storageId: config.storageId,

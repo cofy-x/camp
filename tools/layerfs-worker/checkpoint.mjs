@@ -11,13 +11,52 @@ import {
 } from './tree.mjs';
 import { checkpointPattern, validateBinding } from './contracts.mjs';
 
+export function resolveCapture(record, base) {
+  if (!record) return record;
+  if (record.captureRelative !== undefined) {
+    const name = record.captureRelative;
+    if (
+      typeof name !== 'string' ||
+      !name ||
+      path.isAbsolute(name) ||
+      name.includes('\\') ||
+      name.includes('\0') ||
+      name.split('/').some((part) => !part || part === '.' || part === '..')
+    )
+      throw failure(
+        'Unauthorized',
+        'The retained capture reference escapes its owning home.',
+      );
+    return { ...record, captureRoot: path.join(base, name) };
+  }
+  const relative = path.relative(base, record.captureRoot);
+  if (
+    !relative ||
+    relative === '..' ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  )
+    throw failure(
+      'RelocatedLegacyCapture',
+      'An absolute-only capture receipt is retained for explicit inspection; its relocated path is not guessed.',
+    );
+  return record;
+}
+
 export class MacCheckpoints {
-  constructor({ root, worker, runnerId, storageId }) {
+  constructor({
+    root,
+    worker,
+    runnerId,
+    storageId,
+    captureBase = path.dirname(path.resolve(root)),
+  }) {
     Object.assign(this, {
       root: path.resolve(root),
       worker,
       runnerId,
       storageId,
+      captureBase: path.resolve(captureBase),
     });
   }
   namespaceFile(id) {
@@ -35,6 +74,12 @@ export class MacCheckpoints {
         'Invalid native checkpoint operation identity.',
       );
     return path.join(this.root, 'operations', `${id}.json`);
+  }
+  async operation(id) {
+    return resolveCapture(
+      await readState(this.operationFile(id)),
+      this.captureBase,
+    );
   }
   async checkpoint(
     directory,
@@ -96,11 +141,13 @@ export class MacCheckpoints {
       binding: frozenBinding,
       kind: recoveryFrom ? 'reconstruction' : 'capture',
       captureRoot: capture.root,
+      captureRelative: path.relative(this.captureBase, capture.root),
       state: 'sealed',
       captureMetrics: capture.metrics,
       workerImage: this.worker.installed.image,
       durableDelivery: false,
     };
+    resolveCapture(record, this.captureBase);
     const namespace = {
       schema: 1,
       storeId: binding.storeId,
@@ -185,7 +232,7 @@ export class MacCheckpoints {
     return record;
   }
   async observe(operationId) {
-    const record = await readState(this.operationFile(operationId));
+    const record = await this.operation(operationId);
     if (!record)
       throw failure('NotFound', 'The native checkpoint intent is unavailable.');
     const namespace = await readState(
@@ -249,14 +296,14 @@ export class MacCheckpoints {
     return { ...restored, transfer: capture.metrics };
   }
   async retained(operationId) {
-    const record = await readState(this.operationFile(operationId));
+    const record = await this.operation(operationId);
     if (!record)
       throw failure('NotFound', 'The native checkpoint intent is unavailable.');
     return loadCapture(record.captureRoot);
   }
   async publication(operationId, excluded = []) {
     excluded ??= [];
-    const record = await readState(this.operationFile(operationId));
+    const record = await this.operation(operationId);
     if (record?.state !== 'confirmed')
       throw failure(
         'Unknown',
@@ -348,7 +395,7 @@ export class MacCheckpoints {
     };
   }
   async fork(sourceOperation, workspaceId, attemptId) {
-    const source = await readState(this.operationFile(sourceOperation));
+    const source = await this.operation(sourceOperation);
     if (
       source?.state !== 'confirmed' ||
       source.binding.storeId !== this.worker.status.storeId
@@ -379,6 +426,9 @@ export class MacCheckpoints {
       sourceOperation,
       binding,
       captureRoot: source.captureRoot,
+      captureRelative:
+        source.captureRelative ??
+        path.relative(this.captureBase, source.captureRoot),
       state: 'fork-dispatched',
       workerImage: this.worker.installed.image,
       durableDelivery: false,

@@ -178,6 +178,41 @@ try {
   report.checks.push(
     'Historical generation restore and a public SDK Branch fork retain the original full tree; historical receipts cannot become the current publication view.',
   );
+  const empty = path.join(root, 'empty-source');
+  await mkdir(empty, { mode: 0o700 });
+  const emptyNamespace = createHash('sha256')
+    .update('controlled-empty-worktree')
+    .digest('hex');
+  const emptyInitial = await checkpoints.checkpoint(
+    empty,
+    emptyNamespace,
+    'empty-initial',
+    { quiescent: true },
+  );
+  const emptyRestore = await checkpoints.restore(
+    emptyInitial.binding.operationId,
+    path.join(root, 'empty-restores'),
+  );
+  assert.equal(
+    (await scanTree(emptyRestore.root)).digest,
+    emptyInitial.binding.digest,
+  );
+  await writeFile(path.join(empty, 'temporary'), 'delete all members');
+  await checkpoints.checkpoint(empty, emptyNamespace, 'before-empty', {
+    quiescent: true,
+  });
+  await rm(path.join(empty, 'temporary'));
+  const emptyAgain = await checkpoints.checkpoint(
+    empty,
+    emptyNamespace,
+    'delete-to-empty',
+    { quiescent: true },
+  );
+  assert.equal(emptyAgain.binding.digest, emptyInitial.binding.digest);
+  report.emptyTree = { initial: emptyInitial, deleted: emptyAgain };
+  report.checks.push(
+    'A fresh empty base (including a nullable public head) and deletion to an empty worktree remain independently restorable without invented Commit IDs.',
+  );
   report.passed = true;
 } catch (error) {
   report.error = {
