@@ -1,45 +1,26 @@
 # Camp
 
-Camp is a trusted team's Agent workspace with a Platinum browser desktop. One Server owns team discussion and versioned files; independent Linux and Mac ARM64 Runners execute Agent work. Members use shared Agents from a browser. A project import or programming language manifest is not required to discuss or draft a document.
+Camp is a self-hosted workspace for trusted teams and AI agents, with a Platinum-style browser desktop. One Server stores the team's conversations and files; members join in a browser, and connected Runners execute Agent work.
 
-Start development at [AGENTS.md](AGENTS.md). The long-term contracts are [architecture](docs/architecture.md), [API](docs/api.md), [design](docs/design.md), [execution](docs/dsh.md) and [installation](docs/install.md).
+- Discuss work in Rooms and Threads.
+- Give Agents tasks or collaborate with multiple Agents, with explicit access and execution limits.
+- Keep original sources, versioned shared files and private editing drafts.
+- Review work with people and deliver an exact saved version.
 
-Camp is under active development. See [installation](docs/install.md#supported-deployment) for supported deployments, [contributing](CONTRIBUTING.md) for issues and pull requests, and [security](SECURITY.md) for vulnerability reporting.
+Camp is in alpha and under active development.
 
-## Team workflow
+## Get started
 
-The five applications support **collect sources → Room discussion → Agent execution or collaboration → read results → human review → versioned delivery**:
-
-| Application | Responsibility |
-| --- | --- |
-| Workspace | Rooms, Threads, explicit Agent requests, collaborations and results |
-| Library | Immutable originals, shared working files, private text drafts and history |
-| Agents | Identities, responsibilities, file access, Runner targets and Room sharing |
-| Runners | Owned/shared machines, connection, execution readiness and grants |
-| Settings | Team, invitations, model configuration, storage and appearance |
-
-1. Discuss in a Room. Ordinary messages start no work; select an Agent or mention its handle for one execution. **Post only** suppresses Agent execution.
-2. Attach files or select Library sources. Uploading saves originals; **Add to Message** prepares an unsent, version-pinned reference. PDF/DOCX text prepares without a model call; unavailable text retains the original download. See [file and document contracts](docs/api.md#uploads-and-documents).
-3. Send explicitly, then read the result and exact saved files in the conversation. Check status describes configured commands, not business acceptance. **Ask agent…** prepares a cited follow-up that still needs a recipient and Send.
-4. Open a shared file in Library and **Request Review…** from a human. Requested changes, resubmission, approval and delivery use the same review Thread. Editing autosaves privately; **Publish Changes** creates a shared version.
-5. Deliver the approved current version explicitly. Delivered bytes remain pinned after later edits. History and restore preserve earlier versions.
-
-**Start collaboration** separately authorizes a goal, participants and a finite execution allowance. Agents can hand off, ask a person and finish. They work in a separate draft; final publication compares the starting shared version. Conflicts retain the draft and require explicit continuation. Work continues after closing the browser and remains separate from human review.
-
-All Rooms, shared files and collaboration task drafts are team-visible. Task drafts remain separate from shared Room files until final publication. Personal editing drafts, Inbox, reads and desktop layouts belong to each member. Agent sharing delegates invocation; machine administration and source import still require owner/admin authority.
-
-## Start using Camp
-
-Team members use Camp in a browser. An administrator deploys Camp Server; members who contribute execution machines install the matching Camp Runner. Using Camp does not require the source development toolchain or separate DSH/LayerFS installations.
-
-Choose a fixed version from [GitHub Releases](https://github.com/cofy-x/camp/releases) and follow that version's [installation guide](docs/install.md):
+With Go and Git installed:
 
 ```sh
 go install github.com/cofy-x/camp@v0.1.0-alpha.3
 camp
 ```
 
-On Mac, Homebrew installs the complete Server and Git without requiring Go:
+Ensure Go's binary installation directory is on PATH. The CLI downloads and verifies the matching complete Server on first use; no source checkout or Node setup is required.
+
+On macOS, Homebrew installs the Server and Git:
 
 ```sh
 brew tap cofy-x/camp https://github.com/cofy-x/camp
@@ -47,74 +28,28 @@ brew install cofy-x/camp/camp
 camp
 ```
 
-1. Open the printed browser address to create the team and configure a model. The **Server archives** and matching **GHCR image** are alternatives to Go/Homebrew installation.
-2. In **Runners → Connect Runner**, obtain the separate **Runner installer** and a one-use connection code. The machine operator runs `setup`, then `run`; an offline package is also available.
-3. Configure Agent access and Runner routing, then explicitly send a first task. Registration and self-test success do not establish real model success.
+Open the printed browser address and create your team using the token from the private file named in the terminal.
 
-`camp doctor` checks local Server prerequisites without changing data; `camp open` opens its browser address (`--print` prints it on a headless host). Startup prints the address and private setup-token file location. An administrator can use **Set Up Agent Work…** in an empty Room or **Help → Getting Ready** for the next setup action, then explicitly run the sample task from Runners. Teammates joining an existing Server only need its browser address and invitation.
+To enable Agent work, configure a model in Settings and follow **Runners → Connect Runner**; `camp runner setup` walks the machine operator through connection. Teammates only need the browser address and an invitation.
 
-Check [supported Runner hosts and prerequisites](docs/install.md#supported-deployment) before connecting a machine. Server and Runner remain independent processes even on one host. For local protocol and recovery development with two simulated machines, use the [Docker Compose harness](tools/remote-dev/README.md).
+See the [installation guide](docs/install.md) for standalone archives, Docker deployment, Runner prerequisites, upgrades and backup. Choose a fixed version from [Releases](https://github.com/cofy-x/camp/releases).
 
-The Go entrypoint downloads and verifies the full fixed-version product on first use; no Node/pnpm or source checkout is required. Put Go's binary installation directory on PATH. See [Go installation](docs/install.md#go-installation) for cache/recovery behavior and [Homebrew installation](docs/install.md#homebrew-installation) for the maintained tap. Native Agent work uses a supported Runner: Linux with LayerFS or Mac ARM64 with a native workspace and Seatbelt. Mac Runner packages are included from alpha.3; earlier releases contain only Linux Runner assets.
+## Platforms
 
-## Local development
+| Component | Supported hosts                             |
+| --------- | ------------------------------------------- |
+| Server    | Linux amd64; macOS Apple Silicon and Intel  |
+| Runner    | Ubuntu 24.04 amd64; macOS 15+ Apple Silicon |
 
-Use Go **1.27.3**, Node **24.16.0** and pnpm **12.11.2**, as pinned in [go.mod](go.mod), [.node-version](.node-version) and [package.json](package.json). Run commands from this repository root. The Makefile invokes fixed pnpm via `npx`.
+Mac Runners use native tools, Seatbelt and a local workspace. Linux Runners use LayerFS. The [deployment guide](docs/install.md#supported-deployment) lists host requirements and platform-specific capabilities.
 
-```sh
-git clone https://github.com/cofy-x/camp.git
-cd camp
-make install
-DATA_DIR="$PWD/.data/dev" make dev
-```
+## Documentation and contributing
 
-Open `http://127.0.0.1:5173`. Vite proxies `/api` to Go on `127.0.0.1:3001`; restart development after Go changes. `PORT`, `WEB_PORT` and `DATA_DIR` select independent listeners and storage. Always set a project-owned development data directory; the bare CLI otherwise defaults to the OS user configuration directory.
+- [Team workflow](docs/workflow.md) — discussion, files, Agent work, collaboration and human review.
+- [Contributing](CONTRIBUTING.md) — local development, builds, checks and pull requests.
+- [Security](SECURITY.md) — trust boundaries and vulnerability reporting.
 
-First startup writes `team-setup.token` inside that data directory. Enter it privately in the setup screen, create the administrator and configure Settings. Keep private model values in the ignored root `.env` with mode 600, using [.env.example](.env.example) as the key reference. See [configuration and budgets](docs/dsh.md#configuration-and-budgets).
-
-The Server requires Git for file storage. Discussion and plain-text file work need no model or native execution runtime. Optional PDF reading uses the [document runtime](tools/document-runtime/README.md). Agent execution requires a registered Runner; follow [source Runner setup](docs/dsh.md#source-runner-setup) or use the [packaged installer](docs/install.md). No service starts automatically.
-
-## Build
-
-```sh
-make build
-./dist/camp serve --addr 127.0.0.1:3001 --data-dir "$PWD/.data/dev"
-```
-
-The executable embeds Web/API; development and ordinary Go tests do not need generated frontend assets. [GitHub Releases](https://github.com/cofy-x/camp/releases) distribute fixed Server/Runner packages, checksums and acceptance evidence; [GHCR](https://github.com/cofy-x/camp/pkgs/container/camp) distributes the matching Server image. Choose an explicit version and follow [installation](docs/install.md), or see [release building](docs/install.md#build-and-publish-a-release). Browser host Terminal and executable site previews are disabled.
-
-## Checks and maintenance
-
-Choose checks for the affected contract. These commands describe available checks, not a record of a completed run.
-
-On Linux, ordinary Go tests require Bubblewrap (`bwrap`) on PATH to validate execution command construction. Install it through the host package manager before running those tests. Native integration cases have additional prerequisites and remain opt-in.
-
-| Command | Scope and prerequisites |
-| --- | --- |
-| `make test-go-race` | SQL generation consistency and Go tests with race detection; opt-in native cases can skip |
-| `make typecheck lint format-check` | TypeScript, ESLint, Go vet/gofmt and Prettier |
-| `make check-docs` | Local Markdown links/heading anchors and documented toolchain/runtime versions against their pins; no network requests |
-| `make test` | Documentation consistency, SQL generation, ordinary Go tests, script and frontend unit tests |
-| `make test-e2e` | Production-built UI with temporary keyless data; Chromium by default |
-| `make build smoke-production` | Embedded production binary, API/authentication and restart smoke |
-| `node scripts/smoke-upgrade.mjs` | Linux public-baseline Server data upgrade; Go/Git and GitHub access, no model call |
-| `make test-layerfs test-dsh test-project-env` | Opt-in native checks; install fixed runtimes and Linux host prerequisites first |
-| `make test-remote` | Two fixture Runners over TLS/Compose; Docker required |
-| `make test-remote-native` | Actual remote DSH/LayerFS path; Linux native prerequisites |
-| `make package-daemon smoke-bundle` | Relocated online/offline Runner acceptance; installed release runtimes and native host required |
-
-For the four-project browser matrix:
-
-```sh
-npx --yes pnpm@12.11.2 exec playwright install chromium firefox webkit
-make test-e2e E2E_ARGS="--project=chromium --project=firefox --project=webkit --project=touch"
-```
-
-`E2E_PORT` overrides the test listener (default 13009); the runner refuses an occupied port. Reports and screenshots remain ignored; failed CI browser jobs attach reports, screenshots and traces to their workflow run. See [remote validation](tools/remote-dev/README.md) and the [UI review checklist](docs/design.md#review-checklist) for their distinct scopes. Native skips are not passes. Real-provider checks require an explicit allowance and are described in [execution](docs/dsh.md#real-provider-verification).
-
-SQL migrations and named queries live in `apps/server/internal/storage`. After changing them, run `make generate` and `make generate-check`; maintain generated Go output with those inputs. Use `make format` or `make lint-fix-format` for formatting and safe lint fixes. Never reset existing data to repair a migration.
-
-`make check-docs` includes new, unignored Markdown files before staging. It checks local links and headings, current guides' explicit Go/Node/pnpm/DSH/PDF.js version labels, `pnpm@...` commands and matching toolchain declarations in manifests. Historical decision records under `docs/decisions/` receive link checks only. External URLs, runtime behavior and unlabelled version numbers need separate review. Keep formal verification results with [release evidence](docs/install.md#release-evidence).
+Bug reports and focused proposals are welcome in [Issues](https://github.com/cofy-x/camp/issues). Coding agents should also read [AGENTS.md](AGENTS.md).
 
 ## License
 

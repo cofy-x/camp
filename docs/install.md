@@ -24,7 +24,7 @@ Early releases use numbered `alpha`, `beta` and `rc` versions. Alpha/beta versio
 
 ### Go installation
 
-Starting with `v0.1.0-alpha.2`, install the root entrypoint using the [pinned Go toolchain](../README.md#local-development):
+Starting with `v0.1.0-alpha.2`, install the root entrypoint using the [pinned Go toolchain](../CONTRIBUTING.md#development):
 
 ```sh
 go install github.com/cofy-x/camp@v0.1.0-alpha.3
@@ -165,7 +165,7 @@ gh workflow run release.yml --repo cofy-x/camp --ref your-branch \
   -f version=v0.1.0-alpha.1 -f validate-only=true
 ```
 
-For a local rehearsal, release builders use the [repository toolchain](../README.md#local-development) and an isolated clean checkout on the supported privileged host:
+For a local rehearsal, release builders use the [repository toolchain](../CONTRIBUTING.md#development) and an isolated clean checkout on the supported privileged host:
 
 ```sh
 make install install-dsh install-project-runtime install-layerfs
@@ -202,7 +202,7 @@ Published Servers advertise fixed GitHub downloads without a local package direc
 
 Default installer metadata requires its runtime also staged at the declared size. Offline availability is independent. Installer/offline downloads use browser authentication; exact runtime downloads use enabled Runner credentials and reject browser cookies. Host/TLS policy, Range handling and idle transfer bounds apply.
 
-`make smoke-bundle` tests the explicit Server mirror and offline paths. `node scripts/smoke-bundle.mjs github` and `github-offline` require published assets and test public distribution without Server staging. All modes relocate the installation, remove host Node from the Runner PATH, test repeat setup, native execution, configured checks, binary transfer, one publication, human approval/delivery, stopped backup/restore and cleanup with a deterministic provider. Local execution alone does not establish fresh-host portability or real-provider behavior. Use the [validation layers](../README.md#checks-and-maintenance) and report which actually ran; Mac package acceptance also installs, starts, inspects, stops and removes its own launchd job, checking identity/journal retention and no model replay after reconnection. Login startup remains separate and untested by that harness. Linux systemd unit tests use a controlled substitute.
+`make smoke-bundle` tests the explicit Server mirror and offline paths. `node scripts/smoke-bundle.mjs github` and `github-offline` require published assets and test public distribution without Server staging. All modes relocate the installation, remove host Node from the Runner PATH, test repeat setup, native execution, configured checks, binary transfer, one publication, human approval/delivery, stopped backup/restore and cleanup with a deterministic provider. Local execution alone does not establish fresh-host portability or real-provider behavior. Use the [validation layers](../CONTRIBUTING.md#checks) and report which actually ran; Mac package acceptance also installs, starts, inspects, stops and removes its own launchd job, checking identity/journal retention and no model replay after reconnection. Login startup remains separate and untested by that harness. Linux systemd unit tests use a controlled substitute.
 
 ## Release evidence
 

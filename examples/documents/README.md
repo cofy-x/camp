@@ -1,6 +1,6 @@
 # Document review example
 
-These small files contain synthetic business information, not customer data. Use the [team workflow](../../README.md#team-workflow) and [document preparation](../../tools/document-runtime/README.md) to inspect them. Regenerate byte-identical fixtures with the repository's pinned Node:
+These small files contain synthetic business information, not customer data. Use the [team workflow](../../docs/workflow.md) and [document preparation](../../tools/document-runtime/README.md) to inspect them. Regenerate byte-identical fixtures with the repository's pinned Node:
 
 ```sh
 node examples/documents/generate.mjs
