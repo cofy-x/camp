@@ -8,7 +8,9 @@ import (
 )
 
 // SelectedDockerClient resolves an operator's administrative executable once.
-// Persist its canonical path during setup so launchd does not use shell PATH.
+// Persist its absolute invocation path so launchd does not use shell PATH.
+// Preserve the symlink spelling: OrbStack's Docker entry is a multicall binary
+// whose dispatch depends on argv[0], so executing its resolved target is wrong.
 func SelectedDockerClient(selected string) (string, error) {
 	if selected == "" {
 		selected = "docker"
@@ -16,10 +18,6 @@ func SelectedDockerClient(selected string) (string, error) {
 		return "", errors.New("Choose an absolute Docker executable")
 	}
 	name, err := exec.LookPath(selected)
-	if err != nil {
-		return "", err
-	}
-	name, err = filepath.EvalSymlinks(name)
 	if err != nil {
 		return "", err
 	}
