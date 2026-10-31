@@ -32,7 +32,13 @@ The executable embeds Web/API; development and ordinary Go tests do not need gen
 
 ## Checks
 
-Choose checks for the affected contract. Documentation-only changes need `make check-docs`, formatting checks on the changed Markdown and a diff review against the referenced implementation. These commands describe available checks, not a record of a completed run.
+[The change policy](scripts/change-policy.mjs) classifies actual Git base/head changes, including deletions and both rename paths. CI loads the policy from the trusted base; missing policy, mixed/unknown paths and workflow/policy changes select complete validation. README changes inside runtime/code directories remain documentation. `AGENTS.md` and process-rule edits require review of behavioral effects in addition to automated checks.
+
+Locally, run affected checks first. Documentation needs `make check-docs`, changed-Markdown formatting and content review against its owning implementation. Workflow-policy changes need classifier/gate tests and pinned actionlint; workspace orchestration changes need tests on affected hosts. Use an enclosing workspace's automatic planning/check command when available. These commands describe checks, not completed evidence.
+
+Branch pushes preserve identity, cleanliness, fixed target/branch and fast-forward history; full dual-host regression is not a push gate. Merge CI always resolves protected **Source**, **Browser** and **Fixture** checks, with explicit scope-based skips inside the graph. Uncertain classification fails closed or selects complete checks; cancelled/skipped required work never counts as successful validation. Main protection remains enabled. Formal releases run complete Linux and portable Mac source regression, browser/fixture checks and [native/package/public acceptance](docs/releasing.md), even after documentation-only main CI.
+
+Reuse local results only for identical actual inputs, tool versions and validation scope; record base, commit/tree, executed/skipped checks and any original reused receipt. Relevant validator/tool changes invalidate affected results. CI owns PR/main integration, and release owns complete distribution acceptance.
 
 On Linux, ordinary Go tests require Bubblewrap (`bwrap`) on PATH to validate execution command construction. Install it through the host package manager before running those tests. Native integration cases have additional prerequisites and remain opt-in.
 

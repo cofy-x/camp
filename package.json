@@ -12,7 +12,7 @@
     "dev": "node scripts/dev.mjs",
     "build": "pnpm --filter ./apps/dashboard build",
     "build:production": "node scripts/build.mjs",
-    "test": "pnpm run check:docs && node --test scripts/runtime.test.mjs scripts/check-docs.test.mjs scripts/release.test.mjs scripts/worker-release.test.mjs tools/layerfs-runtime/test/*.test.mjs tools/layerfs-worker/test/*.test.mjs && vitest run",
+    "test": "pnpm run check:docs && node --test scripts/runtime.test.mjs scripts/check-docs.test.mjs scripts/change-policy.test.mjs scripts/ci-policy.test.mjs scripts/release.test.mjs scripts/worker-release.test.mjs tools/layerfs-runtime/test/*.test.mjs tools/layerfs-worker/test/*.test.mjs && vitest run",
     "check:docs": "node scripts/check-docs.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",

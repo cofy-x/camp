@@ -46,9 +46,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release-preflight.mjs
 
+  core_validation:
+    name: Complete release regression
+    needs: preflight
+    uses: ./.github/workflows/ci.yml
+    with:
+      validation-stage: release
+
   checkpoint_worker_build:
     name: Build native ARM64 checkpoint worker
-    needs: preflight
+    needs: [preflight, core_validation]
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 40
     steps:

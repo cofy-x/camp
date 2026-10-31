@@ -1,10 +1,7 @@
 name: LayerFS checkpoint qualification
 
 on:
-  pull_request:
-    paths:
-      - 'tools/layerfs-runtime/hybrid/**'
-      - '.github/workflows/checkpoint-proof.yml'
+  workflow_call:
   workflow_dispatch:
 
 permissions:
