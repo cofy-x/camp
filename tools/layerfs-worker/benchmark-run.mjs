@@ -293,16 +293,25 @@ async function upstreamRestore(branch, capture) {
       ],
       { env: upstream.dockerEnvironment, stdio: ['ignore', 'pipe', 'pipe'] },
     );
-    child.stderr.resume();
+    let diagnostic = '';
+    child.stderr.on('data', (chunk) => {
+      diagnostic = `${diagnostic}${chunk}`.slice(-8192);
+    });
     const end = new Promise((resolve) => child.once('close', resolve));
     const destination = path.join(
       root,
       `upstream-export-${report.observations.length}`,
     );
     await mkdir(destination, { mode: 0o700 });
-    const returned = await receiveCapture(child.stdout, destination, {
-      digest: capture.digest,
-    });
+    let returned;
+    try {
+      returned = await receiveCapture(child.stdout, destination, {
+        digest: capture.digest,
+      });
+    } catch (error) {
+      error.message = `${error.message}; export exit ${await end}; ${diagnostic}`;
+      throw error;
+    }
     assert.equal(await end, 0);
     return { root: destination, ...returned };
   });

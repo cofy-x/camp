@@ -17,6 +17,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { command, go, root } from './lib.mjs';
 import { collectLicenses } from './licenses.mjs';
+import { verifyWorkerArtifact } from './worker-release.mjs';
 import {
   archiveTree,
   releaseIdentity,
@@ -108,11 +109,9 @@ try {
     const installed = JSON.parse(
       await readFile(path.join(worker, 'installed.json'), 'utf8'),
     );
-    const descriptor = JSON.parse(
-      await readFile(
-        path.join(root, 'dist/checkpoint-worker-release.json'),
-        'utf8',
-      ),
+    const descriptor = await verifyWorkerArtifact(
+      path.join(root, 'dist'),
+      identity.published ? identity.sourceCommit : undefined,
     );
     if (
       descriptor.image !== installed.image ||

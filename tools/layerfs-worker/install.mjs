@@ -17,18 +17,37 @@ const layerfs = JSON.parse(
 );
 const pin = JSON.parse(await readFile(path.join(root, 'pin.json'), 'utf8'));
 const args = process.argv.slice(2);
-if (args.length !== 2 || args[0] !== '--source')
+if (args.length !== 0 && (args.length !== 2 || args[0] !== '--source'))
   throw new Error(
-    'Usage: node install.mjs --source /path/to/read-only/layerfs',
+    'Usage: node install.mjs [--source /path/to/read-only/layerfs]',
   );
 if (process.arch !== 'arm64' || process.version !== `v${layerfs.node}`)
   throw new Error(`An ARM64 host and Node ${layerfs.node} are required.`);
+const engine = spawnSync('docker', ['info', '--format', '{{.Architecture}}'], {
+  encoding: 'utf8',
+});
+if (engine.status !== 0 || !['aarch64', 'arm64'].includes(engine.stdout.trim()))
+  throw new Error(
+    'Build on an actual native ARM64 Linux engine; emulation is unsupported.',
+  );
 const cache = path.join(root, 'node_modules/.camp-worker');
 await mkdir(cache, { recursive: true, mode: 0o700 });
 const context = await mkdtemp(path.join(cache, 'build-'));
 const source = path.join(context, 'source');
 await mkdir(source);
-const checkout = path.resolve(args[1]);
+let checkout;
+if (args.length) checkout = path.resolve(args[1]);
+else {
+  checkout = path.join(context, 'checkout');
+  await mkdir(checkout, { mode: 0o700 });
+  for (const command of [
+    ['-C', checkout, 'init', '--bare', '--quiet'],
+    ['-C', checkout, 'fetch', '--depth=1', layerfs.repository, layerfs.commit],
+  ]) {
+    const child = spawn('git', command, { stdio: 'inherit' });
+    await wait(child);
+  }
+}
 const identity = spawnSync(
   'git',
   ['-C', checkout, 'rev-parse', `${layerfs.commit}^{commit}`],

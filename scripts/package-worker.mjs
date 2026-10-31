@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -15,12 +16,44 @@ const installed = JSON.parse(
   ),
 );
 if (
+  process.arch !== 'arm64' ||
   installed.platform !== 'linux/arm64' ||
   !/^sha256:[a-f0-9]{64}$/.test(installed.image)
 )
   throw new Error(
     'Build the pinned native ARM64 checkpoint worker before packaging.',
   );
+const manifest = JSON.parse(
+  execFileSync(
+    'docker',
+    [
+      'run',
+      '--rm',
+      '--platform',
+      'linux/arm64',
+      '--pull=never',
+      '--read-only',
+      '--network=none',
+      installed.image,
+      '-e',
+      'process.stdout.write(require("fs").readFileSync("/opt/camp/layerfs/manifest.json"))',
+    ],
+    { encoding: 'utf8' },
+  ),
+);
+if (manifest.status !== 'sealed' || manifest.architecture !== 'arm64')
+  throw new Error('The actual image has no sealed ARM64 manifest.');
+for (const [filename, expected] of Object.entries(manifest.files).filter(
+  ([name]) => name.startsWith('worker/'),
+)) {
+  const bytes = await readFile(
+    path.join(root, 'tools/layerfs-worker', filename.slice('worker/'.length)),
+  );
+  if (createHash('sha256').update(bytes).digest('hex') !== expected)
+    throw new Error(
+      'Rebuild the checkpoint image after changing its administrative helper.',
+    );
+}
 const destination = path.join(root, 'dist');
 await mkdir(destination, { recursive: true });
 const temporary = path.join(destination, `.worker-${randomUUID()}`);
@@ -53,6 +86,11 @@ const descriptor = {
   sourceCommit: installed.commit,
   version: installed.version,
   image: installed.image,
+  buildId: manifest.build_id,
+  campSourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: root,
+    encoding: 'utf8',
+  }).trim(),
   artifact: {
     filename,
     sha256,

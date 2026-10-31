@@ -1,6 +1,6 @@
 # Native Runner execution and workspace design
 
-Status: design and acceptance contract. Source implements Linux LayerFS and Mac ARM64 native local execution. Mac package distribution has its own release acceptance; a passing source check does not establish installation readiness.
+Status: design and acceptance contract. Source implements Linux LayerFS, Mac ARM64 native local execution and the experimental native Mac/LayerFS checkpoint worker. Mac package distribution has its own release acceptance; a passing source check does not establish installation readiness.
 
 ## Ownership and platform goals
 
