@@ -198,10 +198,53 @@ export function localProfile(plan, { manifestTestsOnly = false } = {}) {
       (name) =>
         documentationPath(name) ||
         name.startsWith('.github/workflows/') ||
-        /^scripts\/(?:change-policy|classify-changes|ci-policy)(?:\.|-)/.test(
+        /^scripts\/(?:change-policy|classify-changes|ci-policy|check-portable-go)(?:\.|-)/.test(
           name,
         ) ||
         (name === 'package.json' && manifestTestsOnly),
     );
   return workflowOnly ? 'workflow' : 'source';
+}
+
+export const sourceProfiles = {
+  mac: {
+    goPackageParallelism: 2,
+    linuxOnlyGoPackages: [
+      {
+        package: 'github.com/cofy-x/camp/apps/server/internal/layerfs',
+        reason:
+          'The LayerFS bridge tests require Linux and run in Linux source checks; Mac native/worker qualification remains separate.',
+      },
+    ],
+  },
+};
+
+export function portableGoPlan(packages) {
+  const profile = sourceProfiles.mac;
+  if (
+    !packages.length ||
+    !packages.every(
+      (name) =>
+        name === 'github.com/cofy-x/camp' ||
+        name.startsWith('github.com/cofy-x/camp/'),
+    )
+  )
+    throw new Error('Expected the actual Camp Go package list.');
+  for (const row of profile.linuxOnlyGoPackages)
+    if (!packages.includes(row.package))
+      throw new Error(`Stale platform exclusion: ${row.package}`);
+  return {
+    parallelism: profile.goPackageParallelism,
+    exclusions: profile.linuxOnlyGoPackages,
+    args: [
+      'test',
+      '-race',
+      '-p',
+      String(profile.goPackageParallelism),
+      ...packages.filter(
+        (name) =>
+          !profile.linuxOnlyGoPackages.some((row) => row.package === name),
+      ),
+    ],
+  };
 }

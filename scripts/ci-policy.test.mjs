@@ -105,3 +105,49 @@ test('release runs complete core regression even after documentation-only main C
     /checkpoint_worker_build:[\s\S]+needs: \[preflight, core_validation\]/,
   );
 });
+
+test('portable Mac source policy drives the real command path and propagates failures', async () => {
+  const { checkPortableGo } = await import('./check-portable-go.mjs');
+  const calls = [];
+  const packages = [
+    'github.com/cofy-x/camp',
+    'github.com/cofy-x/camp/apps/server/internal/layerfs',
+    'github.com/cofy-x/camp/apps/server/internal/resource',
+  ];
+  const plan = checkPortableGo((file, args, options) => {
+    calls.push({ file, args, options });
+    return packages.join('\n');
+  });
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1].args, [
+    'test',
+    '-race',
+    '-p',
+    '2',
+    packages[0],
+    packages[2],
+  ]);
+  assert.equal(calls[1].options.env.GOTOOLCHAIN, 'local');
+  assert.equal(calls[1].options.env.DEEPSEEK_API_KEY, undefined);
+  assert.equal(plan.exclusions.length, 1);
+  assert.throws(
+    () => checkPortableGo(() => packages[0]),
+    /Stale platform exclusion/,
+  );
+  assert.throws(
+    () =>
+      checkPortableGo((_file, args) => {
+        if (args[0] === 'test') throw Error('controlled Go failure');
+        return packages.join('\n');
+      }),
+    /controlled Go failure/,
+  );
+  const text = await readFile(
+    new URL('../.github/workflows/ci.yml', import.meta.url),
+    'utf8',
+  );
+  const block = text.split('  mac_source:\n')[1].split(/\n {2}[a-z_]+:\n/)[0];
+  assert(block.includes("inputs.validation-stage == 'release'"));
+  assert(block.includes('node scripts/check-portable-go.mjs'));
+  assert(block.includes('test-js'));
+});
