@@ -24,14 +24,14 @@ Early releases use numbered `alpha`, `beta` and `rc` versions. Alpha/beta versio
 
 ### Go installation
 
-Starting with `v0.1.0-alpha.2`, install the root entrypoint using the [pinned Go toolchain](../CONTRIBUTING.md#development):
+Install the fixed release entrypoint using the [pinned Go toolchain](../CONTRIBUTING.md#development):
 
 ```sh
-go install github.com/cofy-x/camp@v0.1.0-alpha.3
+go install github.com/cofy-x/camp@v0.1.0-alpha.5
 camp
 ```
 
-Put Go's binary installation directory on PATH. This entrypoint downloads the same complete Server archive as a manual installation; it does not compile an API-only development Server or require Node/pnpm. `camp runner ...` selects the matching native Runner installer instead. Mac Runner packages are included from `v0.1.0-alpha.3`; earlier releases contain only Linux Runner assets. The original `v0.1.0-alpha.1` has no root command and must be installed from its archives.
+Put Go's binary installation directory on PATH. This entrypoint downloads the same complete Server archive as a manual installation; it does not compile an API-only development Server or require Node/pnpm. `camp runner ...` selects the matching native Runner installer instead.
 
 The launcher derives its immutable version from Go's build information. It never selects `latest`, substitutes another platform or advances an existing installation. Downloads use system TLS and only GitHub release redirects, without Camp credentials. Archive/checksum names are fixed by version, role and platform. Checksums establish release-channel integrity, not a separate publisher signature.
 
@@ -61,7 +61,7 @@ Extract the matching `camp-server-linux-amd64.tar.gz`, `camp-server-darwin-arm64
 
 ```sh
 CAMP_PUBLIC_ORIGIN=https://camp.example.com:3443 \
-  ./dist/camp serve --addr 0.0.0.0:3443 --data-dir /absolute/path/camp-data \
+  ./camp serve --addr 0.0.0.0:3443 --data-dir /absolute/path/camp-data \
   --tls-cert /private/server.crt --tls-key /private/server.key \
   --allowed-hosts camp.example.com
 ```
@@ -108,7 +108,7 @@ Keep the installer at a stable absolute path; runtime cache and private data hav
 
 ### Optional Mac LayerFS checkpoints
 
-Native-local is the recommended Mac default. For complete working-tree checkpoints, history and forks, use a matching worker-enabled Mac runtime and its separately checksummed `camp-layerfs-worker-linux-arm64-<SHA256>.tar.gz` artifact. Check that exact release's evidence for availability and qualified engines; local candidate packaging does not establish public distribution. The option requires a running native ARM64 rootful Docker engine, such as the qualified OrbStack engine. Store data stays in Linux-local volumes; no Mac folder is mounted as the Store. Host FUSE, a separate Runner inside Linux and model keys on Runner are unnecessary. The [default decision](layerfs-worker.md#default-and-deployment-decision) explains the capability and cost tradeoff and the optional future Lima boundary.
+Native-local is the recommended Mac default. For complete working-tree checkpoints, history and forks, use a matching worker-enabled Mac runtime and its separately checksummed `camp-layerfs-worker-linux-arm64-<SHA256>.tar.gz` artifact. Check that exact release's evidence for availability and qualified engines; local candidate packaging does not establish public distribution. The option requires a running native ARM64 rootful Docker engine, such as the qualified OrbStack engine. Store data stays in Linux-local volumes; no Mac folder is mounted as the Store. Host FUSE, a separate Runner inside Linux and model keys on Runner are unnecessary. The [default decision](layerfs-worker.md#default-and-deployment-decision) explains the capability/cost tradeoff; [Linux environment provisioning](layerfs-worker.md#linux-environment-provisioning) distinguishes a selected engine from a managed-VM feature.
 
 Stop the Runner before selecting a backend. Keep its existing private data directory and registration. For OrbStack, for example:
 
@@ -160,11 +160,7 @@ An operator can add `--source notes=/absolute/notes` during initial setup. Repea
 
 ## Data, upgrades and backup
 
-Release acceptance pins `v0.1.0-alpha.2` as the public upgrade baseline. `node scripts/smoke-upgrade.mjs` creates actual baseline Server data, then starts the current Server against it and verifies authentication/session, discussion, exact versioned file bytes, private drafts and history. This check supports Linux amd64 and both Mac Server architectures, needs Git, Go and public GitHub access, and performs no model call. Mac package verification also upgrades that baseline's data using the same immutable Server archives before publication.
-
-On the supported privileged native host, `node scripts/smoke-bundle.mjs upgrade` first installs/runs the baseline Runner and completes a model-free source import. Explicit current-version setup must preserve the identity, credential, storage/registration IDs and exact stopped journal bytes; the upgraded Runner then completes native work, checks, human approval/delivery and backup/restore. The current runtime uses the staged Server mirror before publication. Public verification repeats this as `github-upgrade` using the newly published runtime. Both scenarios use a deterministic provider and record only sanitized evidence. They establish the named baseline, not arbitrary historical upgrades or real-provider success.
-
-The named Runner upgrade targets Linux: `alpha.2` has no Mac Runner. Mac qualification instead checks repeated setup, foreground/background lifecycle and stopped backup/restore without replacing identity. Server data upgrades and Runner installation compatibility remain distinct guarantees.
+Check the exact release's [upgrade qualification](releasing.md#upgrade-qualification) before changing an installation. Acceptance names its tested Server/Runner baseline and platform; a passing Server data upgrade does not establish Mac worker-image upgrade compatibility.
 
 Gracefully stop Server, then back up its **whole** data directory with permissions: SQLite, Git resources, private configuration and immutable model revisions belong together. Separately stop/back up each Runner's configuration, journal and native sessions when those must be retained. Backups contain credentials. LayerFS Stores are disposable and cannot replace the Git/SQLite backup.
 
@@ -174,68 +170,16 @@ Upgrade with a stopped backup and previous release retained. Verify the new rele
 
 Use Server and Runner from the same release for the supported installation path. Protocol compatibility is an explicit handshake version: incompatible Runners stop with status 78 and do not replay work. Distribution-only changes do not bump that protocol. A protocol match is not a general cross-version data-upgrade guarantee; check the named baseline, release evidence and migration notes before upgrading.
 
-## Build and publish a release
-
-The [Release workflow](../.github/workflows/release.yml) is manually dispatched on `main` with a fixed version. It verifies that the exact source has passed Source, Browser and Fixture CI and that the tag is unused. An ARM64 Mac builder creates the pinned native Mac runtime and installers without Linux dependencies. The privileged Ubuntu builder imports that contribution, builds the Linux packages and matching Server catalog, runs Native recovery and online/offline installation checks, tests the Server image, and stages only the reviewed artifact allowlist. A separate job publishes to GitHub Releases and GHCR. Publishing permissions are confined to those jobs; pull requests do not automatically run the privileged release build.
-
-Maintainers can manually dispatch the same workflow on a trusted development branch with `validate-only=true` to check Native packages before merging. This mode has read-only repository permissions, retains CI artifacts, and creates no tag, Release or registry image. Its report explicitly leaves Source/Browser/Fixture acceptance and public distribution ungranted. Publishing still requires the normal mode on reviewed `main`.
-
-After publication, another fresh Ubuntu host downloads the real public assets without GitHub or Camp credentials, checks their hashes and source identity, runs online/offline Native tasks and stopped backup/restore, then pulls/tests the Server image anonymously. Its report is appended to the release, including failures. A published prerelease with a failed distribution check is not a completed release acceptance. New GHCR packages default to private: the repository owner must make the Camp package public once before anonymous pull can pass; see [GitHub's package visibility guidance](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility). Repository visibility alone does not do this.
-
-Dispatch after the main commit's CI finishes:
-
-```sh
-gh workflow run release.yml --repo cofy-x/camp --ref main -f version=v0.1.0-alpha.1
-```
-
-For a development branch rehearsal:
-
-```sh
-gh workflow run release.yml --repo cofy-x/camp --ref your-branch \
-  -f version=v0.1.0-alpha.1 -f validate-only=true
-```
-
-For a local rehearsal, release builders use the [repository toolchain](../CONTRIBUTING.md#development) and an isolated clean checkout on the supported privileged host:
-
-```sh
-make install install-dsh install-project-runtime install-layerfs
-VERSION=v0.1.0-alpha.1 make package-daemon
-docker build --target release --build-arg VERSION=v0.1.0-alpha.1 \
-  --build-arg SOURCE_COMMIT="$(git rev-parse HEAD)" -t camp-server:v0.1.0-alpha.1 .
-make smoke-bundle
-node scripts/smoke-server-image.mjs camp-server:v0.1.0-alpha.1
-```
-
-`package-daemon` builds the UI/binaries and packages:
-
-- `dist/camp-runner-linux-amd64.tar.gz`: installer with compiled runtime identity.
-- `dist/camp-runtime-linux-amd64-<sha256>.tar.gz`: digest-addressed runtime.
-- `dist/camp-runner-offline-linux-amd64.tar.gz`: installer plus identical runtime.
-- `dist/camp-server-linux-amd64.tar.gz`: standalone Server, embedded Dashboard and licenses.
-- `dist/camp-server-darwin-arm64.tar.gz` and `dist/camp-server-darwin-amd64.tar.gz`: complete macOS Servers with the same fixed Runner descriptor.
-- `dist/camp-runner-darwin-arm64.tar.gz`, its digest-addressed native runtime and `dist/camp-runner-offline-darwin-arm64.tar.gz`: unprivileged Mac execution.
-- Archive checksums, `dist/runner-release.json` and `dist/server-release.json`: fixed source/version, protocol and artifact identities. The published `release.json` also binds the registry digest.
-
-Each runtime has its own file/link manifest and licenses. The Linux Runner includes its fixed LayerFS image. A Mac runtime built with checkpoint worker support includes its small controller and fixed artifact pin; the optional Linux ARM64 image is a separate download and is never loaded for native-local setup. Mac runtime packages contain no Linux addon, daemon, image or Rust compiler. Native dependencies stay pinned; only foreign-platform node-pty prebuilds are excluded and recorded. A portable Go archive writer normalizes tar metadata/order and keeps unchanged runtime content stable across installer rebuilds. Digests establish integrity, not a publisher signature; use a trusted release channel. Optional document parsing is Server-side and absent from Runner runtime packages.
-
-Each native builder emits a schema-2 `runner-release-<platform>.json` contribution. Both contributions must agree on version, source and protocol before the schema-2 `runner-release.json` combines their `runners` entries. The published `release.json` also uses schema 2. The Server embeds the complete catalog; older schema-1 package metadata must be replaced with the matching release catalog, without changing Runner identity or retained digest runtimes.
-
-Runtime archives normalize file order, metadata and ownership. The trusted helper omits Git build metadata, so an unrelated UI/docs commit does not invalidate identical native runtime bytes. Code/dependency changes still change their file hashes; the release catalog retains the exact source commit and immutable artifact identity. Server and installer version/provenance remain independently bound to their release.
-
-Runtime packaging precedes installer hashing; the Server then embeds that exact Runner descriptor. The final release catalog can hash the Server without a circular self-hash. A release build refuses dirty source. Unversioned `make package-daemon` creates local development packages; `make build-server-image` builds the development Server image. The `release` Docker target consumes the already verified Server bundle instead of rebuilding a different binary.
-
-`server-release.json` and `release.json` list the exact supported archives in `servers`; `server` is the matching Linux artifact used by the container/native harness. Release verification rejects missing platforms, changed identities or checksums. The Linux builder cross-compiles Mac packages, then actual Apple Silicon and Intel Mac workers verify the relocated archives, embedded UI, authentication, versioned files and restart persistence before publication. Ordinary CI also builds each Mac Server and exercises discussion/file work in Mac WebKit. Those Server checks remain separate from actual Mac ARM64 Runner installation acceptance on macOS 15 and 26. The release gate runs the same immutable archives through relocated online/offline setup and the embedded Server Runner entrypoint, native DSH work, checks, publication and backup/restore, without host Node in the Runner PATH or paid model requests. Separate exact-source Mac boundary qualification and three-iteration native checkpoint measurements are retained inside the published acceptance report, including individual test skips and RSS; CI artifact expiry does not remove that release evidence.
-
-Publication generates a versioned `camp.rb` Homebrew formula from verified archive digests. Update the maintained [tap formula](../Formula/camp.rb) from that asset in a reviewed PR after public verification; it installs the complete Server and Git without enabling a service. Both Mac CI workers install/test its actual public archive and run that release's full Server lifecycle through Homebrew, verifying the test driver's source commit against the release catalog. This keeps future API changes independent of the previously published tap version. Main-branch CI also clones the public tap; PR CI uses its reviewed checkout. Tagged Go installation is separately checked on Linux and both Mac architectures after publication. On Apple Silicon it also performs public native Runner setup, foreground execution, repeated setup and launchd lifecycle through that installed Go entrypoint; the retained report must match the release version/source. Sanitized platform/package, Homebrew and public-Go reports are retained with the release.
+## Stage a package mirror
 
 Published Servers advertise fixed GitHub downloads without a local package directory. To provide an optional mirror, stage that release's archives/checksums under the configured Server data directory's `packages/`. Copy to temporary names on the same filesystem, verify, then rename atomically; publish `runner-release.json` **last**. A published Server accepts only its compiled-in descriptor for installer downloads; an older/different staged descriptor cannot redirect the UI. Retain old digest-addressed runtimes while their installers remain in use. Never change bytes under a digest. Staging does not execute or update any existing Runner.
 
 Default installer metadata requires its runtime also staged at the declared size. Offline availability is independent. Installer/offline downloads use browser authentication; exact runtime downloads use enabled Runner credentials and reject browser cookies. Host/TLS policy, Range handling and idle transfer bounds apply.
 
-`make smoke-bundle` tests the explicit Server mirror and offline paths. `node scripts/smoke-bundle.mjs github` and `github-offline` require published assets and test public distribution without Server staging. All modes relocate the installation, remove host Node from the Runner PATH, test repeat setup, native execution, configured checks, binary transfer, one publication, human approval/delivery, stopped backup/restore and cleanup with a deterministic provider. Local execution alone does not establish fresh-host portability or real-provider behavior. Use the [validation layers](../CONTRIBUTING.md#checks) and report which actually ran; Mac package acceptance also installs, starts, inspects, stops and removes its own launchd job, checking identity/journal retention and no model replay after reconnection. Login startup remains separate and untested by that harness. Linux systemd unit tests use a controlled substitute.
+## Build and publish a release
+
+Maintainers use [Releasing](releasing.md) for package assembly, reviewed-main publication, public verification and the tap/quick-start update. Installing or staging packages does not publish a release.
 
 ## Release evidence
 
-Attach a sanitized acceptance report to each release, or link retained CI artifacts from its release notes. Record the source commit and any local modifications, artifact digests, host OS/architecture, runtime pins, commands/scenarios actually run, and passes, failures, skips or untested scope. Report source, browser, fixture, native, fresh-host installation and real-provider results separately. Keep evidence retrievable for the supported lifetime of that release; a temporary CI link alone is insufficient.
-
-Keep raw logs, screenshots and provider ledgers private in ignored directories. Publish only reviewed evidence without credentials or private team data. Maintained guides describe guarantees and reproducible procedures; release artifacts retain the dated results.
+Read the exact release's acceptance and distribution reports before selecting an optional backend or upgrading. Source, browser, fixture, native isolation, public installation and paid-provider results establish separate guarantees; a report for another source/runtime does not automatically apply. [Releasing](releasing.md#release-evidence) owns how maintainers retain and sanitize that evidence.

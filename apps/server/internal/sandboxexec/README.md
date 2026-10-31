@@ -1,6 +1,6 @@
-# Camp sandbox helper
+# Linux container sandbox helper
 
-`cmd/camp-sandbox` is a short-lived, Linux x86_64 container helper. The host owns the Docker container and installs this executable as a root-owned, non-writable file. Every invocation runs as the admitted non-root UID/GID. This helper does not create or administer containers.
+This document covers the Linux x86_64 container operations of `cmd/camp-sandbox`. The host owns the Docker container and installs the executable as a root-owned, non-writable file. Every container request runs as the admitted non-root UID/GID. This helper does not create or administer containers. The same executable's Mac `native-job`/`native-client` modes use the separate [native Runner process boundary](../../../../docs/native-runner.md); Linux mounts and privilege requirements do not apply to that unprivileged Mac path.
 
 ## Protocol
 

@@ -8,6 +8,21 @@ Server owns identity/permissions, admission/scheduling, model proxy, durable fil
 
 The [root Go entrypoint](../main.go) and [release launcher](../internal/launcher/launcher.go) are distribution code, outside the Server's internal packages. The launcher installs the exact published Server or Runner archive and replaces itself with that executable, preserving process signals and exit status. It owns only a private, rebuildable version cache, never team configuration, credentials or Runner journals. This preserves the complete generated Dashboard and compiled-in runtime identities without checking generated bundles into source or rebuilding release metadata during `go install`. Standalone archives remain the offline path; source developers retain `make build`.
 
+```mermaid
+flowchart LR
+  Browser[Browser desktop] --> Server[Server authority and scheduling]
+  Server --> Durable[SQLite and immutable Git]
+  Runner[Runner journal and leases] -->|outbound WSS and HTTPS| Server
+  Runner --> Executor[Native executor]
+  Executor --> DSH[DSH model and tool loop]
+  DSH -->|attempt-scoped model proxy| Server
+  DSH -->|scoped file and command tools| Executor
+  Executor --> Workspace[Workspace and process boundary]
+  Workspace -->|optional sealed checkpoints| Worker[Linux LayerFS worker]
+```
+
+Keep these authority boundaries stable as implementations change. Workspace, sandbox, process and checkpoint adapters are composed behind the [native contract](native-runner.md); their different capabilities do not create another source of publication authority. Add an abstraction when it has a distinct owner and an actual caller, and preserve the same journal, permission and recovery guarantees across adapters.
+
 ## Package boundaries
 
 | Owner | Responsibility |
@@ -126,12 +141,33 @@ The boundaries below describe current implementation choices, not permanent requ
 | Browsers select Runner source aliases | Runner import enforces this. A separate [Server import](../apps/server/internal/httpapi/rooms.go) still accepts an administrator-supplied host path through an operator allowlist; it is not unrestricted Runner browsing. |
 | Prepared execution and checks | Production copies dependencies into the selected workspace and runs checks there: Linux LayerFS or a native Mac directory. Read-only dependency mounts and a separate disposable verification copy describe the Linux local regression harness, not production; see [project runtime](../tools/project-runtime/README.md). Preserve execution isolation and accurate check provenance when changing this layout. |
 | Optional Mac checkpoint worker | The [worker adapter](layerfs-worker.md) retains a complete POSIX working-tree profile and requires independent LayerFS readback before publication. Its Disposable Store is separate from durable Server delivery. It requires an explicitly selected native ARM64 Linux engine, retains native captures and uncertain outcomes, and has no automatic fallback or model replay. UID/ACL/xattrs/times, special files and external hardlink groups are outside the declared profile. |
+| Checkpoint retention | Confirmed native captures, checkpoint-generation branches and prior Store epochs are retained for history/recovery. There is no general checkpoint pruning command or automatic history-retention policy. Per-capture/transfer bounds do not bound a Runner's lifetime disk use. |
 | Upgrades preserve team data | Append-only Team migrations are implemented. [Migration validation](../apps/server/internal/storage/migrations.go) explicitly rejects discarded pre-Team baselines; there is no universal historical-data upgrader or automatic reset. Restore is the stopped manual procedure in [installation](install.md#data-upgrades-and-backup). |
 
 Runner check/output reports assume a trusted machine; they are not remote attestation against a hostile operator. Source/browser/fixture results alone do not establish native isolation, fresh-host portability or real-provider success.
+
+Address shared-data correctness and contradictions in the shipped workflow first, then use measurements to select checkpoint or lifecycle work. The items below own the remaining implementation work; release milestones and completed implementation sequences belong in retained evidence.
 
 ### Resource configuration concurrency
 
 Open work; owners: `storage`, `httpapi` and Library. The [Resource PATCH API](api.md#library-and-publication) has no revision precondition. Two administrators can overwrite each other's environment changes despite the UI retaining its editing baseline.
 
 Completion requires an atomic revision precondition, a conflict response for stale updates, and a UI recovery path that preserves unsaved edits. Verify two administrators saving from the same revision: only one update commits, and the other can inspect the latest configuration before explicitly retrying. Update the API contract and callers together.
+
+### Native path guidance
+
+Open [#50](https://github.com/cofy-x/camp/issues/50); owners: `runnertools`, `nativeexecutor` and `tools/dsh-runtime/camp-tools`. Mac commands run in the actual native directory, while file discovery still advertises logical `/workspace` defaults. The file capability can translate that alias; arbitrary shell text cannot.
+
+Completion requires model-facing/default guidance that agrees with the active workspace and references across continuation, actual Mac file/shell coverage and preserved Linux behavior. Preserve intentional API aliases and sandbox grants. Do not create a host-root alias or rewrite shell strings to conceal the mismatch.
+
+### Setup diagnostics and progress
+
+Open [#49](https://github.com/cofy-x/camp/issues/49) and [#51](https://github.com/cofy-x/camp/issues/51); owner: `cli`, with the Runner setup UI where it describes installation. `camp doctor` still recommends a Linux Runner on supported Apple Silicon. Runtime setup does not yet report useful intermediate verification/extraction progress after download completes.
+
+Completion requires correct Apple Silicon/Intel/Linux guidance and bounded phase/activity reporting for fresh, cached and interrupted setup. Keep doctor read-only, distinguish compressed transfer from installed work and retain registration/cache state on retries. Neither diagnostics nor installation progress may imply a model test, service start or completed execution.
+
+### Checkpoint cost and retention
+
+Owners: `nativeexecutor` and `tools/layerfs-worker`. Small-file packing and bounded concurrent restore are implemented. Further optimization must use full checkpoint/unchanged/restore measurements, including required sealing and readback, rather than extrapolating a capture-only speedup. Preserve complete manifests, legacy captures, bounded work and observation after uncertain dispatch.
+
+A future retention operation needs explicit ownership, a recoverable plan and rules protecting current generations, pending operations, reconstruction ancestry and stopped backups. Runner identity/journals and durable Server results have separate lifetimes. Managed VM provisioning and automatic worker-image upgrade need their own lifecycle/compatibility design and actual acceptance before becoming supported features; they are not implied by a successful isolated VM benchmark.

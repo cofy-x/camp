@@ -22,7 +22,7 @@ Camp launches the public CLI with `--profile sdk-minimal --patch ...`. JSON-RPC 
 
 There is no public per-session cancellation/close method. EOF or SIGTERM asks for cooperative disposal; Camp escalates and verifies the outer process boundary when needed. An RPC shutdown response or process-group kill alone cannot prove detached descendant cleanup. Session logs/attachments are private, outside tool workspaces.
 
-`initialize` has no credential field. Camp launches DSH with Messages-provider environment values; production uses an Attempt-scoped Server proxy capability, never the real provider key. DSH environment scrubbing alone cannot hide host files, so the Bubblewrap mount boundary excludes configuration, databases and host homes. Use [configuration and budgets](../../docs/dsh.md#configuration-and-budgets) for model selection/limits and [Camp tools](camp-tools/README.md) for production tools.
+`initialize` has no credential field. Camp launches DSH with Messages-provider environment values; production uses an Attempt-scoped Server proxy capability, never the real provider key. Environment scrubbing alone cannot hide host files: Linux uses the Bubblewrap mount boundary and Mac uses the separately qualified Seatbelt profile to exclude unauthorized host state. The [native Runner contract](../../docs/native-runner.md) owns those platform boundaries. Use [configuration and budgets](../../docs/dsh.md#configuration-and-budgets) for model selection/limits and [Camp tools](camp-tools/README.md) for production tools.
 
 ## Probe boundary
 
