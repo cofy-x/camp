@@ -24,7 +24,8 @@ type bundleManifest struct {
 	LayerFS  struct {
 		Image string `json:"image"`
 	} `json:"layerfs"`
-	Files map[string]struct {
+	CheckpointWorker checkpointImagePin `json:"checkpointWorker"`
+	Files            map[string]struct {
 		SHA256 string `json:"sha256"`
 		Bytes  int64  `json:"bytes"`
 	} `json:"files"`
@@ -81,6 +82,9 @@ func verifyRunnerBundle(directory string) (bundleManifest, error) {
 	mac := manifest.Platform == "darwin/arm64" && managedRuntime
 	if (!legacyBundle && !managedRuntime) || (!linux && !mac) || (linux && (!strings.HasPrefix(manifest.LayerFS.Image, "sha256:") || !digestPattern.MatchString(strings.TrimPrefix(manifest.LayerFS.Image, "sha256:")))) || (mac && manifest.LayerFS.Image != "") {
 		return manifest, errors.New("This is not a supported Camp Runner bundle")
+	}
+	if manifest.CheckpointWorker.Image != "" && (!mac || !manifest.CheckpointWorker.valid()) {
+		return manifest, errors.New("Invalid optional checkpoint worker image pin")
 	}
 	inside := func(relative string) (string, error) {
 		if !filepath.IsLocal(relative) || filepath.ToSlash(filepath.Clean(relative)) != relative {
@@ -146,8 +150,12 @@ func verifyRunnerBundle(directory string) (bundleManifest, error) {
 		requiredFiles = append(requiredFiles, "images/layerfs.tar", "runtime/layerfs-runtime/installed.json")
 	} else {
 		requiredFiles = append(requiredFiles, "runtime/project-runtime/package.json")
+		if manifest.CheckpointWorker.Image != "" {
+			requiredFiles = append(requiredFiles, "runtime/layerfs-worker/installed.json", "runtime/layerfs-worker/pin.json", "runtime/layerfs-worker/client.mjs", "runtime/layerfs-worker/bridge.mjs", "runtime/layerfs-worker/manage.mjs", "runtime/layerfs-runtime/pin.json")
+		}
 		for name := range manifest.Files {
-			if strings.HasPrefix(name, "images/") || strings.HasPrefix(name, "runtime/layerfs-runtime/") {
+			optionalSourcePin := name == "runtime/layerfs-runtime/pin.json" && manifest.CheckpointWorker.Image != ""
+			if strings.HasPrefix(name, "images/") || strings.HasPrefix(name, "runtime/layerfs-runtime/") && !optionalSourcePin {
 				return manifest, errors.New("The Mac native runtime must not include a Linux execution backend")
 			}
 		}

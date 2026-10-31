@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,7 +12,9 @@ import {
 } from '../docker.mjs';
 
 test('volume discovery uses the selected engine and requires its local directory', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'camp-docker-'));
+  const root = await realpath(
+    await mkdtemp(path.join(os.tmpdir(), 'camp-docker-')),
+  );
   const socket = path.join(root, 'engine.sock');
   const data = path.join(root, "custom engine's data");
   const volumes = path.join(data, 'volumes');

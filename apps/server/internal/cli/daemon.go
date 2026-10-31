@@ -70,7 +70,8 @@ Model settings stay on Camp Server. No separate DSH or LayerFS installation is n
 Scripts provide --server, --name, --data-dir and --code-file explicitly.
 Native Runner supports macOS 15+ on Apple Silicon with an unprivileged account,
 or Ubuntu 24.04 amd64 with root, Docker, FUSE and Bubblewrap. Mac commands use
-Seatbelt and a private local workspace, without Docker or FUSE. Use the same
+Seatbelt and a private local workspace. The optional LayerFS checkpoint backend
+requires a local ARM64 Docker engine; Mac commands need no host FUSE. Use the same
 account and private data directory for setup, run and service.
 
 Options:
@@ -84,6 +85,9 @@ Options:
   --tool-root path   Mac read/execute grant for a tool directory (repeatable; replaces saved grants)
   --clear-tool-roots Revoke all saved Mac tool grants during stopped setup
   --docker-socket path Local Docker socket (default /var/run/docker.sock)
+  --docker-binary path Mac administrative Docker executable, saved for foreground/service use
+  --worker-image path Optional matching Linux ARM64 worker archive, verified before load
+  --workspace-backend native-local|layerfs-worker Explicit Mac workspace choice during stopped setup
   --runtime-source github|server Public release (default) or an explicitly staged Server mirror
   --development-runtime Use installed source runtimes (contributors only)
 
@@ -96,13 +100,16 @@ On Mac use service enable-login / disable-login to choose login startup.
 	if args[0] == "service" {
 		return runRunnerService(ctx, args[1:], output)
 	}
+	if args[0] == "checkpoint" {
+		return runRunnerCheckpoint(ctx, args[1:], output)
+	}
 	action := args[0]
 	if action != "setup" && action != "run" && action != "status" {
 		return fmt.Errorf("Unknown Runner command %q", action)
 	}
 	flags := flag.NewFlagSet("runner "+action, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var directory, server, name, codeFile, caFile, executor, bundle, docker, runtimeSource string
+	var directory, server, name, codeFile, caFile, executor, bundle, docker, runtimeSource, workspaceBackend, dockerBinary, workerImage string
 	var slots int
 	var sources sourceFlags
 	var toolRoots toolRootFlags
@@ -121,6 +128,9 @@ On Mac use service enable-login / disable-login to choose login startup.
 		flags.StringVar(&bundle, "bundle-dir", runnerBundleDirectory(), "Camp installation directory")
 		flags.StringVar(&runtimeSource, "runtime-source", "", "github release or server mirror")
 		flags.BoolVar(&development, "development-runtime", false, "use an explicitly configured source checkout runtime")
+		flags.StringVar(&workspaceBackend, "workspace-backend", "", "explicit stopped workspace backend selection")
+		flags.StringVar(&dockerBinary, "docker-binary", "", "absolute administrative Docker executable")
+		flags.StringVar(&workerImage, "worker-image", "", "optional fixed checkpoint worker image archive")
 	}
 	if action != "status" {
 		flags.StringVar(&docker, "docker-socket", daemonDefault("CAMP_DOCKER_SOCKET", "/var/run/docker.sock"), "local Docker socket")
@@ -132,6 +142,7 @@ On Mac use service enable-login / disable-login to choose login startup.
 		return errors.New("Runner commands do not accept positional arguments")
 	}
 	explicitCode, explicitDocker, explicitCA, explicitRuntime := false, false, false, false
+	explicitWorkspace := false
 	flags.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "code-file":
@@ -142,6 +153,8 @@ On Mac use service enable-login / disable-login to choose login startup.
 			explicitCA = true
 		case "runtime-source":
 			explicitRuntime = true
+		case "workspace-backend":
+			explicitWorkspace = true
 		}
 	})
 	interactive := input.isTerminal(input.reader)
@@ -208,6 +221,12 @@ On Mac use service enable-login / disable-login to choose login startup.
 		return loadErr
 	}
 	if loadErr == nil {
+		if dockerBinary == "" {
+			dockerBinary = previous.DockerBinary
+		}
+		if !explicitWorkspace {
+			workspaceBackend = previous.WorkspaceBackend
+		}
 		if !explicitDocker && previous.DockerSocket != "" {
 			docker = previous.DockerSocket
 		}
@@ -220,6 +239,9 @@ On Mac use service enable-login / disable-login to choose login startup.
 	}
 	if runtimeSource != "" && runtimeSource != "github" && runtimeSource != "server" {
 		return errors.New("Runtime source must be github or server")
+	}
+	if err := nativeexecutor.ValidateWorkspaceBackend(workspaceBackend); err != nil {
+		return err
 	}
 	if clearToolRoots && len(toolRoots) > 0 {
 		return errors.New("Choose --tool-root or --clear-tool-roots")
@@ -253,8 +275,16 @@ On Mac use service enable-login / disable-login to choose login startup.
 	// A new identity must not be enrolled on an unsuitable host. Existing
 	// registrations keep the repair path that persists corrected installation
 	// settings and failed observations without replacing their identity.
+	if workspaceBackend == "layerfs-worker" {
+		dockerBinary, err = nativeexecutor.SelectedDockerClient(dockerBinary)
+		if err != nil {
+			return err
+		}
+	} else if workerImage != "" {
+		return errors.New("--worker-image requires --workspace-backend layerfs-worker")
+	}
 	if executor == "native" && needsCode {
-		report := nativeexecutor.HostChecks(nativeexecutor.Config{DockerSocket: docker})
+		report := nativeexecutor.HostChecks(nativeexecutor.Config{DockerSocket: docker, DockerBinary: dockerBinary, WorkspaceBackend: workspaceBackend})
 		for _, check := range report.Checks {
 			if check.Status != "passed" {
 				if err := json.NewEncoder(output).Encode(report); err != nil {
@@ -343,8 +373,15 @@ On Mac use service enable-login / disable-login to choose login startup.
 		}
 		config.ToolRoots = toolRoots
 	}
+	if explicitWorkspace {
+		if err := daemon.SaveWorkspaceBackend(config, workspaceBackend); err != nil {
+			return err
+		}
+		config.WorkspaceBackend = workspaceBackend
+	}
 	fmt.Fprintln(output, "Connected account:", config.Name, "— registration saved.")
 	config.DockerSocket = docker
+	config.DockerBinary = dockerBinary
 	config.RuntimeSource = runtimeSource
 	if err = daemon.SaveInstallation(config, config.BundleDir, docker); err != nil {
 		return err
@@ -362,12 +399,19 @@ On Mac use service enable-login / disable-login to choose login startup.
 		fmt.Fprintln(output, "Preparing the fixed execution image…")
 		installationErr = loadRunnerImage(ctx, bundle, docker, manifest.LayerFS.Image)
 	}
+	if executor == "native" && !development && workspaceBackend == "layerfs-worker" {
+		fmt.Fprintln(output, "Verifying the optional fixed checkpoint worker image…")
+		installationErr = loadCheckpointImage(ctx, directory, workerImage, dockerBinary, docker, manifest.CheckpointWorker)
+	}
 	if err = daemon.SaveInstallation(config, bundle, docker); err != nil {
 		return err
 	}
 	if executor == "native" {
 		native := runnerNative(bundle, docker)
 		native.ToolRoots = append([]string(nil), config.ToolRoots...)
+		native.WorkspaceBackend, native.WorkerDataRoot = config.WorkspaceBackend, directory
+		native.DockerBinary = config.DockerBinary
+		native.RunnerID, native.StorageID = config.RunnerID, config.StorageID
 		report, err := saveRunnerReadiness(ctx, directory, native, installationErr)
 		if err != nil {
 			return err
@@ -384,11 +428,13 @@ On Mac use service enable-login / disable-login to choose login startup.
 
 func runnerNative(bundle, docker string) nativeexecutor.Config {
 	config := nativeexecutor.Config{RuntimeDir: daemonDefault("CAMP_DSH_RUNTIME", "tools/dsh-runtime"), LayerFSRuntimeDir: daemonDefault("CAMP_LAYERFS_RUNTIME", "tools/layerfs-runtime"), SandboxHelper: daemonDefault("CAMP_SANDBOX_HELPER", "dist/camp-sandbox"), NodePath: daemonDefault("CAMP_DSH_NODE", "node"), DockerSocket: docker}
+	config.WorkerRuntimeDir = daemonDefault("CAMP_LAYERFS_WORKER_RUNTIME", "tools/layerfs-worker")
 	if bundle != "" {
 		config.RuntimeDir = filepath.Join(bundle, "runtime/dsh-runtime")
 		config.LayerFSRuntimeDir = filepath.Join(bundle, "runtime/layerfs-runtime")
 		config.SandboxHelper = filepath.Join(bundle, "bin/camp-sandbox")
 		config.NodePath = filepath.Join(bundle, "bin/node")
+		config.WorkerRuntimeDir = filepath.Join(bundle, "runtime/layerfs-worker")
 	}
 	return config
 }

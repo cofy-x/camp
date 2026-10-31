@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -12,7 +12,9 @@ import {
 } from '../validation.mjs';
 
 test('owned paths reject prefix confusion and symlink escape before creating a directory', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'camp-layerfs-paths-'));
+  const root = await realpath(
+    await mkdtemp(path.join(os.tmpdir(), 'camp-layerfs-paths-')),
+  );
   try {
     const data = path.join(root, 'data');
     const outside = path.join(root, 'outside');

@@ -35,6 +35,22 @@ func TestNativeExecutorTLSIsolationAndResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := t.TempDir()
+	workspaceBackend := os.Getenv("CAMP_TEST_WORKSPACE_BACKEND")
+	workerRuntime := os.Getenv("CAMP_TEST_LAYERFS_WORKER_RUNTIME")
+	if workspaceBackend == "layerfs-worker" {
+		if runtime.GOOS != "darwin" || workerRuntime == "" {
+			t.Fatal("The worker provider test requires its actual Mac runtime")
+		}
+		base := filepath.Join(workerRuntime, "..", "..", ".data")
+		if err := os.MkdirAll(base, 0700); err != nil {
+			t.Fatal(err)
+		}
+		data, err = os.MkdirTemp(base, "native-provider-worker-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Log("Retained deterministic-provider worker fixture:", data)
+	}
 	helper := filepath.Join(data, "camp-sandbox")
 	build := exec.CommandContext(ctx, "go", "build", "-o", helper, "../../cmd/camp-sandbox")
 	if output, err := build.CombinedOutput(); err != nil {
@@ -90,7 +106,7 @@ func TestNativeExecutorTLSIsolationAndResume(t *testing.T) {
 	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: model.Certificate().Raw}), 0600); err != nil {
 		t.Fatal(err)
 	}
-	executor, err := Open(ctx, Config{DataDir: data, RuntimeDir: dshRuntime, LayerFSRuntimeDir: layerRuntime, DockerSocket: os.Getenv("CAMP_TEST_DOCKER_SOCKET"), SandboxHelper: helper, NodePath: node, CAFile: ca})
+	executor, err := Open(ctx, Config{DataDir: data, RuntimeDir: dshRuntime, LayerFSRuntimeDir: layerRuntime, DockerSocket: os.Getenv("CAMP_TEST_DOCKER_SOCKET"), SandboxHelper: helper, NodePath: node, CAFile: ca, WorkspaceBackend: workspaceBackend, WorkerRuntimeDir: workerRuntime})
 	if err != nil {
 		t.Fatal(err)
 	}

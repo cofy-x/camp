@@ -40,6 +40,7 @@ type nativeWorkspace struct {
 	provider                          *nativeWorkspaceProvider
 	root, directory, references, jobs string
 	readOnly, sealed, closed          bool
+	retain                            bool
 	mu                                sync.Mutex
 	failure                           error
 }
@@ -88,7 +89,7 @@ func openNativeWorkspace(ctx context.Context, config Config) (workspace.Provider
 	fingerprint := sha256.New()
 	_, _ = fingerprint.Write(helper)
 	_, _ = fingerprint.Write(manifest)
-	_, _ = io.WriteString(fingerprint, "camp-native-local-v4-tool-path\x00"+config.NodePath)
+	_, _ = io.WriteString(fingerprint, "camp-native-local-v5-state-scope\x00"+config.NodePath)
 	for _, module := range []string{"coordination", "discovery", "filesystem", "shell", "transport"} {
 		data, err := os.ReadFile(filepath.Join(config.RuntimeDir, "camp-tools", module+".mjs"))
 		if err != nil {
@@ -96,7 +97,14 @@ func openNativeWorkspace(ctx context.Context, config Config) (workspace.Provider
 		}
 		_, _ = fingerprint.Write(data)
 	}
-	config.ToolRoots, err = ResolveToolRoots(config.DataDir, config.ToolRoots)
+	protectedRoot := config.DataDir
+	if config.WorkerDataRoot != "" {
+		protectedRoot, err = filepath.EvalSymlinks(config.WorkerDataRoot)
+		if err != nil || !containsPath(protectedRoot, config.DataDir) {
+			return nil, errors.New("Worker storage must contain native private execution storage")
+		}
+	}
+	config.ToolRoots, err = ResolveToolRoots(protectedRoot, config.ToolRoots)
 	if err != nil {
 		return nil, err
 	}
@@ -323,15 +331,13 @@ func (w *nativeWorkspace) Call(ctx context.Context, request sandboxexec.Request,
 }
 
 func (w *nativeWorkspace) Capture(ctx context.Context, target, message string, excluded []string) (workspace.Archive, error) {
+	return w.captureDirectory(ctx, w.directory, target, excluded)
+}
+
+func (w *nativeWorkspace) captureDirectory(ctx context.Context, directory, target string, excluded []string) (workspace.Archive, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.failure != nil || w.closed {
-		return workspace.Archive{}, errors.New("Native workspace cleanup is unconfirmed")
-	}
-	w.sealed = true
-	if err := nativejob.Reconcile(ctx, w.jobs); err != nil {
-		w.failure = err
-		w.provider.unsafe(err)
+	if err := w.sealLocked(ctx); err != nil {
 		return workspace.Archive{}, err
 	}
 	file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -339,7 +345,7 @@ func (w *nativeWorkspace) Capture(ctx context.Context, target, message string, e
 		return workspace.Archive{}, err
 	}
 	hash := sha256.New()
-	err = resources.WriteArchiveWithPolicy(ctx, w.directory, io.MultiWriter(file, hash), resources.Policy{ExcludeNames: excluded})
+	err = resources.WriteArchiveWithPolicy(ctx, directory, io.MultiWriter(file, hash), resources.Policy{ExcludeNames: excluded})
 	if err == nil {
 		err = file.Sync()
 	}
@@ -350,6 +356,25 @@ func (w *nativeWorkspace) Capture(ctx context.Context, target, message string, e
 		return workspace.Archive{}, err
 	}
 	return workspace.Archive{ArchivePath: target, Bytes: stat.Size(), SHA256: hex.EncodeToString(hash.Sum(nil))}, nil
+}
+
+func (w *nativeWorkspace) seal(ctx context.Context) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.sealLocked(ctx)
+}
+
+func (w *nativeWorkspace) sealLocked(ctx context.Context) error {
+	if w.failure != nil || w.closed {
+		return errors.New("Native workspace cleanup is unconfirmed")
+	}
+	w.sealed = true
+	if err := nativejob.Reconcile(ctx, w.jobs); err != nil {
+		w.failure = err
+		w.provider.unsafe(err)
+		return err
+	}
+	return nil
 }
 
 func (w *nativeWorkspace) Close(ctx context.Context) error {
@@ -364,6 +389,17 @@ func (w *nativeWorkspace) Close(ctx context.Context) error {
 		w.failure = err
 		w.provider.unsafe(err)
 		return err
+	}
+	if w.retain {
+		recovery := filepath.Join(w.provider.config.DataDir, "native-recovery")
+		if err := os.MkdirAll(recovery, 0700); err != nil {
+			return err
+		}
+		retained, err := os.MkdirTemp(recovery, "checkpoint-")
+		if err != nil {
+			return err
+		}
+		return os.Rename(w.root, filepath.Join(retained, "workspace-state"))
 	}
 	return os.RemoveAll(w.root)
 }

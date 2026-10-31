@@ -87,13 +87,14 @@ format: format-go
 	$(PNPM) run format
 
 format-go:
-	$(GOFMT) -w *.go internal apps/server tools
+	# Format owned Go helpers, excluding ignored SDK and license-source caches.
+	$(GOFMT) -w *.go internal apps/server tools/sqlgen tools/release-archive
 
 format-check: format-check-go
 	$(PNPM) run format:check
 
 format-check-go:
-	@set -eu; files="$$($(GOFMT) -l *.go internal apps/server tools)"; \
+	@set -eu; files="$$($(GOFMT) -l *.go internal apps/server tools/sqlgen tools/release-archive)"; \
 		if [ -n "$$files" ]; then printf '%s\n' "$$files"; exit 1; fi
 
 lint: lint-go

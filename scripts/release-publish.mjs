@@ -14,6 +14,7 @@ import {
 
 import { homebrewFormula } from './homebrew.mjs';
 import { upgradeBaseline } from './upgrade.mjs';
+import { verifyWorkerArtifact } from './worker-release.mjs';
 
 const execute = promisify(execFile);
 assert.equal(
@@ -31,6 +32,10 @@ const directory = join(root, 'dist/release');
 const { runner, server, artifacts } = await verifyRelease(
   directory,
   identity.version,
+  identity.sourceCommit,
+);
+const checkpointWorker = await verifyWorkerArtifact(
+  directory,
   identity.sourceCommit,
 );
 const acceptance = JSON.parse(
@@ -169,6 +174,10 @@ await writeFile(
   )}\n`,
 );
 const filenames = [
+  'checkpoint-worker-release.json',
+  'worker-arm64-qualification.json',
+  checkpointWorker.artifact.filename,
+  `${checkpointWorker.artifact.filename}.sha256`,
   'runner-release.json',
   'server-release.json',
   'release.json',

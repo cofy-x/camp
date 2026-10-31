@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 
 	"github.com/cofy-x/camp/apps/server/internal/nativejob"
 	"github.com/cofy-x/camp/apps/server/internal/seatbelt"
@@ -22,6 +23,9 @@ func Command(c Config, dir string, lock *os.File, test bool) (*exec.Cmd, error) 
 	}
 	home := filepath.Join(dir, "dsh-home")
 	if err := os.MkdirAll(home, 0700); err != nil {
+		return nil, err
+	}
+	if err := prepareDSHStateScope(c.StateDir); err != nil {
 		return nil, err
 	}
 	ports, err := seatbelt.ControlPorts(c.BaseURL, c.ToolEndpoint, c.CoordinationEndpoint)
@@ -39,6 +43,39 @@ func Command(c Config, dir string, lock *os.File, test bool) (*exec.Cmd, error) 
 	}
 	cmd, _, err := nativejob.Command(c.HelperPath, c.JobRoot, nativejob.Spec{Argv: []string{c.NodePath, filepath.Join(c.RuntimeDir, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"), "--profile", "sdk-minimal", "--patch", patch}, Directory: c.Cwd, Env: env, Policy: policy, TimeoutMS: c.TimeoutMS, MaxOutput: 16 << 20})
 	return cmd, err
+}
+
+// DSH's profile resolver inspects its parent package scope. A private boundary
+// keeps state below an arbitrary host checkout independent of that checkout's
+// unreadable package.json, without granting the model process ancestor reads.
+func prepareDSHStateScope(directory string) error {
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		return err
+	}
+	name := filepath.Join(directory, "package.json")
+	const content = "{\"private\":true,\"type\":\"module\"}\n"
+	file, err := os.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if errors.Is(err, os.ErrExist) {
+		file, err = os.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil || !info.Mode().IsRegular() || info.Size() != int64(len(content)) {
+			return errors.New("The retained DSH state contains an incompatible package boundary; preserve it for explicit recovery")
+		}
+		buffer := make([]byte, len(content))
+		if _, err := file.Read(buffer); err != nil || string(buffer) != content {
+			return errors.New("The retained DSH state package boundary differs; no profile or session was replaced")
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, writeErr := file.WriteString(content)
+	return errors.Join(writeErr, file.Sync(), file.Close())
 }
 
 func ProjectCommand(ProjectConfig, *os.File) (*exec.Cmd, error) {

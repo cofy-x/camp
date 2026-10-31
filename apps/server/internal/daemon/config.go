@@ -28,6 +28,8 @@ type Config struct {
 	BundleDir         string                `json:"bundleDir,omitempty"`
 	RuntimeSource     string                `json:"runtimeSource,omitempty"`
 	DockerSocket      string                `json:"dockerSocket,omitempty"`
+	DockerBinary      string                `json:"dockerBinary,omitempty"`
+	WorkspaceBackend  string                `json:"workspaceBackend,omitempty"`
 	ServerURL         string                `json:"serverUrl"`
 	RunnerID          string                `json:"runnerId"`
 	Credential        string                `json:"credential"`
@@ -77,6 +79,9 @@ func LoadConfig(directory string) (Config, error) {
 	}
 	if !validRuntimeSource(config.RuntimeSource) {
 		return config, errors.New("Runtime source must be github or server")
+	}
+	if err := nativeexecutor.ValidateWorkspaceBackend(config.WorkspaceBackend); err != nil {
+		return config, err
 	}
 	config.DataDir, err = filepath.Abs(directory)
 	return config, err
@@ -312,12 +317,40 @@ func SaveInstallation(config Config, bundle, docker string) error {
 	}
 	current.BundleDir = bundle
 	current.DockerSocket = docker
+	current.DockerBinary = config.DockerBinary
 	current.RuntimeSource = config.RuntimeSource
 	return saveConfig(current)
 }
 
 func validRuntimeSource(value string) bool {
 	return value == "" || value == "github" || value == "server"
+}
+
+// SaveWorkspaceBackend is a stopped-Runner installation change. Enrollment,
+// sources, authorization grants, journals and retained captures remain intact.
+func SaveWorkspaceBackend(config Config, backend string) error {
+	if err := nativeexecutor.ValidateWorkspaceBackend(backend); err != nil {
+		return err
+	}
+	lock, err := execution.AcquireLock(config.DataDir)
+	if err != nil {
+		return err
+	}
+	if lock != nil {
+		defer lock.Close()
+	}
+	current, err := LoadConfig(config.DataDir)
+	if err != nil {
+		return err
+	}
+	if current.RunnerID != config.RunnerID || current.StorageID != config.StorageID || current.RegistrationID != config.RegistrationID {
+		return errors.New("Runner identity changed while selecting the workspace backend")
+	}
+	if current.Executor != "native" {
+		return errors.New("Workspace selection requires the native executor")
+	}
+	current.WorkspaceBackend = backend
+	return saveConfig(current)
 }
 
 // SaveToolRoots changes explicit local grants while retaining enrollment and

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { root } from './lib.mjs';
 import { hashFile, releaseIdentity, verifyRelease } from './release.mjs';
 import { upgradeBaseline } from './upgrade.mjs';
+import { verifyWorkerArtifact } from './worker-release.mjs';
 
 const identity = await releaseIdentity();
 const directory = join(root, 'dist');
@@ -73,6 +74,17 @@ for (const filename of [
   ]),
 ])
   await copyFile(join(directory, filename), join(staging, filename));
+const checkpointWorker = await verifyWorkerArtifact(
+  directory,
+  identity.sourceCommit,
+);
+for (const filename of [
+  'checkpoint-worker-release.json',
+  'worker-arm64-qualification.json',
+  checkpointWorker.artifact.filename,
+  `${checkpointWorker.artifact.filename}.sha256`,
+])
+  await copyFile(join(directory, filename), join(staging, filename));
 const evidence = {
   schema: 1,
   version: identity.version,
@@ -102,6 +114,12 @@ const evidence = {
     dsh: runtime.dsh,
     rust: runtime.rust,
     layerfs: runtime.layerfs,
+  },
+  optionalCheckpointWorker: {
+    ...checkpointWorker,
+    qualification: 'worker-arm64-qualification.json',
+    scope:
+      'native Linux ARM64 artifact qualification; actual Mac hybrid acceptance is separate',
   },
   installations: reports,
   serverImage: image,

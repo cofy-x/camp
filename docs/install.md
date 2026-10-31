@@ -4,7 +4,7 @@ Camp serves one trusted team from one Server. Ordinary members use a browser; pe
 
 ## Supported deployment
 
-The native Runner packages target **Ubuntu 24.04 amd64** and **macOS 15+ Apple Silicon**. Mac uses a native local workspace and Seatbelt, without Docker, Linux VM, FUSE or root. Use the original unprivileged account for setup and operation; Intel Mac supports Server only. Native tool installations require explicit read/execute grants described in the [native Runner contract](native-runner.md#operator-setup-and-lifecycle).
+The native Runner packages target **Ubuntu 24.04 amd64** and **macOS 15+ Apple Silicon**. By default Mac uses a native local workspace and Seatbelt, without Docker, Linux VM, FUSE or root. The optional checkpoint worker adds a Linux engine dependency while keeping commands native. Use the original unprivileged account for setup and operation; Intel Mac supports Server only. Native tool installations require explicit read/execute grants described in the [native Runner contract](native-runner.md#operator-setup-and-lifecycle).
 
 The Linux Runner uses LayerFS. Its host requires Docker Engine with a local Unix socket and local volume access, `/dev/fuse`, Bubblewrap with working user/PID namespaces, Git and Bash. The fixed native binaries use the platform's system libraries; setup reports missing prerequisites without installing packages or changing host policy.
 
@@ -106,6 +106,36 @@ Use the same execution account and absolute private directory for setup, foregro
 
 Keep the installer at a stable absolute path; runtime cache and private data have separate lifetimes. For offline runtime installation, verify/extract `camp-runner-offline-linux-amd64.tar.gz`, (or `camp-runner-offline-darwin-arm64.tar.gz` on Mac), then run the same setup command. It detects the adjacent exact archive and validates it identically. Registration and work still need Server connectivity. The smaller installer moves runtime transfer to setup; it does not remove total download or disk cost.
 
+### Optional Mac LayerFS checkpoints
+
+Native-local is the recommended Mac default. For complete working-tree checkpoints, history and forks, use a matching worker-enabled Mac runtime and its separately checksummed `camp-layerfs-worker-linux-arm64-<SHA256>.tar.gz` artifact. Check that exact release's evidence for availability and qualified engines; local candidate packaging does not establish public distribution. The option requires a running native ARM64 rootful Docker engine, such as the qualified OrbStack engine. Store data stays in Linux-local volumes; no Mac folder is mounted as the Store. Host FUSE, a separate Runner inside Linux and model keys on Runner are unnecessary. The [default decision](layerfs-worker.md#default-and-deployment-decision) explains the capability and cost tradeoff and the optional future Lima boundary.
+
+Stop the Runner before selecting a backend. Keep its existing private data directory and registration. For OrbStack, for example:
+
+```sh
+./camp runner setup --data-dir /absolute/private/runner \
+  --workspace-backend layerfs-worker \
+  --docker-socket "$HOME/.orbstack/run/docker.sock" \
+  --docker-binary /usr/local/bin/docker \
+  --worker-image /absolute/downloads/camp-layerfs-worker-linux-arm64-SHA256.tar.gz
+```
+
+Setup verifies the fixed archive and actual ARM64 image, saves the absolute Docker invocation path and runs native isolation plus checkpoint/restore self-tests. Preserve a Docker entry symlink's name: OrbStack dispatches its multicall executable using that name. Omit `--worker-image` when the matching image is already present. Omit `--workspace-backend` during later setup to retain the saved choice; choose `native-local` explicitly to return to that backend. Neither selection resets identity, journal or captures. Runtime/Store fingerprint changes can invalidate session resume eligibility while retaining session data. Setup never starts a VM or service implicitly.
+
+The complete checkpoint includes `.git`, ignored dependencies, supported permissions, directories and link topology. Server publication remains a separately filtered regular-file archive. The [worker contract](layerfs-worker.md) defines unsupported metadata/files, APFS name conflicts and performance/recovery boundaries. A selected worker's failure blocks required publication and retains native work; it does not silently switch backends. Checkpoints use a Disposable Store and are not durable Server delivery.
+
+Inspect retained metadata without starting a worker, then stop the Runner before observing or restoring an operation:
+
+```sh
+./camp runner checkpoint status --data-dir /absolute/private/runner
+./camp runner checkpoint observe --data-dir /absolute/private/runner --operation OPERATION_ID
+./camp runner checkpoint restore --data-dir /absolute/private/runner --operation OPERATION_ID --parent /absolute/private/restores
+```
+
+The restore parent must exist, belong to the operator and have mode 700; restoration creates a new child and never overwrites an existing tree. `restore --from-native` explicitly restores retained native bytes when the worker is unavailable and reports that no current worker verification was performed. After Store loss or an incompatible worker upgrade, `reconstruct --operation OPERATION_ID` creates a new Store epoch and new operation, verifies readback, and selects it while retaining old captures/uncertain receipts. If selection was interrupted, use `observe-reconstruction --recovery RECOVERY_ID`. These actions neither replay tools/models nor publish to Server. Status reports its last recorded engine/SDK/image identities as historical observations, not current readiness.
+
+Back up the whole stopped Runner directory, including captures and operation receipts. Relative capture references support relocation of that backup; a Linux Disposable Store is still separate and can require explicit reconstruction. Keep the previous runtime and backup while upgrading. Existing absolute-only experimental receipts that escape the restored home require explicit inspection rather than guessed paths.
+
 ## Choose operation mode
 
 Foreground `run` is enough. On systemd hosts an operator can separately choose:
@@ -186,7 +216,7 @@ node scripts/smoke-server-image.mjs camp-server:v0.1.0-alpha.1
 - `dist/camp-runner-darwin-arm64.tar.gz`, its digest-addressed native runtime and `dist/camp-runner-offline-darwin-arm64.tar.gz`: unprivileged Mac execution.
 - Archive checksums, `dist/runner-release.json` and `dist/server-release.json`: fixed source/version, protocol and artifact identities. The published `release.json` also binds the registry digest.
 
-Each runtime has its own file/link manifest and licenses. Only Linux includes the fixed LayerFS image; Mac excludes the Linux runtime, image and Rust toolchain. Native dependencies stay pinned; only foreign-platform node-pty prebuilds are excluded and recorded. A portable Go archive writer normalizes tar metadata/order and keeps unchanged runtime content stable across installer rebuilds. Digests establish integrity, not a publisher signature; use a trusted release channel. Optional document parsing is Server-side and absent from Runner runtime packages.
+Each runtime has its own file/link manifest and licenses. The Linux Runner includes its fixed LayerFS image. A Mac runtime built with checkpoint worker support includes its small controller and fixed artifact pin; the optional Linux ARM64 image is a separate download and is never loaded for native-local setup. Mac runtime packages contain no Linux addon, daemon, image or Rust compiler. Native dependencies stay pinned; only foreign-platform node-pty prebuilds are excluded and recorded. A portable Go archive writer normalizes tar metadata/order and keeps unchanged runtime content stable across installer rebuilds. Digests establish integrity, not a publisher signature; use a trusted release channel. Optional document parsing is Server-side and absent from Runner runtime packages.
 
 Each native builder emits a schema-2 `runner-release-<platform>.json` contribution. Both contributions must agree on version, source and protocol before the schema-2 `runner-release.json` combines their `runners` entries. The published `release.json` also uses schema 2. The Server embeds the complete catalog; older schema-1 package metadata must be replaced with the matching release catalog, without changing Runner identity or retained digest runtimes.
 

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -36,7 +37,14 @@ func TestDockerFramesRejectTruncationAndInvalidHeaders(t *testing.T) {
 
 func TestDockerStdinAndFrozenIdentity(t *testing.T) {
 	id, execID := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	socket := filepath.Join(t.TempDir(), "docker.sock")
+	// macOS limits Unix socket paths to 104 bytes; its default temporary
+	// directory plus a descriptive Go test name can exceed that limit.
+	directory, err := os.MkdirTemp("/tmp", "camp-docker-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	socket := filepath.Join(directory, "docker.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)

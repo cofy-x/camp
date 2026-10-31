@@ -13,6 +13,7 @@ import (
 )
 
 type Config struct {
+	WorkspaceBackend, WorkerRuntimeDir, WorkerDataRoot, RunnerID, StorageID, DockerBinary string
 	ToolRoots                                                                             []string
 	DataDir, RuntimeDir, LayerFSRuntimeDir, SandboxHelper, DockerSocket, NodePath, CAFile string
 	Lock                                                                                  *os.File

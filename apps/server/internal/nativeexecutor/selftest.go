@@ -50,6 +50,15 @@ func HostChecks(config Config) p.ReadinessReport {
 			_, err := exec.LookPath(tool.name)
 			add(tool.id, tool.label, err)
 		}
+		if config.WorkspaceBackend == "layerfs-worker" {
+			_, err := SelectedDockerClient(config.DockerBinary)
+			add("worker-client", "Checkpoint worker Docker client", err)
+			info, err := os.Stat(config.DockerSocket)
+			if err == nil && info.Mode()&os.ModeSocket == 0 {
+				err = errors.New("Select a local Docker Unix socket for the checkpoint worker")
+			}
+			add("worker-engine", "Selected checkpoint engine socket", err)
+		}
 		return report
 	}
 	var platformErr error

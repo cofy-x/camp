@@ -132,13 +132,15 @@ func TestRPCCompletionAndFailure(t *testing.T) {
 			cmd := exec.Command(exe, "-test.run=^TestRPCProcessHelper$")
 			cmd.Env = append(os.Environ(), "CAMP_RPC_FIXTURE="+mode)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			if mode == "cancel" {
-				cancel()
-				ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
-			}
 			defer cancel()
 			var output strings.Builder
-			code, err := Run(ctx, cmd, Config{Model: "fixture", MaxTokens: 32, MaxSteps: 2}, "unit", "prompt", func(event Event) error { _, err := output.WriteString(event.Text); return err })
+			code, err := Run(ctx, cmd, Config{Model: "fixture", MaxTokens: 32, MaxSteps: 2}, "unit", "prompt", func(event Event) error {
+				_, err := output.WriteString(event.Text)
+				if mode == "cancel" && strings.Contains(output.String(), "partial output") {
+					cancel()
+				}
+				return err
+			})
 			if mode == "success" {
 				if err != nil || code != 0 || !strings.Contains(output.String(), "partial output") {
 					t.Fatalf("run = %d %v %s", code, err, output.String())
