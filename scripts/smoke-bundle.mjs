@@ -579,7 +579,11 @@ try {
   );
   assert.equal(
     assigned.capabilities.workspace,
-    mac ? 'native-local' : 'layerfs',
+    checkpointWorker
+      ? 'native-layerfs-worker'
+      : mac
+        ? 'native-local'
+        : 'layerfs',
   );
   assert.equal(
     assigned.capabilities.sandbox,
@@ -587,9 +591,15 @@ try {
   );
   assert.equal(
     assigned.capabilities.checkpoint,
-    mac ? 'local-capture' : 'layerfs',
+    checkpointWorker
+      ? 'layerfs-disposable+native-capture'
+      : mac
+        ? 'local-capture'
+        : 'layerfs',
   );
-  if (mac) assert.equal(assigned.capabilities.layerfsVersion, undefined);
+  if (checkpointWorker)
+    assert.equal(assigned.capabilities.layerfsVersion, '1.1.0');
+  else if (mac) assert.equal(assigned.capabilities.layerfsVersion, undefined);
   assert.equal(assigned.firstTaskRunId, '');
   assert.equal(assigned.firstTaskSucceededAt, '');
   assert.equal(assigned.modelConfigured, true);
@@ -701,6 +711,7 @@ try {
       const switched = await setupWith(runnerBinary, '', false, [
         '--workspace-backend',
         backend,
+        ...(backend === 'native-local' ? ['--worker-image', ''] : []),
       ]);
       assert.equal(switched.exit, 0, switched.output);
       const current = JSON.parse(

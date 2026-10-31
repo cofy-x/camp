@@ -50,7 +50,7 @@ const report = {
     timing:
       'phase wall time includes required capture, hashes, transport, apply, Commit and readback; atomic upstream fs.apply includes Commit, so those two times remain combined',
     cache:
-      'OS and LayerFS caches not flushed, content and Store reused across repetitions; first full is a new Branch from main; VM already running',
+      'OS and engine caches not flushed; each repetition has a fresh owned Store, reused across arms and phases in that repetition; first full is a new Branch from main; VM already running',
   },
 };
 const proxy = spawn(
@@ -395,6 +395,7 @@ try {
         { workload, phase, arm: 'native-sealing' },
         () => captureTree(source, path.join(root, 'shared-captures')),
       );
+      const sharedSealMs = report.observations.at(-1).elapsedMs;
       if (phase === 'full') initialCapture = frozen;
       report.nativeFixtures.push({
         workload,
@@ -428,7 +429,7 @@ try {
             phase,
             arm,
             expectedDigest: frozen.digest,
-            sharedSealMs: frozen.metrics.scanMs,
+            sharedSealMs,
           },
           async () => {
             const capture = frozen;
