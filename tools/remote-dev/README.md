@@ -1,6 +1,6 @@
 # Portable remote execution validation
 
-Run from the Camp checkout with the [repository toolchain](../../README.md#local-development) and Docker Compose:
+Run from the Camp checkout with the [repository toolchain](../../CONTRIBUTING.md#development) and Docker Compose:
 
 ```sh
 node scripts/remote.mjs up

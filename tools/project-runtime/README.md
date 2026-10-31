@@ -1,6 +1,6 @@
 # Project package manager
 
-This independent installation pins the pnpm executable for prepared Node projects. The [manifest](package.json) and lockfile own the version; use the [repository toolchain](../../README.md#local-development) and run from Camp root:
+This independent installation pins the pnpm executable for prepared Node projects. The [manifest](package.json) and lockfile own the version; use the [repository toolchain](../../CONTRIBUTING.md#development) and run from Camp root:
 
 ```sh
 make install-project-runtime

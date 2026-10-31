@@ -1,10 +1,10 @@
 # Camp architecture
 
-The [native Runner design](native-runner.md) owns the cross-platform execution boundaries and qualification requirements; the implementation described below remains the released Linux path until those checks establish another backend.
+The [native Runner contract](native-runner.md) owns platform-specific isolation, workspace and checkpoint boundaries. The shared Server/Runner protocol and persistence rules below apply to both Linux and Mac ARM64.
 
-Camp has one trusted team's single Server, React desktop and independent Linux Runners. The [Server composition](../apps/server/internal/server/server.go) uses `remoteruns`; it never starts the legacy local Run scheduler or a DSH/LayerFS bridge. SQLite and immutable Git objects own shared results. LayerFS is disposable execution state.
+Camp has one trusted team's single Server, React desktop and independent Linux and Mac ARM64 Runners. The [Server composition](../apps/server/internal/server/server.go) uses `remoteruns`; it never starts the legacy local Run scheduler or a DSH/LayerFS bridge. SQLite and immutable Git objects own shared results; workspace and checkpoint backends do not authorize publication.
 
-Server owns identity/permissions, admission/scheduling, model proxy, durable files, review and notifications. Runner actively connects to Server and owns its journal, deduplication, local scheduling, lease watchdog, reconnection reconciliation and artifact upload/cleanup. Native executor prepares tools, calls DSH/LayerFS and checks/exports results without the business database. DSH owns the model/tool loop; LayerFS owns rebuildable execution workspaces. Even on one machine, Server and Runner are separate processes using the same remote protocol. Server has no Agent-execution dependency on host Docker, DSH or LayerFS.
+Server owns identity/permissions, admission/scheduling, model proxy, durable files, review and notifications. Runner actively connects to Server and owns its journal, deduplication, local scheduling, lease watchdog, reconnection reconciliation and artifact upload/cleanup. Native executor prepares tools, calls DSH and checks/exports results without the business database. DSH owns the model/tool loop. The workspace backend is LayerFS on Linux or a native local directory on Mac; cleanup and recovery follow the native Runner contract. Even on one machine, Server and Runner are separate processes using the same remote protocol. Server has no Agent-execution dependency on host Docker, DSH or LayerFS.
 
 The [root Go entrypoint](../main.go) and [release launcher](../internal/launcher/launcher.go) are distribution code, outside the Server's internal packages. The launcher installs the exact published Server or Runner archive and replaces itself with that executable, preserving process signals and exit status. It owns only a private, rebuildable version cache, never team configuration, credentials or Runner journals. This preserves the complete generated Dashboard and compiled-in runtime identities without checking generated bundles into source or rebuilding release metadata during `go install`. Standalone archives remain the offline path; source developers retain `make build`.
 
@@ -34,7 +34,7 @@ The [root Go entrypoint](../main.go) and [release launcher](../internal/launcher
 
 Features must not import the application registry or startup implementation. Keep file browsing, editing and publication in `features/library`; keep reusable resource transport with its API models and generic transport in `shared`. Platinum must not know Camp application IDs: use host callbacks for system actions and `AppDefinition.launchable` for launcher visibility. Removing an app should require no desktop-package changes. Add a layer only when it has a distinct owner. Validate transport, archive and execution inputs at their owning boundaries; storage rechecks the business authority and versions required for atomic publication.
 
-Refactors preserve observable behavior; intentional product changes update callers, tests and contracts together. Keep React Hook dependencies complete and handle asynchronous failures. Fix lint findings without blanket suppressions.
+Register apps with `AppDefinition` and use shared desktop navigation, dialogs, menus and close guards. Refactors preserve observable behavior; intentional product changes update callers, tests and contracts together. Keep React Hook dependencies complete and handle asynchronous failures. Fix lint findings without blanket suppressions.
 
 ## Team and authority
 
