@@ -788,7 +788,10 @@ try {
   if (checkpointWorker) {
     const restoredRunner = path.join(dir, "Relocated Runner's stopped backup");
     const backing = performance.now();
-    await cp(runnerData, restoredRunner, { recursive: true });
+    await cp(runnerData, restoredRunner, {
+      recursive: true,
+      verbatimSymlinks: true,
+    });
     assert.deepEqual(
       await readFile(path.join(restoredRunner, 'daemon.json')),
       await readFile(path.join(runnerData, 'daemon.json')),
@@ -905,7 +908,7 @@ try {
   // then restart the exact release from that stopped, private copy.
   await rm(path.join(data, 'packages'), { recursive: true, force: true });
   const restored = path.join(dir, 'restored-data');
-  await cp(data, restored, { recursive: true });
+  await cp(data, restored, { recursive: true, verbatimSymlinks: true });
   child = spawn(
     path.join(root, 'dist/camp'),
     ['serve', '--addr', `127.0.0.1:${port}`, '--data-dir', restored],
