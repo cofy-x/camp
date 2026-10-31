@@ -12,6 +12,8 @@ The worker uses the [pinned LayerFS source](../tools/layerfs-runtime/pin.json) t
 
 The upstream macOS worker route is available to any integration. It forwards SDK calls; it does not expose a native Mac mount. Evaluate reusing that route against a checkpoint-only streamed transport. Preserve the upstream Store/concurrency semantics and public interfaces; do not introduce another Store encoder or database protocol.
 
+Architecture qualification includes the base image's resolved manifest/config, not just its tag. The existing Camp Linux runtime installer and pinned base-image digest target amd64; they are not an ARM64 build input by implication. Give the ARM64 worker its own immutable base-image, addon, daemon and runtime identities. Build from an isolated source archive, verify ELF architecture and actual native execution, then qualify Store open, FUSE mount, Commit and remount before claiming a usable worker. A failed build or unsupported public operation is a retained qualification outcome, not permission to patch the shared checkout or use emulation.
+
 ## Workspace and checkpoint boundaries
 
 The Mac directory is the sole active tool writer. Worker replicas are not writable by Agent commands. Do not synchronize live directories in the background or let SDK file tools and native commands modify independent copies concurrently.
@@ -21,6 +23,10 @@ Keep full working-tree checkpoints separate from accepted publication archives. 
 Preserve opaque link metadata without following a link into host credentials, tool installations or another workspace. Checkpointing a link grants neither the worker nor a restored command permission to its target. Verify APFS case sensitivity, Unicode spelling/normalization and collisions with Linux names. Restoration must reject a namespace the destination cannot represent without renaming or overwriting files.
 
 A checkpoint implementation belongs behind the workspace/checkpoint boundary, not in enrollment or Server storage. Publication capture and full-tree checkpoint capture may have different budgets and exclusions. Declare those separately; never apply the publication filter silently to a purported complete checkpoint. Exceeding a configured budget retains the source and reports failure.
+
+Use distinct full-tree snapshot and publication-archive contracts. The existing `workspace.Archive` and its publication exclusions do not establish a complete working-tree checkpoint. A full-tree manifest binds exact relative name spellings, entry types, modes, content digests, opaque symlink targets and internal hardlink groups. Preserve hardlink identity on round-trip or reject that capability before worker mutation; do not silently flatten links. Explicitly reject links to unretained external inode groups and unsupported special entries. Qualify these policies against representative prepared dependencies rather than assuming that a regular-file fixture covers them.
+
+Restore into a new private staging directory on the actual destination filesystem. Check name representability and case/Unicode collisions before selecting that directory as a workspace, then independently compare the restored manifest. Never normalize, rename, merge or overwrite colliding entries to make a restore succeed. Failure leaves existing native work and the retained snapshot untouched. Include case-sensitive destinations when available, while reporting the actual behavior of the operator's ordinary APFS directory separately.
 
 ## Sealing, receipts and recovery
 
@@ -35,6 +41,8 @@ Use the following ordering for each generation:
 
 A lost response after dispatch is uncertain. Neither the client nor the worker blindly resends an attempted mutation or Commit. Read-only receipt/status recovery may confirm an already completed operation; conflicting bodies or changed parents are rejected. Otherwise retain native captures and uncertain receipts, block required checkpoint publication and require explicit recovery. Never substitute an older worker generation.
 
+Persist preparation, upload completion, mutation dispatch, Commit dispatch, readback verification and confirmation as distinguishable operation states. Record dispatch before calling a mutating API; a disconnect after dispatch cannot become an unattempted retry. Reconciliation needs a matching operation/generation/digest/parent and independently observed Store state. A matching local receipt alone is insufficient after worker restart or Store loss. An unchanged snapshot can advance its operation/generation receipt while retaining the same acknowledged head; it must not invent a Commit. Rebuilding a lost Store uses a new Store identity and an explicitly new operation, retaining the old uncertainty and lineage.
+
 Test interrupted upload, apply failure, lost Commit response, worker/Runner restart and worker Store loss. Worker receipts and a Disposable Store do not replace retained native captures. Rebuilding a lost Store is an explicitly identified new operation from retained data, not a replay of an uncertain operation. Never reset an existing Runner or unrelated worker home to make a test pass.
 
 ## Transport, installation and permissions
@@ -47,7 +55,25 @@ Pin the worker protocol, LayerFS source, native addon, daemon, image, architectu
 
 Backend selection is an explicit stopped-Runner operation. Preserve identity, credential, storage/registration IDs, configuration fields, journals and existing user resources. A changed backend fingerprint may invalidate resume eligibility; it must not delete sessions or replay prompts. Keep old captures/receipts recoverable. Installation, foreground operation and optional service/login startup remain separate choices.
 
+Selecting the hybrid makes its confirmed checkpoint a required completion condition; worker failure must not silently select native-local or publish without that checkpoint. Retain the sealed native result and recovery receipt when confirmation is unavailable. This does not transfer lease, cancellation or publication authority to the worker.
+
+### Upstream lifecycle and transport adaptation
+
+Reuse the upstream SDK and worker route without adopting their launcher defaults as Camp policy. At the pinned source, the macOS launcher uses `--restart unless-stopped`, starts a stopped worker, replaces a differently built container, forwards the launcher's environment to Docker, and can start during project Init. Runtime open also enables stopped-Sandbox sweeping by default. Camp must own explicit startup, shutdown, replacement and scoped recovery, use private names/homes/TMP directories and a filtered environment, and never sweep another owner's resources. Qualification may launch the unmodified worker entry point under a Camp-owned supervisor; it must not modify upstream source to change those defaults.
+
+The upstream wire format authenticates a bounded first frame, then buffers complete frames and represents binary values as base64. Authenticated payloads have no equivalent configured frame bound. Treat that behavior as a measured comparison arm in private fixtures, not as an already bounded production transport. A production adapter needs explicit aggregate/per-entry limits, bounded chunks and in-flight work, backpressure, timeouts and pre-mutation validation. Keep credentials in private configuration and out of command arguments, URLs, Agent environments and reports. A checkpoint-only adapter may call public LayerFS operations inside Linux; it must not add a Store encoder or expose a general command endpoint to Agents.
+
 Report actual workspace, sandbox, checkpoint and worker provenance through existing diagnostics. An unopened or failed adapter must not report a fabricated ready worker. UI changes require direct inline before/after PR images.
+
+### Linux environment provisioning
+
+Keep Linux machine provisioning independent of the checkpoint transport and of the final backend decision. Reusing an explicitly selected existing Docker/OrbStack/Colima engine is one deployment option; a dedicated Camp-managed Lima instance is another candidate. Both keep Agent commands and checks native on Mac. Select an engine endpoint per owned process without changing the operator's global Docker context, and qualify its actual Linux-local Store filesystem and ARM64 binaries identically.
+
+Evaluate Lima through its public CLI with a pinned supported version and a Camp-owned profile, rather than importing its internal Go packages or adopting a moving stock template. On Apple Silicon the candidate profile uses native ARM64 virtualization, with emulation disabled. The current LayerFS integration requires a rootful Docker Engine inside the guest and local volume access; Lima's default containerd environment and rootless Docker template are not qualified substitutes. Pin guest images, provisioning packages and worker artifacts instead of running a moving Docker installation script. The [Lima Docker examples](https://lima-vm.io/docs/examples/containers/docker/) distinguish rootless and rootful profiles; its [VZ driver](https://lima-vm.io/docs/config/vmtype/vz/) uses the Mac virtualization framework.
+
+A managed profile needs a private Lima home/SSH identity, no default Mac home mount, no host SSH-key import or agent forwarding, and explicit environment/proxy policy. Lima's stock Docker profiles inherit a host-home mount and its proxy propagation is a separate default, so filtering only the launching process environment is insufficient. Preserve only declared administrative sockets/ports, with private credentials and resource limits. Store bytes stay on the guest's local filesystem; a virtual disk image residing on APFS is distinct from placing the Store itself on a shared APFS/virtiofs mount. Instance create/start/stop, upgrade/replacement and login startup remain explicit, scoped operations that never reset another instance or change Runner identity.
+
+Lima could make a self-contained installation and its diagnostics more reproducible, while adding guest provisioning, VM lifecycle, networking, upgrades and resource costs to Camp's maintenance scope. Retain existing-engine support to avoid forcing a second VM onto an operator who already has a qualified engine. First qualify the worker and transport on one selected environment. Compare provisioning options separately, recording installation and actual cold/warm VM costs only when those environments ran; do not mix their samples into the same transport comparison or infer a performance advantage from their architecture.
 
 ## Actual Mac qualification
 
@@ -75,6 +101,8 @@ Compare native-local, native plus the upstream worker route, and any proposed st
 Retain three individual measured repetitions per scenario: a small text tree, 10,000 small files and 128 MiB of deterministic incompressible data, followed by single-file edits, delete/rename and mode changes. Include a representative dependency/symlink tree. Separate cold installation/startup, first full snapshot, unchanged/warm checkpoint, incremental change and restore/fork. Do not call an already running Docker VM a cold VM start or restart the operator's existing services for a benchmark.
 
 For every repetition record preparation/materialization, scan/hash, native capture, serialization, wire transfer, worker apply, Commit, readback verification and restore times. Record logical and actual wire bytes, files scanned/copied, Store/disk growth, client/worker/container CPU and sampled peak RSS; report VM costs separately when measurable. Avoid counting shared memory twice. The upstream base64/whole-frame transport cost must be measured, not inferred from changed file bytes.
+
+Use the same sealed input manifests for comparable arms and account for each arm's required preparation. Native-local publication capture is not a full-tree restore baseline. If an upstream route cannot represent a dependency/link fixture, retain that case as unsupported rather than removing entries or calling it a successful full-tree comparison. Keep capability coverage distinct from timings; any common full-tree local capture/restore added for the comparison needs its own affected native qualification. Reuse existing acceptance only when source/runtime identity and unaffected scope are verifiable.
 
 Record source/binary/image/protocol/runtime identities, toolchain, host/VM facts, cold/warm definitions, reuse, sampling method and interference. Retain every pass/failure and individual sample, with median/range where useful; no best-of selection or artificial latency hidden outside the measured phase. Keep generated reports private and out of source, retaining sanitized evidence through CI/release policy.
 
