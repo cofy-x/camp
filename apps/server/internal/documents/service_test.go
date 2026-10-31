@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -205,10 +206,12 @@ func TestPreparationWriteFailureRetriesResultWithoutReextracting(t *testing.T) {
 		t.Fatal(err)
 	}
 	var calls atomic.Int32
+	failedWrite := make(chan struct{}, 1)
+	logger := slog.New(slog.NewTextHandler(documentFailureLog{failedWrite}, nil))
 	service, err := New(ctx, store, files, extractFunc(func(context.Context, string, []byte) (documenttext.Result, error) {
 		calls.Add(1)
 		return documenttext.Result{Format: "pdf", Sections: []documenttext.Section{{ID: "p1", Label: "Page 1", Text: "Durable result"}}}, nil
-	}), nil)
+	}), logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +221,11 @@ func TestPreparationWriteFailureRetriesResultWithoutReextracting(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitDocument(t, store, d.ID, "extracting")
-	time.Sleep(100 * time.Millisecond)
+	select {
+	case <-failedWrite:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the injected result write failure was not observed")
+	}
 	if calls.Load() != 1 {
 		t.Fatalf("reader call count %d", calls.Load())
 	}
@@ -229,6 +236,18 @@ func TestPreparationWriteFailureRetriesResultWithoutReextracting(t *testing.T) {
 	if calls.Load() != 1 || result.Sections[0].Text != "Durable result" {
 		t.Fatal("write retry reran reader or lost output")
 	}
+}
+
+type documentFailureLog struct{ observed chan struct{} }
+
+func (log documentFailureLog) Write(data []byte) (int, error) {
+	if strings.Contains(string(data), "Cannot save document preparation result") {
+		select {
+		case log.observed <- struct{}{}:
+		default:
+		}
+	}
+	return len(data), nil
 }
 
 func TestRestartDoesNotMislabelAnOlderReaderJob(t *testing.T) {

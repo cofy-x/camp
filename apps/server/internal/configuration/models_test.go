@@ -136,6 +136,11 @@ func TestImportPolicyDefaultsAndSymlinkBoundary(t *testing.T) {
 		t.Fatal("import enabled by default")
 	}
 	allowed, outside := t.TempDir(), t.TempDir()
+	// macOS temporary paths may contain the system /var -> /private/var alias.
+	allowed, err := filepath.EvalSymlinks(allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
 	policy, err := NewImportPolicy([]string{allowed})
 	if err != nil {
 		t.Fatal(err)
