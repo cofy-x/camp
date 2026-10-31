@@ -1,6 +1,20 @@
 # Native Mac execution with a LayerFS Linux worker
 
-Status: experimental implementation and acceptance contract for [#44](https://github.com/cofy-x/camp/issues/44). The native Runner adapter, complete-tree transport, retained generation branches and explicit Store reconstruction are implemented. Applicable package qualification and the complete three-round cost comparison remain required before the final default decision. Native-local remains the operational baseline during that comparison.
+Status: optional implementation and acceptance contract for [#44](https://github.com/cofy-x/camp/issues/44). The native Runner adapter, complete-tree transport, retained generation branches and explicit Store reconstruction are implemented. Native-local is the recommended Mac default; the Linux checkpoint worker is an explicit capability choice. Availability in a published package depends on that exact release's artifacts and acceptance evidence.
+
+## Default and deployment decision
+
+Keep `native-local` as the Mac default. It executes native tools under Seatbelt without Linux administration, a second working-tree representation or a required cross-OS checkpoint. Its bounded publication archive serves ordinary Camp file work. It does not claim the worker's complete-tree history, immutable checkpoint forks or explicit Store reconstruction.
+
+Choose `layerfs-worker` when those additional checkpoint capabilities justify a Linux engine, retained native captures, Linux-local Store storage and checkpoint latency. The actual-Mac comparison establishes those capabilities but also exposes substantial per-file capture, synchronization and restore costs. Large small-file trees remain expensive even when little content changes: the complete native generation must still be checked and sealed. Do not use the faster production publication-only baseline as evidence of complete-tree recovery parity. Dated samples, installation costs, collector failures and read-only rechecks belong in retained acceptance artifacts, not in a claimed universal performance guarantee.
+
+Use the bounded streamed adapter for this optional backend. The upstream authenticated worker route remains a comparison and a public SDK integration reference. Its current `fs.apply` change set cannot create the complete dependency/link profile, and its authenticated whole-frame/base64 payload handling does not meet this transport's aggregate and chunk limits. A fast regular-file sample does not remove those capability and memory boundaries. Both routes continue to use the public LayerFS SDK; Camp does not implement another Store format.
+
+Reuse an explicitly selected, qualified native ARM64 engine before adding machine provisioning. An existing OrbStack installation therefore needs no second VM. Docker Desktop, Colima and Lima require their own actual-host qualification; sharing the Docker API does not establish equivalent filesystem, isolation or performance results. No complete-Runner VM or Lima performance advantage is inferred from this comparison.
+
+Keep a future managed Lima provisioner optional and behind its public CLI. Its entry criteria are a pinned stable CLI, guest and provisioning inputs; an isolated Camp-owned home and ARM64 VZ instance; no host-home mounts, SSH forwarding or implicit proxy propagation; rootful guest Docker; and the same Store, permission, restart, backup and cost qualification as an existing engine. Create/start/stop and login startup must stay explicit. Do not import Lima internals or make its moving stock Docker template an installation dependency.
+
+Further performance work should first reduce complete-capture per-file synchronization and repeated unchanged-tree work while retaining quiescence, exact manifests, independent readback and uncertain-operation recovery. A packed content cache or new reuse mechanism needs its own integrity, interruption and resource evidence before replacing the current representation. That work does not justify weakening capture or silently changing a saved backend.
 
 ## Scope and ownership
 

@@ -86,7 +86,7 @@ Third-party code and assets retain their own licenses and notices. Preserve thos
 
 ## Mac checkpoint worker
 
-The standalone [Mac checkpoint adapter](tools/layerfs-worker/README.md) is experimental. On an actual Apple Silicon Mac with an existing native ARM64 Docker engine, build the fixed Linux addon/daemon/image independently of the Linux amd64 Runner:
+The optional [Mac checkpoint adapter](tools/layerfs-worker/README.md) has separate native, transport and package qualification. On an actual Apple Silicon Mac with an existing native ARM64 Docker engine, build the fixed Linux addon/daemon/image independently of the Linux amd64 Runner:
 
 ```sh
 node tools/layerfs-worker/install.mjs --source /absolute/path/to/read-only/layerfs
@@ -104,11 +104,15 @@ Additional actual-Mac qualification commands use new private fixtures and determ
 ```sh
 node tools/layerfs-worker/qualify-faults.mjs
 node tools/layerfs-worker/qualify-recovery.mjs
+node tools/layerfs-worker/qualify-contracts.mjs
+node tools/layerfs-worker/qualify-apfs.mjs
 node tools/layerfs-worker/qualify-upstream.mjs
 node tools/layerfs-worker/benchmark.mjs
 ```
 
 The benchmark retains three rounds on the selected running engine, rotates transport order and measures a common actual seal separately from each transport. It also writes `native-plan.json`; run `TestNativeLocalComparisonMeasurements` with `CAMP_MAC_COMPARISON_PLAN` set to that file and `CAMP_MAC_COMPARISON_OUTPUT` set to a new private JSON filename. This measures production native-local Prepare/publication on the identical inputs. The full-tree local profile is a separate comparison, not a claim of production native-local history/restore. Preserve failed and superseded samples, describe cache/background activity and never label an existing VM a cold VM start.
+
+The APFS qualifier creates and detaches only its own private case-sensitive sparse image. If a diagnostic transport collector invalidates a restore sample, retain that outcome and use `node tools/layerfs-worker/recheck-restore.mjs CAMPAIGN_ROOT DOCKER_SOCKET REPETITION` to read back the retained immutable public forks. This recheck performs no mutation/model replay and does not replace the original sample or become a cold-start measurement. End-to-end checkpoint cost includes the full observed `native-sealing` wall time; its scan/hash/copy submetrics do not include every manifest/receipt synchronization step.
 
 For the affected native boundary/provider tests, supply absolute `CAMP_TEST_SANDBOX_HELPER`, `CAMP_TEST_DSH_RUNTIME`, `CAMP_TEST_LAYERFS_WORKER_RUNTIME` and `CAMP_TEST_DOCKER_SOCKET`, then run the native executor tests with race detection. `CAMP_TEST_WORKSPACE_BACKEND=layerfs-worker` selects the hybrid in the deterministic TLS/provider test; omitting it retains the native-local comparison.
 
@@ -123,3 +127,5 @@ node scripts/build.mjs
 The matching image descriptor, source and helper hashes are checked before packaging. The ordinary package command remains available without worker support. The release workflow builds the optional image on native Linux ARM64, transfers only its fixed artifact/metadata to the Mac package builder, and stages its checksum with the release. Linux artifact qualification does not replace the actual Mac hybrid acceptance.
 
 Run `scripts/smoke-bundle.mjs online` and `offline` first with the native-local default, then with `CAMP_TEST_WORKSPACE_BACKEND=layerfs-worker`, `CAMP_TEST_DOCKER_BINARY` set to the selected absolute Docker executable, `CAMP_TEST_DOCKER_SOCKET`, and `CAMP_TEST_WORKER_IMAGE` set to the matching optional image archive. The hybrid fixture additionally kills/restarts the actual packaged Runner, switches stopped backends, copies its stopped private backup, restores actual native/worker checkpoint bytes and verifies no model replay. It retains its private fixture and controlled identity for inspection. These are local candidate/mirror checks; public download and cross-version release acceptance remain distinct.
+
+After a hybrid package smoke passes, run `node tools/layerfs-worker/qualify-runner-restart.mjs dist/smoke-layerfs-worker-online.json`. It clones only that stopped synthetic fixture into a new private directory, verifies the installed executable identity and kills the actual Go Runner after an unconfirmed checkpoint dispatch. The restarted Runner must preserve native bytes and identity, report interruption, publish no old result and make no additional model request. The original fixture remains unchanged. Stopped backups must preserve symbolic link spellings; copying a runtime with rewritten absolute dependency links correctly fails its integrity check.

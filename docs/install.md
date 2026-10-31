@@ -108,7 +108,7 @@ Keep the installer at a stable absolute path; runtime cache and private data hav
 
 ### Optional Mac LayerFS checkpoints
 
-Use a matching worker-enabled Mac runtime and its separately checksummed `camp-layerfs-worker-linux-arm64-<SHA256>.tar.gz` artifact. This option is experimental and requires a running native ARM64 rootful Docker engine, such as the selected OrbStack engine. Store data stays in Linux-local volumes; no Mac folder is mounted as the Store. Host FUSE, a separate Runner inside Linux and model keys on Runner are unnecessary.
+Native-local is the recommended Mac default. For complete working-tree checkpoints, history and forks, use a matching worker-enabled Mac runtime and its separately checksummed `camp-layerfs-worker-linux-arm64-<SHA256>.tar.gz` artifact. Check that exact release's evidence for availability and qualified engines; local candidate packaging does not establish public distribution. The option requires a running native ARM64 rootful Docker engine, such as the qualified OrbStack engine. Store data stays in Linux-local volumes; no Mac folder is mounted as the Store. Host FUSE, a separate Runner inside Linux and model keys on Runner are unnecessary. The [default decision](layerfs-worker.md#default-and-deployment-decision) explains the capability and cost tradeoff and the optional future Lima boundary.
 
 Stop the Runner before selecting a backend. Keep its existing private data directory and registration. For OrbStack, for example:
 
