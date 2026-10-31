@@ -1,34 +1,7 @@
 name: Native Mac qualification
 
 on:
-  pull_request:
-    paths:
-      - 'apps/server/internal/processowner/**'
-      - 'apps/server/internal/seatbelt/**'
-      - 'apps/server/internal/nativejob/**'
-      - 'apps/server/internal/nativeexecutor/**'
-      - 'apps/server/internal/cli/**'
-      - 'apps/server/internal/daemon/**'
-      - 'apps/server/internal/execution/**'
-      - 'apps/server/internal/projectenv/**'
-      - 'tools/project-runtime/**'
-      - 'apps/server/internal/dsh/**'
-      - 'apps/server/internal/runnertools/**'
-      - 'apps/server/internal/sandboxexec/**'
-      - 'apps/server/internal/workspace/**'
-      - 'tools/dsh-runtime/**'
-      - 'apps/server/cmd/camp-sandbox/**'
-      - 'tools/seatbelt-runtime/**'
-      - 'scripts/package-*.mjs'
-      - 'scripts/release.mjs'
-      - '.github/workflows/release.yml'
-      - 'Makefile'
-      - 'scripts/smoke-bundle.mjs'
-      - 'scripts/qualify-native-mac.mjs'
-      - 'tools/release-archive/**'
-      - 'apps/server/internal/releaseinfo/**'
-      - 'internal/launcher/**'
-      - '.github/workflows/native-mac.yml'
+  workflow_call:
   workflow_dispatch:
 
 permissions:

@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      validation-stage:
+        type: string
+        default: merge
 
 permissions:
   contents: read
@@ -14,11 +19,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Change scope
+    runs-on: ubuntu-24.04
+    outputs:
+      docs: ${{ steps.scope.outputs.docs }}
+      governance: ${{ steps.scope.outputs.governance }}
+      browser: ${{ steps.scope.outputs.browser }}
+      fixture: ${{ steps.scope.outputs.fixture }}
+      server: ${{ steps.scope.outputs.server }}
+      native: ${{ steps.scope.outputs.native }}
+      checkpoint: ${{ steps.scope.outputs.checkpoint }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Classify actual Git changes using baseline policy
+        id: scope
+        env:
+          CAMP_VALIDATION_STAGE: ${{ inputs.validation-stage || 'merge' }}
+        run: node scripts/classify-changes.mjs > validation-plan.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: validation-plan
+          path: validation-plan.json
+          retention-days: 14
+
   source:
     name: Source
+    needs: changes
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
+      - name: Require successful classification
+        env:
+          CLASSIFICATION_RESULT: ${{ needs.changes.result }}
+        run: test "$CLASSIFICATION_RESULT" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -26,29 +68,47 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - if: ${{ needs.changes.outputs.docs != 'true' }}
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - name: Install Linux test prerequisites
+        if: ${{ needs.changes.outputs.docs != 'true' }}
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends bubblewrap
       - name: Install pinned dependencies
+        if: ${{ needs.changes.outputs.docs != 'true' }}
         run: make install
       - name: Check types, lint and formatting
+        if: ${{ needs.changes.outputs.docs != 'true' }}
         run: make typecheck lint format-check
       - name: Check generated SQL and run unit tests
+        if: ${{ needs.changes.outputs.docs != 'true' }}
         run: make test-go-race test-js
       - name: Check embedded production build
+        if: ${{ needs.changes.outputs.docs != 'true' }}
         run: |
           make build smoke-production
           node scripts/smoke-upgrade.mjs
       - name: Check GitHub workflows
+        if: ${{ needs.changes.outputs.docs != 'true' }}
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Check documentation and instruction changes
+        if: ${{ needs.changes.outputs.docs == 'true' }}
+        run: |
+          npx --yes pnpm@12.11.2 install --frozen-lockfile --ignore-scripts
+          make check-docs
+          npx --yes pnpm@12.11.2 exec prettier --check '**/*.md'
+      - name: Record governance review requirement
+        if: ${{ needs.changes.outputs.governance == 'true' }}
+        run: echo 'Instruction/process behavior requires PR review; passing documentation checks is not approval.' >> "$GITHUB_STEP_SUMMARY"
       - name: Check tracked files remain unchanged
         run: git diff --exit-code
 
   browser_project:
+    needs: changes
+    if: ${{ needs.changes.outputs.browser == 'true' }}
     name: Browser / ${{ matrix.project }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -114,39 +174,64 @@ jobs:
 
   browser:
     name: Browser
-    needs: browser_project
+    needs: [changes, browser_project]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require every browser project to pass
         env:
+          REQUIRED: ${{ needs.changes.outputs.browser }}
           RESULT: ${{ needs.browser_project.result }}
-        run: test "$RESULT" = success
+          CLASSIFICATION_RESULT: ${{ needs.changes.result }}
+        run: |
+          test "$CLASSIFICATION_RESULT" = success
+          if [ "$REQUIRED" = true ]; then test "$RESULT" = success;
+          elif [ "$REQUIRED" = false ]; then test "$RESULT" = skipped;
+          else exit 1; fi
+          echo "Browser required=$REQUIRED, result=$RESULT" >> "$GITHUB_STEP_SUMMARY"
 
   fixture:
     name: Fixture
+    needs: changes
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       CAMP_REMOTE_PROJECT: camp-remote-ci
     steps:
+      - name: Require successful classification
+        env:
+          CLASSIFICATION_RESULT: ${{ needs.changes.result }}
+          REQUIRED: ${{ needs.changes.outputs.fixture }}
+        run: |
+          test "$CLASSIFICATION_RESULT" = success
+          test "$REQUIRED" = true || test "$REQUIRED" = false
+      - name: Record fixture scope
+        if: ${{ needs.changes.outputs.fixture == 'false' }}
+        run: echo 'Fixture not applicable to this documentation-only change.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.changes.outputs.fixture == 'true' }}
         with:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ needs.changes.outputs.fixture == 'true' }}
         with:
           node-version-file: .node-version
           package-manager-cache: false
       - name: Check Docker Compose
+        if: ${{ needs.changes.outputs.fixture == 'true' }}
         run: docker compose version
       - name: Check protocol, business flow and recovery
+        if: ${{ needs.changes.outputs.fixture == 'true' }}
         run: make test-remote
       - name: Remove this test project's containers and volumes
-        if: ${{ always() }}
+        if: ${{ always() && needs.changes.outputs.fixture == 'true' }}
         run: node scripts/remote.mjs down --project "$CAMP_REMOTE_PROJECT"
 
   mac_server:
+    needs: changes
+    if: ${{ needs.changes.outputs.server == 'true' }}
     name: Server / ${{ matrix.platform }}
     runs-on: ${{ matrix.host }}
     timeout-minutes: 30
@@ -198,3 +283,13 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+
+  native:
+    needs: changes
+    if: ${{ needs.changes.outputs.native == 'true' }}
+    uses: ./.github/workflows/native-mac.yml
+
+  checkpoint:
+    needs: changes
+    if: ${{ needs.changes.outputs.checkpoint == 'true' }}
+    uses: ./.github/workflows/checkpoint-proof.yml
