@@ -1,10 +1,10 @@
 # Contributing to Camp
 
-Use the [documentation map](docs/README.md) to find the owner of each contract. Follow the [cofy-x contribution guidelines](https://github.com/cofy-x/.github/blob/main/CONTRIBUTING.md). Use [Issues](https://github.com/cofy-x/camp/issues) for reproducible bugs and focused proposals, and [SECURITY.md](SECURITY.md) for possible vulnerabilities. Discuss changes to execution authorization, persistence, public APIs or deployment boundaries before building a large change.
+Follow the [cofy-x contribution guidelines](https://github.com/cofy-x/.github/blob/main/CONTRIBUTING.md). Use [Issues](https://github.com/cofy-x/camp/issues) for reproducible bugs and focused proposals, and [SECURITY.md](SECURITY.md) for possible vulnerabilities. Discuss changes to execution authorization, persistence, public APIs or deployment boundaries before building a large change.
 
 ## Development
 
-Fork the repository and create a branch for your change. Read [AGENTS.md](AGENTS.md) for repository constraints and the contracts for the area you change. A source checkout can run the Server without native Runner dependencies or model credentials.
+Create a branch for the change and follow any enclosing workspace rules. Read [AGENTS.md](AGENTS.md) and the task's owning contract from the [documentation map](docs/README.md). A source Server needs no native Runner runtime or model credentials.
 
 Use Go **1.27.3**, Node **24.16.0** and pnpm **12.11.2**, as pinned in [go.mod](go.mod), [.node-version](.node-version) and [package.json](package.json). Run commands from the Camp repository root. The Makefile invokes fixed pnpm via `npx`.
 
@@ -20,8 +20,6 @@ Open `http://127.0.0.1:5173`. Vite proxies `/api` to Go on `127.0.0.1:3001`; res
 First startup writes `team-setup.token` inside that data directory. Enter it privately in the setup screen, create the administrator and configure Settings. Keep private model values in the ignored root `.env` with mode 600, using [.env.example](.env.example) as the key reference. See [configuration and budgets](docs/dsh.md#configuration-and-budgets).
 
 The Server requires Git for file storage. Discussion and plain-text file work need no model or native execution runtime. Optional PDF/DOCX preparation uses the [document runtime](tools/document-runtime/README.md). Agent execution requires a registered Runner; follow [source Runner setup](docs/dsh.md#source-runner-setup) or the [packaged installer](docs/install.md). [Installation](docs/install.md#supported-deployment) owns platform support and host prerequisites. No service starts automatically.
-
-Shared dependency checkouts are read-only references. Integrate through public interfaces and pinned dependencies; keep their branch, index and files intact.
 
 ## Build
 
@@ -63,9 +61,13 @@ make test-e2e E2E_ARGS="--project=chromium --project=firefox --project=webkit --
 
 SQL migrations and named queries live in `apps/server/internal/storage`. After changing them, run `make generate` and `make generate-check`; maintain generated sqlc output with its inputs. Use `make format` or `make lint-fix-format` for formatting and safe lint fixes. Preserve existing data through append-only migrations; never reset a database to repair an upgrade.
 
-Keep procedures in their owning guide or tool README, link related contracts and update incoming links when moving a section. Remove completed implementation steps and superseded instructions; retain historical results in release evidence. Document an unresolved implementation mismatch as open work rather than presenting intended behavior as shipped.
+## Documentation
 
-`make check-docs` includes new, unignored Markdown files before staging. It checks local links and headings, current guides' explicit Go/Node/pnpm/DSH/PDF.js version labels and `pnpm@...` commands against their pins. Historical decision records under `docs/decisions/` receive link checks only. External URLs, runtime behavior and unlabelled version numbers need separate verification.
+Keep each rule or procedure in its owning contract/tool README and link to it elsewhere. README owns quick start; the [documentation map](docs/README.md) routes readers by task. Update incoming links when moving a section. Prefer links to authoritative manifests and code over copying constants or job matrices.
+
+Current guides describe implemented behavior and repeatable procedures. Record unresolved mismatches with an owner and completion condition in [implementation limits](docs/architecture.md#current-implementation-limits). Remove completed plans and superseded instructions; retain dated outcomes through [release evidence](docs/releasing.md#release-evidence).
+
+`make check-docs` checks new/unignored Markdown, local links/anchors and documented Go/Node/pnpm/DSH/PDF.js versions against their pins. Historical `docs/decisions/` receive link checks only. External URLs, behavior and unlabelled versions need source comparison. Run the pinned formatter on changed Markdown; documentation-only work needs no new native or paid-provider campaign.
 
 ## Pull requests
 
@@ -73,16 +75,7 @@ Keep changes focused and update the owning documentation when behavior changes. 
 
 UI changes should include reviewed before/after images using synthetic data, embedded directly as GitHub image attachments. Follow the interactions in the [design review checklist](docs/design.md#review-checklist). Keep secrets, personal team data and generated runtime files out of patches and public attachments. Retain formal acceptance under the [release evidence policy](docs/releasing.md#release-evidence).
 
-The [CI workflow](.github/workflows/ci.yml) runs these checks:
-
-| Job | Scope |
-| --- | --- |
-| Source | Formatting, types, lint, documentation links, generated SQL, Go race tests, script/frontend unit tests, production build and smoke |
-| Browser | Production UI with fresh keyless data in Chromium, Firefox, WebKit and touch projects |
-| Fixture | TLS/Compose with two fixture Runners, collaboration, publication, cancellation, restart and reconnect |
-| Server / darwin-arm64 and darwin-amd64 | Actual Mac builds, launcher race tests, authentication/file/restart smoke, WebKit authentication/discussion/file checks and fixed-release Homebrew installation |
-
-Run relevant checks before opening a pull request. CI uses a read-only GitHub token and fresh test data without model credentials. Native Runner isolation, privileged host cleanup, packaged Runner installation and real-provider acceptance have separate checks under [execution](docs/dsh.md#real-provider-verification), [native Runner acceptance](docs/native-runner.md#evidence-and-acceptance) and [release evidence](docs/releasing.md#release-evidence).
+The [CI workflow](.github/workflows/ci.yml) owns the current source/browser/fixture and Mac Server job matrix. [Native Mac qualification](.github/workflows/native-mac.yml), [Linux checkpoint qualification](.github/workflows/checkpoint-proof.yml) and [release verification](docs/releasing.md) establish separate guarantees. CI uses fresh test data without model credentials; source or fixture success does not establish native isolation, public installation or real-provider success.
 
 Third-party code and assets retain their own licenses and notices. Preserve those notices when changing dependencies or distribution contents; see [license information](README.md#license).
 

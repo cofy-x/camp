@@ -1,24 +1,13 @@
 # Working on Camp
 
-Use [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks and pull requests and the [documentation map](docs/README.md) for detailed tooling. Before changing an area, read its owning contract:
+Use [CONTRIBUTING](CONTRIBUTING.md) for setup/checks and the [documentation map](docs/README.md) to find the owning contract. Read the sections affected by the task, then their source and callers. Reuse unchanged instructions already read; expand context when another ownership boundary is involved. Do not load every guide, historical report or runtime README for each task.
 
-| Area | Contract |
-| --- | --- |
-| Code placement, state ownership and recovery | [Architecture](docs/architecture.md) |
-| Authentication, permissions and wire contracts | [API](docs/api.md) |
-| UI content, controls and interaction review | [Design](docs/design.md) |
-| DSH/LayerFS integration, configuration and model limits | [Execution](docs/dsh.md) |
-| Native isolation, workspaces and platform acceptance | [Native Runner](docs/native-runner.md) |
-| Deployment, services, upgrades and backup | [Installation](docs/install.md) |
-| Package assembly, publication and evidence | [Releasing](docs/releasing.md) |
+- Inspect the owning repository's Git status before editing; preserve existing work. Shared dependency checkouts are read-only: use public APIs and pin shipped dependencies inside Camp.
+- Follow the pinned toolchains, package boundaries and formatters. Keep code, comments and documentation in English; preserve user data and external output as authored.
+- Keep secrets in ignored Server configuration (`.env`, mode 600), outside frontend variables, tool environments, logs and tracked files. Keep generated runtime/build/test data ignored.
+- Preserve user data, Runner identities/journals and immutable originals. Use append-only team-data migrations; regenerate sqlc with SQL changes. Never clear a database to repair an upgrade.
+- Preserve explicit execution authorization, frozen inputs, current permissions and exact file versions. Private drafts, collaboration drafts, shared publication, human approval and delivery have distinct owners and transitions.
+- Give each lifecycle one owner. Preserve unsaved work and request IDs after failed/uncertain writes; verify asynchronous ordering, cancellation and recovery.
+- Update callers, relevant tests and the owning contract together. Apply the [UI review checklist](docs/design.md#review-checklist) for interaction changes, including direct before/after PR images. Run applicable checks and report actual outcomes/skips.
 
-- Inspect Git status before editing and preserve existing changes. Shared dependency checkouts are read-only references; use public APIs and pin runtime dependencies here.
-- Follow the pinned toolchains, [package boundaries](docs/architecture.md#package-boundaries) and formatters. Keep code, comments and documentation in English; preserve user data and external output as authored.
-- Keep secrets in ignored Server configuration (`.env`, mode 600), outside frontend variables, tool environments, logs and tracked files. Keep generated build, test and runtime data ignored.
-- Preserve user data, Runner identities and journals. Use append-only migrations for existing team data; never clear a database to fix an error. Regenerate sqlc source with SQL changes.
-- Preserve explicit execution authorization, frozen inputs, current permissions, immutable originals and exact file versions. Personal editing drafts are private; collaboration drafts are team-visible. Shared publication, human approval and delivery are distinct actions.
-- Give each state lifecycle one owner. Preserve unsaved work and stable request IDs after failed or uncertain writes; never display them as saved. Check asynchronous ordering, cancellation and recovery.
-- For UI changes, follow the [review checklist](docs/design.md#review-checklist), including keyboard, selection/IME, pointer, touch, narrow layouts and direct inline PR comparison images. Keep blocking errors and recovery visible.
-- Run relevant checks and report what actually passed or skipped. Source, browser, fixture, native isolation and real-provider checks establish different guarantees.
-
-Update callers, tests and owning contracts together when behavior changes. Keep README focused on the product and quick start, user workflow details in [Team workflow](docs/workflow.md), and development/check commands in CONTRIBUTING or the owning tool README. Keep detailed rules and design rationale in their owning contracts; link instead of duplicating them. Describe an unresolved mismatch as open work, not as implemented behavior. Track that work in issues and [implementation limits](docs/architecture.md#current-implementation-limits), with an owner and completion conditions. Retain dated acceptance through the [release evidence policy](docs/releasing.md#release-evidence); remove completed plans and superseded instructions from current guides. Documentation-only changes need documentation/format checks and source comparison, not another native or paid-provider campaign.
+Follow [documentation maintenance](CONTRIBUTING.md#documentation) for ownership, deduplication and historical evidence. Track unresolved behavior in issues and the owning implementation limits; do not describe planned behavior as shipped.
