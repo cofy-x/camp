@@ -765,6 +765,31 @@ try {
       ({ runners }) =>
         runners.some((item) => item.id === assigned.id && !item.online),
     );
+    const serviceLabel = `dev.cofy.camp.runner.${createHash('sha256')
+      .update(await realpath(runnerData))
+      .digest('hex')
+      .slice(0, 16)}`;
+    // The control connection can close before launchd finishes deregistration.
+    // Observe the owned job disappearing before asking the CLI to remove it.
+    await until(
+      'Stopped launchd Runner deregistered',
+      () =>
+        Promise.all(
+          ['gui', 'user'].map(
+            (domain) =>
+              new Promise((resolve, reject) => {
+                const probe = spawn(
+                  '/bin/launchctl',
+                  ['print', `${domain}/${process.getuid()}/${serviceLabel}`],
+                  { env: runnerEnv, stdio: 'ignore' },
+                );
+                probe.once('error', reject);
+                probe.once('close', (code) => resolve(code === 0));
+              }),
+          ),
+        ),
+      (loaded) => loaded.every((value) => !value),
+    );
     await service('remove');
     macServiceInstalled = false;
     const retained = JSON.parse(
