@@ -3,12 +3,23 @@ import { execFileSync, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import { parseArgs } from 'node:util';
 import { saveState } from './state.mjs';
 
 assert.equal(process.platform, 'darwin');
 assert.equal(process.arch, 'arm64');
-await mkdir('.data', { recursive: true, mode: 0o700 });
-const root = await mkdtemp(path.resolve('.data/mac-worker-benchmark-'));
+const { values } = parseArgs({
+  options: {
+    smoke: { type: 'boolean', default: false },
+    'output-base': { type: 'string' },
+  },
+  strict: true,
+});
+if (values['output-base'] && !path.isAbsolute(values['output-base']))
+  throw new Error('--output-base requires an absolute private report parent.');
+const parent = path.resolve(values['output-base'] ?? '.data');
+await mkdir(parent, { recursive: true, mode: 0o700 });
+const root = await mkdtemp(path.join(parent, 'mac-worker-benchmark-'));
 const socket = execFileSync(
   'docker',
   ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'],
@@ -22,18 +33,14 @@ const report = {
   passed: false,
   repetitions: [],
   modelRequests: 0,
-  scope: process.argv.includes('--smoke')
+  scope: values.smoke
     ? 'one-round text harness preflight only'
     : 'three-round actual Mac four-workload comparison',
   policy:
     'all repetitions retained, no cache flush, existing OrbStack VM and unrelated services left running; each repetition has a fresh Mac client, worker process and owned Store; arms share that worker, image and VM, and their order rotates',
 };
 try {
-  for (
-    let iteration = 1;
-    iteration <= (process.argv.includes('--smoke') ? 1 : 3);
-    iteration++
-  ) {
+  for (let iteration = 1; iteration <= (values.smoke ? 1 : 3); iteration++) {
     const child = spawn(
       process.execPath,
       [
@@ -41,7 +48,7 @@ try {
         root,
         socket,
         String(iteration),
-        ...(process.argv.includes('--smoke') ? ['smoke'] : []),
+        ...(values.smoke ? ['smoke'] : []),
       ],
       {
         env: { PATH: process.env.PATH, HOME: root, LANG: 'C.UTF-8' },

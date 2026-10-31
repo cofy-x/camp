@@ -118,3 +118,39 @@ test('the sender checks membership and detects changed retained blobs', async (t
   );
   await assert.rejects(drain(encodeCapture(captured)), { code: 'Corrupt' });
 });
+
+test('both legacy and packed captures cross the unchanged wire into a bounded packed receiver', async (t) => {
+  const { root } = await fixture(t);
+  const source = path.join(root, 'small-source');
+  await mkdir(source);
+  for (let index = 0; index < 30; index++)
+    await writeFile(
+      path.join(source, `file-${index}`),
+      `contents-${index % 5}`,
+    );
+  await writeFile(path.join(source, 'large'), Buffer.alloc(700_000, 72));
+  for (const smallFilePack of [false, true]) {
+    const captured = await captureTree(source, path.join(root, 'captures'), {
+      smallFilePack,
+    });
+    const destination = path.join(root, `received-${smallFilePack}`);
+    const received = await receiveCapture(
+      Readable.from(encodeCapture(captured)),
+      destination,
+      { digest: captured.digest, smallFilePack: true },
+    );
+    assert.equal(received.metrics.packedBlobs, 5);
+    const restored = await restoreTree(
+      { root: destination, ...received },
+      path.join(root, 'restores'),
+    );
+    assert.equal(
+      await readFile(path.join(restored.root, 'file-29'), 'utf8'),
+      'contents-4',
+    );
+    assert.deepEqual(
+      await readFile(path.join(restored.root, 'large')),
+      Buffer.alloc(700_000, 72),
+    );
+  }
+});

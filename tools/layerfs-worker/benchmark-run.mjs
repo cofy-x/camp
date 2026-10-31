@@ -6,7 +6,6 @@ import {
   chmod,
   link,
   mkdir,
-  readFile,
   rename,
   rm,
   symlink,
@@ -18,7 +17,7 @@ import { performance } from 'node:perf_hooks';
 import process from 'node:process';
 import { MacCheckpoints } from './checkpoint.mjs';
 import { WorkerClient } from './client.mjs';
-import { captureTree, restoreTree } from './tree.mjs';
+import { CaptureBlobs, captureTree, restoreTree } from './tree.mjs';
 import { receiveCapture } from './transfer.mjs';
 import { openUpstream, measureCodec } from './upstream-comparison.mjs';
 import { saveState } from './state.mjs';
@@ -212,27 +211,32 @@ async function upstreamChanges(previous, capture) {
   )
     return null;
   const changes = [];
-  for (const row of [...old.values()].reverse())
-    if (!next.has(row.path) || next.get(row.path).type !== row.type)
-      changes.push({ op: 'rm', path: `/${row.path}` });
-  for (const row of next.values()) {
-    const before = old.get(row.path);
-    if (row.type === 'directory' && before?.type !== 'directory')
-      changes.push({ op: 'mkdir', path: `/${row.path}`, mode: row.mode });
-    else if (
-      row.type === 'file' &&
-      (before?.type !== 'file' || before.sha256 !== row.sha256)
-    )
-      changes.push({
-        op: 'write',
-        path: `/${row.path}`,
-        mode: row.mode,
-        bytes: await readFile(path.join(capture.root, 'blobs', row.sha256)),
-      });
-    else if (before?.mode !== row.mode)
-      changes.push({ op: 'chmod', path: `/${row.path}`, mode: row.mode });
+  const blobs = await CaptureBlobs.open(capture);
+  try {
+    for (const row of [...old.values()].reverse())
+      if (!next.has(row.path) || next.get(row.path).type !== row.type)
+        changes.push({ op: 'rm', path: `/${row.path}` });
+    for (const row of next.values()) {
+      const before = old.get(row.path);
+      if (row.type === 'directory' && before?.type !== 'directory')
+        changes.push({ op: 'mkdir', path: `/${row.path}`, mode: row.mode });
+      else if (
+        row.type === 'file' &&
+        (before?.type !== 'file' || before.sha256 !== row.sha256)
+      )
+        changes.push({
+          op: 'write',
+          path: `/${row.path}`,
+          mode: row.mode,
+          bytes: await blobs.buffer(row),
+        });
+      else if (before?.mode !== row.mode)
+        changes.push({ op: 'chmod', path: `/${row.path}`, mode: row.mode });
+    }
+    return changes;
+  } finally {
+    await blobs.close();
   }
-  return changes;
 }
 
 async function mounted(branch, action) {
@@ -307,6 +311,7 @@ async function upstreamRestore(branch, capture) {
     try {
       returned = await receiveCapture(child.stdout, destination, {
         digest: capture.digest,
+        smallFilePack: true,
       });
     } catch (error) {
       error.message = `${error.message}; export exit ${await end}; ${diagnostic}`;
@@ -405,16 +410,16 @@ try {
         digest: frozen.digest,
         inputCaptureMetrics: frozen.metrics,
       });
-      const order =
-        iteration % 2
-          ? ['native-local-full-tree', 'streamed', 'upstream']
-          : ['upstream', 'streamed', 'native-local-full-tree'];
+      const arms = ['native-local-full-tree', 'streamed', 'upstream'];
+      const offset = (iteration - 1) % arms.length;
+      const order = [...arms.slice(offset), ...arms.slice(0, offset)];
       for (const arm of order) {
         if (disabled.has(arm)) {
           report.observations.push({
             workload,
             phase,
             arm,
+            armOrder: order,
             error: {
               code: 'UncertainPriorPhase',
               message:

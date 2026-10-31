@@ -1,13 +1,18 @@
-import { constants } from 'node:fs';
 import { Buffer } from 'node:buffer';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, open, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { failure, syncDirectory } from './state.mjs';
-import { LIMITS, manifestDigest, validateManifest } from './tree.mjs';
+import {
+  CaptureBlobs,
+  LIMITS,
+  SMALL_BLOB_BYTES,
+  SmallBlobPack,
+  manifestDigest,
+  validateManifest,
+} from './tree.mjs';
 
-const CHUNK = 256 << 10;
 const HEADER_LIMIT = LIMITS.manifestBytes + (32 << 20);
 
 export function blobIndex(manifest) {
@@ -61,34 +66,20 @@ export async function* encodeCapture(
   });
   yield prefix;
   yield header;
-  for (const digest of wanted) {
-    const input = await open(
-      path.join(capture.root, 'blobs', digest),
-      constants.O_RDONLY | constants.O_NOFOLLOW,
-    );
-    const hasher = createHash('sha256');
-    let bytes = 0;
-    try {
-      const info = await input.stat();
-      if (!info.isFile() || info.size !== index.get(digest))
-        throw failure('Corrupt', 'Capture blob changed before transfer.');
-      for (;;) {
-        // Each yielded chunk owns its memory until its consumer drains it.
-        const buffer = Buffer.allocUnsafe(CHUNK);
-        const { bytesRead } = await input.read(buffer, 0, buffer.length, null);
-        if (!bytesRead) break;
-        const chunk = buffer.subarray(0, bytesRead);
-        hasher.update(chunk);
-        bytes += bytesRead;
-        metrics.wireBytes += bytesRead;
-        metrics.payloadBytes += bytesRead;
+  const blobs = await CaptureBlobs.open(capture);
+  try {
+    for (const digest of wanted) {
+      for await (const chunk of blobs.read({
+        sha256: digest,
+        bytes: index.get(digest),
+      })) {
+        metrics.wireBytes += chunk.length;
+        metrics.payloadBytes += chunk.length;
         yield chunk;
       }
-      if (bytes !== index.get(digest) || hasher.digest('hex') !== digest)
-        throw failure('Corrupt', 'Capture blob changed during transfer.');
-    } finally {
-      await input.close();
     }
+  } finally {
+    await blobs.close();
   }
 }
 
@@ -184,64 +175,83 @@ export async function receiveCapture(stream, root, expected) {
   const blobs = path.join(root, 'blobs');
   await mkdir(blobs, { recursive: true, mode: 0o700 });
   const pending = new Set();
+  const blobPack = expected.smallFilePack
+    ? await SmallBlobPack.create(blobs)
+    : null;
   let sealFailure;
   try {
-    for (const name of wanted) {
-      if (sealFailure) throw sealFailure;
-      const temporary = path.join(blobs, `${randomUUID()}.part`);
-      const file = await open(temporary, 'wx', 0o600);
-      const hasher = createHash('sha256');
-      try {
-        await reader.consume(index.get(name), async (chunk) => {
-          hasher.update(chunk);
-          for (let offset = 0; offset < chunk.length;)
-            offset += (await file.write(chunk, offset, chunk.length - offset))
-              .bytesWritten;
-        });
-        if (hasher.digest('hex') !== name)
-          throw failure(
-            'Corrupt',
-            'Transferred blob does not match its digest.',
-          );
-        // The raw stream remains ordered; only completed, hash-validated files
-        // synchronize concurrently, with bounded descriptors and no early apply.
-        const task = (async () => {
-          try {
-            await file.sync();
-            await file.close();
-            await rename(temporary, path.join(blobs, name));
-          } catch (error) {
-            await file.close().catch(() => {});
-            await rm(temporary, { force: true });
-            throw error;
-          }
-        })()
-          .catch((error) => {
-            sealFailure ??= error;
-          })
-          .finally(() => pending.delete(task));
-        pending.add(task);
-        if (pending.size >= 8) await Promise.race(pending);
-      } catch (error) {
-        await file.close().catch(() => {});
-        await rm(temporary, { force: true });
-        throw error;
+    try {
+      for (const name of wanted) {
+        if (sealFailure) throw sealFailure;
+        if (blobPack && index.get(name) <= SMALL_BLOB_BYTES) {
+          const bytes = await reader.take(index.get(name));
+          if (createHash('sha256').update(bytes).digest('hex') !== name)
+            throw failure(
+              'Corrupt',
+              'Transferred small blob does not match its digest.',
+            );
+          await blobPack.add(name, bytes);
+          continue;
+        }
+        const temporary = path.join(blobs, `${randomUUID()}.part`);
+        const file = await open(temporary, 'wx', 0o600);
+        const hasher = createHash('sha256');
+        try {
+          await reader.consume(index.get(name), async (chunk) => {
+            hasher.update(chunk);
+            for (let offset = 0; offset < chunk.length;)
+              offset += (await file.write(chunk, offset, chunk.length - offset))
+                .bytesWritten;
+          });
+          if (hasher.digest('hex') !== name)
+            throw failure(
+              'Corrupt',
+              'Transferred blob does not match its digest.',
+            );
+          // The raw stream remains ordered; only completed, hash-validated files
+          // synchronize concurrently, with bounded descriptors and no early apply.
+          const task = (async () => {
+            try {
+              await file.sync();
+              await file.close();
+              await rename(temporary, path.join(blobs, name));
+            } catch (error) {
+              await file.close().catch(() => {});
+              await rm(temporary, { force: true });
+              throw error;
+            }
+          })()
+            .catch((error) => {
+              sealFailure ??= error;
+            })
+            .finally(() => pending.delete(task));
+          pending.add(task);
+          if (pending.size >= 8) await Promise.race(pending);
+        } catch (error) {
+          await file.close().catch(() => {});
+          await rm(temporary, { force: true });
+          throw error;
+        }
       }
+      await reader.end();
+    } finally {
+      await Promise.all(pending);
     }
-    await reader.end();
+    if (sealFailure) throw sealFailure;
+    const packed = await blobPack?.seal();
+    await syncDirectory(blobs);
+    return {
+      manifest,
+      digest,
+      metrics: {
+        receiveMs: performance.now() - started,
+        syncConcurrency: 8,
+        wireBytes: reader.bytes,
+        payloadBytes: wanted.reduce((sum, name) => sum + index.get(name), 0),
+        ...(packed ?? {}),
+      },
+    };
   } finally {
-    await Promise.all(pending);
+    await blobPack?.close();
   }
-  if (sealFailure) throw sealFailure;
-  await syncDirectory(blobs);
-  return {
-    manifest,
-    digest,
-    metrics: {
-      receiveMs: performance.now() - started,
-      syncConcurrency: 8,
-      wireBytes: reader.bytes,
-      payloadBytes: wanted.reduce((sum, name) => sum + index.get(name), 0),
-    },
-  };
 }
