@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/daemon"
+	"github.com/cofy-x/camp/apps/server/internal/execution"
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
 	"github.com/cofy-x/camp/apps/server/internal/runs"
 )
@@ -241,6 +242,20 @@ func TestRemoteNativeDaemonSIGKILLRecovery(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("SIGKILL did not reap the daemon")
 	}
+	// Bubblewrap retains the directory flock until its parent-death shutdown
+	// completes. Reaping the daemon does not wait for those inherited descriptors.
+	remoteEventually(t, 15*time.Second, "killed native owner retained the Runner directory lock", func() bool {
+		lock, err := execution.AcquireLock(config.DataDir)
+		if err != nil {
+			return false
+		}
+		if lock != nil {
+			if err = lock.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return true
+	})
 	// The restarted native runner must reconcile the previous LayerFS/Docker
 	// ownership before advertising execution readiness or replaying any delivery.
 	restarted := h.start(t, config)
