@@ -2,7 +2,7 @@
 
 This probe tests the pinned LayerFS public `fs.apply` API from an exclusively owned, quiescent regular-file tree. It does not select a Runner backend, start Agent commands, grant enrollment/publication authority, or implement a production Mac transport.
 
-Run on Camp's supported privileged Linux host after `make install-project-runtime install-layerfs`:
+From the Camp root, follow the [source prerequisites](../../../CONTRIBUTING.md#development), then run `make install-project-runtime install-layerfs` on the supported privileged Linux host:
 
 ```sh
 node tools/layerfs-runtime/hybrid/probe.mjs dist/hybrid-proof.json

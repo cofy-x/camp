@@ -44,6 +44,8 @@ On Linux, ordinary Go tests require Bubblewrap (`bwrap`) on PATH to validate exe
 
 | Command | Scope and prerequisites |
 | --- | --- |
+| `node --test scripts/change-policy.test.mjs scripts/ci-policy.test.mjs` | Change classification, protected-check behavior and release source policy; Node only |
+| `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12` | Workflow syntax and reusable-job contracts; fixed tool version |
 | `make test-go-race` | SQL generation consistency and Go tests with race detection; opt-in native cases can skip |
 | `make typecheck lint format-check` | TypeScript, ESLint, Go vet/gofmt and Prettier |
 | `make check-docs` | Local Markdown links/heading anchors and documented toolchain/runtime versions against their pins; no network requests |

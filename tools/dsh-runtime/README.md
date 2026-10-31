@@ -1,6 +1,6 @@
 # Camp DSH runtime
 
-This independent pnpm workspace pins DSH and its public provider packages in [package.json](package.json) and the frozen lockfile. The shared harness checkout is read-only reference material, not the production runtime. Use the [repository toolchain](../../CONTRIBUTING.md#development).
+This independent pnpm workspace pins DSH and its public provider packages in [package.json](package.json) and the [frozen lockfile](pnpm-lock.yaml). The shared harness checkout is read-only reference material, not the production runtime. Use the [repository toolchain](../../CONTRIBUTING.md#development).
 
 From the Camp root:
 
