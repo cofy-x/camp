@@ -34,6 +34,50 @@ async function fixture(t) {
   return { root, source };
 }
 
+test('bounded concurrent sealing retains the sequential manifest and drains failed captures', async (t) => {
+  const { root, source } = await fixture(t);
+  for (let index = 0; index < 40; index++)
+    await writeFile(
+      path.join(source, `member-${index}`),
+      Buffer.alloc(1024 + index, index),
+    );
+  const sequential = await captureTree(source, path.join(root, 'captures'), {
+    concurrency: 1,
+  });
+  const concurrent = await captureTree(source, path.join(root, 'captures'), {
+    concurrency: 8,
+  });
+  assert.deepEqual(concurrent.manifest, sequential.manifest);
+  assert.equal(concurrent.digest, sequential.digest);
+  const restored = await restoreTree(concurrent, path.join(root, 'restores'));
+  assert.equal((await scanTree(restored.root)).digest, sequential.digest);
+  await assert.rejects(scanTree(source, { concurrency: 1000 }), {
+    code: 'InvalidInput',
+  });
+  // A concurrent writer must fail without leaving admitted descriptors or
+  // writes racing with the caller's subsequent recovery path.
+  const changed = path.join(source, 'member-0');
+  let stopped = false,
+    revision = 0,
+    failure;
+  const writer = (async () => {
+    while (!stopped)
+      await writeFile(changed, Buffer.alloc(8192, revision++ % 256));
+  })();
+  try {
+    await captureTree(source, path.join(root, 'failed'));
+  } catch (error) {
+    failure = error;
+  } finally {
+    stopped = true;
+    await writer;
+  }
+  assert.ok(failure);
+  await writeFile(changed, 'retained subsequent work');
+  const after = await scanTree(source);
+  assert.notEqual(after.digest, concurrent.digest);
+});
+
 test('complete captures retain binary, modes, empty directories, dotfiles, ignored dependencies and opaque links', async (t) => {
   const { root, source } = await fixture(t);
   for (const dir of ['.git', 'empty', 'node_modules', 'a'])

@@ -29,7 +29,7 @@ func ResolveToolRoots(directory string, roots []string) ([]string, error) {
 		return nil, err
 	}
 	protected := []string{data, "/Library/Keychains"}
-	for _, name := range []string{".ssh", ".aws", ".azure", ".gnupg", ".config", ".docker", ".kube", ".npmrc", ".netrc", ".pypirc", ".git-credentials", "Library/Keychains"} {
+	for _, name := range []string{".ssh", ".aws", ".azure", ".gnupg", ".config", ".docker", ".orbstack", ".colima", ".lima", ".kube", ".npmrc", ".netrc", ".pypirc", ".git-credentials", "Library/Keychains", "Library/Containers/com.docker.docker", "Library/Group Containers/group.com.docker", "Library/Application Support/OrbStack"} {
 		protected = append(protected, filepath.Join(home, name))
 	}
 	resolved := make([]string, 0, len(roots))

@@ -27,6 +27,26 @@ export const LIMITS = Object.freeze({
 });
 const compare = (a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b));
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
+async function eachConcurrent(items, action, concurrency = 8) {
+  let cursor = 0,
+    failed;
+  const run = async () => {
+    while (!failed && cursor < items.length) {
+      const item = items[cursor++];
+      try {
+        await action(item);
+      } catch (error) {
+        failed ??= error;
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, run),
+  );
+  if (failed) throw failed;
+}
+
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const mode = (info) => Number(info.mode & 0o777n);
 const signature = (info) =>
@@ -242,8 +262,13 @@ async function content(file, expected, blobDirectory, metrics) {
 // Stat witnesses detect accidental writers; they do not replace that boundary.
 export async function scanTree(
   directory,
-  { blobDirectory, limits = LIMITS } = {},
+  { blobDirectory, limits = LIMITS, concurrency = 8 } = {},
 ) {
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16)
+    throw failure(
+      'InvalidInput',
+      'Snapshot content concurrency must be between 1 and 16.',
+    );
   const started = performance.now();
   const metrics = {
     scanMs: 0,
@@ -252,8 +277,12 @@ export async function scanTree(
     copiedBytes: 0,
     hashedBytes: 0,
     files: 0,
+    contentConcurrency: concurrency,
+    phaseSums:
+      'hashAndReadMs and copyMs sum admitted tasks and may exceed scan wall time',
   };
   const entries = [],
+    jobs = [],
     witnesses = new Map(),
     groups = new Map();
   const rootInfo = await lstat(directory, { bigint: true });
@@ -319,7 +348,7 @@ export async function scanTree(
           totalBytes += Number(info.size);
           row.type = 'file';
           row.bytes = Number(info.size);
-          row.sha256 = await content(file, info, blobDirectory, metrics);
+          jobs.push({ file, info, row });
           groups.set(inode, {
             path: local,
             count: 1,
@@ -344,6 +373,25 @@ export async function scanTree(
   }
 
   await walk('');
+  for (const group of groups.values())
+    if (BigInt(group.count) !== group.expected)
+      throw failure(
+        'ExternalHardlink',
+        'A file has aliases outside the sealed working tree.',
+      );
+  // Every admitted descriptor is closed before failure can escape to the caller.
+  await eachConcurrent(
+    jobs,
+    async (job) => {
+      job.row.sha256 = await content(
+        job.file,
+        job.info,
+        blobDirectory,
+        metrics,
+      );
+    },
+    concurrency,
+  );
   for (const group of groups.values()) {
     if (BigInt(group.count) !== group.expected)
       throw failure(
@@ -467,9 +515,10 @@ export async function restoreTree(capture, parent) {
         await placeholder.close();
       }
     }
-    for (const row of manifest.entries) {
-      const destination = path.join(root, row.path);
-      if (row.type === 'file') {
+    await eachConcurrent(
+      manifest.entries.filter((row) => row.type === 'file'),
+      async (row) => {
+        const destination = path.join(root, row.path);
         const info = await lstat(path.join(capture.root, 'blobs', row.sha256), {
           bigint: true,
         });
@@ -510,7 +559,11 @@ export async function restoreTree(capture, parent) {
           await input.close();
           await output.close();
         }
-      } else if (row.type === 'symlink') {
+      },
+    );
+    for (const row of manifest.entries) {
+      const destination = path.join(root, row.path);
+      if (row.type === 'symlink') {
         await rm(destination);
         await symlink(Buffer.from(row.target, 'base64'), destination);
       } else if (row.type === 'hardlink') {

@@ -127,7 +127,7 @@ func installRunnerRuntime(ctx context.Context, config daemon.Config, pin runtime
 	if lock != nil {
 		defer lock.Close()
 	}
-	report := nativeexecutor.HostChecks(nativeexecutor.Config{DockerSocket: config.DockerSocket})
+	report := nativeexecutor.HostChecks(nativeexecutor.Config{DockerSocket: config.DockerSocket, DockerBinary: config.DockerBinary, WorkspaceBackend: config.WorkspaceBackend})
 	for _, check := range report.Checks {
 		if check.Status != "passed" {
 			for _, item := range report.Checks {

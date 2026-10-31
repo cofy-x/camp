@@ -24,6 +24,8 @@ export class WorkerClient {
       'node_modules/.camp-worker/installed.json',
     ),
     timeoutMs = 180_000,
+    dockerBinary = 'docker',
+    qualification = false,
   }) {
     home = path.resolve(home);
     await mkdir(home, { recursive: true, mode: 0o700 });
@@ -76,7 +78,7 @@ export class WorkerClient {
       auths: {},
     });
     const docker = (args, json = true) => {
-      const result = spawnSync('docker', args, {
+      const result = spawnSync(dockerBinary, args, {
         env: environment,
         encoding: 'utf8',
       });
@@ -115,6 +117,7 @@ export class WorkerClient {
         status: 'creating',
         socket,
         image: installed.image,
+        engineId: info.ID,
       };
       await saveState(file, identity);
       docker(
@@ -140,6 +143,11 @@ export class WorkerClient {
       throw failure(
         'Unknown',
         'An incomplete or incompatible worker installation is retained for explicit recovery.',
+      );
+    if (identity.engineId && identity.engineId !== info.ID)
+      throw failure(
+        'LostStore',
+        'The selected Docker engine identity changed; preserve existing captures and recover explicitly.',
       );
     const owned = docker(['volume', 'inspect', identity.volume])[0];
     if (
@@ -172,9 +180,10 @@ export class WorkerClient {
       protocol: pin.protocol,
       commit: installed.commit,
       prefix,
+      qualification: qualification === true,
     };
     const child = spawn(
-      'docker',
+      dockerBinary,
       [
         'run',
         '--rm',
@@ -233,13 +242,36 @@ export class WorkerClient {
     try {
       const started = performance.now();
       client.status = await client.request({ op: 'open', config });
+      if (
+        client.status.protocol !== pin.protocol ||
+        client.status.sourceCommit !== installed.commit ||
+        client.status.image !== installed.image ||
+        client.status.sdkVersion !== installed.version ||
+        client.status.platform !== 'linux/arm64'
+      )
+        throw failure(
+          'Conflict',
+          'The actual checkpoint worker SDK, image or protocol differs from its installation.',
+        );
       client.startupMs = performance.now() - started;
+      const cli = docker(['version', '--format', '{{json .Client}}']);
       client.engine = {
+        id: info.ID,
+        dockerVersion: info.ServerVersion,
+        operatingSystem: info.OperatingSystem,
+        dataRoot: info.DockerRootDir,
         architecture: info.Architecture,
         kernel: info.KernelVersion,
         driver: info.Driver,
         cpus: info.NCPU,
         memoryBytes: info.MemTotal,
+        client: {
+          version: cli.Version,
+          go: cli.GoVersion,
+          commit: cli.GitCommit,
+          os: cli.Os,
+          architecture: cli.Arch,
+        },
       };
       await saveState(path.join(home, 'last-start.json'), {
         status: client.status,
@@ -344,7 +376,15 @@ export class WorkerClient {
     );
   }
   async close() {
-    if (this.closed) return this.finished;
+    if (this.closed) {
+      const code = await this.finished;
+      if (code !== 0)
+        throw failure(
+          'Unknown',
+          'The worker exited without a clean drain confirmation.',
+        );
+      return;
+    }
     this.child.stdin.end();
     let timer;
     try {

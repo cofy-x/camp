@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { Buffer } from 'node:buffer';
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, lstat, mkdir, open, statfs } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readFile, statfs } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import process from 'node:process';
@@ -124,7 +124,15 @@ export class LinuxWorker {
           'Unknown',
           'An incomplete or incompatible worker home is retained for explicit recovery.',
         );
-      const volume = docker(['volume', 'inspect', state.volume])[0];
+      let volume;
+      try {
+        volume = docker(['volume', 'inspect', state.volume])[0];
+      } catch {
+        throw failure(
+          'LostStore',
+          'The owned Disposable Store volume was lost; its native captures and uncertain receipts are retained.',
+        );
+      }
       if (
         volume.Driver !== 'local' ||
         Object.keys(volume.Options ?? {}).length ||
@@ -147,6 +155,14 @@ export class LinuxWorker {
           'Unsupported',
           'The Store is not on a qualified Linux-local filesystem.',
         );
+      const observedFile = await lstat(storePath, { bigint: true });
+      const storeFile = {
+        device: String(observedFile.dev),
+        inode: String(observedFile.ino),
+      };
+      // Device/inode witnesses are live-process guards. They are not persistent
+      // Store identities: Linux can assign another device number after reboot.
+      state.storeFile = storeFile;
       Object.assign(process.env, {
         LAYERFS_HOME: config.home,
         LAYERFS_STORE_PATH: storePath,
@@ -157,6 +173,27 @@ export class LinuxWorker {
         LAYERFS_CONTAINER_PREFIX: config.prefix,
       });
       const client = await LayerFS.open(state.project);
+      const initial = await client.call('project.list_branches', {
+        name: 'main',
+        pageSize: 1,
+        pagePos: 0,
+      });
+      const base = initial.items?.find((row) => row.name === 'main')?.base;
+      if (!base || (state.base && state.base !== base)) {
+        await client.close();
+        throw failure(
+          'LostStore',
+          'The Store initial history identity changed; retained checkpoints will not be adopted automatically.',
+        );
+      }
+      state.base = base;
+      await saveState(file, state);
+      const bundle = JSON.parse(
+        await readFile('/opt/camp/layerfs/manifest.json', 'utf8'),
+      );
+      const sdk = JSON.parse(
+        await readFile('/opt/camp/layerfs/api/agent/package.json', 'utf8'),
+      );
       const cache = path.join(config.home, 'cache');
       await mkdir(path.join(cache, 'blobs'), { recursive: true, mode: 0o700 });
       return new LinuxWorker({
@@ -166,6 +203,9 @@ export class LinuxWorker {
         client,
         cache,
         filesystem: storeFS.type,
+        storePath,
+        bundle,
+        sdkVersion: sdk.version,
       });
     } catch (error) {
       await runtime.close();
@@ -176,6 +216,20 @@ export class LinuxWorker {
   constructor(fields) {
     Object.assign(this, fields);
     this.mounts = new Set();
+    this.bootId = randomUUID();
+  }
+  async assertStore() {
+    const info = await lstat(this.storePath, { bigint: true }).catch(() => {
+      throw failure(
+        'LostStore',
+        'The Disposable Store was lost; no operation will be replayed.',
+      );
+    });
+    if (
+      String(info.dev) !== this.state.storeFile.device ||
+      String(info.ino) !== this.state.storeFile.inode
+    )
+      throw failure('LostStore', 'The Store file incarnation changed.');
   }
   operationFile(id) {
     if (!uuidPattern.test(id))
@@ -200,6 +254,14 @@ export class LinuxWorker {
       filesystemMagic: this.filesystem,
       project: this.state.project,
       volume: this.state.volume,
+      sdkVersion: this.sdkVersion,
+      nodeVersion: process.version,
+      machine: os.machine(),
+      initialHistory: this.state.base,
+      nativeSha256: this.bundle.files['layerfs.node'],
+      daemonSha256: this.bundle.files['layerfs-daemon'],
+      dockerSha256: this.bundle.files.docker,
+      buildId: this.bundle.build_id,
     };
   }
   async head(branch) {
@@ -225,16 +287,35 @@ export class LinuxWorker {
         'Unknown',
         'The administrative Sandbox was not identified.',
       );
-    resource.container = record.name;
+    const actual = docker(['container', 'inspect', record.name])[0];
+    if (
+      !/^[a-f0-9]{64}$/.test(actual.Id) ||
+      !actual.State.Running ||
+      actual.Image !== this.config.image ||
+      actual.Config.Labels?.['layerfs.project'] !== this.state.project ||
+      actual.Config.Labels?.['layerfs.sandbox'] !== sandbox
+    )
+      throw failure(
+        'Conflict',
+        'The administrative Sandbox container identity changed.',
+      );
+    resource.container = actual.Id;
     return resource;
   }
   async release(resource) {
+    if (this.config.qualification && resource.container)
+      resource.cost = docker([
+        'exec',
+        resource.container,
+        'node',
+        '/opt/camp/layerfs/worker/cost.mjs',
+      ]);
     if (resource.workspace)
       await this.client.workspace.unmount(resource.workspace);
     await this.client.sandbox.close(resource.sandbox);
     this.mounts.delete(resource);
   }
-  command(resource, operation, digest = '', previous = '') {
+  command(resource, operation, digest = '', previous = '', faultCount = '') {
     return spawn(
       'docker',
       [
@@ -249,6 +330,7 @@ export class LinuxWorker {
         resource.workspace.path,
         digest,
         previous,
+        faultCount,
       ],
       {
         env: {
@@ -261,7 +343,16 @@ export class LinuxWorker {
     );
   }
   async runHelper(resource, operation, capture, previous, wanted) {
-    const child = this.command(resource, operation, capture?.digest, previous);
+    const failedApply =
+      operation === 'apply' && this.takeFault('apply-failure');
+    const child = this.command(
+      resource,
+      operation,
+      capture?.digest,
+      previous,
+      failedApply ? '1' : '',
+    );
+    child.stdin.on('error', () => {});
     const output = [],
       errors = [];
     let bytes = 0;
@@ -392,7 +483,8 @@ export class LinuxWorker {
       manifest,
       wanted,
       cacheValidationMs: performance.now() - cacheStarted,
-      branch: namespace.branch,
+      branch: `c-${binding.operationId.replaceAll('-', '')}`,
+      parentBranch: namespace.branch,
       disposable: true,
       durableDelivery: false,
     };
@@ -450,9 +542,26 @@ export class LinuxWorker {
       manifest: receipt.manifest,
       digest: binding.digest,
     };
-    const resource = await this.mounted(namespace.branch);
+    receipt.state = 'fork-dispatched';
+    await saveState(this.operationFile(operationId), receipt);
+    const forkStarted = performance.now();
+    const forked = await this.client.branch.fork(
+      receipt.branch,
+      receipt.parentBranch,
+    );
+    receipt.forkMs = performance.now() - forkStarted;
+    if (forked.head !== binding.parentCheckpoint)
+      throw failure(
+        'Conflict',
+        'The operation Branch fork did not retain its expected parent.',
+      );
+    receipt.state = 'fork-acknowledged';
+    await saveState(this.operationFile(operationId), receipt);
+    const resource = await this.mounted(receipt.branch);
     receipt.state = 'apply-dispatched';
     receipt.sandbox = resource.sandbox;
+    receipt.workspace = resource.workspace;
+    receipt.containerId = resource.container;
     await saveState(this.operationFile(operationId), receipt);
     try {
       const applyStarted = performance.now();
@@ -466,6 +575,11 @@ export class LinuxWorker {
       receipt.applyTransportMs = performance.now() - applyStarted;
       receipt.state = 'applied';
       await saveState(this.operationFile(operationId), receipt);
+      if (this.takeFault('before-commit'))
+        throw failure(
+          'InjectedBeforeCommit',
+          'Controlled interruption after apply and before Commit.',
+        );
       if (namespace.digest === binding.digest)
         receipt.checkpoint = { kind: 'UpToDate', head: namespace.head };
       else {
@@ -476,6 +590,7 @@ export class LinuxWorker {
           resource.workspace,
           `camp:${binding.operationId}:${binding.generation}:${binding.digest}`,
         );
+        if (this.takeFault('after-commit-before-receipt')) process.exit(72);
         receipt.commitMs = performance.now() - started;
         if (
           !['Committed', 'UpToDate'].includes(receipt.checkpoint.kind) ||
@@ -489,6 +604,7 @@ export class LinuxWorker {
       receipt.state = 'commit-acknowledged';
       await saveState(this.operationFile(operationId), receipt);
       await this.release(resource);
+      if (resource.cost) receipt.applyResources = resource.cost;
       return await this.verify(receipt, namespace);
     } catch (error) {
       receipt.error = { code: error.code ?? 'Unknown', message: error.message };
@@ -498,32 +614,49 @@ export class LinuxWorker {
   }
   async verify(receipt, namespace) {
     const started = performance.now();
-    if ((await this.head(namespace.branch)) !== receipt.checkpoint.head)
+    if ((await this.head(receipt.branch)) !== receipt.checkpoint.head)
       throw failure(
         'Conflict',
         'The checkpoint head changed before independent readback.',
       );
-    const reader = await this.mounted(namespace.branch);
+    const reader = await this.mounted(receipt.branch);
     const verified = await this.runHelper(reader, 'scan');
     await this.release(reader);
+    if (reader.cost) receipt.readbackResources = reader.cost;
     if (
       verified.digest !== receipt.binding.digest ||
-      (await this.head(namespace.branch)) !== receipt.checkpoint.head
+      (await this.head(receipt.branch)) !== receipt.checkpoint.head
     )
       throw failure(
         'Mismatch',
         'Independent checkpoint remount did not match its frozen snapshot and head.',
       );
+    await this.cleanupOriginal(receipt);
     receipt.readbackMs = performance.now() - started;
     receipt.state = 'verified';
     receipt.verifiedDigest = verified.digest;
+    receipt.verificationBootId = this.bootId;
     await saveState(this.operationFile(receipt.binding.operationId), receipt);
-    namespace.generation = receipt.binding.generation;
-    namespace.head = receipt.checkpoint.head;
-    namespace.digest = receipt.binding.digest;
-    namespace.manifest = receipt.manifest;
-    namespace.pending = null;
-    await saveState(this.namespaceFile(receipt.binding.workspaceId), namespace);
+    if (namespace.pending === receipt.binding.operationId) {
+      if (
+        namespace.generation + 1 !== receipt.binding.generation ||
+        namespace.head !== receipt.binding.parentCheckpoint
+      )
+        throw failure(
+          'Conflict',
+          'Readback cannot advance an old or different pending generation.',
+        );
+      namespace.generation = receipt.binding.generation;
+      namespace.head = receipt.checkpoint.head;
+      namespace.digest = receipt.binding.digest;
+      namespace.manifest = receipt.manifest;
+      namespace.branch = receipt.branch;
+      namespace.pending = null;
+      await saveState(
+        this.namespaceFile(receipt.binding.workspaceId),
+        namespace,
+      );
+    }
     return receipt;
   }
   async observe({ operationId }) {
@@ -534,11 +667,19 @@ export class LinuxWorker {
       this.namespaceFile(receipt.binding.workspaceId),
     );
     if (receipt.state === 'verified') {
+      if ((await this.head(receipt.branch)) !== receipt.checkpoint.head)
+        throw failure(
+          'LostStore',
+          'The acknowledged checkpoint is absent or changed in the current Disposable Store.',
+        );
+      if (receipt.verificationBootId !== this.bootId)
+        return this.verify(receipt, namespace);
       if (namespace.pending === operationId) {
         namespace.generation = receipt.binding.generation;
         namespace.head = receipt.checkpoint.head;
         namespace.digest = receipt.binding.digest;
         namespace.manifest = receipt.manifest;
+        namespace.branch = receipt.branch;
         namespace.pending = null;
         await saveState(
           this.namespaceFile(receipt.binding.workspaceId),
@@ -560,13 +701,89 @@ export class LinuxWorker {
         committed.parent === receipt.binding.parentCheckpoint &&
         (await this.head(receipt.branch)) === committed.id
       ) {
-        receipt.checkpoint = { kind: 'Committed', head: committed.id };
+        receipt.checkpoint = {
+          kind: 'Committed',
+          head: committed.id,
+          commit: committed,
+        };
         return this.verify(receipt, namespace);
       }
     }
     if (receipt.state === 'commit-acknowledged')
       return this.verify(receipt, namespace);
+    if (receipt.kind === 'fork' && receipt.state === 'fork-dispatched') {
+      const head = await this.head(receipt.branch).catch(() => undefined);
+      if (head === receipt.binding.parentCheckpoint)
+        return this.verify(receipt, namespace);
+    }
     return receipt;
+  }
+  async fork({ binding: input, sourceOperation }) {
+    const binding = validateBinding(input);
+    const source = await readState(this.operationFile(sourceOperation));
+    if (
+      !source ||
+      source.state !== 'verified' ||
+      source.binding.storeId !== this.state.storeId ||
+      binding.storeId !== this.state.storeId ||
+      binding.digest !== source.binding.digest ||
+      binding.parentCheckpoint !== source.checkpoint.head ||
+      binding.runnerId !== source.binding.runnerId ||
+      binding.storageId !== source.binding.storageId ||
+      binding.generation !== 1
+    )
+      throw failure(
+        'Conflict',
+        'A fork requires an exact verified checkpoint in this Store and owner.',
+      );
+    if (
+      (await readState(this.operationFile(binding.operationId))) ||
+      (await readState(this.namespaceFile(binding.workspaceId)))
+    )
+      throw failure(
+        'Conflict',
+        'Fork identities must be new; no previous operation is replayed.',
+      );
+    if ((await this.head(source.branch)) !== source.checkpoint.head)
+      throw failure(
+        'Conflict',
+        'The retained source Branch no longer names its confirmed checkpoint.',
+      );
+    const branch = `f-${binding.operationId.replaceAll('-', '')}`;
+    const namespace = {
+      schema: 1,
+      runnerId: binding.runnerId,
+      storageId: binding.storageId,
+      workspaceId: binding.workspaceId,
+      branch,
+      generation: 0,
+      head: source.checkpoint.head,
+      pending: binding.operationId,
+      status: 'fork-dispatched',
+    };
+    const receipt = {
+      schema: 1,
+      kind: 'fork',
+      sourceOperation,
+      binding,
+      state: 'fork-dispatched',
+      branch,
+      manifest: source.manifest,
+      checkpoint: { kind: 'UpToDate', head: source.checkpoint.head },
+      disposable: true,
+      durableDelivery: false,
+    };
+    await saveState(this.operationFile(binding.operationId), receipt);
+    await saveState(this.namespaceFile(binding.workspaceId), namespace);
+    const started = performance.now();
+    const result = await this.client.branch.fork(branch, source.branch);
+    receipt.forkMs = performance.now() - started;
+    if (result.head !== source.checkpoint.head)
+      throw failure(
+        'Mismatch',
+        'The public Branch fork changed its checkpoint identity.',
+      );
+    return this.verify(receipt, namespace);
   }
   async export({ operationId }, output, respond) {
     const receipt = await this.observe({ operationId });
@@ -622,5 +839,63 @@ export class LinuxWorker {
         'Unknown',
         'Some administrative mounts remain retained after shutdown.',
       );
+  }
+  armFault({ point }) {
+    if (
+      !this.config.qualification ||
+      ![
+        'apply-failure',
+        'before-commit',
+        'after-commit-before-receipt',
+        'drop-commit-reply',
+        'delay-commit-reply',
+      ].includes(point)
+    )
+      throw failure(
+        'Unsupported',
+        'Fault injection is available only in a controlled qualification worker.',
+      );
+    this.faultPoint = point;
+    return { armed: point };
+  }
+  takeFault(point) {
+    if (!this.config.qualification || this.faultPoint !== point) return false;
+    this.faultPoint = null;
+    return true;
+  }
+  async inspect({ operationId }) {
+    if (!this.config.qualification)
+      throw failure('Unsupported', 'Qualification diagnostics are disabled.');
+    const receipt = await readState(this.operationFile(operationId));
+    if (!receipt) return { receipt: null };
+    const head = await this.head(receipt.branch).catch(() => undefined);
+    const history =
+      head === undefined
+        ? null
+        : await this.client.branch.list_commits(receipt.branch, 1000, 0);
+    return {
+      receipt,
+      namespace: await readState(
+        this.namespaceFile(receipt.binding.workspaceId),
+      ),
+      head,
+      commits: history?.items ?? [],
+    };
+  }
+  async cleanupOriginal(receipt) {
+    if (!receipt.workspace || !/^[a-f0-9]{64}$/.test(receipt.containerId ?? ''))
+      return;
+    const active = await this.client.project.list_sandboxes(1000, 0);
+    const recorded = active.items.find(
+      (item) => item.sandbox === receipt.workspace.sandbox,
+    );
+    if (!recorded) return;
+    const actual = docker(['container', 'inspect', recorded.name])[0];
+    if (actual.Id !== receipt.containerId || !actual.State.Running) return;
+    await this.client.workspace.unmount(receipt.workspace);
+    await this.client.sandbox.close(receipt.workspace.sandbox);
+    for (const resource of this.mounts)
+      if (resource.sandbox === receipt.workspace.sandbox)
+        this.mounts.delete(resource);
   }
 }

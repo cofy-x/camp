@@ -12,6 +12,7 @@ export async function collectRustLicenses({
   environment,
   rust,
   destination,
+  platform = 'x86_64-unknown-linux-gnu',
 }) {
   const options = { cwd: source, env: environment, maxBuffer: 16 << 20 };
   const { stdout } = await execute(
@@ -24,7 +25,7 @@ export async function collectRustLicenses({
       '--format-version',
       '1',
       '--filter-platform',
-      'x86_64-unknown-linux-gnu',
+      platform,
     ],
     options,
   );

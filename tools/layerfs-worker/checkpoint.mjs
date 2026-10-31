@@ -3,7 +3,12 @@ import { mkdir, mkdtemp } from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { failure, readState, saveState } from './state.mjs';
-import { captureTree, loadCapture, restoreTree } from './tree.mjs';
+import {
+  captureTree,
+  loadCapture,
+  restoreTree,
+  manifestDigest,
+} from './tree.mjs';
 import { checkpointPattern, validateBinding } from './contracts.mjs';
 
 export class MacCheckpoints {
@@ -58,6 +63,21 @@ export class MacCheckpoints {
       directory,
       path.join(this.root, 'captures'),
     );
+    return this.submitCapture(capture, workspaceId, attemptId);
+  }
+  async submitCapture(capture, workspaceId, attemptId, { recoveryFrom } = {}) {
+    const file = this.namespaceFile(workspaceId);
+    const previous = await readState(file);
+    if (previous?.pending)
+      throw failure(
+        'Unknown',
+        'The prior operation is uncertain; no mutation is replayed.',
+      );
+    if (previous && previous.storeId !== this.worker.status.storeId)
+      throw failure(
+        'LostStore',
+        'Explicit reconstruction must select a new Store epoch and workspace.',
+      );
     const binding = {
       runnerId: this.runnerId,
       storageId: this.storageId,
@@ -69,9 +89,12 @@ export class MacCheckpoints {
       parentCheckpoint: previous?.head ?? null,
       storeId: this.worker.status.storeId,
     };
+    if (recoveryFrom) binding.recoveryFrom = recoveryFrom;
+    const frozenBinding = validateBinding(binding);
     const record = {
       schema: 1,
-      binding,
+      binding: frozenBinding,
+      kind: recoveryFrom ? 'reconstruction' : 'capture',
       captureRoot: capture.root,
       state: 'sealed',
       captureMetrics: capture.metrics,
@@ -95,7 +118,7 @@ export class MacCheckpoints {
       await transition('prepare-dispatched');
       const prepared = await this.worker.request({
         op: 'prepare',
-        args: { binding, manifest: capture.manifest },
+        args: { binding: frozenBinding, manifest: capture.manifest },
       });
       record.cacheValidationMs = prepared.cacheValidationMs;
       await transition('upload-dispatched');
@@ -169,8 +192,22 @@ export class MacCheckpoints {
       this.namespaceFile(record.binding.workspaceId),
     );
     if (record.state === 'confirmed') {
+      const observed = await this.worker.request({
+        op: 'observe',
+        args: { operationId },
+      });
+      if (
+        observed.state !== 'verified' ||
+        observed.verifiedDigest !== record.binding.digest ||
+        JSON.stringify(observed.binding) !== JSON.stringify(record.binding) ||
+        observed.checkpoint.head !== record.workerReceipt.checkpoint.head
+      )
+        throw failure(
+          'LostStore',
+          'The retained receipt no longer has a matching observed worker checkpoint.',
+        );
       if (namespace.pending === operationId)
-        return this.confirm(record, namespace, record.workerReceipt);
+        return this.confirm(record, namespace, observed);
       return record;
     }
     const workerReceipt = await this.worker.request({
@@ -216,5 +253,149 @@ export class MacCheckpoints {
     if (!record)
       throw failure('NotFound', 'The native checkpoint intent is unavailable.');
     return loadCapture(record.captureRoot);
+  }
+  async publication(operationId, excluded = []) {
+    excluded ??= [];
+    const record = await readState(this.operationFile(operationId));
+    if (record?.state !== 'confirmed')
+      throw failure(
+        'Unknown',
+        'Publication requires a confirmed complete-tree checkpoint.',
+      );
+    const namespace = await readState(
+      this.namespaceFile(record.binding.workspaceId),
+    );
+    if (
+      !namespace ||
+      namespace.pending ||
+      namespace.operationId !== operationId ||
+      namespace.generation !== record.binding.generation ||
+      namespace.storeId !== record.binding.storeId ||
+      namespace.storeId !== this.worker.status.storeId
+    )
+      throw failure(
+        'StaleGeneration',
+        'A historical checkpoint is restorable but cannot be published as the current native attempt.',
+      );
+    const capture = await loadCapture(record.captureRoot);
+    if (capture.digest !== record.binding.digest)
+      throw failure(
+        'Corrupt',
+        'The frozen publication source differs from its checkpoint.',
+      );
+    if (
+      !Array.isArray(excluded) ||
+      excluded.some(
+        (name) =>
+          typeof name !== 'string' ||
+          !name ||
+          name.includes('/') ||
+          name.includes('\\') ||
+          name.includes('\0'),
+      )
+    )
+      throw failure(
+        'InvalidInput',
+        'Publication exclusions must be literal entry names.',
+      );
+    const skip = new Set(excluded),
+      originals = new Map(
+        capture.manifest.entries.map((row) => [row.path, row]),
+      );
+    const entries = [];
+    for (const row of capture.manifest.entries) {
+      if (
+        row.path
+          .split('/')
+          .some((name) => name.toLowerCase() === '.git' || skip.has(name))
+      )
+        continue;
+      if (row.type === 'symlink')
+        throw failure(
+          'UnsupportedPublication',
+          'The complete checkpoint retains a symlink that the Server publication archive cannot represent.',
+        );
+      if (row.type === 'hardlink') {
+        const target = originals.get(row.target);
+        entries.push({
+          path: row.path,
+          type: 'file',
+          mode: row.mode,
+          bytes: target.bytes,
+          sha256: target.sha256,
+        });
+      } else entries.push(row);
+    }
+    const manifest = {
+      schema: 1,
+      rootMode: capture.manifest.rootMode,
+      entries,
+    };
+    const derived = {
+      root: capture.root,
+      manifest,
+      digest: manifestDigest(manifest),
+    };
+    const restored = await restoreTree(
+      derived,
+      path.join(this.root, 'publication'),
+    );
+    return {
+      directory: restored.root,
+      digest: derived.digest,
+      sourceDigest: capture.digest,
+      operationId,
+    };
+  }
+  async fork(sourceOperation, workspaceId, attemptId) {
+    const source = await readState(this.operationFile(sourceOperation));
+    if (
+      source?.state !== 'confirmed' ||
+      source.binding.storeId !== this.worker.status.storeId
+    )
+      throw failure(
+        'Unknown',
+        'Fork requires a confirmed checkpoint in the current Store.',
+      );
+    if (await readState(this.namespaceFile(workspaceId)))
+      throw failure(
+        'Conflict',
+        'Choose a new workspace identity for the fork.',
+      );
+    const binding = {
+      runnerId: this.runnerId,
+      storageId: this.storageId,
+      workspaceId,
+      attemptId,
+      operationId: randomUUID(),
+      generation: 1,
+      digest: source.binding.digest,
+      parentCheckpoint: source.workerReceipt.checkpoint.head,
+      storeId: this.worker.status.storeId,
+    };
+    const record = {
+      schema: 1,
+      kind: 'fork',
+      sourceOperation,
+      binding,
+      captureRoot: source.captureRoot,
+      state: 'fork-dispatched',
+      workerImage: this.worker.installed.image,
+      durableDelivery: false,
+    };
+    const namespace = {
+      schema: 1,
+      storeId: binding.storeId,
+      generation: 0,
+      head: binding.parentCheckpoint,
+      pending: binding.operationId,
+    };
+    await saveState(this.operationFile(binding.operationId), record);
+    await saveState(this.namespaceFile(workspaceId), namespace);
+    const receipt = await this.worker.request({
+      op: 'fork',
+      args: { binding, sourceOperation },
+    });
+    return this.confirm(record, namespace, receipt);
   }
 }

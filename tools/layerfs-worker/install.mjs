@@ -1,9 +1,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import {
   copyFile,
+  cp,
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
@@ -58,11 +60,90 @@ function wait(child) {
 }
 
 await Promise.all([wait(producer), wait(consumer)]);
+const collector = path.join(context, 'collector');
+await mkdir(collector);
+await copyFile(
+  path.join(root, 'collect-licenses.mjs'),
+  path.join(collector, 'collect-licenses.mjs'),
+);
+await copyFile(
+  path.join(root, '../layerfs-runtime/licenses.mjs'),
+  path.join(collector, 'rust.mjs'),
+);
+await cp(
+  path.join(root, '../layerfs-runtime/licenses'),
+  path.join(collector, 'licenses'),
+  { recursive: true },
+);
+const dockerSource = path.join(cache, `docker-cli-${pin.dockerCLICommit}`);
+const command = (args) => {
+  const result = spawnSync('git', args, { encoding: 'utf8' });
+  if (result.status !== 0) throw new Error(result.stderr.slice(-8192));
+  return result.stdout.trim();
+};
+await mkdir(dockerSource, { recursive: true, mode: 0o700 });
+command(['-C', dockerSource, 'init', '--quiet']);
+if (
+  spawnSync('git', [
+    '-C',
+    dockerSource,
+    'cat-file',
+    '-e',
+    `${pin.dockerCLICommit}^{commit}`,
+  ]).status !== 0
+)
+  command([
+    '-C',
+    dockerSource,
+    'fetch',
+    '--depth=1',
+    pin.dockerCLIRepository,
+    pin.dockerCLICommit,
+  ]);
+command(['-C', dockerSource, 'checkout', '--detach', pin.dockerCLICommit]);
+if (command(['-C', dockerSource, 'rev-parse', 'HEAD']) !== pin.dockerCLICommit)
+  throw new Error(
+    'The Docker CLI notices differ from the fixed source revision.',
+  );
+const dockerNotices = path.join(context, 'docker-licenses');
+await mkdir(dockerNotices);
+
+async function notices(directory, relative = '') {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.name === '.git') continue;
+    const member = path.join(directory, entry.name),
+      name = path.join(relative, entry.name);
+    if (
+      /^(licen[sc]es?|notices?|copying|copyright|authors)([._-]|$)/i.test(
+        entry.name,
+      )
+    ) {
+      await mkdir(path.dirname(path.join(dockerNotices, name)), {
+        recursive: true,
+      });
+      await cp(member, path.join(dockerNotices, name), {
+        recursive: true,
+        dereference: false,
+      });
+    } else if (entry.isDirectory()) await notices(member, name);
+  }
+}
+
+await notices(dockerSource);
+await copyFile(
+  path.join(dockerSource, 'vendor/modules.txt'),
+  path.join(dockerNotices, 'modules.txt'),
+);
+await writeFile(
+  path.join(dockerNotices, 'source.json'),
+  `${JSON.stringify({ repository: pin.dockerCLIRepository, commit: pin.dockerCLICommit, image: pin.dockerImage })}\n`,
+);
 for (const file of ['Dockerfile', 'seal.mjs'])
   await copyFile(path.join(root, file), path.join(context, file));
 await mkdir(path.join(context, 'worker'));
 for (const file of [
   'state.mjs',
+  'cost.mjs',
   'contracts.mjs',
   'tree.mjs',
   'transfer.mjs',
@@ -117,6 +198,11 @@ const installed = {
 };
 await writeFile(
   path.join(cache, 'installed.json'),
+  `${JSON.stringify(installed, null, 2)}\n`,
+  { mode: 0o600 },
+);
+await writeFile(
+  path.join(root, 'installed.json'),
   `${JSON.stringify(installed, null, 2)}\n`,
   { mode: 0o600 },
 );

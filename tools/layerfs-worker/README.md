@@ -2,7 +2,7 @@
 
 This experimental adapter keeps a complete native working-tree capture and mirrors it into a native Linux ARM64 LayerFS worker. It does not run an Agent, own a Runner identity, request a model, issue a lease or publish to Camp Server. The [worker contract](../../docs/layerfs-worker.md) owns its consistency, lifecycle and qualification requirements.
 
-The adapter is not yet selectable by the packaged Runner. Native-local remains the shipped comparison baseline while Runner integration, interruption qualification and the full performance comparison are completed. A successful standalone probe does not establish those remaining guarantees or select the eventual default.
+The experimental adapter is explicitly selectable with `runner setup --workspace-backend layerfs-worker`. Native-local remains the shipped comparison baseline while optional artifact installation and the full performance comparison are completed. A successful standalone probe does not establish the remaining package and comparative guarantees or select the eventual default.
 
 The source pin and SDK version come from [the shared LayerFS pin](../layerfs-runtime/pin.json). [Worker pins](pin.json) select native ARM64 Rust, Node and Docker CLI image manifests independently of the existing Linux amd64 Runner image. Builds use a Camp-owned `git archive` of the exact source commit; shared dependency checkouts remain read-only. Rust dependencies build offline from the locked fetch, with the upstream ARM acceleration configuration intact. No image is pushed by these tools.
 

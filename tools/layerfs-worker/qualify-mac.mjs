@@ -150,6 +150,34 @@ try {
   report.checks.push(
     'Edit, binary replacement, chmod, rename, deletion, new empty directories, unchanged generation and actual Linux-to-Mac restore preserve exact contents and link topology.',
   );
+  const originalRestore = await checkpoints.restore(
+    initial.binding.operationId,
+    path.join(root, 'historical-restore'),
+  );
+  assert.equal(
+    (await scanTree(originalRestore.root)).digest,
+    initial.binding.digest,
+  );
+  const fork = await checkpoints.fork(
+    initial.binding.operationId,
+    createHash('sha256').update('controlled-historical-fork').digest('hex'),
+    'historical-fork',
+  );
+  report.fork = fork;
+  const forkRestore = await checkpoints.restore(
+    fork.binding.operationId,
+    path.join(root, 'fork-restore'),
+  );
+  assert.equal(
+    (await scanTree(forkRestore.root)).digest,
+    initial.binding.digest,
+  );
+  await assert.rejects(checkpoints.publication(initial.binding.operationId), {
+    code: 'StaleGeneration',
+  });
+  report.checks.push(
+    'Historical generation restore and a public SDK Branch fork retain the original full tree; historical receipts cannot become the current publication view.',
+  );
   report.passed = true;
 } catch (error) {
   report.error = {

@@ -13,6 +13,7 @@ await copyFile(
   '/usr/local/bin/layerfs-daemon',
   path.join(root, 'layerfs-daemon'),
 );
+await copyFile('/usr/local/bin/docker', path.join(root, 'docker'));
 const files = {};
 
 async function walk(relative) {
@@ -33,6 +34,8 @@ await walk('api');
 await walk('worker');
 await walk('layerfs.node');
 await walk('layerfs-daemon');
+await walk('docker');
+await walk('licenses');
 const build = createHash('sha256').update(JSON.stringify(files)).digest('hex');
 await writeFile(
   path.join(root, 'manifest.json'),

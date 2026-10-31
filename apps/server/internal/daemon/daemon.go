@@ -101,6 +101,9 @@ func Run(ctx context.Context, config Config, output io.Writer) error {
 		config.Native.Lock = lock
 		config.Native.CAFile = config.CAFile
 		config.Native.ToolRoots = append([]string(nil), config.ToolRoots...)
+		config.Native.WorkspaceBackend = config.WorkspaceBackend
+		config.Native.DockerBinary = config.DockerBinary
+		config.Native.RunnerID, config.Native.StorageID = config.RunnerID, config.StorageID
 		initCtx, stop := context.WithTimeout(ctx, 90*time.Second)
 		if config.NativeUnavailable != "" {
 			err = errors.New(config.NativeUnavailable)

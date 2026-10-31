@@ -183,35 +183,63 @@ export async function receiveCapture(stream, root, expected) {
     );
   const blobs = path.join(root, 'blobs');
   await mkdir(blobs, { recursive: true, mode: 0o700 });
-  for (const name of wanted) {
-    const temporary = path.join(blobs, `${randomUUID()}.part`);
-    const file = await open(temporary, 'wx', 0o600);
-    const hasher = createHash('sha256');
-    try {
-      await reader.consume(index.get(name), async (chunk) => {
-        hasher.update(chunk);
-        for (let offset = 0; offset < chunk.length;)
-          offset += (await file.write(chunk, offset, chunk.length - offset))
-            .bytesWritten;
-      });
-      if (hasher.digest('hex') !== name)
-        throw failure('Corrupt', 'Transferred blob does not match its digest.');
-      await file.sync();
-      await file.close();
-      await rename(temporary, path.join(blobs, name));
-    } catch (error) {
-      await file.close().catch(() => {});
-      await rm(temporary, { force: true });
-      throw error;
+  const pending = new Set();
+  let sealFailure;
+  try {
+    for (const name of wanted) {
+      if (sealFailure) throw sealFailure;
+      const temporary = path.join(blobs, `${randomUUID()}.part`);
+      const file = await open(temporary, 'wx', 0o600);
+      const hasher = createHash('sha256');
+      try {
+        await reader.consume(index.get(name), async (chunk) => {
+          hasher.update(chunk);
+          for (let offset = 0; offset < chunk.length;)
+            offset += (await file.write(chunk, offset, chunk.length - offset))
+              .bytesWritten;
+        });
+        if (hasher.digest('hex') !== name)
+          throw failure(
+            'Corrupt',
+            'Transferred blob does not match its digest.',
+          );
+        // The raw stream remains ordered; only completed, hash-validated files
+        // synchronize concurrently, with bounded descriptors and no early apply.
+        const task = (async () => {
+          try {
+            await file.sync();
+            await file.close();
+            await rename(temporary, path.join(blobs, name));
+          } catch (error) {
+            await file.close().catch(() => {});
+            await rm(temporary, { force: true });
+            throw error;
+          }
+        })()
+          .catch((error) => {
+            sealFailure ??= error;
+          })
+          .finally(() => pending.delete(task));
+        pending.add(task);
+        if (pending.size >= 8) await Promise.race(pending);
+      } catch (error) {
+        await file.close().catch(() => {});
+        await rm(temporary, { force: true });
+        throw error;
+      }
     }
+    await reader.end();
+  } finally {
+    await Promise.all(pending);
   }
-  await reader.end();
+  if (sealFailure) throw sealFailure;
   await syncDirectory(blobs);
   return {
     manifest,
     digest,
     metrics: {
       receiveMs: performance.now() - started,
+      syncConcurrency: 8,
       wireBytes: reader.bytes,
       payloadBytes: wanted.reduce((sum, name) => sum + index.get(name), 0),
     },

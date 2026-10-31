@@ -8,7 +8,8 @@ import { captureTree, scanTree } from './tree.mjs';
 import { encodeCapture, receiveCapture } from './transfer.mjs';
 import { writeBytes } from './protocol.mjs';
 
-const [operation, directory, digest, previous] = process.argv.slice(2);
+const [operation, directory, digest, previous, faultCount] =
+  process.argv.slice(2);
 if (
   !['scan', 'apply', 'export'].includes(operation) ||
   !/^\/workspaces\/[^/\0]{1,128}$/.test(directory)
@@ -26,10 +27,12 @@ try {
       });
       process.stdout.write(
         JSON.stringify(
-          await applyTree(directory, previous, {
-            root: temporary,
-            ...captured,
-          }),
+          await applyTree(
+            directory,
+            previous,
+            { root: temporary, ...captured },
+            faultCount === '1' ? { failAfter: 1 } : {},
+          ),
         ),
       );
     } else {

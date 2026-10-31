@@ -1,4 +1,5 @@
 import process from 'node:process';
+import { setTimeout as pause } from 'node:timers/promises';
 import { LinuxWorker } from './linux.mjs';
 import { ByteReader } from './transfer.mjs';
 import { body, readMessage, writeMessage } from './protocol.mjs';
@@ -6,6 +7,7 @@ import { body, readMessage, writeMessage } from './protocol.mjs';
 // The only control channel is inherited stdin/stdout over the selected local
 // Docker socket. No Agent environment, model capability or network listener.
 const input = new ByteReader(process.stdin);
+process.stdout.on('error', () => {});
 let worker,
   request,
   streaming = false;
@@ -24,6 +26,7 @@ try {
     streaming = false;
     try {
       let value;
+      await worker.assertStore();
       switch (request.op) {
         case 'status':
           value = worker.status();
@@ -39,6 +42,15 @@ try {
           break;
         case 'commit':
           value = await worker.commit(request.args);
+          break;
+        case 'fork':
+          value = await worker.fork(request.args);
+          break;
+        case 'qualification.fault':
+          value = worker.armFault(request.args);
+          break;
+        case 'qualification.inspect':
+          value = await worker.inspect(request.args);
           break;
         case 'observe':
           value = await worker.observe(request.args);
@@ -62,6 +74,12 @@ try {
             { code: 'InvalidInput' },
           );
       }
+      if (request.op === 'commit' && worker.takeFault('drop-commit-reply')) {
+        await worker.close();
+        process.exit(73);
+      }
+      if (request.op === 'commit' && worker.takeFault('delay-commit-reply'))
+        await pause(2000);
       await writeMessage(process.stdout, { id: request.id, value });
     } catch (error) {
       if (streaming || request.op === 'upload') throw error;

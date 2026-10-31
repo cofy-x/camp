@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +22,10 @@ import (
 // BridgeConfig contains only trusted runtime settings. Model configuration is
 // never inherited by this process or passed to LayerFS containers.
 type BridgeConfig struct {
+	Mode            string `json:"mode,omitempty"`
+	RunnerID        string `json:"runnerId,omitempty"`
+	StorageID       string `json:"storageId,omitempty"`
+	DockerBinary    string `json:"dockerBinary,omitempty"`
 	Node            string `json:"-"`
 	RuntimeDir      string `json:"-"`
 	DataRoot        string `json:"dataRoot"`
@@ -113,25 +118,33 @@ type bridgeReply struct {
 // its place until its actual response arrives, so later calls cannot consume a
 // stale result. Cancellation never repeats an operation or claims cleanup.
 type Bridge struct {
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
-	responses chan bridgeResponse
-	lease     chan struct{}
-	done      chan struct{}
-	lock      *os.File
-	config    string
-	docker    string
-	mu        sync.Mutex
-	sequence  uint64
-	stopping  bool
-	exitErr   error
-	closeOnce sync.Once
-	closeErr  error
+	cmd          *exec.Cmd
+	stdin        io.WriteCloser
+	responses    chan bridgeResponse
+	lease        chan struct{}
+	done         chan struct{}
+	lock         *os.File
+	config       string
+	docker       string
+	dataRoot     string
+	mu           sync.Mutex
+	sequence     uint64
+	stopping     bool
+	exitErr      error
+	closeOnce    sync.Once
+	closeErr     error
+	closeTimeout time.Duration
 }
 
 func OpenBridge(ctx context.Context, config BridgeConfig) (*Bridge, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if config.Mode != "" && config.Mode != "checkpoint-worker" {
+		return nil, errors.New("Unknown LayerFS bridge mode")
+	}
+	if config.Mode == "checkpoint-worker" && (runtime.GOOS != "darwin" || runtime.GOARCH != "arm64") {
+		return nil, errors.New("The checkpoint worker bridge requires native ARM64 Mac execution")
 	}
 	if config.Node == "" {
 		var err error
@@ -148,6 +161,13 @@ func OpenBridge(ctx context.Context, config BridgeConfig) (*Bridge, error) {
 	dataRoot, err := filepath.EvalSymlinks(config.DataRoot)
 	if err != nil {
 		return nil, err
+	}
+	// macOS spells its system temporary directory through /var and /private/var.
+	// Rebase an in-root lexical home before checking its resolved ancestors;
+	// user-created symlink escapes are still rejected before any mkdir.
+	if bridgePathInside(config.DataRoot, config.Home) {
+		relative, _ := filepath.Rel(config.DataRoot, config.Home)
+		config.Home = filepath.Join(dataRoot, relative)
 	}
 	if !bridgePathInside(dataRoot, config.Home) {
 		return nil, errors.New("LayerFS home must be inside the Camp data root")
@@ -223,6 +243,10 @@ func OpenBridge(ctx context.Context, config BridgeConfig) (*Bridge, error) {
 		dockerSocket = "/var/run/docker.sock"
 	}
 	b := &Bridge{cmd: cmd, stdin: stdin, responses: make(chan bridgeResponse, 1), lease: make(chan struct{}, 1), done: make(chan struct{}), lock: lock, config: configPath, docker: dockerSocket}
+	b.dataRoot = dataRoot
+	if config.Mode == "checkpoint-worker" {
+		b.closeTimeout = 30 * time.Second
+	}
 	b.lease <- struct{}{}
 	readDone := make(chan error, 1)
 	go func() {
@@ -357,6 +381,15 @@ func (b *Bridge) Status(ctx context.Context) (json.RawMessage, error) {
 	return result, err
 }
 
+func (b *Bridge) Ready() error {
+	select {
+	case <-b.done:
+		return b.failure()
+	default:
+		return nil
+	}
+}
+
 func (b *Bridge) Prepare(ctx context.Context, request PrepareRequest) (PreparedProject, error) {
 	var result PreparedProject
 	err := b.call(ctx, "project.prepare", request, &result, false)
@@ -456,7 +489,11 @@ func (b *Bridge) Close() error {
 		b.mu.Lock()
 		b.stopping = true
 		b.mu.Unlock()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		timeout := b.closeTimeout
+		if timeout == 0 {
+			timeout = 5 * time.Second
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		err := b.call(ctx, "shutdown", nil, nil, true)
 		cancel()
 		_ = b.stdin.Close()
