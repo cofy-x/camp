@@ -10,6 +10,7 @@ import {
   mkdtemp,
   readFile,
   readlink,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -19,6 +20,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import {
   captureTree,
+  CaptureBlobs,
   manifestDigest,
   restoreTree,
   scanTree,
@@ -154,7 +156,9 @@ test('external hardlinks, special files, capture recursion and special permissio
 test('restore detects corrupt bytes and retains its original capture', async (t) => {
   const { root, source } = await fixture(t);
   await writeFile(path.join(source, 'file'), 'correct');
-  const captured = await captureTree(source, path.join(root, 'captures'));
+  const captured = await captureTree(source, path.join(root, 'captures'), {
+    smallFilePack: false,
+  });
   const row = captured.manifest.entries[0];
   await writeFile(path.join(captured.root, 'blobs', row.sha256), 'corrupt');
   await assert.rejects(restoreTree(captured, path.join(root, 'restores')), {
@@ -166,6 +170,99 @@ test('restore detects corrupt bytes and retains its original capture', async (t)
       .state,
     'sealed',
   );
+});
+
+test('packed captures retain the legacy manifest, deduplicate content and survive relocation', async (t) => {
+  const { root, source } = await fixture(t);
+  await writeFile(path.join(source, 'empty'), '');
+  await writeFile(path.join(source, 'first'), 'shared content');
+  await writeFile(path.join(source, 'second'), 'shared content', {
+    mode: 0o755,
+  });
+  await writeFile(path.join(source, 'large'), Buffer.alloc(100_000, 37));
+  const legacy = await captureTree(source, path.join(root, 'captures'), {
+    smallFilePack: false,
+  });
+  const packed = await captureTree(source, path.join(root, 'captures'), {
+    smallFilePack: true,
+  });
+  assert.deepEqual(packed.manifest, legacy.manifest);
+  assert.equal(packed.digest, legacy.digest);
+  assert.equal(packed.metrics.packedBlobs, 2);
+  assert.equal(packed.metrics.packedBytes, Buffer.byteLength('shared content'));
+  const relocated = path.join(root, 'relocated');
+  await rename(packed.root, relocated);
+  const restored = await restoreTree(
+    { ...packed, root: relocated },
+    path.join(root, 'restores'),
+  );
+  assert.equal((await scanTree(restored.root)).digest, legacy.digest);
+  assert.equal(
+    (await lstat(path.join(restored.root, 'second'))).mode & 0o777,
+    0o755,
+  );
+  const reader = await CaptureBlobs.open({ ...packed, root: relocated });
+  try {
+    for (const row of packed.manifest.entries) {
+      if (row.type !== 'file') continue;
+      assert.equal(
+        createHash('sha256')
+          .update(await reader.buffer(row))
+          .digest('hex'),
+        row.sha256,
+      );
+    }
+  } finally {
+    await reader.close();
+  }
+});
+
+test('packed restore rejects corrupt, truncated, incomplete and escaping indexes without changing the source', async (t) => {
+  const { root, source } = await fixture(t);
+  await writeFile(path.join(source, 'first'), 'correct');
+  await writeFile(path.join(source, 'second'), 'different bytes');
+  for (const fault of [
+    'content',
+    'truncated',
+    'trailing',
+    'incomplete',
+    'overlap',
+    'escape',
+    'oversized',
+    'missing',
+  ]) {
+    const captured = await captureTree(source, path.join(root, 'captures'), {
+      smallFilePack: true,
+    });
+    const pack = path.join(captured.root, 'blobs/small-files.pack');
+    const indexFile = path.join(captured.root, 'blobs/small-files.json');
+    const index = JSON.parse(await readFile(indexFile, 'utf8'));
+    if (fault === 'content') {
+      const bytes = await readFile(pack);
+      bytes[0] ^= 1;
+      await writeFile(pack, bytes);
+    } else if (fault === 'truncated')
+      await writeFile(pack, Buffer.alloc(index.bytes - 1));
+    else if (fault === 'trailing')
+      await writeFile(pack, Buffer.alloc(index.bytes + 1));
+    else if (fault === 'incomplete') await rm(indexFile);
+    else if (fault === 'missing') await rm(pack);
+    else {
+      if (fault === 'overlap')
+        index.entries[1].offset = index.entries[0].offset;
+      if (fault === 'escape') index.entries[0].sha256 = '../not-a-blob';
+      if (fault === 'oversized') index.bytes = 2 ** 40;
+      await writeFile(indexFile, JSON.stringify(index));
+    }
+    await assert.rejects(restoreTree(captured, path.join(root, 'restores')));
+    assert.equal(await readFile(path.join(source, 'first'), 'utf8'), 'correct');
+    assert.equal(
+      JSON.parse(
+        await readFile(path.join(captured.root, 'receipt.json'), 'utf8'),
+      ).state,
+      'sealed',
+    );
+  }
 });
 
 test('destination case and Unicode collisions are checked using the actual filesystem', async (t) => {

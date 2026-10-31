@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import {
   chmod,
   link,
@@ -76,4 +77,27 @@ test('a failure after an apply effect cannot be treated as a confirmed snapshot'
     ),
     'sealed',
   );
+});
+
+test('a corrupt packed apply input fails before any destination mutation', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'camp-apply-pack-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const source = path.join(root, 'source'),
+    destination = path.join(root, 'destination');
+  await mkdir(source);
+  await mkdir(destination, { mode: 0o750 });
+  await writeFile(path.join(source, 'new'), 'controlled replacement');
+  await writeFile(path.join(destination, 'existing'), 'retained work');
+  const before = await scanTree(destination);
+  const captured = await captureTree(source, path.join(root, 'captures'), {
+    smallFilePack: true,
+  });
+  await writeFile(
+    path.join(captured.root, 'blobs/small-files.pack'),
+    Buffer.alloc(Buffer.byteLength('controlled replacement'), 0),
+  );
+  await assert.rejects(applyTree(destination, before.digest, captured), {
+    code: 'Corrupt',
+  });
+  assert.equal((await scanTree(destination)).digest, before.digest);
 });

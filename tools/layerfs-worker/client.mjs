@@ -369,7 +369,7 @@ export class WorkerClient {
           const captured = await receiveCapture(
             body(reader, value.binaryBytes),
             destination,
-            { digest: value.receipt.binding.digest },
+            { digest: value.receipt.binding.digest, smallFilePack: true },
           );
           return { root: destination, ...captured, receipt: value.receipt };
         },
