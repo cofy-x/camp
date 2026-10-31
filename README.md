@@ -14,7 +14,7 @@ Camp is in alpha and under active development.
 With Go and Git installed:
 
 ```sh
-go install github.com/cofy-x/camp@v0.1.0-alpha.3
+go install github.com/cofy-x/camp@v0.1.0-alpha.5
 camp
 ```
 
@@ -45,6 +45,7 @@ Mac Runners use native tools, Seatbelt and a local workspace. Linux Runners use 
 
 ## Documentation and contributing
 
+- [Documentation map](docs/README.md) — guides, implementation contracts and maintenance ownership.
 - [Team workflow](docs/workflow.md) — discussion, files, Agent work, collaboration and human review.
 - [Contributing](CONTRIBUTING.md) — local development, builds, checks and pull requests.
 - [Security](SECURITY.md) — trust boundaries and vulnerability reporting.

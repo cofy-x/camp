@@ -1,6 +1,6 @@
 # Working on Camp
 
-Use [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks and pull requests. Before changing an area, read its owning contract:
+Use [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks and pull requests and the [documentation map](docs/README.md) for detailed tooling. Before changing an area, read its owning contract:
 
 | Area | Contract |
 | --- | --- |
@@ -9,7 +9,8 @@ Use [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks and pull requests. Befo
 | UI content, controls and interaction review | [Design](docs/design.md) |
 | DSH/LayerFS integration, configuration and model limits | [Execution](docs/dsh.md) |
 | Native isolation, workspaces and platform acceptance | [Native Runner](docs/native-runner.md) |
-| Deployment, releases, upgrades and backup | [Installation](docs/install.md) |
+| Deployment, services, upgrades and backup | [Installation](docs/install.md) |
+| Package assembly, publication and evidence | [Releasing](docs/releasing.md) |
 
 - Inspect Git status before editing and preserve existing changes. Shared dependency checkouts are read-only references; use public APIs and pin runtime dependencies here.
 - Follow the pinned toolchains, [package boundaries](docs/architecture.md#package-boundaries) and formatters. Keep code, comments and documentation in English; preserve user data and external output as authored.
@@ -20,4 +21,4 @@ Use [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks and pull requests. Befo
 - For UI changes, follow the [review checklist](docs/design.md#review-checklist), including keyboard, selection/IME, pointer, touch, narrow layouts and direct inline PR comparison images. Keep blocking errors and recovery visible.
 - Run relevant checks and report what actually passed or skipped. Source, browser, fixture, native isolation and real-provider checks establish different guarantees.
 
-Update callers, tests and owning contracts together when behavior changes. Keep README focused on the product and quick start, user workflow details in [Team workflow](docs/workflow.md), and development/check commands in CONTRIBUTING. Keep detailed rules and design rationale in their owning contracts. Track open work in issues and [implementation limits](docs/architecture.md#current-implementation-limits); retain acceptance evidence with [releases or CI](docs/install.md#release-evidence), rather than adding completed plans or private preview records to guides.
+Update callers, tests and owning contracts together when behavior changes. Keep README focused on the product and quick start, user workflow details in [Team workflow](docs/workflow.md), and development/check commands in CONTRIBUTING or the owning tool README. Keep detailed rules and design rationale in their owning contracts; link instead of duplicating them. Describe an unresolved mismatch as open work, not as implemented behavior. Track that work in issues and [implementation limits](docs/architecture.md#current-implementation-limits), with an owner and completion conditions. Retain dated acceptance through the [release evidence policy](docs/releasing.md#release-evidence); remove completed plans and superseded instructions from current guides. Documentation-only changes need documentation/format checks and source comparison, not another native or paid-provider campaign.

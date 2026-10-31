@@ -38,4 +38,4 @@ Fixture text is never executed as shell code. The Server must explicitly opt in 
 
 `native` requires the installed pinned Linux runtimes and Docker/FUSE/Bubblewrap. It enables the gated Go acceptance checks, including actual DSH/LayerFS and CA trust inside the DSH Bubblewrap boundary. Deterministic local model endpoints are used; no provider credential or paid model request is involved. Run this separately from the portable Compose suite. Native and browser results do not follow from a successful fixture test.
 
-Build a deployable Server with `make build-server-image`. Runner packaging, installer/runtime separation, offline archives and staging have one owner in [installation](../../docs/install.md#build-and-publish-a-release). The fixture environment is a protocol/failure harness, not the member installer.
+Build a deployable Server with `make build-server-image`. [Releasing](../../docs/releasing.md) owns Runner packaging, installer/runtime separation and distribution checks; [installation](../../docs/install.md#stage-a-package-mirror) owns explicit mirror staging. The fixture environment is a protocol/failure harness, not the member installer.

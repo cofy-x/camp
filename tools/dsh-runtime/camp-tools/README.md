@@ -4,7 +4,7 @@ These modules implement the public `FileSystem` and `ShellExecutor` seams from D
 
 The write profile exposes `read`, `write`, `edit`, `list_files`, `search_files`, and foreground `bash`. The read profile exposes only the first read operation and the two discovery tools. Both disable local filesystem, subprocess, PTY, persistent terminals, background jobs, working-directory tools and image reading. The working-directory service uses Camp's filesystem provider. The bash tool is the published DSH tool with background execution and timeout promotion disabled. The public filesystem observation policy forwards the version observed by DSH's read/write tools into guarded mutations; an old observation cannot silently overwrite a newer file version.
 
-`CAMP_TOOL_ENDPOINT` is a loopback HTTP origin; `CAMP_TOOL_TOKEN` is a capability scoped to one Run. Both belong only to the DSH process environment. Requests use `Authorization: Bearer …`, disallow redirects and never expose these values in tool schemas, arguments, model context or diagnostic messages. Camp's server validates the Run, file roots and read/write access on every operation. Files returned by the bridge use virtual `/workspace` and `/references` paths; their target keys and versions are opaque. The plugin performs no host-path mapping.
+`CAMP_TOOL_ENDPOINT` is a loopback HTTP origin; `CAMP_TOOL_TOKEN` is a capability scoped to one Run. Both belong only to the DSH process environment. Requests use `Authorization: Bearer …`, disallow redirects and never expose these values in tool schemas, arguments, model context or diagnostic messages. Camp's capability service validates the Run, file roots and read/write access on every operation. Linux displays `/workspace` and `/references`; Mac returns the authorized native paths while accepting those logical aliases for file operations. The plugin performs no host-path mapping, and arbitrary shell text is never rewritten. The current discovery defaults still advertise `/workspace`; [native path guidance](../../../docs/architecture.md#native-path-guidance) tracks that mismatch.
 
 ## File protocol
 
@@ -12,7 +12,7 @@ The write profile exposes `read`, `write`, `edit`, `list_files`, `search_files`,
 
 | Operation | Request fields besides `operation` | Value |
 | --- | --- | --- |
-| `resolve` | `path`, optional `cwd` | `{targetKey,displayPath}` with canonical virtual path |
+| `resolve` | `path`, optional `cwd` | `{targetKey,displayPath}` with the backend's authorized display path |
 | `stat` | `target` | `null` or `{version,type,size?}` |
 | `lstat` | `path`, optional `cwd` | `null` or `{version,type,size?}`, including `symlink` |
 | `readText` | `target` | Complete validated UTF-8 string |

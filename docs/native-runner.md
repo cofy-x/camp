@@ -1,6 +1,6 @@
 # Native Runner execution and workspace design
 
-Status: design and acceptance contract. Source implements Linux LayerFS, Mac ARM64 native local execution and an optional native Mac/LayerFS checkpoint worker. Mac package distribution has its own release acceptance; a passing source check does not establish installation readiness.
+This contract owns the implemented Linux LayerFS, Mac ARM64 native-local and optional Mac/LayerFS worker boundaries. [Installation](install.md) owns supported packages and operation; [release evidence](releasing.md#release-evidence) records actual source, host and distribution qualification. A passing source check does not establish installation readiness.
 
 ## Ownership and platform goals
 
@@ -92,4 +92,4 @@ The command builds the trusted helper and runs actual permission, network, desce
 
 Each invocation creates a new mode-600 JSON report under `dist/native-mac/`; `--output` selects a new filename and refuses replacement. The report retains source identity/dirty state, host/CPU, runtime pins, command digest and individual pass/fail/skip outcomes, including case/Unicode path preservation. Command text, output, host tool paths and credentials are excluded. Local failure output can contain tool diagnostics. No `.env`, enrolled Runner configuration, identity or journal is loaded or rewritten. The standalone source CLI service fixture is excluded from this interruptible diagnostic; actual packaged launchd lifecycle is qualified separately. Package installation, existing-data upgrades and Mac-to-Linux transport remain separate evidence. macOS 15/26 CI also exercises this same command; its results do not establish the user's M4/toolchain until that machine runs it.
 
-Implementation order: record this contract and comparison; qualify Seatbelt and the process owner; extract backend-independent tools/lifecycle; implement native workspaces and the hybrid proof; select defaults from those results; then update packaging, diagnostics, onboarding and immutable release verification. UI changes need before/after evidence. Review and squash merge each PR after its applicable checks pass; keep unqualified paths explicit rather than claiming completion.
+For a change to these boundaries, update the affected contract and callers together, qualify the actual platform and preserve failed or skipped outcomes. Backend changes need the applicable capture, interruption and identity checks; packaging changes need immutable installation/distribution checks. The [contribution guide](../CONTRIBUTING.md#checks) owns check selection and PR review. Open follow-ups belong in [implementation limits](architecture.md#current-implementation-limits), not a completed implementation sequence.
