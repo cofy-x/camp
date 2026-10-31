@@ -1,0 +1,8 @@
+{
+  "protocol": 1,
+  "platform": "linux/arm64",
+  "rustImage": "rust@sha256:538cf66970a7b785126d682758b4a86c3411fe7ab308e70f8ac62f46af153224",
+  "nodeImage": "node@sha256:a76e7ab9bd5bafb036f520b264884c78fd14b68be1abf9051e5e524e88117108",
+  "dockerImage": "docker@sha256:9d3f67fe1f4cf51c084744dec419b466b7075f5b365ef4b9b791187d9c2d4127",
+  "dockerVersion": "29.4.0"
+}

@@ -83,3 +83,16 @@ The [CI workflow](.github/workflows/ci.yml) runs these checks:
 Run relevant checks before opening a pull request. CI uses a read-only GitHub token and fresh test data without model credentials. Native Runner isolation, privileged host cleanup, packaged Runner installation and real-provider acceptance have separate checks under [execution](docs/dsh.md#real-provider-verification), [native Runner acceptance](docs/native-runner.md#evidence-and-acceptance) and [release evidence](docs/install.md#release-evidence).
 
 Third-party code and assets retain their own licenses and notices. Preserve those notices when changing dependencies or distribution contents; see [license information](README.md#license).
+
+## Mac checkpoint worker
+
+The standalone [Mac checkpoint adapter](tools/layerfs-worker/README.md) is experimental. On an actual Apple Silicon Mac with an existing native ARM64 Docker engine, build the fixed Linux addon/daemon/image independently of the Linux amd64 Runner:
+
+```sh
+node tools/layerfs-worker/install.mjs --source /absolute/path/to/read-only/layerfs
+node --test tools/layerfs-worker/test/*.test.mjs
+node tools/layerfs-worker/qualify.mjs .data/worker-arm64-qualification.json
+node tools/layerfs-worker/qualify-mac.mjs
+```
+
+The supplied checkout must contain the exact Camp LayerFS pin; it is only read through `git archive`. The Linux probe checks actual architecture, Linux-local Store placement, FUSE, Commit and remount. The Mac probe separately captures a complete synthetic working tree, streams it to the selected engine, checks three generations and restores actual checkpoint bytes to a fresh Mac directory. Its report states its actual scope. Ordinary unit tests or this standalone probe do not replace native Runner isolation, real interruption/restart cases or three-round comparative measurements required by [the worker contract](docs/layerfs-worker.md).
