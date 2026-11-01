@@ -104,6 +104,20 @@ try {
       );
   }
   let linuxMetadata = {};
+  if (mac) {
+    // Offline inspection is available without the optional Linux worker/SDK.
+    for (const name of [
+      'contracts.mjs',
+      'state.mjs',
+      'references.mjs',
+      'retention.mjs',
+      'storage.mjs',
+    ])
+      await copy(
+        path.join(root, 'tools/layerfs-worker', name),
+        `runtime/layerfs-worker/${name}`,
+      );
+  }
   if (mac && process.argv.includes('--checkpoint-worker')) {
     const worker = path.join(root, 'tools/layerfs-worker');
     const installed = JSON.parse(
@@ -130,11 +144,9 @@ try {
       'home.mjs',
       'administration.mjs',
       'manage.mjs',
-      'contracts.mjs',
       'tree.mjs',
       'transfer.mjs',
       'protocol.mjs',
-      'state.mjs',
       'pin.json',
       'README.md',
     ])
