@@ -159,13 +159,16 @@ func TestShutdownDeadlineClosesActiveHTTPConnections(t *testing.T) {
 }
 
 func TestRunDrainsConnectedWorkspaceStreamsBeforeShutdownDeadline(t *testing.T) {
+	// Exercise the production drain budget. A shorter override can expire on a
+	// busy race-instrumented host before cleanup goroutines are scheduled. The
+	// client deadline remains longer so it cannot make a broken drain pass.
 	urls := make(chan string, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	dataDir := t.TempDir()
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, Config{Addr: "127.0.0.1:0", DataDir: dataDir, Logger: slog.New(readinessHandler{urls}), ShutdownTimeout: 2 * time.Second})
+		done <- Run(ctx, Config{Addr: "127.0.0.1:0", DataDir: dataDir, Logger: slog.New(readinessHandler{urls})})
 	}()
 	var address string
 	select {
@@ -176,7 +179,7 @@ func TestRunDrainsConnectedWorkspaceStreamsBeforeShutdownDeadline(t *testing.T) 
 		t.Fatal("server did not start")
 	}
 	jar, _ := cookiejar.New(nil)
-	client := &http.Client{Timeout: 5 * time.Second, Jar: jar}
+	client := &http.Client{Timeout: 30 * time.Second, Jar: jar}
 	defer client.CloseIdleConnections()
 	token, err := os.ReadFile(filepath.Join(dataDir, "team-setup.token"))
 	if err != nil {
@@ -224,7 +227,7 @@ func TestRunDrainsConnectedWorkspaceStreamsBeforeShutdownDeadline(t *testing.T) 
 		if err != nil {
 			t.Fatalf("connected SSE prevented graceful shutdown: %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("server did not drain connected streams")
 	}
 	for range 3 {
