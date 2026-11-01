@@ -59,7 +59,7 @@ func (m *Manager) complete(w http.ResponseWriter, r *http.Request, runner storag
 		m.rejectResult(w, r, a, err)
 		return
 	}
-	run.Intent = result.Intent
+	run.Intent = coordinationIntent(result.Intent)
 	run.ChecksDeferred = run.TaskID != "" && result.Intent != nil && result.Intent.Kind != "finish"
 	run.Status = result.Status
 	run.Error = m.redact(result.Error)

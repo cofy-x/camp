@@ -1,11 +1,19 @@
 package storage
 
-import (
-	"encoding/json"
-	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
-)
+import "encoding/json"
 
-type CoordinationIntent = p.CoordinationIntent
+// CoordinationIntent is the durable decision of one collaboration round.
+// Transport adapters convert Runner decisions before storage validates them.
+type CoordinationIntent struct {
+	CallID        string   `json:"callId"`
+	Kind          string   `json:"kind"`
+	TargetAgentID string   `json:"targetAgentId,omitempty"`
+	Instruction   string   `json:"instruction,omitempty"`
+	Question      string   `json:"question,omitempty"`
+	Options       []string `json:"options,omitempty"`
+	Summary       string   `json:"summary,omitempty"`
+	ArtifactPaths []string `json:"artifactPaths"`
+}
 
 type TaskParticipant struct {
 	Agent      Agent  `json:"agent"`

@@ -1,4 +1,4 @@
-package runs
+package runinput
 
 import (
 	"context"
@@ -13,8 +13,10 @@ import (
 const conversationContextBytes = 16 << 10
 const conversationMessageBytes = 4 << 10
 
-func (m *Manager) conversationPrompt(ctx context.Context, run storage.Run, conversation storage.Conversation) (string, error) {
-	origin, err := m.store.GetMessage(ctx, run.OriginMessageID)
+// Conversation builds context through the admitted history cutoff. It never
+// admits work or starts a model session.
+func Conversation(ctx context.Context, reader ConversationReader, run storage.Run, conversation storage.Conversation) (string, error) {
+	origin, err := reader.GetMessage(ctx, run.OriginMessageID)
 	if err != nil {
 		return "", err
 	}
@@ -26,12 +28,12 @@ func (m *Manager) conversationPrompt(ctx context.Context, run storage.Run, conve
 	if run.TaskID != "" {
 		through = run.ContextThroughSeq
 	}
-	messages, err := m.store.ContextMessages(ctx, run.RoomID, run.ThreadRootID, after, through)
+	messages, err := reader.ContextMessages(ctx, run.RoomID, run.ThreadRootID, after, through)
 	if err != nil {
 		return "", err
 	}
 	if run.TaskID != "" && run.ThreadRootID != "" {
-		general, e := m.store.ContextMessages(ctx, run.RoomID, "", after, through)
+		general, e := reader.ContextMessages(ctx, run.RoomID, "", after, through)
 		if e != nil {
 			return "", e
 		}
@@ -61,7 +63,7 @@ func (m *Manager) conversationPrompt(ctx context.Context, run storage.Run, conve
 		}
 		visible = append(visible, message)
 	}
-	agents, err := m.store.ListAgents(ctx)
+	agents, err := reader.ListAgents(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -76,7 +78,7 @@ func (m *Manager) conversationPrompt(ctx context.Context, run storage.Run, conve
 		text += "This is a new native session. Only the bounded visible conversation below is available; do not assume other rooms or hidden prior tool output is present.\n"
 	}
 	if run.ThreadRootID != "" {
-		root, err := m.store.GetMessage(ctx, run.ThreadRootID)
+		root, err := reader.GetMessage(ctx, run.ThreadRootID)
 		if err != nil {
 			return "", err
 		}
