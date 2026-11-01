@@ -162,7 +162,7 @@ Completion requires model-facing/default guidance that agrees with the active wo
 
 ### Setup diagnostics and progress
 
-Open [#49](https://github.com/cofy-x/camp/issues/49) and [#51](https://github.com/cofy-x/camp/issues/51); owner: `cli`, with the Runner setup UI where it describes installation. `camp doctor` still recommends a Linux Runner on supported Apple Silicon. Runtime setup does not yet report useful intermediate verification/extraction progress after download completes.
+Open [#51](https://github.com/cofy-x/camp/issues/51); owner: `cli`, with the Runner setup UI where it describes installation. Doctor recommends local native setup on supported Apple Silicon and supported remote Runners on Intel Mac, retaining the Linux-only reader/import limits. Runtime setup does not yet report useful intermediate verification/extraction progress after download completes.
 
 Completion requires correct Apple Silicon/Intel/Linux guidance and bounded phase/activity reporting for fresh, cached and interrupted setup. Keep doctor read-only, distinguish compressed transfer from installed work and retain registration/cache state on retries. Neither diagnostics nor installation progress may imply a model test, service start or completed execution.
 

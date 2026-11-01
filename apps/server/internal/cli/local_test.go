@@ -72,3 +72,28 @@ func TestBrowserOpeningUsesAnArgumentWithoutAShell(t *testing.T) {
 		}
 	}
 }
+
+func TestDoctorRecommendsOnlySupportedNativePlatforms(t *testing.T) {
+	for _, tt := range []struct {
+		os, arch            string
+		required, forbidden []string
+	}{
+		{"darwin", "arm64", []string{"macOS 15+ Apple Silicon", "camp runner setup", "Linux Runner is also available", "PDF/DOCX preparation and controlled Server directory import require Linux"}, []string{"Mac Server: connect a Linux Runner", "ready", "verified"}},
+		{"darwin", "amd64", []string{"Intel Mac Server", "Apple Silicon Mac", "Intel Mac native Runner execution is not supported", "PDF/DOCX preparation and controlled Server directory import require Linux"}, []string{"connect this Mac", "camp runner setup"}},
+		{"linux", "amd64", []string{"Ubuntu 24.04 amd64", "Apple Silicon Mac", "setup reports the host requirements separately"}, []string{"Mac Server:", "require Linux", "ready", "verified"}},
+	} {
+		t.Run(tt.os+"/"+tt.arch, func(t *testing.T) {
+			text := localRunnerGuidance(tt.os, tt.arch)
+			for _, value := range tt.required {
+				if !strings.Contains(text, value) {
+					t.Errorf("missing %q in %q", value, text)
+				}
+			}
+			for _, value := range tt.forbidden {
+				if strings.Contains(text, value) {
+					t.Errorf("unexpected %q in %q", value, text)
+				}
+			}
+		})
+	}
+}

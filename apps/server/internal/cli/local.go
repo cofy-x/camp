@@ -97,11 +97,23 @@ func runLocal(ctx context.Context, args []string, output io.Writer) error {
 	default:
 		_, _ = fmt.Fprintln(output, "Storage: private directory present")
 	}
-	if runtime.GOOS == "darwin" {
-		_, _ = fmt.Fprintln(output, "Mac Server: connect a Linux Runner for Agent work. PDF/DOCX preparation and local directory import require Linux.")
-	}
+	_, _ = fmt.Fprintln(output, localRunnerGuidance(runtime.GOOS, runtime.GOARCH))
 	_, _ = fmt.Fprintln(output, "Next: start camp and complete Getting Ready in the browser. Model connectivity and Runner execution are verified there.")
 	return errors.Join(failures...)
+}
+
+// A supported installation is a setup recommendation, not an execution probe.
+func localRunnerGuidance(goos, goarch string) string {
+	if goos == "darwin" {
+		if goarch == "arm64" {
+			return "Mac Server: on macOS 15+ Apple Silicon, connect this Mac with camp runner setup using a browser connection code. A supported Linux Runner is also available. PDF/DOCX preparation and controlled Server directory import require Linux."
+		}
+		return "Intel Mac Server: connect a supported Apple Silicon Mac (macOS 15+) or Linux Runner for Agent work. Intel Mac native Runner execution is not supported. PDF/DOCX preparation and controlled Server directory import require Linux."
+	}
+	if goos == "linux" {
+		return "Linux Server: connect a supported Linux (Ubuntu 24.04 amd64) or Apple Silicon Mac (macOS 15+) Runner for Agent work. Runner setup reports the host requirements separately."
+	}
+	return "Agent work requires a supported Linux or Apple Silicon Mac Runner; use Getting Ready to connect one."
 }
 
 func browserURL(config server.Config) (string, error) {
