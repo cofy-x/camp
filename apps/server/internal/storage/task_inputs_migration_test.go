@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -129,6 +130,47 @@ func TestTaskInputMigrationRejectsCorruptionWithoutPartialSchema(t *testing.T) {
 			if err := s.db.QueryRow("SELECT snapshot FROM collaboration_tasks WHERE id=?", task.ID).Scan(&after); err != nil || before != after {
 				t.Fatal("changed damaged source data", err)
 			}
+		})
+	}
+}
+
+func TestEmptyLegacyTaskInputRepresentationsMigrate(t *testing.T) {
+	for _, change := range []string{"json_set(snapshot,'$.inputs',NULL)", "json_remove(snapshot,'$.inputs')"} {
+		t.Run(change, func(t *testing.T) {
+			s := unmigratedStore(t)
+			if err := s.applyMigrations(ctx, migrationSourcesThrough(t, 13)); err != nil {
+				t.Fatal(err)
+			}
+			actor, _ := teamUsers(t, s)
+			runner, _ := enrollTestRunner(t, s, actor, "empty")
+			room, writer := remoteTestRoom(t, s, actor, runner)
+			task := startTask(t, s, actor, room, writer)
+			if _, err := s.db.Exec("UPDATE collaboration_tasks SET snapshot="+change+" WHERE id=?", task.ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.migrate(ctx); err != nil {
+				t.Fatal(err)
+			}
+			migrated, err := s.GetTask(ctx, task.ID)
+			if err != nil || migrated.InputRevision != 0 || migrated.InputBytes != 0 || len(migrated.Inputs) != 0 {
+				t.Fatal(migrated, err)
+			}
+		})
+	}
+}
+
+func TestTaskInputMigrationRejectsInvalidSuccessfulRoundFrontiers(t *testing.T) {
+	for _, revision := range []any{1.5, "not-a-sequence", -1, 3, nil} {
+		t.Run(fmt.Sprint(revision), func(t *testing.T) {
+			s, _, task, _ := legacyTaskInputs(t)
+			if _, err := s.db.Exec("UPDATE runs SET status='succeeded',snapshot=json_set(snapshot,'$.taskInputRevision',?,'$.intent',json_object('kind','finish')) WHERE id=?", revision, task.ActiveRunID); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.migrate(ctx); err == nil {
+				t.Fatal("accepted an invalid historical input frontier", revision)
+			}
+			assertScalar(t, s, "SELECT max(version_id) FROM goose_db_version", 13)
+			assertScalar(t, s, "SELECT count(*) FROM sqlite_master WHERE name='task_inputs'", 0)
 		})
 	}
 }
