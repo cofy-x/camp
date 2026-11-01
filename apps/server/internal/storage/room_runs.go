@@ -2,9 +2,7 @@ package storage
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -477,38 +475,8 @@ func revokeRuns(ctx context.Context, q *sqlgen.Queries, reason string, matches f
 
 func (s *Store) GetConversation(ctx context.Context, r Run) (out Conversation, err error) {
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
-		q := sqlgen.New(tx)
-		old, e := q.GetConversation(ctx, sqlgen.GetConversationParams{AgentID: r.AgentID, RoomID: r.RoomID, ThreadRootID: conversationScope(r)})
-		if e != nil && !errors.Is(e, sql.ErrNoRows) {
-			return e
-		}
-		runnerKey := ""
-		if r.RunnerID != "" {
-			runner, err := q.GetRunner(ctx, r.RunnerID)
-			if err != nil {
-				return err
-			}
-			var capability struct {
-				Fingerprint string `json:"fingerprint"`
-			}
-			if err := json.Unmarshal([]byte(runner.Capabilities), &capability); err != nil {
-				return err
-			}
-			runnerKey = "\x00" + r.RunnerID + "\x00" + runner.StorageID + "\x00" + runner.Runtime + "\x00" + capability.Fingerprint
-		}
-		runtimeHash := sha256.Sum256([]byte(r.RuntimeKey + "\x00" + string(r.Environment) + runnerKey))
-		runtimeKey := hex.EncodeToString(runtimeHash[:])
-		out = Conversation{RuntimeKey: runtimeKey, ID: old.ID, AgentID: r.AgentID, RoomID: r.RoomID, ThreadRootID: conversationScope(r), ResourceID: r.ResourceID, AgentRevision: r.AgentSnapshot.Revision, Generation: old.Generation, ContextSeq: old.ContextSeq, SessionID: old.SessionID, Resumable: old.Resumable}
-		if out.ID == "" {
-			out.ID = newID()
-		}
-		if !old.Resumable || old.AgentRevision != out.AgentRevision || old.ResourceID != r.ResourceID || old.RuntimeKey != runtimeKey {
-			out.Generation++
-			out.ContextSeq = 0
-			out.SessionID = "camp-" + newID()
-			out.Resumable = false
-		}
-		return q.SaveConversation(ctx, sqlgen.SaveConversationParams{RuntimeKey: runtimeKey, ID: out.ID, AgentID: out.AgentID, RoomID: out.RoomID, ThreadRootID: out.ThreadRootID, ResourceID: out.ResourceID, AgentRevision: out.AgentRevision, Generation: out.Generation, ContextSeq: out.ContextSeq, SessionID: out.SessionID, Resumable: false})
+		out, err = prepareConversation(ctx, sqlgen.New(tx), r)
+		return err
 	})
 	return
 }

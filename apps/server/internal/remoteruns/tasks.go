@@ -36,6 +36,9 @@ func (m *Manager) CreateTask(ctx context.Context, room string, in storage.Create
 func (m *Manager) OperateTask(ctx context.Context, id, action string, in storage.TaskOperation) (storage.CollaborationTask, error) {
 	t, err := m.store.OperateTask(ctx, id, action, in)
 	if err == nil {
+		if action == "cancel" {
+			m.stopTaskPreparation(id)
+		}
 		if action == "cancel" && t.ActiveAttemptID != "" {
 			m.stopProxy(t.ActiveAttemptID)
 		}

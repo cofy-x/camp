@@ -103,3 +103,6 @@ UPDATE runners SET capabilities=?,updated_at=? WHERE id=?;
 
 -- name: SetRunnerStorageHealth :execrows
 UPDATE runners SET capabilities=json_set(capabilities,'$.storage',json(sqlc.arg(storage))),updated_at=sqlc.arg(updated_at) WHERE id=sqlc.arg(id) AND connection_generation=sqlc.arg(generation);
+-- name: FreezeAttemptPreparation :execrows
+UPDATE run_attempts SET preparation_context=sqlc.arg(preparation_context)
+WHERE id=sqlc.arg(id) AND preparation_context='';

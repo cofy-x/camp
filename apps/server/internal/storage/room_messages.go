@@ -260,19 +260,23 @@ func (s *Store) AddRunNotice(ctx context.Context, runID, text string) error {
 		if e != nil {
 			return e
 		}
-		if _, e = q.GetRunNotice(ctx, runID); e == nil {
-			return nil
-		} else if !errors.Is(e, sql.ErrNoRows) {
-			return e
-		}
-		seq, e := q.NextMessageSequence(ctx, r.RoomID)
-		if e != nil {
-			return e
-		}
-		m := Message{ID: newID(), RoomID: r.RoomID, ThreadRootID: r.ThreadRootID, Seq: seq, AuthorKind: "system", RunID: runID, Content: text, CreatedAt: now(), UpdatedAt: now()}
-		if e := insertMessage(ctx, q, m, ""); e != nil {
-			return e
-		}
-		return event(ctx, q, "message.created", r.RoomID, m.ID)
+		return addRunNotice(ctx, q, r, text)
 	})
+}
+
+func addRunNotice(ctx context.Context, q *sqlgen.Queries, r Run, text string) error {
+	if _, e := q.GetRunNotice(ctx, r.ID); e == nil {
+		return nil
+	} else if !errors.Is(e, sql.ErrNoRows) {
+		return e
+	}
+	seq, e := q.NextMessageSequence(ctx, r.RoomID)
+	if e != nil {
+		return e
+	}
+	m := Message{ID: newID(), RoomID: r.RoomID, ThreadRootID: r.ThreadRootID, Seq: seq, AuthorKind: "system", RunID: r.ID, Content: text, CreatedAt: now(), UpdatedAt: now()}
+	if e := insertMessage(ctx, q, m, ""); e != nil {
+		return e
+	}
+	return event(ctx, q, "message.created", r.RoomID, m.ID)
 }
