@@ -154,12 +154,6 @@ Open work; owners: `storage`, `httpapi` and Library. The [Resource PATCH API](ap
 
 Completion requires an atomic revision precondition, a conflict response for stale updates, and a UI recovery path that preserves unsaved edits. Verify two administrators saving from the same revision: only one update commits, and the other can inspect the latest configuration before explicitly retrying. Update the API contract and callers together.
 
-### Native path guidance
-
-Open [#50](https://github.com/cofy-x/camp/issues/50); owners: `runnertools`, `nativeexecutor` and `tools/dsh-runtime/camp-tools`. Mac commands run in the actual native directory, while file discovery still advertises logical `/workspace` defaults. The file capability can translate that alias; arbitrary shell text cannot.
-
-Completion requires model-facing/default guidance that agrees with the active workspace and references across continuation, actual Mac file/shell coverage and preserved Linux behavior. Preserve intentional API aliases and sandbox grants. Do not create a host-root alias or rewrite shell strings to conceal the mismatch.
-
 ### Setup diagnostics and progress
 
 Open [#51](https://github.com/cofy-x/camp/issues/51); owner: `cli`, with the Runner setup UI where it describes installation. Doctor recommends local native setup on supported Apple Silicon and supported remote Runners on Intel Mac, retaining the Linux-only reader/import limits. Runtime setup does not yet report useful intermediate verification/extraction progress after download completes.

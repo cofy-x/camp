@@ -50,7 +50,7 @@ export async function listFiles(fs, raw, signal) {
   let outputBytes = 0;
   for await (const entry of walk(
     fs,
-    args.path ?? '/workspace',
+    args.path ?? '.',
     args.recursive ?? false,
     signal,
     state,
@@ -85,13 +85,7 @@ export async function searchFiles(fs, raw, signal) {
   let bytes = 0;
   let outputBytes = 0;
   let skipped = 0;
-  for await (const entry of walk(
-    fs,
-    args.path ?? '/workspace',
-    true,
-    signal,
-    state,
-  )) {
+  for await (const entry of walk(fs, args.path ?? '.', true, signal, state)) {
     if (entry.type !== 'file') continue;
     if (entry.size === undefined || entry.size > MAX_FILE_BYTES) {
       skipped++;
@@ -162,7 +156,11 @@ export function apply(ctx) {
       description:
         'List files in the Camp workspace or attached references. No host filesystem access.',
       parameters: {
-        path: { type: 'string', description: 'Directory, default /workspace.' },
+        path: {
+          type: 'string',
+          description:
+            "Directory relative to this turn's active workspace, default '.'. For references, use the paths announced by the Runner or returned by file tools.",
+        },
         recursive: {
           type: 'boolean',
           description: 'Include nested directories, default false.',
@@ -178,7 +176,11 @@ export function apply(ctx) {
       description:
         'Find literal text in Camp files. Searches bounded UTF-8 text files without running a shell.',
       parameters: {
-        path: { type: 'string', description: 'Directory, default /workspace.' },
+        path: {
+          type: 'string',
+          description:
+            "Directory relative to this turn's active workspace, default '.'. For references, use the paths announced by the Runner or returned by file tools.",
+        },
         query: {
           type: 'string',
           required: true,
