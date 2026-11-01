@@ -743,7 +743,8 @@ try {
     liveStorage = await checkpointAt(runnerData, 'storage', ['--json']);
     assert.equal(liveStorage.quiescent, false);
     assert.equal(liveStorage.retention.previewAllowed, false);
-    const observed = await waitFor(
+    const observed = await until(
+      'live storage heartbeat',
       () => api('/api/runners'),
       (value) =>
         value.runners.some(
@@ -798,7 +799,7 @@ try {
     ]);
     assert.equal(policy.retainedBudgetBytes, 1);
     const beforeCleanup = await checkpointAt(runnerData, 'storage', ['--json']);
-    assert.equal(beforeCleanup.budget.level, 'warning');
+    assert.equal(beforeCleanup.budget.observation.level, 'warning');
     const cleanup = (verb, flags) =>
       checkpointAt(runnerData, ['cleanup', verb], [...flags, '--json']);
     const q = await cleanup('plan', []);
