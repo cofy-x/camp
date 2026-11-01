@@ -106,6 +106,9 @@ func finishTaskRound(ctx context.Context, q *sqlgen.Queries, r Run) error {
 		if e = validateIntent(t, r, r.Intent); e != nil {
 			return e
 		}
+		if r.TaskInputProtocol == 1 && (r.TaskInputAfter != t.CoveredInputRevision || r.TaskInputRevision < r.TaskInputAfter || r.TaskInputRevision > t.InputRevision) {
+			return problem("stale_attempt", "The successful input batch is not the next contiguous range.")
+		}
 		t.CoveredInputRevision = max(t.CoveredInputRevision, r.TaskInputRevision)
 		if r.ResultCommit != "" {
 			t.CheckpointCommit = r.ResultCommit

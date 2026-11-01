@@ -117,6 +117,7 @@ export const tasksApi = {
   create: (
     roomId: string,
     body: {
+      inputProtocol?: 1;
       requestId: string;
       goal: string;
       participantAgentIds: string[];
@@ -129,7 +130,10 @@ export const tasksApi = {
       `/rooms/${id(roomId)}/tasks?view=summary`,
       post(body),
     ),
-  input: (taskId: string, body: { requestId: string; content: string }) =>
+  input: (
+    taskId: string,
+    body: { inputProtocol?: 1; requestId: string; content: string },
+  ) =>
     request<{ task: Task }>(
       `/tasks/${id(taskId)}/inputs?view=summary`,
       post(body),
@@ -137,6 +141,7 @@ export const tasksApi = {
   answer: (
     taskId: string,
     body: {
+      inputProtocol?: 1;
       requestId: string;
       revision: number;
       questionId: string;
@@ -150,6 +155,7 @@ export const tasksApi = {
   continue: (
     taskId: string,
     body: {
+      inputProtocol?: 1;
       requestId: string;
       revision: number;
       agentId: string;

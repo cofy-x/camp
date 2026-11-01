@@ -59,6 +59,11 @@ func (s *Store) TaskInputsPage(ctx context.Context, id string, after int64, thro
 	if err != nil {
 		return page, err
 	}
+	return taskInputsPage(ctx, s.queries(), t, after, through, limit)
+}
+
+func taskInputsPage(ctx context.Context, q *sqlgen.Queries, t CollaborationTask, after int64, through *int64, limit int) (TaskInputPage, error) {
+	page := TaskInputPage{Items: []TaskInput{}}
 	page.Through = t.InputRevision
 	if through != nil {
 		page.Through = *through
@@ -69,7 +74,7 @@ func (s *Store) TaskInputsPage(ctx context.Context, id string, after int64, thro
 	if limit == 0 {
 		limit = TaskInputPageLimit
 	}
-	inputs, err := taskInputRange(ctx, s.queries(), id, after, page.Through, limit+1)
+	inputs, err := taskInputRange(ctx, q, t.ID, after, page.Through, limit+1)
 	if err != nil {
 		return page, err
 	}
@@ -187,4 +192,26 @@ func (s *Store) TaskRunsPage(ctx context.Context, id, cursor string, limit int) 
 		page.Items = append(page.Items, TaskRunSummary{ID: row.ID, AgentID: row.AgentID, AgentName: row.AgentName, RunnerName: row.RunnerName, ChecksDeferred: row.ChecksDeferred != 0, Status: row.Status, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt})
 	}
 	return page, nil
+}
+
+func validateInputProtocol(version int, paged bool) error {
+	if version < 0 || version > 1 {
+		return problem("invalid_task", "Unsupported task input protocol.")
+	}
+	if version == 1 && !paged {
+		return problem("task_pagination_required", "Use summary responses with the bounded input protocol.")
+	}
+	return nil
+}
+
+// TaskBatchInputs validates the entire frozen batch before constructing a brief.
+func (s *Store) TaskBatchInputs(ctx context.Context, id string, after, through int64) ([]TaskInput, error) {
+	page, err := s.TaskInputsPage(ctx, id, after, &through, TaskInputPageLimit)
+	if err != nil {
+		return nil, err
+	}
+	if page.HasMore {
+		return nil, problem("invalid_task", "The frozen input batch exceeds its budget.")
+	}
+	return page.Items, nil
 }

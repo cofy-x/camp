@@ -156,7 +156,7 @@ func (e *Executor) Execute(ctx context.Context, input Request, emit Emit) (resul
 				return err
 			}
 		}
-		coordinator, err = newCoordination(ctx, *input.Task, persist, tools.Seal)
+		coordinator, err = newCoordination(ctx, *input.Task, persist, tools.Seal, input.ReadTaskInputs)
 	}
 	nativeCompleted := false
 	dshSettled := true
@@ -172,7 +172,7 @@ func (e *Executor) Execute(ctx context.Context, input Request, emit Emit) (resul
 				references = "/references"
 			}
 			persona := input.Persona + executionGuidance(active.Directory(), references)
-			overlay, err = dsh.RemoteOverlayAt(persona, input.Access == "read", executionPaths(active.Directory(), stateDir, e.config.RuntimeDir), input.Task != nil)
+			overlay, err = dsh.RemoteOverlayAt(persona, input.Access == "read", executionPaths(active.Directory(), stateDir, e.config.RuntimeDir), input.Task != nil, input.Task != nil && input.Task.Inputs != nil)
 		}
 		if err == nil {
 			err = os.WriteFile(filepath.Join(dir, "runtime.patch.yml"), overlay, 0600)

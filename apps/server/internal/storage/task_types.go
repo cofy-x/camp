@@ -39,6 +39,7 @@ type TaskQuestion struct {
 // CollaborationTask owns its draft, execution fence, explicit inputs and finite
 // authorization. Shared-resource publication is a separate durable transition.
 type CollaborationTask struct {
+	InputProtocol          int               `json:"inputProtocol,omitempty"`
 	ID                     string            `json:"id"`
 	RoomID                 string            `json:"roomId"`
 	ThreadRootID           string            `json:"threadRootId"`
@@ -79,6 +80,7 @@ type CollaborationTask struct {
 	UpdatedAt              string            `json:"updatedAt"`
 }
 type CreateTaskInput struct {
+	InputProtocol       int              `json:"inputProtocol,omitempty"`
 	PagedResponse       bool             `json:"-"`
 	RequestID           string           `json:"requestId"`
 	Goal                string           `json:"goal"`
@@ -88,6 +90,7 @@ type CreateTaskInput struct {
 	References          []ReferenceInput `json:"references"`
 }
 type TaskOperation struct {
+	InputProtocol       int      `json:"inputProtocol,omitempty"`
 	PagedResponse       bool     `json:"-"`
 	RequestID           string   `json:"requestId"`
 	Revision            int64    `json:"revision"`

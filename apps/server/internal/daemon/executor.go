@@ -45,6 +45,10 @@ func (d *Daemon) execute(ctx context.Context, op operation) {
 		result, archive, err = d.capture(ctx, op.Command, directory, emit)
 	} else if err == nil && op.Command.Spec != nil {
 		spec := op.Command.Spec
+		var readInputs nativeexecutor.TaskInputReader
+		if spec.Task != nil && spec.Task.Inputs != nil {
+			readInputs, err = d.taskInputReader(ctx, id, *spec.Task.Inputs)
+		}
 		if spec.Resume && d.config.Executor == "native" {
 			var saved string
 			resumeErr := d.journal.db.QueryRowContext(ctx, "SELECT value FROM metadata WHERE key=?", "session:"+sessionKey(spec)).Scan(&saved)
@@ -91,7 +95,7 @@ func (d *Daemon) execute(ctx context.Context, op operation) {
 						}
 						return nil
 					}
-					request := nativeexecutor.Request{Task: spec.Task, PersistIntent: persistIntent, AttemptID: id, RunID: spec.RunID, ResourceID: spec.ResourceID, BaselineCommit: spec.BaselineCommit, Directory: directory, ReferencesDir: references, Persona: "You are " + spec.AgentName + " in Camp. " + spec.Instructions, Access: spec.Access, Prompt: spec.Prompt, Model: spec.Model, ModelURL: modelURL, ModelToken: spec.ModelToken, MaxTokens: spec.MaxTokens, MaxSteps: spec.MaxSteps, Timeout: time.Duration(spec.TimeoutSeconds) * time.Second, Environment: spec.Environment, SessionID: spec.SessionID, SessionKey: spec.ConversationID + ":" + strconv.FormatInt(spec.Generation, 10), Resume: spec.Resume}
+					request := nativeexecutor.Request{ReadTaskInputs: readInputs, Task: spec.Task, PersistIntent: persistIntent, AttemptID: id, RunID: spec.RunID, ResourceID: spec.ResourceID, BaselineCommit: spec.BaselineCommit, Directory: directory, ReferencesDir: references, Persona: "You are " + spec.AgentName + " in Camp. " + spec.Instructions, Access: spec.Access, Prompt: spec.Prompt, Model: spec.Model, ModelURL: modelURL, ModelToken: spec.ModelToken, MaxTokens: spec.MaxTokens, MaxSteps: spec.MaxSteps, Timeout: time.Duration(spec.TimeoutSeconds) * time.Second, Environment: spec.Environment, SessionID: spec.SessionID, SessionKey: spec.ConversationID + ":" + strconv.FormatInt(spec.Generation, 10), Resume: spec.Resume}
 					native := d.native.Execute(ctx, request, emit)
 					result = p.Result{Intent: native.Intent, CompletionID: randomID(), Status: native.Status, Error: native.Error, Summary: native.Assistant, ExitCode: native.ExitCode, TestExitCode: native.TestExitCode, Checks: []p.CheckResult{}, CleanupConfirmed: native.CleanupConfirmed, Resumable: native.SessionResumable}
 					for _, check := range native.Checks {

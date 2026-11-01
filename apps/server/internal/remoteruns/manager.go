@@ -183,6 +183,25 @@ func (m *Manager) Get(ctx context.Context, id string) (storage.Run, error) {
 			run.WaitingReason = "Waiting for the assigned runner to connect."
 		default:
 			run.WaitingReason = "Waiting for an available execution slot or file writer."
+			if run.TaskID != "" {
+				task, e := m.store.GetTaskState(ctx, run.TaskID)
+				if e != nil {
+					return run, e
+				}
+				if task.InputProtocol == 1 {
+					runner, e := m.store.GetRunner(ctx, run.RunnerID)
+					if e != nil {
+						return run, e
+					}
+					var caps runnerprotocol.Capabilities
+					if e = json.Unmarshal(runner.Capabilities, &caps); e != nil {
+						return run, e
+					}
+					if caps.TaskInputsVersion != 1 {
+						run.WaitingReason = "Update the assigned Runner to process this collaboration's inputs."
+					}
+				}
+			}
 		}
 	}
 	return run, err

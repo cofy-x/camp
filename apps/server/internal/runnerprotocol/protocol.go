@@ -20,19 +20,20 @@ type ReadinessReport struct {
 }
 
 type Capabilities struct {
-	Storage        *StorageHealth   `json:"storage,omitempty"`
-	Platform       string           `json:"platform,omitempty"`
-	Workspace      string           `json:"workspace,omitempty"`
-	Sandbox        string           `json:"sandbox,omitempty"`
-	Checkpoint     string           `json:"checkpoint,omitempty"`
-	Readiness      *ReadinessReport `json:"readiness,omitempty"`
-	Executor       string           `json:"executor"`
-	Ready          bool             `json:"ready"`
-	Reason         string           `json:"reason,omitempty"`
-	Slots          int              `json:"slots"`
-	Fingerprint    string           `json:"fingerprint"`
-	DSHVersion     string           `json:"dshVersion,omitempty"`
-	LayerFSVersion string           `json:"layerfsVersion,omitempty"`
+	TaskInputsVersion int              `json:"taskInputsVersion,omitempty"`
+	Storage           *StorageHealth   `json:"storage,omitempty"`
+	Platform          string           `json:"platform,omitempty"`
+	Workspace         string           `json:"workspace,omitempty"`
+	Sandbox           string           `json:"sandbox,omitempty"`
+	Checkpoint        string           `json:"checkpoint,omitempty"`
+	Readiness         *ReadinessReport `json:"readiness,omitempty"`
+	Executor          string           `json:"executor"`
+	Ready             bool             `json:"ready"`
+	Reason            string           `json:"reason,omitempty"`
+	Slots             int              `json:"slots"`
+	Fingerprint       string           `json:"fingerprint"`
+	DSHVersion        string           `json:"dshVersion,omitempty"`
+	LayerFSVersion    string           `json:"layerfsVersion,omitempty"`
 }
 type Source struct {
 	ID        string `json:"id"`

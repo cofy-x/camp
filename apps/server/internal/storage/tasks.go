@@ -185,6 +185,9 @@ func (s *Store) CreateTask(ctx context.Context, roomID string, in CreateTaskInpu
 			out = old
 			return nil
 		}
+		if e = validateInputProtocol(in.InputProtocol, in.PagedResponse); e != nil {
+			return e
+		}
 		room, e := q.GetRoom(ctx, roomID)
 		if e != nil {
 			return missing(e, "The room")
@@ -209,7 +212,7 @@ func (s *Store) CreateTask(ctx context.Context, roomID string, in CreateTaskInpu
 		}
 		stamp := now()
 		user, _ := UserFromContext(ctx)
-		out = CollaborationTask{ID: newID(), RoomID: roomID, ThreadRootID: in.ThreadRootID, ResourceID: resource.ID, RequestedByUserID: actorID(ctx), Goal: in.Goal, Status: "queued", Revision: 1, Participants: participants, CurrentAgentID: in.FirstAgentID, BaseSharedCommit: resource.CurrentCommit, CheckpointCommit: resource.CurrentCommit, MaxTurns: 6, MaxModelRequests: 24, Inputs: []TaskInput{}, Environment: json.RawMessage(resource.Environment), Budget: b, References: refs, CreatedAt: stamp, UpdatedAt: stamp}
+		out = CollaborationTask{InputProtocol: in.InputProtocol, ID: newID(), RoomID: roomID, ThreadRootID: in.ThreadRootID, ResourceID: resource.ID, RequestedByUserID: actorID(ctx), Goal: in.Goal, Status: "queued", Revision: 1, Participants: participants, CurrentAgentID: in.FirstAgentID, BaseSharedCommit: resource.CurrentCommit, CheckpointCommit: resource.CurrentCommit, MaxTurns: 6, MaxModelRequests: 24, Inputs: []TaskInput{}, Environment: json.RawMessage(resource.Environment), Budget: b, References: refs, CreatedAt: stamp, UpdatedAt: stamp}
 		if _, ok := taskParticipant(out, in.FirstAgentID); !ok {
 			return problem("invalid_task", "Choose the first agent from the approved participants.")
 		}
@@ -320,16 +323,22 @@ func (s *Store) OperateTask(ctx context.Context, id, action string, in TaskOpera
 		if action != "inputs" && in.Revision != out.Revision {
 			return problem("revision_conflict", "This collaboration changed. Refresh before continuing.")
 		}
+		if e = validateInputProtocol(in.InputProtocol, in.PagedResponse); e != nil {
+			return e
+		}
+		if in.InputProtocol == 1 && action != "cancel" {
+			out.InputProtocol = 1
+		}
 		switch action {
 		case "inputs":
-			if e = addTaskInput(ctx, q, &out, in.Content); e != nil {
+			if e = addTaskInput(ctx, q, &out, in.Content, in.InputProtocol == 1); e != nil {
 				return e
 			}
 		case "answers":
 			if out.Status != "waiting_for_person" || out.Question == nil || out.Question.ID != in.QuestionID || out.Question.Answer != "" {
 				return problem("question_answered", "This question is no longer waiting for an answer.")
 			}
-			if e = addTaskInput(ctx, q, &out, in.Content); e != nil {
+			if e = addTaskInput(ctx, q, &out, in.Content, in.InputProtocol == 1); e != nil {
 				return e
 			}
 			out.Question.Answer = strings.TrimSpace(in.Content)
@@ -371,7 +380,7 @@ func (s *Store) OperateTask(ctx context.Context, id, action string, in TaskOpera
 				out.PublicationRunID = ""
 			}
 			if strings.TrimSpace(in.Content) != "" {
-				if e = addTaskInput(ctx, q, &out, in.Content); e != nil {
+				if e = addTaskInput(ctx, q, &out, in.Content, in.InputProtocol == 1); e != nil {
 					return e
 				}
 			}
@@ -420,10 +429,13 @@ func (s *Store) OperateTask(ctx context.Context, id, action string, in TaskOpera
 	})
 	return taskOutput(ctx, s.queries(), out, err, in.PagedResponse)
 }
-func addTaskInput(ctx context.Context, q *sqlgen.Queries, t *CollaborationTask, content string) error {
+func addTaskInput(ctx context.Context, q *sqlgen.Queries, t *CollaborationTask, content string, batched bool) error {
 	content = strings.TrimSpace(content)
-	if !validText(content, MaxRunPromptSize, false) || t.InputRevision >= 128 || t.InputBytes+int64(len(content)) > 64<<10 {
-		return problem("invalid_task", "Task input must fit the 8192-byte message and 64 KiB task context limits.")
+	if !validText(content, MaxRunPromptSize, false) {
+		return problem("invalid_task", "Provide a task input of at most 8192 bytes.")
+	}
+	if !batched && (t.InputRevision >= 128 || t.InputBytes+int64(len(content)) > 64<<10) {
+		return problem("invalid_task", "Refresh Camp to use bounded input batches beyond the legacy 128-input / 64 KiB limits.")
 	}
 	u, e := q.GetUser(ctx, actorID(ctx))
 	if e != nil {

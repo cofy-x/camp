@@ -45,6 +45,8 @@ func (m *Manager) Handler() http.Handler {
 		}
 	}
 	mux.HandleFunc("GET /api/daemon/connect", machine(m.connect))
+	mux.HandleFunc("GET /api/daemon/operations/{id}/task-input-capability", machine(m.taskInputCapability))
+	mux.HandleFunc("GET /api/daemon/task-inputs/{id}", m.taskInputs)
 	mux.HandleFunc("GET /api/daemon/runtime/{sha256}", machine(m.runtimeDownload))
 	mux.HandleFunc("GET /api/daemon/operations/{id}/input", machine(m.input))
 	mux.HandleFunc("POST /api/daemon/operations/{id}/finalizing", machine(m.finalizing))

@@ -58,7 +58,11 @@ func (m *Manager) buildInput(ctx context.Context, run storage.Run, a storage.Att
 		if e != nil {
 			return PreparedInput{}, e
 		}
-		task.Inputs, e = m.store.TaskInputs(ctx, task.ID, 0, run.TaskInputRevision)
+		if run.TaskInputProtocol == 1 {
+			task.Inputs, e = m.store.TaskBatchInputs(ctx, task.ID, run.TaskInputAfter, run.TaskInputRevision)
+		} else {
+			task.Inputs, e = m.store.TaskInputs(ctx, task.ID, 0, run.TaskInputRevision)
+		}
 		if e != nil {
 			return PreparedInput{}, e
 		}
@@ -76,6 +80,9 @@ func (m *Manager) buildInput(ctx context.Context, run storage.Run, a storage.Att
 			prompt += "\nThe previous task draft is read-only evidence named previous-task-draft under the reference root announced by this turn's Runner. Reconcile it with the active workspace; do not replace the shared tree wholesale.\n"
 		}
 		taskSpec = &p.Collaboration{ID: task.ID, Goal: task.Goal, AgentID: run.AgentID, Participants: []p.Participant{}}
+		if run.TaskInputProtocol == 1 {
+			taskSpec.Inputs = &p.TaskInputScope{Version: 1, After: run.TaskInputAfter, Through: run.TaskInputRevision}
+		}
 		for _, participant := range task.Participants {
 			taskSpec.Participants = append(taskSpec.Participants, p.Participant{ID: participant.Agent.ID, Name: participant.Agent.Name, Access: participant.Agent.Access})
 		}

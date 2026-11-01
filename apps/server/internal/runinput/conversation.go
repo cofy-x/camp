@@ -3,6 +3,7 @@ package runinput
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -28,12 +29,24 @@ func Conversation(ctx context.Context, reader ConversationReader, run storage.Ru
 	if run.TaskID != "" {
 		through = run.ContextThroughSeq
 	}
-	messages, err := reader.ContextMessages(ctx, run.RoomID, run.ThreadRootID, after, through)
+	read := reader.ContextMessages
+	if run.TaskID != "" && run.TaskInputProtocol == 1 {
+		bounded, ok := reader.(interface {
+			TaskContextMessages(context.Context, string, string, int64, int64, string, int64) ([]storage.Message, error)
+		})
+		if !ok {
+			return "", errors.New("Bounded task history reader is unavailable")
+		}
+		read = func(ctx context.Context, room, thread string, after, through int64) ([]storage.Message, error) {
+			return bounded.TaskContextMessages(ctx, room, thread, after, through, run.TaskID, run.TaskInputRevision)
+		}
+	}
+	messages, err := read(ctx, run.RoomID, run.ThreadRootID, after, through)
 	if err != nil {
 		return "", err
 	}
 	if run.TaskID != "" && run.ThreadRootID != "" {
-		general, e := reader.ContextMessages(ctx, run.RoomID, "", after, through)
+		general, e := read(ctx, run.RoomID, "", after, through)
 		if e != nil {
 			return "", e
 		}

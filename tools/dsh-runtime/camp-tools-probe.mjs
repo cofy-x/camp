@@ -25,6 +25,13 @@ let profile = 'write';
 let step = 0;
 let schemas;
 const scenarios = {
+  history: [
+    ['camp_read_task_inputs', { after: 0, limit: 1 }],
+    [
+      'camp_finish',
+      { summary: 'Historical original verified.', artifactPaths: [] },
+    ],
+  ],
   coordination: [
     [
       'camp_finish',
@@ -142,9 +149,32 @@ const bridge = createServer(async (request, response) => {
   const body = await readJSON(request);
   calls.push({ profile, route: request.url, ...body });
   if (request.url === '/intent') {
-    assert.equal(profile, 'coordination');
+    assert.ok(['coordination', 'history'].includes(profile));
     assert.equal(body.kind, 'finish');
     response.end(JSON.stringify({ value: { accepted: true } }));
+    return;
+  }
+  if (request.url === '/task-inputs') {
+    assert.equal(profile, 'history');
+    assert.deepEqual(body, { after: 0, limit: 1 });
+    response.end(
+      JSON.stringify({
+        value: {
+          items: [
+            {
+              seq: 1,
+              id: 'original',
+              authorName: 'Person',
+              content: 'historical-original-keyless-fixture',
+              createdAt: 'unchanged',
+            },
+          ],
+          through: 1,
+          nextAfter: null,
+          hasMore: false,
+        },
+      }),
+    );
     return;
   }
   if (request.url === '/shell') {
@@ -284,8 +314,10 @@ async function run(access) {
   await writeFile(
     overlay,
     JSON.stringify([
-      ...toolPatch(access === 'coordination' ? 'read' : access),
-      ...(access === 'coordination'
+      ...toolPatch(
+        ['coordination', 'history'].includes(access) ? 'read' : access,
+      ),
+      ...(['coordination', 'history'].includes(access)
         ? [
             {
               insert: [
@@ -294,6 +326,14 @@ async function run(access) {
                   name: '/runtime/camp-tools/coordination.mjs',
                 },
                 { id: 'probe-queued-context', name: '/queued-context.mjs' },
+                ...(access === 'history'
+                  ? [
+                      {
+                        id: 'camp-task-inputs',
+                        name: '/runtime/camp-tools/task-inputs.mjs',
+                      },
+                    ]
+                  : []),
               ],
             },
           ]
@@ -440,7 +480,7 @@ async function run(access) {
       names,
       (access === 'write'
         ? ['bash', 'edit', 'list_files', 'read', 'search_files', 'write']
-        : access === 'coordination'
+        : ['coordination', 'history'].includes(access)
           ? [
               'list_files',
               'read',
@@ -448,6 +488,7 @@ async function run(access) {
               'camp_handoff',
               'camp_ask_person',
               'camp_finish',
+              ...(access === 'history' ? ['camp_read_task_inputs'] : []),
             ]
           : ['list_files', 'read', 'search_files']
       ).sort(),
@@ -464,6 +505,21 @@ async function run(access) {
       );
       assert.match(JSON.stringify(events), /queued-after-coordination-probe/);
       assert.equal(calls.filter((call) => call.route === '/intent').length, 1);
+    } else if (access === 'history') {
+      assert.equal(step, 2, 'History read or finish caused an extra request.');
+      assert.match(output, /historical-original-keyless-fixture/);
+      assert.equal(
+        calls.filter(
+          (call) => call.profile === 'history' && call.route === '/task-inputs',
+        ).length,
+        1,
+      );
+      assert.equal(
+        calls.some(
+          (call) => call.profile === 'history' && call.route === '/shell',
+        ),
+        false,
+      );
     } else assert.match(output, /bridge-owned/);
     if (access === 'write') {
       assert.equal(
@@ -512,6 +568,7 @@ try {
   await run('write');
   await run('read');
   await run('coordination');
+  await run('history');
 } finally {
   model.closeAllConnections();
   bridge.closeAllConnections();

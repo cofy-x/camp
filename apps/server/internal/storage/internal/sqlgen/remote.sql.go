@@ -357,7 +357,7 @@ func (q *Queries) FreezeAttemptPreparation(ctx context.Context, arg FreezeAttemp
 }
 
 const getAttempt = `-- name: GetAttempt :one
-SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at, preparation_context FROM run_attempts WHERE id=?
+SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at, preparation_context, task_read_token FROM run_attempts WHERE id=?
 `
 
 func (q *Queries) GetAttempt(ctx context.Context, id string) (RunAttempt, error) {
@@ -386,12 +386,13 @@ func (q *Queries) GetAttempt(ctx context.Context, id string) (RunAttempt, error)
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.PreparationContext,
+		&i.TaskReadToken,
 	)
 	return i, err
 }
 
 const getAttemptByCapability = `-- name: GetAttemptByCapability :one
-SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at, preparation_context FROM run_attempts WHERE capability_hash=?
+SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at, preparation_context, task_read_token FROM run_attempts WHERE capability_hash=?
 `
 
 func (q *Queries) GetAttemptByCapability(ctx context.Context, capabilityHash string) (RunAttempt, error) {
@@ -420,8 +421,20 @@ func (q *Queries) GetAttemptByCapability(ctx context.Context, capabilityHash str
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.PreparationContext,
+		&i.TaskReadToken,
 	)
 	return i, err
+}
+
+const getAttemptTaskReadToken = `-- name: GetAttemptTaskReadToken :one
+SELECT task_read_token FROM run_attempts WHERE id=?
+`
+
+func (q *Queries) GetAttemptTaskReadToken(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getAttemptTaskReadToken, id)
+	var task_read_token string
+	err := row.Scan(&task_read_token)
+	return task_read_token, err
 }
 
 const getResourceLease = `-- name: GetResourceLease :one
@@ -476,7 +489,7 @@ func (q *Queries) GetResourceSourceImport(ctx context.Context, resourceID sql.Nu
 }
 
 const getRunAttempt = `-- name: GetRunAttempt :one
-SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at, preparation_context FROM run_attempts WHERE run_id=?
+SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at, preparation_context, task_read_token FROM run_attempts WHERE run_id=?
 `
 
 func (q *Queries) GetRunAttempt(ctx context.Context, runID string) (RunAttempt, error) {
@@ -505,6 +518,7 @@ func (q *Queries) GetRunAttempt(ctx context.Context, runID string) (RunAttempt, 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.PreparationContext,
+		&i.TaskReadToken,
 	)
 	return i, err
 }
@@ -712,7 +726,7 @@ func (q *Queries) GetSourceImportRequest(ctx context.Context, arg GetSourceImpor
 }
 
 const listActiveAttempts = `-- name: ListActiveAttempts :many
-SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at, preparation_context FROM run_attempts WHERE status<>'finished' ORDER BY created_at,id
+SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at, preparation_context, task_read_token FROM run_attempts WHERE status<>'finished' ORDER BY created_at,id
 `
 
 func (q *Queries) ListActiveAttempts(ctx context.Context) ([]RunAttempt, error) {
@@ -747,6 +761,7 @@ func (q *Queries) ListActiveAttempts(ctx context.Context) ([]RunAttempt, error) 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.PreparationContext,
+			&i.TaskReadToken,
 		); err != nil {
 			return nil, err
 		}
@@ -813,7 +828,7 @@ func (q *Queries) ListActiveSourceImports(ctx context.Context) ([]SourceImport, 
 }
 
 const listRunnerAttempts = `-- name: ListRunnerAttempts :many
-SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at, preparation_context FROM run_attempts WHERE runner_id=? AND status<>'finished' ORDER BY created_at,id
+SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at, preparation_context, task_read_token FROM run_attempts WHERE runner_id=? AND status<>'finished' ORDER BY created_at,id
 `
 
 func (q *Queries) ListRunnerAttempts(ctx context.Context, runnerID string) ([]RunAttempt, error) {
@@ -848,6 +863,7 @@ func (q *Queries) ListRunnerAttempts(ctx context.Context, runnerID string) ([]Ru
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.PreparationContext,
+			&i.TaskReadToken,
 		); err != nil {
 			return nil, err
 		}
@@ -1232,6 +1248,20 @@ func (q *Queries) SetAttemptStatus(ctx context.Context, arg SetAttemptStatusPara
 		arg.UpdatedAt,
 		arg.ID,
 	)
+	return err
+}
+
+const setAttemptTaskReadToken = `-- name: SetAttemptTaskReadToken :exec
+UPDATE run_attempts SET task_read_token=? WHERE id=? AND task_read_token=''
+`
+
+type SetAttemptTaskReadTokenParams struct {
+	TaskReadToken string
+	ID            string
+}
+
+func (q *Queries) SetAttemptTaskReadToken(ctx context.Context, arg SetAttemptTaskReadTokenParams) error {
+	_, err := q.db.ExecContext(ctx, setAttemptTaskReadToken, arg.TaskReadToken, arg.ID)
 	return err
 }
 

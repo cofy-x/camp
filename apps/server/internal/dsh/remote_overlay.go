@@ -47,6 +47,9 @@ func RemoteOverlayAt(persona string, readOnly bool, paths Paths, collaboration .
 	if len(collaboration) > 0 && collaboration[0] {
 		providers = append(providers, map[string]any{"id": "camp-coordination", "name": module("coordination")})
 	}
+	if len(collaboration) > 1 && collaboration[0] && collaboration[1] {
+		providers = append(providers, map[string]any{"id": "camp-task-inputs", "name": module("task-inputs")})
+	}
 	if !readOnly {
 		providers = append(providers,
 			map[string]any{"id": "fs-observation-policy", "name": "@deepseek-ai/dsh-fs-observation-policy"},

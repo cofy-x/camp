@@ -89,3 +89,60 @@ func TestCoordinationRejectsUnsafeArtifactsAndJournalFailure(t *testing.T) {
 		t.Fatal("undurable decision acknowledged", response.StatusCode)
 	}
 }
+
+func TestTaskHistoryPrivateCoordinatorRejectsForeignScopeAndClosesBeforeIntent(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(map[bool]string{false: "accepted", true: "uncertain"}[fail], func(t *testing.T) {
+			reads := 0
+			task := p.Collaboration{ID: "task", AgentID: "writer", Participants: []p.Participant{{ID: "writer"}}, Inputs: &p.TaskInputScope{Version: 1, After: 1, Through: 2}}
+			server, err := newCoordination(context.Background(), task, func(context.Context, p.CoordinationIntent) error {
+				if fail {
+					return errors.New("disk full")
+				}
+				return nil
+			}, nil, func(_ context.Context, after int64, limit int) (p.TaskInputPage, error) {
+				reads++
+				return p.TaskInputPage{Items: []p.TaskInput{{Seq: 1, Content: "Original"}}, Through: 2}, nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer server.close()
+			send := func(path, body, token string) int {
+				t.Helper()
+				req, _ := http.NewRequest("POST", server.endpoint()+path, bytes.NewBufferString(body))
+				req.Header.Set("Authorization", "Bearer "+token)
+				res, err := http.DefaultClient.Do(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer res.Body.Close()
+				return res.StatusCode
+			}
+			for _, body := range []string{`{"after":3,"limit":1}`, `{"after":0,"limit":21}`, `{"after":0,"limit":1,"taskId":"other"}`, `{"after":0,"limit":1,"url":"https://other"}`, `{"after":0,"limit":1} {}`} {
+				if code := send("/task-inputs", body, server.token); code != 400 {
+					t.Fatal(body, code)
+				}
+			}
+			if code := send("/task-inputs", `{"after":0,"limit":1}`, "wrong"); code != 403 {
+				t.Fatal(code)
+			}
+			if reads != 0 {
+				t.Fatal("rejected read reached remote capability")
+			}
+			if code := send("/task-inputs", `{"after":0,"limit":1}`, server.token); code != 200 {
+				t.Fatal(code)
+			}
+			code := send("/intent", `{"callId":"finish","kind":"finish","summary":"Done","artifactPaths":[]}`, server.token)
+			if (!fail && code != 200) || (fail && code != 503) {
+				t.Fatal(code)
+			}
+			if code = send("/task-inputs", `{"after":0,"limit":1}`, server.token); code != 410 || reads != 1 {
+				t.Fatal("read continued after successful/uncertain seal", code, reads)
+			}
+		})
+	}
+	if _, err := newCoordination(context.Background(), p.Collaboration{ID: "task", AgentID: "writer", Participants: []p.Participant{{ID: "writer"}}, Inputs: &p.TaskInputScope{Version: 2}}, func(context.Context, p.CoordinationIntent) error { return nil }, nil); err == nil {
+		t.Fatal("future scope was accepted")
+	}
+}

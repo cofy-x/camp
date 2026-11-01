@@ -280,3 +280,20 @@ func addRunNotice(ctx context.Context, q *sqlgen.Queries, r Run, text string) er
 	}
 	return event(ctx, q, "message.created", r.RoomID, m.ID)
 }
+
+// TaskContextMessages excludes pending task originals before applying the history limit.
+func (s *Store) TaskContextMessages(ctx context.Context, room, thread string, after, through int64, task string, inputThrough int64) ([]Message, error) {
+	rows, err := s.queries().TaskContextMessages(ctx, sqlgen.TaskContextMessagesParams{RoomID: room, ThreadRootID: sql.NullString{String: thread, Valid: true}, AfterSeq: after, ThroughSeq: through, TaskID: task, InputThrough: inputThrough})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Message, 0, len(rows))
+	for i := len(rows) - 1; i >= 0; i-- {
+		m, e := messageRow(rows[i])
+		if e != nil {
+			return nil, e
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}

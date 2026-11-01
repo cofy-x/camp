@@ -26,6 +26,9 @@ func conversationRuntimeKey(ctx context.Context, q *sqlgen.Queries, r Run) (stri
 		}
 		runnerKey = "\x00" + r.RunnerID + "\x00" + runner.StorageID + "\x00" + runner.Runtime + "\x00" + capability.Fingerprint
 	}
+	if r.TaskInputProtocol == 1 {
+		runnerKey += "\x00task-inputs-v1"
+	}
 	hash := sha256.Sum256([]byte(r.RuntimeKey + "\x00" + string(r.Environment) + runnerKey))
 	return hex.EncodeToString(hash[:]), nil
 }

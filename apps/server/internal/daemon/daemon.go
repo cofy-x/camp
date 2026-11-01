@@ -234,7 +234,7 @@ func (d *Daemon) capabilities() p.Capabilities {
 	failure := d.failure
 	storage := d.storage
 	d.mu.Unlock()
-	c := p.Capabilities{Readiness: d.readiness, Executor: d.config.Executor, Ready: failure == nil, Slots: d.config.Slots, Fingerprint: fmt.Sprintf("camp-remote-v%d:%s:%s:%s", p.Version, runtime.GOOS, runtime.GOARCH, d.config.Executor)}
+	c := p.Capabilities{TaskInputsVersion: 1, Readiness: d.readiness, Executor: d.config.Executor, Ready: failure == nil, Slots: d.config.Slots, Fingerprint: fmt.Sprintf("camp-remote-v%d:%s:%s:%s", p.Version, runtime.GOOS, runtime.GOARCH, d.config.Executor)}
 	c.Storage = storage
 	c.Platform = runtime.GOOS + "/" + runtime.GOARCH
 	if d.config.Executor == "native" && d.native != nil {

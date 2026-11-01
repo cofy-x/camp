@@ -259,6 +259,7 @@ test('collaboration is explicit, previews finite grants and keeps inputs separat
   expect(created).toHaveLength(2);
   expect(created[1]).toEqual(created[0]);
   expect(created[0]).toMatchObject({
+    inputProtocol: 1,
     goal: value.task.goal,
     participantAgentIds: value.agents.map((agent) => agent.id),
     firstAgentId: value.agents[0].id,
@@ -401,6 +402,7 @@ test('a question retry retains its exact request after live updates advance the 
   expect(answers).toHaveLength(2);
   expect(answers[1]).toEqual(answers[0]);
   expect(answers[1]).toMatchObject({
+    inputProtocol: 1,
     revision: 1,
     questionId: 'question-one',
     content: 'New teammates',
@@ -840,4 +842,113 @@ test('history pages keep their frozen position and drafts through refresh and fa
   expect(
     await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
   ).toBe(true);
+});
+
+test('legacy pending task actions retry their original body after the input protocol upgrade', async ({
+  page,
+}, info) => {
+  const value = await fixture(
+    page,
+    `collaboration-legacy-action-${info.project.name}`,
+  );
+  value.setTask({
+    status: 'waiting_for_person',
+    question: {
+      id: 'legacy-question',
+      text: 'Who is this for?',
+      options: [],
+      answer: '',
+      answeredByUserId: '',
+    },
+  });
+  const { user } = await (await page.request.get('/api/auth/status')).json();
+  const saved = {
+    key: 'legacy-key',
+    kind: 'answer',
+    requestId: 'legacy-answer',
+    revision: 1,
+    content: 'Original saved answer',
+    agentId: value.agents[0].id,
+    questionId: 'legacy-question',
+    addTurns: 0,
+    addModelRequests: 0,
+    fromLatest: false,
+  };
+  await page.evaluate(
+    ({ key, value }) =>
+      sessionStorage.setItem(key, JSON.stringify({ version: 1, value })),
+    {
+      key: `camp:receipt:${user.id}:task-action:${value.task.id}`,
+      value: saved,
+    },
+  );
+  const requests: unknown[] = [];
+  await page.route(`**/api/tasks/${value.task.id}/answers?*`, async (route) => {
+    requests.push(route.request().postDataJSON());
+    return route.fulfill({ json: { task: value.task } });
+  });
+  await value.open();
+  await expect(detail(page)).toContainText(
+    'A previous action is awaiting confirmation.',
+  );
+  await detail(page)
+    .getByRole('button', { name: 'Retry Save', exact: true })
+    .click();
+  await expect(detail(page)).toContainText('Answer saved.');
+  expect(requests).toEqual([
+    {
+      requestId: saved.requestId,
+      revision: saved.revision,
+      questionId: saved.questionId,
+      content: saved.content,
+    },
+  ]);
+});
+
+test('legacy pending collaboration starts retain the original protocol and identity', async ({
+  page,
+}, info) => {
+  const value = await fixture(
+    page,
+    `collaboration-legacy-start-${info.project.name}`,
+  );
+  const { user } = await (await page.request.get('/api/auth/status')).json();
+  const saved = {
+    requestId: 'legacy-start',
+    goal: 'Original pending goal',
+    participantAgentIds: value.agents.map((agent) => agent.id),
+    firstAgentId: value.agents[0].id,
+    threadRootId: '',
+  };
+  await page.evaluate(
+    ({ key, value }) =>
+      sessionStorage.setItem(key, JSON.stringify({ version: 1, value })),
+    {
+      key: `camp:receipt:${user.id}:collaboration-start:${value.room.id}`,
+      value: saved,
+    },
+  );
+  const requests: unknown[] = [];
+  await page.route(`**/api/rooms/${value.room.id}/tasks?*`, async (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ json: { tasks: [] } })
+      : (requests.push(route.request().postDataJSON()),
+        route.fulfill({ json: { task: value.task } })),
+  );
+  await workspace(page)
+    .getByRole('button', { name: 'Collaborations', exact: true })
+    .click();
+  await workspace(page)
+    .getByRole('button', { name: 'Start collaboration…', exact: true })
+    .click();
+  const form = workspace(page).getByRole('region', {
+    name: 'Start collaboration',
+    exact: true,
+  });
+  await expect(
+    form.getByRole('textbox', { name: 'Shared goal', exact: true }),
+  ).toHaveValue(saved.goal);
+  await form.getByRole('button', { name: 'Retry Start', exact: true }).click();
+  await expect(detail(page)).toBeVisible();
+  expect(requests).toEqual([saved]);
 });
