@@ -20,6 +20,7 @@ type runnerCapabilitiesView struct {
 	Sandbox        string                          `json:"sandbox,omitempty"`
 	Checkpoint     string                          `json:"checkpoint,omitempty"`
 	Readiness      *runnerprotocol.ReadinessReport `json:"readiness,omitempty"`
+	Storage        *runnerprotocol.StorageHealth   `json:"storage,omitempty"`
 	Executor       string                          `json:"executor"`
 	Ready          bool                            `json:"ready"`
 	Reason         string                          `json:"reason,omitempty"`
