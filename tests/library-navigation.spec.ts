@@ -232,3 +232,95 @@ test('Library actions preserve a private document while refreshing and wait for 
     await page.unrouteAll({ behavior: 'wait' });
   }
 });
+
+for (const initiallyFails of [false, true]) {
+  test(`Sources keeps the first interaction after a delayed Library ${initiallyFails ? 'retry' : 'load'}`, async ({
+    page,
+    isMobile,
+  }, testInfo) => {
+    await signIn(page);
+    const room = await createRoom(
+      page,
+      `first-sources-${initiallyFails}-${testInfo.project.name}`,
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let retrying = !initiallyFails;
+    let waiting = false;
+    await page.route('**/api/library', async (route) => {
+      if (!retrying)
+        return route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: {
+              code: 'unavailable',
+              message: 'Synthetic Library read failure.',
+            },
+          }),
+        });
+      const response = await route.fetch();
+      expect(response.ok()).toBeTruthy();
+      waiting = true;
+      await held;
+      await route.fulfill({ response });
+    });
+    try {
+      await workspace(page)
+        .getByRole('button', { name: 'Library', exact: true })
+        .click();
+      const win = library(page);
+      await expect(win).toBeVisible();
+      if (initiallyFails) {
+        const retry = win.getByRole('button', {
+          name: 'Retry Library',
+          exact: true,
+        });
+        await expect(retry).toBeVisible();
+        retrying = true;
+        await retry.click();
+      }
+      await expect.poll(() => waiting).toBe(true);
+      const sources = win.getByRole('button', { name: 'Sources', exact: true });
+      if (isMobile) await sources.tap();
+      else await sources.click();
+      const panel = win.getByRole('complementary', {
+        name: 'Library resources',
+      });
+      const done = panel.getByRole('button', { name: 'Done', exact: true });
+      await expect(sources).toHaveAttribute('aria-expanded', 'true');
+      await expect(done).toBeFocused();
+      release();
+      await expect(
+        win.getByRole('heading', {
+          name: `No files in ${room.name} files`,
+          exact: true,
+        }),
+      ).toBeVisible();
+      await page.screenshot({
+        path: testInfo.outputPath(
+          `library-delayed-${initiallyFails ? 'retry' : 'load'}.png`,
+        ),
+      });
+      await expect(sources).toHaveAttribute('aria-expanded', 'true');
+      await expect(done).toBeFocused();
+      const destination = panel
+        .getByRole('button')
+        .filter({ hasText: `${room.name} files` });
+      if (isMobile) await destination.tap();
+      else await destination.click();
+      await expect(panel).toBeHidden();
+      await expect(sources).toBeFocused();
+      expect(
+        (await (await page.request.get(`/api/rooms/${room.id}/runs`)).json())
+          .runs,
+      ).toEqual([]);
+    } finally {
+      release();
+      await page.unrouteAll({ behavior: 'wait' });
+    }
+  });
+}

@@ -189,16 +189,18 @@ export function Library({ desktop, window }: AppWindowProps) {
     const intent = team.navigation;
     if (
       intent?.app !== 'library' ||
-      !rooms.length ||
       appliedNavigation.current === intent.revision
     )
       return;
+    // Navigation owns interaction state; list completion must not replay it
+    // over actions taken while the initial read or its retry was pending.
     appliedNavigation.current = intent.revision;
     invalidateEditorRequest();
     const context =
       rooms.find((room) => room.id === intent.contextRoomId) ??
       rooms.find((room) => room.resourceId === intent.resourceId);
-    if (context) setTargetRoom(context.id);
+    if (intent.contextRoomId) setTargetRoom(intent.contextRoomId);
+    else if (context) setTargetRoom(context.id);
     setSourcesOpen(false);
     setRequestReview(null);
     setImportOpen(false);
