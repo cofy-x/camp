@@ -200,7 +200,11 @@ func (m *Manager) prepare(ctx context.Context, run storage.Run, a storage.Attemp
 	}
 	var taskSpec *p.Collaboration
 	if run.TaskID != "" {
-		task, e := m.store.GetTask(ctx, run.TaskID)
+		task, e := m.store.GetTaskState(ctx, run.TaskID)
+		if e != nil {
+			return e
+		}
+		task.Inputs, e = m.store.TaskInputs(ctx, task.ID, 0, run.TaskInputRevision)
 		if e != nil {
 			return e
 		}

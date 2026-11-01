@@ -46,7 +46,7 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 // remain internal failures until their public response has been defined here.
 func storageErrorStatus(code string) int {
 	switch code {
-	case "invalid_avatar", "invalid_task", "invalid_intent", "invalid_review", "invalid_team", "invalid_user", "invalid_password", "invalid_invite", "invalid_draft", "invalid_cursor",
+	case "invalid_page", "invalid_avatar", "invalid_task", "invalid_intent", "invalid_review", "invalid_team", "invalid_user", "invalid_password", "invalid_invite", "invalid_draft", "invalid_cursor",
 		"invalid_runner", "invalid_import", "invalid_artifact", "invalid_command", "invalid_lease", "invalid_result":
 		return http.StatusBadRequest
 	case "invalid_credentials", "unauthenticated":
@@ -61,7 +61,7 @@ func storageErrorStatus(code string) int {
 		return http.StatusBadRequest
 	case "not_found":
 		return http.StatusNotFound
-	case "task_finished", "task_busy", "task_budget_exhausted", "question_answered", "review_conflict", "review_finished", "name_conflict", "unavailable", "revision_conflict", "resource_busy",
+	case "task_pagination_required", "task_finished", "task_busy", "task_budget_exhausted", "question_answered", "review_conflict", "review_finished", "name_conflict", "unavailable", "revision_conflict", "resource_busy",
 		"document_preparing", "document_busy", "document_finished", "run_finished", "request_conflict", "run_busy", "agent_unavailable", "resource_conflict",
 		"runner_required", "runner_unavailable", "runner_revision_conflict", "runner_storage_changed", "source_unavailable", "runner_mismatch",
 		"attempt_conflict", "attempt_expired", "attempt_finished", "event_sequence_gap", "stale_attempt", "stale_connection", "stale_lease", "run_cancelled", "import_expired", "import_finished":

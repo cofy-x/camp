@@ -369,6 +369,14 @@ type SourceImport struct {
 	UpdatedAt         string
 }
 
+type TaskInput struct {
+	ID           string
+	TaskID       string
+	Seq          int64
+	ContentBytes int64
+	Value        string
+}
+
 type TaskRequest struct {
 	UserID      string
 	Scope       string

@@ -13,6 +13,12 @@ import (
 func taskSnapshot(raw string) (CollaborationTask, error) {
 	var t CollaborationTask
 	err := json.Unmarshal([]byte(raw), &t)
+	if t.InputRevision == 0 && len(t.Inputs) > 0 {
+		t.InputRevision = int64(len(t.Inputs))
+		for _, input := range t.Inputs {
+			t.InputBytes += int64(len(input.Content))
+		}
+	}
 	return t, err
 }
 func getTask(ctx context.Context, q *sqlgen.Queries, id string) (CollaborationTask, error) {
@@ -23,8 +29,15 @@ func getTask(ctx context.Context, q *sqlgen.Queries, id string) (CollaborationTa
 	return taskSnapshot(raw)
 }
 func (s *Store) GetTask(ctx context.Context, id string) (CollaborationTask, error) {
+	t, err := getTask(ctx, s.queries(), id)
+	return taskOutput(ctx, s.queries(), t, err, false)
+}
+
+// GetTaskState reads only bounded task metadata. Inputs belong to the log.
+func (s *Store) GetTaskState(ctx context.Context, id string) (CollaborationTask, error) {
 	return getTask(ctx, s.queries(), id)
 }
+
 func taskRows(rows []string, err error) ([]CollaborationTask, error) {
 	out := make([]CollaborationTask, 0, len(rows))
 	if err != nil {
@@ -43,13 +56,29 @@ func (s *Store) ListRoomTasks(ctx context.Context, room string) ([]Collaboration
 	if _, err := s.GetRoom(ctx, room); err != nil {
 		return nil, err
 	}
+	tasks, err := s.ListRoomTaskStates(ctx, room)
+	if err != nil {
+		return nil, err
+	}
+	for i := range tasks {
+		tasks[i], err = taskOutput(ctx, s.queries(), tasks[i], nil, false)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return tasks, nil
+}
+func (s *Store) ListRoomTaskStates(ctx context.Context, room string) ([]CollaborationTask, error) {
+	if _, err := s.GetRoom(ctx, room); err != nil {
+		return nil, err
+	}
 	return taskRows(s.queries().ListRoomTasks(ctx, room))
 }
 func (s *Store) ListOpenTasks(ctx context.Context) ([]CollaborationTask, error) {
 	return taskRows(s.queries().ListOpenTasks(ctx))
 }
 func (s *Store) ListTaskRuns(ctx context.Context, id string) ([]Run, error) {
-	if _, err := s.GetTask(ctx, id); err != nil {
+	if _, err := s.GetTaskState(ctx, id); err != nil {
 		return nil, err
 	}
 	rows, err := s.queries().ListTaskRuns(ctx, id)
@@ -61,7 +90,9 @@ func (s *Store) ListTaskRuns(ctx context.Context, id string) ([]Run, error) {
 func saveTask(ctx context.Context, q *sqlgen.Queries, t *CollaborationTask) error {
 	t.Revision++
 	t.UpdatedAt = now()
-	raw, err := json.Marshal(t)
+	snapshot := *t
+	snapshot.Inputs = nil
+	raw, err := json.Marshal(snapshot)
 	if err != nil {
 		return err
 	}
@@ -90,6 +121,7 @@ func taskReceipt(ctx context.Context, q *sqlgen.Queries, scope, request string, 
 	return t, true, hash, err
 }
 func saveTaskReceipt(ctx context.Context, q *sqlgen.Queries, scope, request, hash string, t CollaborationTask) error {
+	t.Inputs = nil
 	raw, err := json.Marshal(t)
 	if err != nil {
 		return err
@@ -205,7 +237,7 @@ func (s *Store) CreateTask(ctx context.Context, roomID string, in CreateTaskInpu
 		}
 		return saveTaskReceipt(ctx, q, scope, in.RequestID, hash, out)
 	})
-	return
+	return taskOutput(ctx, s.queries(), out, err, in.PagedResponse)
 }
 
 // Queue creation does not consume a round or hold a writer lease. The fixed
@@ -237,7 +269,7 @@ func enqueueTaskRound(ctx context.Context, q *sqlgen.Queries, t *CollaborationTa
 		origin = m.ID
 	}
 	b := t.Budget
-	r := Run{TaskID: t.ID, InputCommit: t.CheckpointCommit, TaskInputRevision: int64(len(t.Inputs)), RequestedByUserID: t.RequestedByUserID, RunnerID: p.RunnerID, RunnerName: p.RunnerName, ID: newID(), RoomID: t.RoomID, ThreadRootID: t.ThreadRootID, OriginMessageID: origin, AgentID: agentID, AgentSnapshot: p.Agent, ResourceID: t.ResourceID, Environment: t.Environment, Prompt: truncateUTF8(instruction, MaxRunPromptSize), Status: "queued", CreatedAt: now(), UpdatedAt: now(), Model: b.Model, RuntimeKey: b.RuntimeKey, MaxTokens: b.MaxTokens, MaxSteps: b.MaxSteps, TimeoutSeconds: b.TimeoutSeconds, References: t.References, Files: []RunFile{}, Checks: json.RawMessage(`[]`)}
+	r := Run{TaskID: t.ID, InputCommit: t.CheckpointCommit, TaskInputRevision: t.InputRevision, RequestedByUserID: t.RequestedByUserID, RunnerID: p.RunnerID, RunnerName: p.RunnerName, ID: newID(), RoomID: t.RoomID, ThreadRootID: t.ThreadRootID, OriginMessageID: origin, AgentID: agentID, AgentSnapshot: p.Agent, ResourceID: t.ResourceID, Environment: t.Environment, Prompt: truncateUTF8(instruction, MaxRunPromptSize), Status: "queued", CreatedAt: now(), UpdatedAt: now(), Model: b.Model, RuntimeKey: b.RuntimeKey, MaxTokens: b.MaxTokens, MaxSteps: b.MaxSteps, TimeoutSeconds: b.TimeoutSeconds, References: t.References, Files: []RunFile{}, Checks: json.RawMessage(`[]`)}
 	if err := authorizeRunExecution(ctx, q, r); err != nil {
 		return err
 	}
@@ -278,6 +310,9 @@ func (s *Store) OperateTask(ctx context.Context, id, action string, in TaskOpera
 		out, e = getTask(ctx, q, id)
 		if e != nil {
 			return e
+		}
+		if !in.PagedResponse && (out.InputRevision > 128 || out.InputBytes > 64<<10) {
+			return problem("task_pagination_required", "Refresh Camp before changing this collaboration.")
 		}
 		if out.Status == "completed" || out.Status == "cancelled" || out.Status == "interrupted" {
 			return problem("task_finished", "This collaboration is already finished. Start a new collaboration to continue.")
@@ -383,29 +418,36 @@ func (s *Store) OperateTask(ctx context.Context, id, action string, in TaskOpera
 		}
 		return saveTaskReceipt(ctx, q, scope, in.RequestID, hash, out)
 	})
-	return
+	return taskOutput(ctx, s.queries(), out, err, in.PagedResponse)
 }
 func addTaskInput(ctx context.Context, q *sqlgen.Queries, t *CollaborationTask, content string) error {
 	content = strings.TrimSpace(content)
-	total := len(content)
-	for _, i := range t.Inputs {
-		total += len(i.Content)
-	}
-	if !validText(content, MaxRunPromptSize, false) || len(t.Inputs) >= 128 || total > 64<<10 {
+	if !validText(content, MaxRunPromptSize, false) || t.InputRevision >= 128 || t.InputBytes+int64(len(content)) > 64<<10 {
 		return problem("invalid_task", "Task input must fit the 8192-byte message and 64 KiB task context limits.")
 	}
 	u, e := q.GetUser(ctx, actorID(ctx))
 	if e != nil {
 		return e
 	}
-	input := TaskInput{ID: newID(), AuthorUserID: u.ID, AuthorName: u.Name, Content: content, CreatedAt: now()}
-	t.Inputs = append(t.Inputs, input)
+	input := TaskInput{Seq: t.InputRevision + 1, ID: newID(), AuthorUserID: u.ID, AuthorName: u.Name, Content: content, CreatedAt: now()}
 	seq, e := q.NextMessageSequence(ctx, t.RoomID)
 	if e != nil {
 		return e
 	}
 	m := Message{ID: input.ID, TaskID: t.ID, RoomID: t.RoomID, ThreadRootID: t.ThreadRootID, Seq: seq, AuthorKind: "user", AuthorUserID: u.ID, AuthorName: u.Name, Content: content, CreatedAt: input.CreatedAt, UpdatedAt: input.CreatedAt}
-	return insertMessage(ctx, q, m, "")
+	if e = insertMessage(ctx, q, m, ""); e != nil {
+		return e
+	}
+	data, e := json.Marshal(input)
+	if e != nil {
+		return e
+	}
+	if e = q.InsertTaskInput(ctx, sqlgen.InsertTaskInputParams{ID: input.ID, TaskID: t.ID, Seq: input.Seq, ContentBytes: int64(len(content)), Value: string(data)}); e != nil {
+		return e
+	}
+	t.InputRevision = input.Seq
+	t.InputBytes += int64(len(content))
+	return nil
 }
 func taskNotice(ctx context.Context, q *sqlgen.Queries, t CollaborationTask, kind, text string) error {
 	seq, e := q.NextMessageSequence(ctx, t.RoomID)
@@ -422,6 +464,9 @@ func taskNotice(ctx context.Context, q *sqlgen.Queries, t CollaborationTask, kin
 func (s *Store) FindTaskCreation(ctx context.Context, room string, in CreateTaskInput) (CollaborationTask, bool, error) {
 	in.Goal = strings.TrimSpace(in.Goal)
 	t, found, _, err := taskReceipt(ctx, s.queries(), "create:"+room, in.RequestID, in)
+	if found && err == nil {
+		t, err = taskOutput(ctx, s.queries(), t, nil, in.PagedResponse)
+	}
 	return t, found, err
 }
 

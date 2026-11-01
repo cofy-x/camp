@@ -165,7 +165,7 @@ func claimRun(ctx context.Context, q *sqlgen.Queries, id string) (out Run, err e
 			}
 			r.BaselineCommit = t.CheckpointCommit
 			r.InputCommit = t.CheckpointCommit
-			r.TaskInputRevision = int64(len(t.Inputs))
+			r.TaskInputRevision = t.InputRevision
 			r.PreviousDraftCommit = t.PreviousDraftCommit
 			seq, e := q.NextMessageSequence(ctx, r.RoomID)
 			if e != nil {

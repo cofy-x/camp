@@ -15,10 +15,11 @@ import {
   clearSessionReceipt,
 } from '../../shared/sessionReceipt';
 import { useTeam } from '../../team/TeamContext';
-import type { Agent, Run } from '../workspace/api';
-import { statusLabel, workspaceApi } from '../workspace/api';
+import type { Agent } from '../workspace/api';
+import { workspaceApi } from '../workspace/api';
 import { tasksApi, taskStatus, type Task } from './api';
 import { AssistantContent } from '../workspace/AssistantContent';
+import { TaskHistory } from './TaskHistory';
 
 interface PendingAction {
   key: string;
@@ -72,7 +73,6 @@ export function TaskDetail({
   );
   const [task, setTask] = useState<Task | null>(null);
   const [tab, setTab] = useState('overview');
-  const [runs, setRuns] = useState<Run[]>([]);
   const [error, setError] = useState(
     savedRequest ? 'A previous action is awaiting confirmation.' : '',
   );
@@ -165,7 +165,6 @@ export function TaskDetail({
             ? result.task
             : current,
         );
-        setRuns(result.runs ?? []);
         setLoadError('');
       })
       .catch((error: unknown) => {
@@ -721,46 +720,11 @@ export function TaskDetail({
                   <p>No files were saved by this collaboration.</p>
                 )}
             </div>
-            {tab === 'activity' && (
-              <div className="collaboration-tab-content">
-                <section
-                  className="collaboration-history"
-                  aria-label="Collaboration turns"
-                >
-                  <h3>Turns</h3>
-                  {!runs.length && <p>No execution has started yet.</p>}
-                  <ol>
-                    {runs.map((run) => (
-                      <li key={run.id}>
-                        <Button onClick={() => onInspect(run.id)}>
-                          {run.agentSnapshot.name} · {statusLabel[run.status]}
-                        </Button>
-                        <small>
-                          {run.runnerName}
-                          {run.checksDeferred
-                            ? ' · Checks deferred until finish'
-                            : ''}
-                        </small>
-                      </li>
-                    ))}
-                  </ol>
-                </section>
-                {task.inputs?.length > 0 && (
-                  <section
-                    className="collaboration-history"
-                    aria-label="Team input"
-                  >
-                    <h3>Team input</h3>
-                    {task.inputs.map((input) => (
-                      <article key={input.id}>
-                        <strong>{input.authorName}</strong>
-                        <p>{input.content}</p>
-                      </article>
-                    ))}
-                  </section>
-                )}
-              </div>
-            )}
+            <TaskHistory
+              task={task}
+              active={tab === 'activity'}
+              onInspect={onInspect}
+            />
             {tab === 'setup' && (
               <div className="collaboration-tab-content">
                 <section
