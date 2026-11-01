@@ -1377,9 +1377,10 @@ test('checkpoint storage advisories preserve execution readiness and stay read-o
     name: 'Checkpoint storage',
     exact: true,
   });
-  await expect(storage).toContainText('Storage needs attention');
+  await expect(storage).toContainText('Over retained budget · Low disk space');
   await expect(storage).toContainText('12.0 GiB');
-  await expect(storage).toContainText('Quarantine keeps all bytes');
+  await expect(storage).not.toContainText('camp runner');
+  await expect(storage).not.toContainText('Retained budget');
   await expect(runnerDetail(page)).toContainText('Ready for Agent work');
   await expect(runnerDetail(page)).not.toContainText(
     'Execution needs attention',
@@ -1399,8 +1400,8 @@ test('checkpoint storage advisories preserve execution readiness and stay read-o
   await runnerApp(page)
     .getByRole('button', { name: 'Refresh', exact: true })
     .click();
-  await expect(storage).toContainText('at least 12.0 GiB');
-  await expect(storage).toContainText('Free disk: Not observed');
+  await expect(storage).toContainText('At least 12.0 GiB');
+  await expect(storage).toContainText('Free disk not observed');
   await expect(storage).toContainText('Earlier observation');
   runner.capabilities.storage = {
     ...runner.capabilities.storage,
@@ -1416,7 +1417,11 @@ test('checkpoint storage advisories preserve execution readiness and stay read-o
   await runnerDetail(page)
     .getByRole('tab', { name: 'Diagnostics', exact: true })
     .click();
-  await expect(storage).toContainText('Retained: 12.0 GiB');
+  await expect(storage).toContainText('12.0 GiB retained');
+  await expect(storage).toContainText('Retained budget');
+  await expect(storage).toContainText(
+    'camp runner checkpoint storage --data-dir PATH',
+  );
   expect(writes).toBe(0);
   await page.unrouteAll({ behavior: 'wait' });
 });

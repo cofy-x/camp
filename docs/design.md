@@ -18,7 +18,7 @@ Use shared controls and generic icons. Put feature-specific styling with its fea
 
 ## Content and information hierarchy
 
-Lead with current facts and the next useful action. Use grouping, alignment and spacing to make relationships and actions clear. Add secondary labels and descriptions only when they provide information needed to choose, act or recover. Each sentence should support a decision, input or recovery step.
+Lead with current facts and the next useful action. Use grouping, alignment and spacing to make relationships and actions clear. Add secondary labels and descriptions only when they provide information needed to choose, act or recover. Each sentence should support a decision, input or recovery step. When removing copy, first remove repetitions of headings, values and controls; do not replace them with another explanatory paragraph. Keep routine setup instructions and technical procedures in Diagnostics or the owning guide, while errors and consequential choices remain at their controls.
 
 | Information | Placement |
 | --- | --- |
@@ -77,7 +77,7 @@ An empty Room with unavailable execution gives administrators **Set Up Agent Wor
 
 Getting Ready separates model configuration, observed provider responses, Runner self-test reports and recorded native task success. Opening and Refresh Status read the current aggregate without probing dependencies, invoking a model or pausing admission. Preserve the actual observation timestamps; prior observations survive failures and older responses cannot replace newer reports. Optional document readers belong to document preparation, independently of discussion/plain-text work. Model, environment and storage panels load independently. An available runtime or previous connection cannot certify a current successful task. See [readiness ownership](architecture.md#readiness-reporting).
 
-Runners uses a selected-machine list/detail panel: Overview for availability and repair, Access for defaults/grants, Diagnostics for versions/timestamps/history. Agent choice stays in conversation; machine choice stays in Agents/Runners. A submitted request keeps its Runner and explains offline/busy waits.
+Runners uses a selected-machine list/detail panel: Overview for availability and repair, Access for defaults/grants, Diagnostics for versions/timestamps/history. Agent choice stays in conversation; machine choice stays in Agents/Runners. A submitted request keeps its Runner and explains offline/busy waits. Storage advisories in Overview show the warning and retained/free values. Keep policy thresholds, observation timestamps and host commands in Diagnostics; an earlier or incomplete observation remains labelled in Overview. Storage advisories do not change execution readiness.
 
 Connect Runner is a separate persistent view: download, private code, setup and first task. Show installer plus runtime transfer and an offline option. Preserve unfinished input and explain expiry/recovery. First-task success needs actual native work, separately from registration, connectivity and installation self-test. Destructive machine actions confirm their consequences.
 

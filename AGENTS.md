@@ -9,5 +9,6 @@ Use [CONTRIBUTING](CONTRIBUTING.md) for setup/checks and the [documentation map]
 - Preserve explicit execution authorization, frozen inputs, current permissions and exact file versions. Private drafts, collaboration drafts, shared publication, human approval and delivery have distinct owners and transitions.
 - Give each lifecycle one owner. Preserve unsaved work and request IDs after failed/uncertain writes; verify asynchronous ordering, cancellation and recovery.
 - Update callers, relevant tests and the owning contract together. Apply the [UI review checklist](docs/design.md#review-checklist) for interaction changes, including direct before/after PR images. Run applicable checks and report actual outcomes/skips.
+- Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining. Follow [content hierarchy](docs/design.md#content-and-information-hierarchy); keep required inputs, errors, recovery and decision-changing consequences visible where users act.
 
 Follow [documentation maintenance](CONTRIBUTING.md#documentation) for ownership, deduplication and historical evidence. Track unresolved behavior in issues and the owning implementation limits; do not describe planned behavior as shipped.

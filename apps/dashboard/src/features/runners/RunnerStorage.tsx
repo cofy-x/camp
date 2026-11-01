@@ -1,18 +1,15 @@
 import type { Runner } from './api';
 
 const messages: Record<string, string> = {
-  'retained-budget-exceeded':
-    'Retained checkpoint data exceeds the soft budget.',
-  'retained-budget-near':
-    'Retained checkpoint data is approaching the soft budget.',
-  'disk-free-low': 'Free disk space is below the configured minimum.',
-  'observation-incomplete':
-    'The bounded observation is incomplete. Usage may be higher.',
-  'observation-unavailable': 'Storage usage could not be observed.',
+  'retained-budget-exceeded': 'Over retained budget',
+  'retained-budget-near': 'Near retained budget',
+  'disk-free-low': 'Low disk space',
+  'observation-incomplete': 'Incomplete observation',
+  'observation-unavailable': 'Usage unavailable',
 };
 
 function bytes(value: number | null) {
-  if (value === null) return 'Not observed';
+  if (value === null) return 'Not reported';
   for (const [unit, scale] of [
     ['TiB', 2 ** 40],
     ['GiB', 2 ** 30],
@@ -39,39 +36,53 @@ export function RunnerStorage({
       className={details ? 'camp-runner-section' : 'camp-runner-next-step'}
       aria-label="Checkpoint storage"
     >
-      <h3>
-        {storage.level === 'warning'
-          ? 'Storage needs attention'
-          : 'Checkpoint storage'}
-      </h3>
-      {storage.warnings.map((warning) => (
-        <p key={warning}>
-          {messages[warning] ?? 'Check storage on the Runner host.'}
-        </p>
-      ))}
-      <p>
-        Retained: {storage.complete ? '' : 'at least '}
-        {bytes(storage.logicalBytes)}
-        {' · '}Free disk: {bytes(storage.freeBytes)}
-      </p>
-      <p>
-        Soft budget:{' '}
-        {storage.retainedBudgetBytes === 0
-          ? 'Disabled'
-          : bytes(storage.retainedBudgetBytes)}
-        {' · '}Minimum free:{' '}
-        {storage.minFreeBytes === 0 ? 'Disabled' : bytes(storage.minFreeBytes)}
-      </p>
-      <p className="app-muted">
-        {stale ? 'Earlier observation' : 'Observed'} ·{' '}
-        {new Date(storage.observedAt).toLocaleString()}
-      </p>
-      {(details || storage.level !== 'ok') && (
+      <h3>Checkpoint storage</h3>
+      {storage.warnings.length > 0 && (
         <p>
-          Inspect storage on the Runner host with{' '}
-          <code>camp runner checkpoint storage</code> and its Runner data
-          directory. Quarantine keeps all bytes; only an explicit permanent
-          purge can remove them. Storage warnings do not block Agent work.
+          {storage.warnings
+            .map((warning) => messages[warning] ?? 'Check storage')
+            .join(' · ')}
+        </p>
+      )}
+      {(storage.logicalBytes !== null || storage.freeBytes !== null) && (
+        <p>
+          {storage.logicalBytes === null
+            ? 'Retained usage not observed'
+            : `${storage.complete ? '' : 'At least '}${bytes(storage.logicalBytes)} retained`}
+          {' · '}
+          {storage.freeBytes === null
+            ? 'Free disk not observed'
+            : `${bytes(storage.freeBytes)} free`}
+        </p>
+      )}
+      {details && (
+        <dl className="camp-runner-facts">
+          <dt>Retained budget</dt>
+          <dd>
+            {storage.retainedBudgetBytes === 0
+              ? 'Disabled'
+              : bytes(storage.retainedBudgetBytes)}
+          </dd>
+          <dt>Minimum free</dt>
+          <dd>
+            {storage.minFreeBytes === 0
+              ? 'Disabled'
+              : bytes(storage.minFreeBytes)}
+          </dd>
+        </dl>
+      )}
+      {(details || stale) && (
+        <p className="app-muted">
+          {stale ? 'Earlier observation' : 'Observed'} ·{' '}
+          <time dateTime={storage.observedAt}>
+            {new Date(storage.observedAt).toLocaleString()}
+          </time>
+        </p>
+      )}
+      {details && (
+        <p>
+          On the Runner host:{' '}
+          <code>camp runner checkpoint storage --data-dir PATH</code>
         </p>
       )}
     </section>
