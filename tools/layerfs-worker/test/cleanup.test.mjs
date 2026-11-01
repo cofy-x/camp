@@ -289,3 +289,46 @@ test('restore repairs missing referenced bytes even while the journal has pendin
   assert.deepEqual(await captureInventory(c.root), before);
   assert.equal((await inspectStorage(input)).retention.protected, 1);
 });
+
+test('an unapplied restore plan can be cancelled without claiming its batch', async (t) => {
+  const { input, capture } = await fixture(t);
+  await capture();
+  const q = await plan(input, 'quarantine');
+  await apply(input, q);
+  const restore = await plan(input, 'restore', q.batchId);
+  assert.equal(
+    (await cancelCleanup({ ...input, planId: restore.planId })).state,
+    'cancelled',
+  );
+  assert.equal(
+    (await apply(input, await plan(input, 'restore', q.batchId))).state,
+    'complete',
+  );
+});
+
+test('retrying cancellation reconciles a lost batch-clear acknowledgement', async (t) => {
+  const { input, capture } = await fixture(t);
+  const c = await capture();
+  const q = await plan(input, 'quarantine');
+  await assert.rejects(() =>
+    applyCleanupPlan({ ...input, planId: q.planId }, (stage) => {
+      if (stage === 'moved') throw new Error('lost move acknowledgement');
+    }),
+  );
+  const batchFile = path.join(
+    input.dataRoot,
+    'checkpoint-storage/batches',
+    q.batchId + '.json',
+  );
+  const pendingBatch = await readFile(batchFile);
+  await cancelCleanup({ ...input, planId: q.planId });
+  // The operation receipt persisted, but the subsequent batch update was lost.
+  await writeFile(batchFile, pendingBatch, { mode: 0o600 });
+  assert.equal(
+    (await cancelCleanup({ ...input, planId: q.planId })).state,
+    'cancelled',
+  );
+  const restore = await plan(input, 'restore', q.batchId);
+  await apply(input, restore);
+  assert((await captureInventory(c.root)).length > 0);
+});

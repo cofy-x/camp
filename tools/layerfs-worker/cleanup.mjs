@@ -659,10 +659,11 @@ export async function cancelCleanup(input) {
   const savedBatch = await readControl(
     path.join(context.admin, 'batches', plan.batchId + '.json'),
   );
+  const savedOperation = await readControl(
+    path.join(context.admin, 'operations', plan.id + '.json'),
+  );
   const operation =
-    (await readControl(
-      path.join(context.admin, 'operations', plan.id + '.json'),
-    )) ??
+    savedOperation ??
     envelope(context, 'operation', plan.id, {
       planDigest: plan.digest,
       state: 'running',
@@ -676,7 +677,20 @@ export async function cancelCleanup(input) {
     return summary(plan, operation);
   }
   const batch = ownedRecord(context, savedBatch, 'checkpoint-cleanup-batch');
-  if (operation.state === 'complete' || operation.state === 'cancelled')
+  if (!savedOperation && batch.activePlanId !== plan.id) {
+    operation.state = 'cancelled';
+    await persist(context, 'operation', operation);
+    return summary(plan, operation);
+  }
+  if (operation.state === 'complete') {
+    if (batch.activePlanId === plan.id) {
+      batch.activePlanId = null;
+      batch.version++;
+      await persist(context, 'batch', batch);
+    }
+    return summary(plan, operation);
+  }
+  if (operation.state === 'cancelled' && batch.activePlanId !== plan.id)
     return summary(plan, operation);
   if (batch.activePlanId !== plan.id)
     throw failure('Conflict', 'Another operation owns this batch.');
