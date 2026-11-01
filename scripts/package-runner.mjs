@@ -111,6 +111,10 @@ try {
       'state.mjs',
       'references.mjs',
       'retention.mjs',
+      'inventory.mjs',
+      'storage-state.mjs',
+      'storage-budget.mjs',
+      'cleanup.mjs',
       'storage.mjs',
     ])
       await copy(

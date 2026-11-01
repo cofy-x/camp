@@ -129,6 +129,9 @@ func (m *Manager) connect(w http.ResponseWriter, r *http.Request, runner storage
 		switch message.Type {
 		case "heartbeat":
 			err = m.reconcile(ctx, peer, message.Active, message.RequestID)
+			if err == nil && message.Storage != nil {
+				err = m.store.SetRunnerStorageHealth(ctx, runner.ID, peer.epoch, message.Storage)
+			}
 		case "accepted":
 			var attempt storage.Attempt
 			attempt, err = m.store.GetAttempt(ctx, message.OperationID)

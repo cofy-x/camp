@@ -20,6 +20,7 @@ type ReadinessReport struct {
 }
 
 type Capabilities struct {
+	Storage        *StorageHealth   `json:"storage,omitempty"`
 	Platform       string           `json:"platform,omitempty"`
 	Workspace      string           `json:"workspace,omitempty"`
 	Sandbox        string           `json:"sandbox,omitempty"`
@@ -51,22 +52,23 @@ type Hello struct {
 
 // Message is a small control frame. Artifact bytes never travel over this socket.
 type Message struct {
-	Type        string   `json:"type"`
-	RequestID   string   `json:"requestId,omitempty"` // grant echoes its causal hello, heartbeat or acceptance
-	Version     int      `json:"version,omitempty"`
-	Epoch       int64    `json:"epoch,omitempty"`
-	RunnerID    string   `json:"runnerId,omitempty"`
-	Hello       *Hello   `json:"hello,omitempty"`
-	Command     *Command `json:"command,omitempty"`
-	Event       *Event   `json:"event,omitempty"`
-	OperationID string   `json:"operationId,omitempty"`
-	CommandID   string   `json:"commandId,omitempty"`
-	Sequence    int64    `json:"sequence,omitempty"`
-	Disposition string   `json:"disposition,omitempty"`
-	LeaseMS     int64    `json:"leaseMs,omitempty"`
-	LeaseUntil  string   `json:"leaseUntil,omitempty"`
-	Reason      string   `json:"reason,omitempty"`
-	Active      []string `json:"active,omitempty"`
+	Storage     *StorageHealth `json:"storage,omitempty"`
+	Type        string         `json:"type"`
+	RequestID   string         `json:"requestId,omitempty"` // grant echoes its causal hello, heartbeat or acceptance
+	Version     int            `json:"version,omitempty"`
+	Epoch       int64          `json:"epoch,omitempty"`
+	RunnerID    string         `json:"runnerId,omitempty"`
+	Hello       *Hello         `json:"hello,omitempty"`
+	Command     *Command       `json:"command,omitempty"`
+	Event       *Event         `json:"event,omitempty"`
+	OperationID string         `json:"operationId,omitempty"`
+	CommandID   string         `json:"commandId,omitempty"`
+	Sequence    int64          `json:"sequence,omitempty"`
+	Disposition string         `json:"disposition,omitempty"`
+	LeaseMS     int64          `json:"leaseMs,omitempty"`
+	LeaseUntil  string         `json:"leaseUntil,omitempty"`
+	Reason      string         `json:"reason,omitempty"`
+	Active      []string       `json:"active,omitempty"`
 }
 type Command struct {
 	ID          string         `json:"id"`

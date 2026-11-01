@@ -5,6 +5,7 @@ import { useTeam } from '../../team/TeamContext';
 import { workspaceApi } from '../workspace/api';
 import { runnersApi, type Runner, type RunnerSource } from './api';
 import { runnerRuntime } from './presentation';
+import { RunnerStorage } from './RunnerStorage';
 
 function observedAt(value?: string) {
   return value ? new Date(value).toLocaleString() : 'Not reported';
@@ -40,6 +41,7 @@ export function RunnerDiagnostics({ runner }: { runner: Runner }) {
 
   return (
     <div className="camp-runner-diagnostics">
+      <RunnerStorage runner={runner} details />
       <dl className="camp-runner-facts">
         <dt>Runtime</dt>
         <dd>{runnerRuntime(runner)}</dd>

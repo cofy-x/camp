@@ -35,6 +35,7 @@ type Daemon struct {
 	journal          *journal
 	native           *nativeexecutor.Executor
 	readiness        *p.ReadinessReport
+	storage          *p.StorageHealth
 	output           io.Writer
 	mu               sync.Mutex
 	active           map[string]*activeOperation
@@ -159,10 +160,13 @@ func Run(ctx context.Context, config Config, output io.Writer) error {
 		}
 	}
 	workerCtx, stopWorkers := context.WithCancel(ctx)
+	storageDone := make(chan struct{})
+	go func() { defer close(storageDone); d.observeStorage(workerCtx) }()
 	schedulerDone := make(chan struct{})
 	go func() { defer close(schedulerDone); d.schedule(workerCtx) }()
 	defer func() {
 		stopWorkers()
+		<-storageDone
 		<-schedulerDone
 		d.mu.Lock()
 		for _, active := range d.active {
@@ -228,8 +232,10 @@ func (d *Daemon) cancelAll() {
 func (d *Daemon) capabilities() p.Capabilities {
 	d.mu.Lock()
 	failure := d.failure
+	storage := d.storage
 	d.mu.Unlock()
 	c := p.Capabilities{Readiness: d.readiness, Executor: d.config.Executor, Ready: failure == nil, Slots: d.config.Slots, Fingerprint: fmt.Sprintf("camp-remote-v%d:%s:%s:%s", p.Version, runtime.GOOS, runtime.GOARCH, d.config.Executor)}
+	c.Storage = storage
 	c.Platform = runtime.GOOS + "/" + runtime.GOARCH
 	if d.config.Executor == "native" && d.native != nil {
 		facts := d.native.Facts()
@@ -330,6 +336,7 @@ func (d *Daemon) connect(ctx context.Context) error {
 	outbox := time.NewTicker(250 * time.Millisecond)
 	defer outbox.Stop()
 	var epoch int64
+	var storageSent string
 	send := func(message p.Message) error {
 		message.Epoch = epoch
 		writeCtx, cancel := context.WithTimeout(sessionCtx, 10*time.Second)
@@ -418,8 +425,18 @@ func (d *Daemon) connect(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			if err = send(p.Message{Type: "heartbeat", RequestID: d.newGrantRequest(), Active: active}); err != nil {
+			message := p.Message{Type: "heartbeat", RequestID: d.newGrantRequest(), Active: active}
+			d.mu.Lock()
+			observed := d.storage
+			d.mu.Unlock()
+			if observed != nil && observed.ObservedAt != storageSent {
+				message.Storage = observed
+			}
+			if err = send(message); err != nil {
 				return err
+			}
+			if observed != nil {
+				storageSent = observed.ObservedAt
 			}
 		case <-outbox.C:
 			events, err := d.journal.events(ctx)

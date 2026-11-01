@@ -57,4 +57,19 @@ func TestStatusDistinguishesRegistrationConnectionAndReadiness(t *testing.T) {
 	if value := read(); value.Connection != "not recently observed" {
 		t.Fatal("Old observations were presented as live", value)
 	}
+	health := &p.StorageHealth{Schema: 1, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano), Level: "notice", Warnings: []string{"observation-unavailable"}}
+	if err := writeStorageObservation(config, health); err != nil {
+		t.Fatal(err)
+	}
+	if value := read(); value.Storage == nil || value.Readiness == nil || value.Readiness.Ready {
+		t.Fatal("Storage advisory changed readiness", value)
+	}
+	foreign := config
+	foreign.StorageID = "different-storage"
+	if err := writeStorageObservation(foreign, health); err != nil {
+		t.Fatal(err)
+	}
+	if value := read(); value.Storage != nil {
+		t.Fatal("Foreign storage observation was exposed", value)
+	}
 }

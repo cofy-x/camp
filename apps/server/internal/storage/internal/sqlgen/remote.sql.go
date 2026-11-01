@@ -1273,6 +1273,30 @@ func (q *Queries) SetRunnerConnectionIssue(ctx context.Context, arg SetRunnerCon
 	return err
 }
 
+const setRunnerStorageHealth = `-- name: SetRunnerStorageHealth :execrows
+UPDATE runners SET capabilities=json_set(capabilities,'$.storage',json(?1)),updated_at=?2 WHERE id=?3 AND connection_generation=?4
+`
+
+type SetRunnerStorageHealthParams struct {
+	Storage    interface{}
+	UpdatedAt  string
+	ID         string
+	Generation int64
+}
+
+func (q *Queries) SetRunnerStorageHealth(ctx context.Context, arg SetRunnerStorageHealthParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setRunnerStorageHealth,
+		arg.Storage,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.Generation,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const touchRunner = `-- name: TouchRunner :execrows
 UPDATE runners SET last_seen_at=? WHERE id=? AND connection_generation=? AND enabled=1 AND revoked=0
 `

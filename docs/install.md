@@ -138,7 +138,7 @@ Back up the whole stopped Runner directory, including captures and operation rec
 
 ### Inspect Mac checkpoint storage
 
-Stop the owning Runner and its native jobs, then inspect its private directory:
+Inspect the owning Runner’s private directory. A running Runner permits a read-only live overview; stop it and its native jobs for a stable cleanup preview:
 
 ```sh
 ./camp runner checkpoint storage --data-dir /absolute/private/runner
@@ -147,7 +147,23 @@ Stop the owning Runner and its native jobs, then inspect its private directory:
 
 The ordinary Mac runtime includes this offline inspector; a worker, Docker and model credentials are unnecessary. It reports retained local captures, native recovery entries, logical bytes and observed allocated blocks. Linux Store and VM storage remain explicitly unobserved. APFS clones and hardlinks make these observations unsuitable as a reclaimable-space estimate.
 
-The [retention preview](layerfs-worker.md#storage-inspection-and-retention-preview) protects all referenced history, pending operations, reconstruction lineage and native recovery entries. Unreferenced sealed captures are inspection items, not permission to remove them. No data is removed, background service started or model request made. Incomplete metadata produces a partial report and a nonzero exit; `--json` still returns that report. Keep the stopped backup and use recovery commands before considering a cleanup policy.
+The [storage lifecycle contract](layerfs-worker.md#storage-inspection-and-retention-preview) protects all referenced history, pending operations, reconstruction lineage and native recovery entries. Inspection never removes data, starts a worker or makes a model request. Incomplete metadata produces a partial report and a nonzero exit; `--json` still returns that report. A live overview disables cleanup candidates.
+
+Native Mac Runners sample retained storage every five minutes and report advisory warnings in Runners and `runner status`. The default soft budget is 10 GiB retained logical bytes, with a warning near 80%; the free-volume threshold is 2 GiB. Quarantine bytes count toward usage. Partial/unavailable observations remain explicit. Warnings never stop Agent work or delete data; this is not a hard disk quota.
+
+Stop the Runner and its jobs before changing its host-owned policy or cleaning up. Keep a stopped backup, inspect first, then use exact plan IDs:
+
+```sh
+./camp runner checkpoint budget --data-dir /absolute/private/runner --retained-budget 10GiB --min-free 2GiB
+./camp runner checkpoint cleanup plan --data-dir /absolute/private/runner
+./camp runner checkpoint cleanup apply --data-dir /absolute/private/runner --plan PLAN_ID
+./camp runner checkpoint cleanup status --data-dir /absolute/private/runner --plan PLAN_ID
+./camp runner checkpoint cleanup plan --data-dir /absolute/private/runner --action restore --batch BATCH_ID
+```
+
+Sizes accept integer bytes or B/KiB/MiB/GiB/TiB; zero disables the corresponding threshold. `budget` without size flags shows the current policy. The quarantine plan lists only eligible unreferenced sealed captures and returns its batch ID. Applying it atomically moves those captures into private quarantine without freeing space. Apply the separate restore plan’s ID to return the exact bytes without overwriting work. Interrupted moves resume with their original plan ID; `cleanup cancel --plan PLAN_ID` releases a quarantine/restore operation and preserves its moved subset for a fresh restore plan.
+
+Only `cleanup plan --action purge --batch BATCH_ID`, followed by `cleanup apply --plan PURGE_PLAN_ID --confirm-permanent`, permanently removes that quarantine batch. Permanent purge cannot be undone; an interrupted purge must resume with its original ID. A changed journal, reference graph or retained bytes rejects a stale plan. Referenced history has no expiration policy, and no background cleanup runs.
 
 ## Choose operation mode
 
