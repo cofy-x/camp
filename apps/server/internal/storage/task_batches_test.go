@@ -306,11 +306,26 @@ func TestTaskRunnerDowngradeBeforeActivationCannotInstallBoundedCommand(t *testi
 	if _, err = s.ActivateAttempt(ctx, a.ID, prepared); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = s.db.Exec(`UPDATE runners SET capabilities=json_set(capabilities,'$.taskInputsVersion',0) WHERE id=?`, run.RunnerID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.ValidateAttempt(ctx, a.ID, run.RunnerID, true)
+	requireCode(t, err, "runner_upgrade_required")
+	_, err = s.AcceptAttempt(ctx, a.ID, run.RunnerID)
+	requireCode(t, err, "runner_upgrade_required")
+	enableTaskInputs(t, s, run.RunnerID)
 	if _, err = s.AcceptAttempt(ctx, a.ID, run.RunnerID); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err = s.TaskReadCapability(ctx, a.ID, ""); err == nil {
 		t.Fatal("missing owning machine identity acquired a grant")
+	}
+	if _, err = s.db.Exec(`UPDATE runners SET capabilities=json_set(capabilities,'$.taskInputsVersion',0) WHERE id=?`, run.RunnerID); err != nil {
+		t.Fatal(err)
+	}
+	requireCode(t, s.BeginAttemptModel(ctx, a.ID, run.RunnerID), "runner_upgrade_required")
+	if _, err = s.BeginFinalizing(ctx, a.ID, run.RunnerID); err != nil {
+		t.Fatal("downgrade prevented cleanup and result persistence", err)
 	}
 }
 

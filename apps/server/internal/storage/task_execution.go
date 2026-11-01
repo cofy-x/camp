@@ -49,16 +49,21 @@ func validateTaskAttempt(ctx context.Context, q *sqlgen.Queries, r Run, a Attemp
 	if t.CheckpointCommit != r.InputCommit || r.BaselineCommit != r.InputCommit {
 		return problem("stale_attempt", "The collaboration draft changed before this result.")
 	}
-	if !allowCancelled {
-		if t.Status != "running" {
-			return problem("run_cancelled", "This collaboration no longer authorizes execution.")
-		}
+	// Unsent commands and acceptance must still match the Runner capability.
+	// An executing/uploading result can finish cleanup and persistence after a
+	// downgrade; it cannot obtain another model/history read authorization.
+	if r.TaskInputProtocol != 0 && (!allowCancelled || a.Phase == "dispatching") {
 		runner, err := q.GetRunner(ctx, r.RunnerID)
 		if err != nil {
 			return err
 		}
 		if err = taskInputRunnerCompatible(runner.Capabilities, r.TaskInputProtocol); err != nil {
 			return err
+		}
+	}
+	if !allowCancelled {
+		if t.Status != "running" {
+			return problem("run_cancelled", "This collaboration no longer authorizes execution.")
 		}
 		if e = authorizeTask(ctx, q, t); e != nil {
 			return problem("run_cancelled", e.Error())
