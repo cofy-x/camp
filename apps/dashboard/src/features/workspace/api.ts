@@ -64,6 +64,7 @@ export interface Resource {
   sourcePath: string;
   currentCommit: string;
   environment: Environment | null;
+  revision: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -365,9 +366,15 @@ export const workspaceApi = {
     request<{ run: Run }>(`/runs/${id(runId)}/cancel`, json('POST', {})),
   importResource: (name: string, path: string) =>
     request<{ resource: Resource }>('/resources', json('POST', { name, path })),
+  resource: (resourceId: string, signal?: AbortSignal) =>
+    request<{ resource: Resource }>(`/resources/${id(resourceId)}`, { signal }),
   saveResource: (
     resourceId: string,
-    value: { name?: string; environment?: Environment | null },
+    value: {
+      expectedRevision: number;
+      name?: string;
+      environment?: Environment | null;
+    },
   ) =>
     request<{ resource: Resource }>(
       `/resources/${id(resourceId)}`,

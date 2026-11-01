@@ -1,31 +1,12 @@
-import { mkdir, readdir, realpath } from 'node:fs/promises';
+import { mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { WorkerClient } from './client.mjs';
 import { MacCheckpoints, resolveCapture } from './checkpoint.mjs';
 import { uuidPattern } from './contracts.mjs';
 import { failure, readState } from './state.mjs';
+import { selectedEpoch } from './references.mjs';
 
-export async function selectedEpoch(home) {
-  const selected = await readState(path.join(home, 'current.json'));
-  if (!selected) return { epoch: 'initial', root: home };
-  if (
-    selected.schema !== 1 ||
-    !uuidPattern.test(selected.epoch) ||
-    !uuidPattern.test(selected.storeId)
-  )
-    throw failure(
-      'Unknown',
-      'The selected worker epoch is incompatible; it is retained for explicit recovery.',
-    );
-  const root = path.join(home, 'epochs', selected.epoch);
-  const resolved = await realpath(root);
-  if (resolved !== root)
-    throw failure(
-      'Unauthorized',
-      'Worker epoch storage cannot be a filesystem alias.',
-    );
-  return { ...selected, root };
-}
+export { selectedEpoch } from './references.mjs';
 
 export async function openHome(config) {
   const selected = await selectedEpoch(config.home);

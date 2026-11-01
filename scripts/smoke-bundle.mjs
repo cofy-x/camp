@@ -640,6 +640,8 @@ try {
   });
   assert.equal(discussion.runs.length, 0);
   await api(`/api/resources/${room.resourceId}`, 'PATCH', {
+    expectedRevision: (await api(`/api/resources/${room.resourceId}`)).resource
+      .revision,
     environment: {
       kind: 'command',
       checks: [{ name: 'test', arguments: ['node', '--test'] }],
@@ -714,6 +716,50 @@ try {
       'actual packaged Runner SIGKILL after confirmed result; uncertain coordinator/worker faults qualified separately';
   } else await stop(runner);
   runner = undefined;
+  const checkpointAt = async (dataRoot, action, extra = []) => {
+    const child = spawn(
+      runnerBinary,
+      ['runner', 'checkpoint', action, '--data-dir', dataRoot, ...extra],
+      { cwd, env: runnerEnv, stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    let output = '',
+      diagnostic = '';
+    child.stdout.on('data', (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      diagnostic = `${diagnostic}${chunk}`.slice(-8192);
+    });
+    const exit = await new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', resolve);
+    });
+    assert.equal(exit, 0, diagnostic);
+    return JSON.parse(output);
+  };
+  let checkpointStorage;
+  if (mac) {
+    const config = await readFile(path.join(runnerData, 'daemon.json'));
+    const journal = await readFile(path.join(runnerData, 'journal.sqlite'));
+    checkpointStorage = await checkpointAt(runnerData, 'storage', ['--json']);
+    assert.equal(checkpointStorage.complete, true);
+    assert.equal(checkpointStorage.retention.deletionSupported, false);
+    assert.equal(checkpointStorage.workerStore.observed, false);
+    if (checkpointWorker) assert(checkpointStorage.retention.protected > 0);
+    assert.deepEqual(
+      await readFile(path.join(runnerData, 'daemon.json')),
+      config,
+    );
+    assert.deepEqual(
+      await readFile(path.join(runnerData, 'journal.sqlite')),
+      journal,
+    );
+    assert.equal(
+      calls,
+      2,
+      'Offline storage inspection replayed a model request',
+    );
+  }
   if (checkpointWorker) {
     const journal = await readFile(path.join(runnerData, 'journal.sqlite'));
     for (const backend of ['native-local', 'layerfs-worker']) {
@@ -834,34 +880,8 @@ try {
       await readFile(path.join(restoredRunner, 'journal.sqlite')),
       await readFile(path.join(runnerData, 'journal.sqlite')),
     );
-    const checkpoint = async (action, extra = []) => {
-      const command = spawn(
-        runnerBinary,
-        [
-          'runner',
-          'checkpoint',
-          action,
-          '--data-dir',
-          restoredRunner,
-          ...extra,
-        ],
-        { cwd, env: runnerEnv, stdio: ['ignore', 'pipe', 'pipe'] },
-      );
-      let output = '',
-        diagnostic = '';
-      command.stdout.on('data', (chunk) => {
-        output += chunk;
-      });
-      command.stderr.on('data', (chunk) => {
-        diagnostic = `${diagnostic}${chunk}`.slice(-8192);
-      });
-      const exit = await new Promise((resolve, reject) => {
-        command.once('error', reject);
-        command.once('close', resolve);
-      });
-      assert.equal(exit, 0, diagnostic);
-      return JSON.parse(output);
-    };
+    const checkpoint = (action, extra = []) =>
+      checkpointAt(restoredRunner, action, extra);
     const retained = await checkpoint('status');
     assert.equal(
       retained.workerObserved,
@@ -1032,6 +1052,7 @@ try {
         platform: process.platform,
         architecture: process.arch,
         timings,
+        ...(checkpointStorage ? { checkpointStorage } : {}),
         model: {
           kind: 'deterministic-local-provider',
           requests: calls,
@@ -1050,7 +1071,12 @@ try {
           'human-approval-and-delivery',
           'stopped-backup-and-restore',
           'cleanup',
-          ...(mac ? ['launchd-background-lifecycle'] : []),
+          ...(mac
+            ? [
+                'launchd-background-lifecycle',
+                'offline-checkpoint-storage-without-model-replay',
+              ]
+            : []),
           ...(checkpointWorker
             ? [
                 'actual-runner-kill-and-restart',

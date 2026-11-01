@@ -83,6 +83,7 @@ type Resource struct {
 	SourcePath    string          `json:"-"`
 	CurrentCommit string          `json:"currentCommit"`
 	Environment   json.RawMessage `json:"environment"`
+	Revision      int64           `json:"revision"`
 	CreatedAt     string          `json:"createdAt"`
 	UpdatedAt     string          `json:"updatedAt"`
 }

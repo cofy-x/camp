@@ -136,6 +136,19 @@ The restore parent must exist, belong to the operator and have mode 700; restora
 
 Back up the whole stopped Runner directory, including captures and operation receipts. Relative capture references support relocation of that backup; a Linux Disposable Store is still separate and can require explicit reconstruction. Keep the previous runtime and backup while upgrading. Existing absolute-only experimental receipts that escape the restored home require explicit inspection rather than guessed paths.
 
+### Inspect Mac checkpoint storage
+
+Stop the owning Runner and its native jobs, then inspect its private directory:
+
+```sh
+./camp runner checkpoint storage --data-dir /absolute/private/runner
+./camp runner checkpoint storage --data-dir /absolute/private/runner --json
+```
+
+The ordinary Mac runtime includes this offline inspector; a worker, Docker and model credentials are unnecessary. It reports retained local captures, native recovery entries, logical bytes and observed allocated blocks. Linux Store and VM storage remain explicitly unobserved. APFS clones and hardlinks make these observations unsuitable as a reclaimable-space estimate.
+
+The [retention preview](layerfs-worker.md#storage-inspection-and-retention-preview) protects all referenced history, pending operations, reconstruction lineage and native recovery entries. Unreferenced sealed captures are inspection items, not permission to remove them. No data is removed, background service started or model request made. Incomplete metadata produces a partial report and a nonzero exit; `--json` still returns that report. Keep the stopped backup and use recovery commands before considering a cleanup policy.
+
 ## Choose operation mode
 
 Foreground `run` is enough. On systemd hosts an operator can separately choose:

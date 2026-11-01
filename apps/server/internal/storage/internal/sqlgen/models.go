@@ -134,6 +134,7 @@ type Resource struct {
 	Environment   string
 	CreatedAt     string
 	UpdatedAt     string
+	Revision      int64
 }
 
 type ResourcePublication struct {

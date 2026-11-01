@@ -519,7 +519,7 @@ func TestRemoteRejectsCorruptChecksAndUnsafeArchives(t *testing.T) {
 		t.Fatal(err)
 	}
 	resource.Environment, _ = json.Marshal(projectenv.Profile{Kind: "command", Checks: []projectenv.Check{{Name: "verify", Arguments: []string{"true"}}}})
-	if _, err = h.store.UpdateResource(h.actor, resource); err != nil {
+	if resource, err = h.store.UpdateResource(h.actor, resource); err != nil {
 		t.Fatal(err)
 	}
 	badCheck := h.finished(t, h.send(t, room, agent, "[fixture:corrupt-check]").ID)
@@ -527,7 +527,7 @@ func TestRemoteRejectsCorruptChecksAndUnsafeArchives(t *testing.T) {
 		t.Fatal(badCheck)
 	}
 	resource.Environment = json.RawMessage(`{}`)
-	if _, err = h.store.UpdateResource(h.actor, resource); err != nil {
+	if resource, err = h.store.UpdateResource(h.actor, resource); err != nil {
 		t.Fatal(err)
 	}
 	badArchive := h.barrier(t, h.send(t, room, agent, "[fixture:wait]").ID)

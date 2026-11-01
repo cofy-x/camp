@@ -184,6 +184,10 @@ func (a *API) roomRoutes(mux *http.ServeMux) {
 		v, e := a.store.ListResources(r.Context())
 		a.respond(w, r, map[string]any{"resources": v}, e)
 	})
+	register("GET /api/resources/{id}", func(w http.ResponseWriter, r *http.Request) {
+		v, e := a.store.GetResource(r.Context(), r.PathValue("id"))
+		a.respond(w, r, map[string]any{"resource": v}, e)
+	})
 	register("POST /api/resources", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Name        string          `json:"name"`
@@ -385,17 +389,27 @@ func (a *API) updateAgent(w http.ResponseWriter, r *http.Request) {
 }
 func (a *API) updateResource(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name        *string         `json:"name"`
-		Environment json.RawMessage `json:"environment"`
+		Name             *string         `json:"name"`
+		Environment      json.RawMessage `json:"environment"`
+		ExpectedRevision *int64          `json:"expectedRevision"`
 	}
 	if !decode(w, r, &in, 65536) {
 		return
 	}
-	v, e := a.store.GetResource(r.Context(), r.PathValue("id"))
+	v, e := a.store.WorkingResource(r.Context(), r.PathValue("id"))
 	if e != nil {
 		a.fail(w, r, e)
 		return
 	}
+	if in.ExpectedRevision == nil {
+		writeError(w, http.StatusPreconditionRequired, "revision_required", "Read the resource and include expectedRevision before saving settings.")
+		return
+	}
+	if *in.ExpectedRevision < 1 {
+		writeError(w, http.StatusBadRequest, "invalid_resource", "Use a positive resource configuration revision.")
+		return
+	}
+	v.Revision = *in.ExpectedRevision
 	if in.Name != nil {
 		v.Name = *in.Name
 	}

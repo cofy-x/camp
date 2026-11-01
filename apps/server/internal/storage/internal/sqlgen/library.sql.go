@@ -107,7 +107,7 @@ func (q *Queries) GetResourcePublication(ctx context.Context, id string) (Resour
 }
 
 const listLibraryResources = `-- name: ListLibraryResources :many
-SELECT id, name, source_path, current_commit, environment, created_at, updated_at FROM resources ORDER BY updated_at DESC,id
+SELECT id, name, source_path, current_commit, environment, created_at, updated_at, revision FROM resources ORDER BY updated_at DESC,id
 `
 
 func (q *Queries) ListLibraryResources(ctx context.Context) ([]Resource, error) {
@@ -127,6 +127,7 @@ func (q *Queries) ListLibraryResources(ctx context.Context) ([]Resource, error) 
 			&i.Environment,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Revision,
 		); err != nil {
 			return nil, err
 		}

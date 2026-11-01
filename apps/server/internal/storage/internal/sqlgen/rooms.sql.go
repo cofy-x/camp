@@ -523,7 +523,7 @@ func (q *Queries) GetMessage(ctx context.Context, id string) (Message, error) {
 }
 
 const getResource = `-- name: GetResource :one
-SELECT id, name, source_path, current_commit, environment, created_at, updated_at FROM resources WHERE id=?
+SELECT id, name, source_path, current_commit, environment, created_at, updated_at, revision FROM resources WHERE id=?
 `
 
 func (q *Queries) GetResource(ctx context.Context, id string) (Resource, error) {
@@ -537,6 +537,7 @@ func (q *Queries) GetResource(ctx context.Context, id string) (Resource, error) 
 		&i.Environment,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Revision,
 	)
 	return i, err
 }
@@ -862,7 +863,7 @@ func (q *Queries) ListQueuedRuns(ctx context.Context) ([]string, error) {
 }
 
 const listResources = `-- name: ListResources :many
-SELECT id, name, source_path, current_commit, environment, created_at, updated_at FROM resources WHERE NOT EXISTS(SELECT 1 FROM room_uploads u WHERE u.resource_id=resources.id) ORDER BY created_at,id
+SELECT id, name, source_path, current_commit, environment, created_at, updated_at, revision FROM resources WHERE NOT EXISTS(SELECT 1 FROM room_uploads u WHERE u.resource_id=resources.id) ORDER BY created_at,id
 `
 
 func (q *Queries) ListResources(ctx context.Context) ([]Resource, error) {
@@ -882,6 +883,7 @@ func (q *Queries) ListResources(ctx context.Context) ([]Resource, error) {
 			&i.Environment,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Revision,
 		); err != nil {
 			return nil, err
 		}
@@ -1284,25 +1286,31 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (int64
 	return result.RowsAffected()
 }
 
-const updateResource = `-- name: UpdateResource :exec
-UPDATE resources SET name=?,environment=?,updated_at=? WHERE id=?
+const updateResource = `-- name: UpdateResource :execrows
+UPDATE resources SET name=?1,environment=?2,updated_at=?3,revision=revision+1
+WHERE id=?4 AND revision=?5
 `
 
 type UpdateResourceParams struct {
-	Name        string
-	Environment string
-	UpdatedAt   string
-	ID          string
+	Name             string
+	Environment      string
+	UpdatedAt        string
+	ID               string
+	ExpectedRevision int64
 }
 
-func (q *Queries) UpdateResource(ctx context.Context, arg UpdateResourceParams) error {
-	_, err := q.db.ExecContext(ctx, updateResource,
+func (q *Queries) UpdateResource(ctx context.Context, arg UpdateResourceParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateResource,
 		arg.Name,
 		arg.Environment,
 		arg.UpdatedAt,
 		arg.ID,
+		arg.ExpectedRevision,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateRoom = `-- name: UpdateRoom :exec

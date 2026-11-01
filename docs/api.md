@@ -97,7 +97,8 @@ Run states are `queued`, `preparing`, `running`, `checking`, `cancelling`, `succ
 | GET | `/api/library` | `{resources,rooms}` including immutable/source metadata |
 | GET | `/api/resources` | Working resources |
 | POST | `/api/resources` | Admin Server-directory import `{name,path,environment?}` within operator allowlist |
-| PATCH | `/api/resources/:id` | Admin `{name?,environment?}`; no revision precondition |
+| GET | `/api/resources/:id` | `{resource}` including configuration `revision` |
+| PATCH | `/api/resources/:id` | Admin `{expectedRevision,name?,environment?}`; atomic configuration precondition |
 | GET | `/api/resources/:id/files?commit=...` | `{files,commit}` |
 | GET | `/api/resources/:id/file?commit=...&path=...` | Exact attachment bytes |
 | GET | `/api/resources/:id/history?before=seq` | `{publications}`, descending page |
@@ -105,6 +106,8 @@ Run states are `queued`, `preparing`, `running`, `checking`, `cancelling`, `succ
 | PUT | `/api/resources/:id/files` | `{requestId,expectedCommit,path,content}` |
 | POST | `/api/resources/:id/restore` | `{requestId,expectedCommit,commit}` |
 | POST | `/api/resources/:id/copy-file` | `{requestId,expectedCommit,path,sourceResourceId,sourceCommit,sourcePath}` |
+
+Resource `revision` versions configuration (name/environment), independently of the files' `currentCommit`. Read it before PATCH and send `expectedRevision`; omission returns 428 `revision_required`, an invalid value returns 400, and a stale value returns 409 `resource_conflict`. Only the matching configuration update increments it and emits an event. Existing resources migrate to revision 1 without changing their files or settings. Read back the current Resource after an uncertain response rather than replaying a write blindly. Older browser clients must refresh to use the current settings editor.
 
 Publication returns `{resource,publication}`. Human edits/restores share the durable Resource writer lease with ordinary Agent publication and require baseline CAS. 409 `resource_busy`/`revision_conflict` must preserve the private draft. Actor × Resource × request receipts prevent duplicate publication. Restore creates a new commit; copy preserves binary bytes; originals cannot become writable in place. The text editor accepts UTF-8 up to 1 MiB. File capture limits are defined by [resource ingestion](../apps/server/internal/resources/content.go): 10,000 files, 8 MiB/file and 128 MiB total, with credential-name/path/type rejection.
 

@@ -126,7 +126,7 @@ func (s *Store) RegisterRoomUpload(ctx context.Context, room, requestID, resourc
 			return err
 		}
 		createdAt := now()
-		resource := Resource{ID: resourceID, Name: "Uploaded file", CurrentCommit: commit, Environment: json.RawMessage(`{}`), CreatedAt: createdAt, UpdatedAt: createdAt}
+		resource := Resource{ID: resourceID, Name: "Uploaded file", CurrentCommit: commit, Environment: json.RawMessage(`{}`), Revision: 1, CreatedAt: createdAt, UpdatedAt: createdAt}
 		if err := createResource(ctx, q, resource); err != nil {
 			return err
 		}

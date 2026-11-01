@@ -85,6 +85,8 @@ export async function main(args = process.argv.slice(2)) {
     const expected =
       '# Camp Collaboration\nStatus: reviewed\nExecution: two native runners\n';
     await api(`/api/resources/${room.resourceId}`, 'PATCH', {
+      expectedRevision: (await api(`/api/resources/${room.resourceId}`))
+        .resource.revision,
       environment: {
         kind: 'command',
         checks: [

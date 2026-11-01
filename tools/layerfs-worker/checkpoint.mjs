@@ -3,6 +3,9 @@ import { mkdir, mkdtemp } from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { failure, readState, saveState } from './state.mjs';
+import { resolveCapture } from './references.mjs';
+
+export { resolveCapture } from './references.mjs';
 import {
   captureTree,
   loadCapture,
@@ -10,38 +13,6 @@ import {
   manifestDigest,
 } from './tree.mjs';
 import { checkpointPattern, validateBinding } from './contracts.mjs';
-
-export function resolveCapture(record, base) {
-  if (!record) return record;
-  if (record.captureRelative !== undefined) {
-    const name = record.captureRelative;
-    if (
-      typeof name !== 'string' ||
-      !name ||
-      path.isAbsolute(name) ||
-      name.includes('\\') ||
-      name.includes('\0') ||
-      name.split('/').some((part) => !part || part === '.' || part === '..')
-    )
-      throw failure(
-        'Unauthorized',
-        'The retained capture reference escapes its owning home.',
-      );
-    return { ...record, captureRoot: path.join(base, name) };
-  }
-  const relative = path.relative(base, record.captureRoot);
-  if (
-    !relative ||
-    relative === '..' ||
-    relative.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relative)
-  )
-    throw failure(
-      'RelocatedLegacyCapture',
-      'An absolute-only capture receipt is retained for explicit inspection; its relocated path is not guessed.',
-    );
-  return record;
-}
 
 export class MacCheckpoints {
   constructor({
