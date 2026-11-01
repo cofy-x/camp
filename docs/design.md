@@ -81,7 +81,7 @@ Runners uses a selected-machine list/detail panel: Overview for availability and
 
 Connect Runner is a separate persistent view: download, private code, setup and first task. Show installer plus runtime transfer and an offline option. Preserve unfinished input and explain expiry/recovery. First-task success needs actual native work, separately from registration, connectivity and installation self-test. Destructive machine actions confirm their consequences.
 
-Collaboration start shows goal, participants, first Agent, finite allowance and unpublished draft before submission. Task detail leads with recorded state and version-specific files. Overview, Activity and Task setup separate result, turns and authorization; questions/errors/continuation stay visible outside tabs. Late inputs apply to the next round. Work completed does not establish approval/delivery.
+Collaboration start shows goal, participants, first Agent, finite allowance and unpublished draft before submission. Task detail leads with recorded state and version-specific files. Overview, Activity and Task setup separate result, turns and authorization; questions/errors/continuation stay visible outside tabs. Activity reads bounded input and turn pages. Live updates retain the current frozen input range, navigation anchors, unfinished text and uncertain write identity. New inputs are opened explicitly; history read failures retry the same range. Late inputs apply to the next round. Work completed does not establish approval/delivery.
 
 ## Review checklist
 

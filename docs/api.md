@@ -213,13 +213,19 @@ Any enabled member can start a task, add inputs and answer an open question. Onl
 | --- | --- | --- |
 | POST | `/api/rooms/:id/tasks` | `{requestId,goal,participantAgentIds,firstAgentId,threadRootId?,references?}` → `{task}` |
 | GET | `/api/rooms/:id/tasks` | `{tasks}` |
-| GET | `/api/tasks/:id` | `{task,runs}` |
+| GET | `/api/tasks/:id` | Legacy `{task,runs}`; `?view=summary` returns `{task}` without histories |
+| GET | `/api/tasks/:id/inputs` | `{items,through,nextAfter,hasMore}`; `after?,through?,limit?` |
+| GET | `/api/tasks/:id/runs` | `{items,nextCursor}`; `cursor?,limit?` |
 | POST | `/api/tasks/:id/inputs` | `{requestId,content}` |
 | POST | `/api/tasks/:id/answers` | `{requestId,revision,questionId,content}` |
 | POST | `/api/tasks/:id/continue` | `{requestId,revision,agentId?,content?,addTurns?,addModelRequests?,fromLatest?,participantAgentIds?}` |
 | POST | `/api/tasks/:id/cancel` | `{requestId,revision}` |
 
-Operations return `{task}` and persist user/scope/request receipts. Identical replay precedes later revision/status checks; changed content conflicts. Answers are first-valid-submission wins. Initial allowance is **6 executing rounds and 24 model requests**; one explicit continuation can add at most 24 rounds and 96 requests. Waiting consumes neither. Effective per-Run limits remain in [model configuration](dsh.md#configuration-and-budgets).
+Task lists and mutations also accept `view=summary`, omitting `task.inputs` and full Run snapshots. Metadata includes `inputRevision` (highest committed input), `inputBytes` (original content bytes) and `coveredInputRevision` (prefix included in accepted successful rounds). Input pages contain whole originals with task-local `seq` and the original Message ID, author, content and timestamp. Omit `through` to capture the current input frontier; carry it on subsequent pages. `after` is exclusive and `through` inclusive. Pages are capped at 20 entries and 64 KiB of encoded JSON, including escaping; they never truncate an input. Run pages contain bounded display metadata, ordered by creation time and ID, with an opaque task-scoped keyset cursor. Both endpoints require the same enabled-member visibility as task detail. Invalid bounds/cursors return `invalid_page` (400).
+
+The Dashboard uses summary reads and separate history pages. The existing 128-input / 64 KiB total content and 8192-byte per-input admission limits remain active until bounded round context and Runner read capabilities are implemented. Legacy detail and mutation responses still include the accepted input prefix. A future oversized history requires pagination (`task_pagination_required`, 409) before a new legacy mutation; accepted receipts resolve first.
+
+Operations return `{task}` and persist user/scope/request receipts. Identical replay precedes later revision/status checks; changed content conflicts. Presentation does not change the request hash. New receipts reference their original input frontier; legacy receipt bytes remain unchanged. Replay never appends inputs admitted after that receipt. Answers are first-valid-submission wins. Initial allowance is **6 executing rounds and 24 model requests**; one explicit continuation can add at most 24 rounds and 96 requests. Waiting consumes neither. Effective per-Run limits remain in [model configuration](dsh.md#configuration-and-budgets).
 
 States are `queued`, `running`, `waiting_for_person`, `needs_attention`, `publishing`, `completed`, `cancelling`, `cancelled`, `interrupted`. A supplied participant set on continuation explicitly refreshes Agent configurations/routes; ordinary continuation keeps the old grant. Each round freezes inputs/checkpoint. Intermediate Runs use `checksDeferred` and do not publish Room files. Final publication requires checks, cleanup, current authority and original shared-baseline CAS. Conflict retains the draft; `fromLatest` explicitly rebases work with the old draft as read-only evidence, without automatic merging. See [task lifecycle](architecture.md#collaboration-tasks).
 

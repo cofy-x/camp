@@ -92,6 +92,8 @@ Storage owns the durable collaboration decision type and its [pure decision rule
 
 Task rounds hold a task fence and advance only `checkpointCommit`. Handoffs and questions defer final checks. A writer finish validates checks and persists `publishing`, then briefly acquires the Resource lease and publishes only against `baseSharedCommit`. Accepted final checkpoints no longer need Runner connectivity. Shared edits during work leave the draft in `needs_attention`. Explicit continuation from latest files mounts the old draft as read-only evidence; no automatic merge or overwrite is allowed.
 
+Task originals live in the append-only `task_inputs` log, with monotonically increasing task-local sequences and unchanged Message identities. Appending the input, Room message, metadata and user request receipt is one transaction. Task snapshots and new receipts store bounded metadata rather than copying the growing input log. A data-preserving migration validates old originals against their messages and backfills their original order; corruption rolls back the migration. Old receipt bytes remain untouched. Paginated reads and summary views are owned by the [task API](api.md#collaborations).
+
 Execution starts consume rounds; each model request is reserved atomically before transmission. Unknown outcomes count and are not retried invisibly. Exhaustion requires another finite grant. Each round freezes its input revision; late inputs must be processed by another round or leave the task paused before finishing. Original goals and explicit inputs outlive bounded ordinary conversation history. Chat and task native sessions have separate scope keys.
 
 Only task rounds expose structured handoff/question/finish tools. The private coordinator seals and drains workspace operations and journals a call-ID/body decision before acknowledging DSH. Intent alone cannot authorize recovery after process death; a complete retained result is required. Server alone schedules a successor and accepts publication. See [execution](dsh.md#collaboration-decisions).
@@ -155,9 +157,9 @@ Address shared-data correctness and contradictions in the shipped workflow first
 
 ### Collaboration input lifetime
 
-Owners: `storage` and `runinput`; tracked in [#69](https://github.com/cofy-x/camp/issues/69). Task inputs currently live in the task snapshot, with at most 128 entries and 64 KiB combined content, and each brief includes the inputs through its round's frozen revision. Original goals and admitted explicit inputs are preserved within these limits.
+Owners: `storage` and `runinput`; tracked in [#69](https://github.com/cofy-x/camp/issues/69). Task inputs now live in an append-only log, with bounded input/run history pages and summary responses used by the Dashboard. Admission still allows at most 128 entries and 64 KiB combined content; each brief includes the full input prefix through its frozen revision. Successful accepted rounds advance a separate coverage frontier; failed/cancelled/interrupted work does not. Original goals and admitted explicit inputs are preserved within these limits.
 
-Longer-lived input storage needs an append-only, data-preserving design with authorized pagination, frozen read cursors and bounded per-round context. Completion requires defined migration/API compatibility and restart, late-input, budget and revocation acceptance. These are follow-up requirements, not implemented paginated task support.
+Removing the lifetime admission limits still requires bounded per-round batches, Room-history filtering, an Attempt-scoped native history-read capability and older-Runner gating. Restart, late-input, budget, revocation and keyless native isolation acceptance must pass before those limits change. Read pagination alone does not provide unlimited execution context or advance coverage.
 
 ### Remote input preparation latency
 

@@ -117,6 +117,29 @@ func (q *Queries) GetTaskRequest(ctx context.Context, arg GetTaskRequestParams) 
 	return i, err
 }
 
+const insertTaskInput = `-- name: InsertTaskInput :exec
+INSERT INTO task_inputs(id,task_id,seq,content_bytes,value) VALUES(?,?,?,?,?)
+`
+
+type InsertTaskInputParams struct {
+	ID           string
+	TaskID       string
+	Seq          int64
+	ContentBytes int64
+	Value        string
+}
+
+func (q *Queries) InsertTaskInput(ctx context.Context, arg InsertTaskInputParams) error {
+	_, err := q.db.ExecContext(ctx, insertTaskInput,
+		arg.ID,
+		arg.TaskID,
+		arg.Seq,
+		arg.ContentBytes,
+		arg.Value,
+	)
+	return err
+}
+
 const listOpenTasks = `-- name: ListOpenTasks :many
 SELECT snapshot FROM collaboration_tasks WHERE status NOT IN ('completed','cancelled','interrupted') ORDER BY created_at,id
 `
@@ -256,4 +279,108 @@ type SetPublicationTaskParams struct {
 func (q *Queries) SetPublicationTask(ctx context.Context, arg SetPublicationTaskParams) error {
 	_, err := q.db.ExecContext(ctx, setPublicationTask, arg.TaskID, arg.ID)
 	return err
+}
+
+const taskInputRange = `-- name: TaskInputRange :many
+SELECT value FROM task_inputs WHERE task_id=?1 AND seq>?2 AND seq<=?3 ORDER BY seq LIMIT ?4
+`
+
+type TaskInputRangeParams struct {
+	TaskID     string
+	AfterSeq   int64
+	ThroughSeq int64
+	PageLimit  int64
+}
+
+func (q *Queries) TaskInputRange(ctx context.Context, arg TaskInputRangeParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, taskInputRange,
+		arg.TaskID,
+		arg.AfterSeq,
+		arg.ThroughSeq,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		items = append(items, value)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const taskRunsPage = `-- name: TaskRunsPage :many
+SELECT id,status,created_at,updated_at,agent_id,
+ CAST(coalesce(json_extract(snapshot,'$.agentSnapshot.name'),'') AS TEXT) AS agent_name,
+ CAST(coalesce(json_extract(snapshot,'$.runnerName'),'') AS TEXT) AS runner_name,
+ CAST(coalesce(json_extract(snapshot,'$.checksDeferred'),0) AS INTEGER) AS checks_deferred
+FROM runs WHERE json_extract(snapshot,'$.taskId')=?1
+ AND (created_at>?2 OR (created_at=?2 AND id>?3))
+ORDER BY created_at,id LIMIT ?4
+`
+
+type TaskRunsPageParams struct {
+	TaskID         string
+	AfterCreatedAt string
+	AfterID        string
+	PageLimit      int64
+}
+
+type TaskRunsPageRow struct {
+	ID             string
+	Status         string
+	CreatedAt      string
+	UpdatedAt      string
+	AgentID        string
+	AgentName      string
+	RunnerName     string
+	ChecksDeferred int64
+}
+
+func (q *Queries) TaskRunsPage(ctx context.Context, arg TaskRunsPageParams) ([]TaskRunsPageRow, error) {
+	rows, err := q.db.QueryContext(ctx, taskRunsPage,
+		arg.TaskID,
+		arg.AfterCreatedAt,
+		arg.AfterID,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TaskRunsPageRow{}
+	for rows.Next() {
+		var i TaskRunsPageRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AgentID,
+			&i.AgentName,
+			&i.RunnerName,
+			&i.ChecksDeferred,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

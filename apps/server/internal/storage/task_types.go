@@ -21,6 +21,7 @@ type TaskParticipant struct {
 	RunnerName string `json:"runnerName"`
 }
 type TaskInput struct {
+	Seq          int64  `json:"seq,omitempty"`
 	ID           string `json:"id"`
 	AuthorUserID string `json:"authorUserId"`
 	AuthorName   string `json:"authorName"`
@@ -65,6 +66,9 @@ type CollaborationTask struct {
 	ModelRequestsUsed      int               `json:"modelRequestsUsed"`
 	MaxModelRequests       int               `json:"maxModelRequests"`
 	Inputs                 []TaskInput       `json:"inputs"`
+	InputRevision          int64             `json:"inputRevision"`
+	InputBytes             int64             `json:"inputBytes"`
+	CoveredInputRevision   int64             `json:"coveredInputRevision"`
 	ProcessedInputRevision int64             `json:"processedInputRevision"`
 	Question               *TaskQuestion     `json:"question,omitempty"`
 	Handoff                string            `json:"handoff"`
@@ -75,6 +79,7 @@ type CollaborationTask struct {
 	UpdatedAt              string            `json:"updatedAt"`
 }
 type CreateTaskInput struct {
+	PagedResponse       bool             `json:"-"`
 	RequestID           string           `json:"requestId"`
 	Goal                string           `json:"goal"`
 	ParticipantAgentIDs []string         `json:"participantAgentIds"`
@@ -83,6 +88,7 @@ type CreateTaskInput struct {
 	References          []ReferenceInput `json:"references"`
 }
 type TaskOperation struct {
+	PagedResponse       bool     `json:"-"`
 	RequestID           string   `json:"requestId"`
 	Revision            int64    `json:"revision"`
 	Content             string   `json:"content"`

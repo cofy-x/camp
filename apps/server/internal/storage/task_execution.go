@@ -106,6 +106,7 @@ func finishTaskRound(ctx context.Context, q *sqlgen.Queries, r Run) error {
 		if e = validateIntent(t, r, r.Intent); e != nil {
 			return e
 		}
+		t.CoveredInputRevision = max(t.CoveredInputRevision, r.TaskInputRevision)
 		if r.ResultCommit != "" {
 			t.CheckpointCommit = r.ResultCommit
 		}
@@ -121,7 +122,7 @@ func finishTaskRound(ctx context.Context, q *sqlgen.Queries, r Run) error {
 			}
 		case "finish":
 			t.Summary = r.Intent.Summary
-			if int64(len(t.Inputs)) > r.TaskInputRevision {
+			if t.InputRevision > r.TaskInputRevision {
 				e = enqueueTaskRound(ctx, q, &t, r.AgentID, "New task inputs arrived during execution. Process all pending inputs before finishing.")
 			} else {
 				t.Status = "publishing"
@@ -186,7 +187,7 @@ func (s *Store) ReconcileTask(ctx context.Context, id string) error {
 		if t.Status != "publishing" {
 			return nil
 		}
-		if int64(len(t.Inputs)) > t.ProcessedInputRevision {
+		if t.InputRevision > t.CoveredInputRevision {
 			if e = enqueueTaskRound(ctx, q, &t, t.CurrentAgentID, "Process the task inputs received before publication."); e != nil {
 				return e
 			}

@@ -37,13 +37,10 @@ export interface Task {
   maxTurns: number;
   modelRequestsUsed: number;
   maxModelRequests: number;
-  inputs: {
-    id: string;
-    authorUserId: string;
-    authorName: string;
-    content: string;
-    createdAt: string;
-  }[];
+  inputRevision: number;
+  inputBytes: number;
+  coveredInputRevision: number;
+  inputs?: TaskInput[];
   question?: {
     id: string;
     text: string;
@@ -55,6 +52,38 @@ export interface Task {
   updatedAt: string;
 }
 
+export interface TaskInput {
+  id: string;
+  seq: number;
+  authorUserId: string;
+  authorName: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface TaskInputPage {
+  items: TaskInput[];
+  through: number;
+  nextAfter: number | null;
+  hasMore: boolean;
+}
+
+export interface TaskRunSummary {
+  id: string;
+  agentId: string;
+  agentName: string;
+  runnerName: string;
+  checksDeferred: boolean;
+  status: Run['status'];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskRunPage {
+  items: TaskRunSummary[];
+  nextCursor: string;
+}
+
 const id = encodeURIComponent;
 const post = (body: unknown) => ({
   method: 'POST',
@@ -63,9 +92,28 @@ const post = (body: unknown) => ({
 
 export const tasksApi = {
   list: (roomId: string, signal?: AbortSignal) =>
-    request<{ tasks: Task[] }>(`/rooms/${id(roomId)}/tasks`, { signal }),
+    request<{ tasks: Task[] }>(`/rooms/${id(roomId)}/tasks?view=summary`, {
+      signal,
+    }),
   get: (taskId: string, signal?: AbortSignal) =>
-    request<{ task: Task; runs: Run[] }>(`/tasks/${id(taskId)}`, { signal }),
+    request<{ task: Task }>(`/tasks/${id(taskId)}?view=summary`, { signal }),
+  inputs: (
+    taskId: string,
+    after: number,
+    through: number | undefined,
+    signal?: AbortSignal,
+  ) => {
+    const query = new URLSearchParams({ after: String(after) });
+    if (through !== undefined) query.set('through', String(through));
+    return request<TaskInputPage>(`/tasks/${id(taskId)}/inputs?${query}`, {
+      signal,
+    });
+  },
+  runs: (taskId: string, cursor: string, signal?: AbortSignal) =>
+    request<TaskRunPage>(
+      `/tasks/${id(taskId)}/runs?${new URLSearchParams({ cursor })}`,
+      { signal },
+    ),
   create: (
     roomId: string,
     body: {
@@ -76,9 +124,16 @@ export const tasksApi = {
       threadRootId?: string;
       references?: ReferenceInput[];
     },
-  ) => request<{ task: Task }>(`/rooms/${id(roomId)}/tasks`, post(body)),
+  ) =>
+    request<{ task: Task }>(
+      `/rooms/${id(roomId)}/tasks?view=summary`,
+      post(body),
+    ),
   input: (taskId: string, body: { requestId: string; content: string }) =>
-    request<{ task: Task }>(`/tasks/${id(taskId)}/inputs`, post(body)),
+    request<{ task: Task }>(
+      `/tasks/${id(taskId)}/inputs?view=summary`,
+      post(body),
+    ),
   answer: (
     taskId: string,
     body: {
@@ -87,7 +142,11 @@ export const tasksApi = {
       questionId: string;
       content: string;
     },
-  ) => request<{ task: Task }>(`/tasks/${id(taskId)}/answers`, post(body)),
+  ) =>
+    request<{ task: Task }>(
+      `/tasks/${id(taskId)}/answers?view=summary`,
+      post(body),
+    ),
   continue: (
     taskId: string,
     body: {
@@ -100,9 +159,16 @@ export const tasksApi = {
       fromLatest?: boolean;
       participantAgentIds?: string[];
     },
-  ) => request<{ task: Task }>(`/tasks/${id(taskId)}/continue`, post(body)),
+  ) =>
+    request<{ task: Task }>(
+      `/tasks/${id(taskId)}/continue?view=summary`,
+      post(body),
+    ),
   cancel: (taskId: string, body: { requestId: string; revision: number }) =>
-    request<{ task: Task }>(`/tasks/${id(taskId)}/cancel`, post(body)),
+    request<{ task: Task }>(
+      `/tasks/${id(taskId)}/cancel?view=summary`,
+      post(body),
+    ),
 };
 export const taskStatus: Record<Task['status'], string> = {
   queued: 'Waiting for Runner',

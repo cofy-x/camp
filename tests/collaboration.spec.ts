@@ -57,6 +57,9 @@ async function fixture(page: Page, name: string) {
     modelRequestsUsed: 0,
     maxModelRequests: 24,
     inputs: [],
+    inputRevision: 0,
+    inputBytes: 0,
+    coveredInputRevision: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -93,11 +96,46 @@ async function fixture(page: Page, name: string) {
       },
     }),
   );
-  await page.route(`**/api/rooms/${room.id}/tasks`, (route) =>
+  await page.route(`**/api/rooms/${room.id}/tasks?*`, (route) =>
     route.fulfill({ json: { tasks: exists ? [task] : [] } }),
   );
-  await page.route(`**/api/tasks/${task.id}`, (route) =>
-    route.fulfill({ json: { task, runs } }),
+  await page.route(`**/api/tasks/${task.id}?*`, (route) =>
+    route.fulfill({ json: { task: { ...task, inputs: undefined } } }),
+  );
+  await page.route(`**/api/tasks/${task.id}/inputs?*`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const query = new URL(route.request().url()).searchParams;
+    const after = Number(query.get('after') || 0);
+    const through = Number(query.get('through') ?? task.inputRevision);
+    const items = (task.inputs ?? [])
+      .filter((input) => input.seq > after && input.seq <= through)
+      .slice(0, 20);
+    const last = items.at(-1)?.seq ?? after;
+    return route.fulfill({
+      json: {
+        items,
+        through,
+        hasMore: last < through,
+        nextAfter: last < through ? last : null,
+      },
+    });
+  });
+  await page.route(`**/api/tasks/${task.id}/runs?*`, (route) =>
+    route.fulfill({
+      json: {
+        items: runs.map((run) => ({
+          id: run.id,
+          agentId: run.agentId,
+          agentName: run.agentSnapshot.name,
+          runnerName: run.runnerName,
+          checksDeferred: Boolean(run.checksDeferred),
+          status: run.status,
+          createdAt: run.createdAt,
+          updatedAt: run.updatedAt,
+        })),
+        nextCursor: '',
+      },
+    }),
   );
   await page.reload();
   return {
@@ -108,6 +146,14 @@ async function fixture(page: Page, name: string) {
     },
     setTask(value: Partial<Task>) {
       task = { ...task, ...value };
+      if (value.inputs) {
+        task.inputRevision = value.inputs.length;
+        task.inputBytes = value.inputs.reduce(
+          (bytes, input) =>
+            bytes + new TextEncoder().encode(input.content).length,
+          0,
+        );
+      }
       exists = true;
     },
     setRuns(value: Run[]) {
@@ -136,7 +182,7 @@ test('collaboration is explicit, previews finite grants and keeps inputs separat
 }, info) => {
   const value = await fixture(page, `collaboration-start-${info.project.name}`);
   const created: Record<string, unknown>[] = [];
-  await page.route(`**/api/rooms/${value.room.id}/tasks`, async (route) => {
+  await page.route(`**/api/rooms/${value.room.id}/tasks?*`, async (route) => {
     if (route.request().method() === 'GET')
       return route.fulfill({
         json: { tasks: created.length ? [value.task] : [] },
@@ -218,7 +264,8 @@ test('collaboration is explicit, previews finite grants and keeps inputs separat
     firstAgentId: value.agents[0].id,
   });
   const inputs: Record<string, unknown>[] = [];
-  await page.route(`**/api/tasks/${value.task.id}/inputs`, (route) => {
+  await page.route(`**/api/tasks/${value.task.id}/inputs?*`, (route) => {
+    if (route.request().method() === 'GET') return route.fallback();
     inputs.push(route.request().postDataJSON());
     return route.fulfill({ json: { task: value.task } });
   });
@@ -297,7 +344,7 @@ test('a question retry retains its exact request after live updates advance the 
     .click();
   const answers: Record<string, unknown>[] = [];
   let receipt: Task | undefined;
-  await page.route(`**/api/tasks/${value.task.id}/answers`, async (route) => {
+  await page.route(`**/api/tasks/${value.task.id}/answers?*`, async (route) => {
     answers.push(route.request().postDataJSON());
     if (answers.length === 1) {
       value.setTask({
@@ -397,7 +444,7 @@ test('continuation authorizes additional work and changed Runners explicitly whi
   await value.open();
 
   const continuations: Record<string, unknown>[] = [];
-  await page.route(`**/api/tasks/${value.task.id}/continue`, (route) => {
+  await page.route(`**/api/tasks/${value.task.id}/continue?*`, (route) => {
     continuations.push(route.request().postDataJSON());
     value.setTask({
       status: 'queued',
@@ -461,7 +508,7 @@ test('continuation authorizes additional work and changed Runners explicitly whi
     participantAgentIds: [value.agents[1].id, replacement.id],
     agentId: replacement.id,
   });
-  await page.route(`**/api/tasks/${value.task.id}/cancel`, (route) => {
+  await page.route(`**/api/tasks/${value.task.id}/cancel?*`, (route) => {
     value.setTask({ status: 'cancelled', revision: 3 });
     return route.fulfill({ json: { task: value.task } });
   });
@@ -584,6 +631,7 @@ test('completed collaboration puts its fixed result before a long summary and ke
     inputs: [
       {
         id: 'review-input',
+        seq: 1,
         authorUserId: 'teammate',
         authorName: 'Teammate',
         content: 'Keep the published guide independent of later Room changes.',
@@ -700,4 +748,96 @@ test('completed collaboration puts its fixed result before a long summary and ke
   await expect(
     selected.getByRole('button', { name: 'Edit Text', exact: true }),
   ).toBeDisabled();
+});
+
+test('history pages keep their frozen position and drafts through refresh and failed reads', async ({
+  page,
+}, info) => {
+  const value = await fixture(page, `collaboration-pages-${info.project.name}`);
+  const inputs = Array.from({ length: 45 }, (_, index) => ({
+    id: `input-${index + 1}`,
+    seq: index + 1,
+    authorUserId: 'teammate',
+    authorName: 'Teammate',
+    content: `Original constraint ${index + 1}.`,
+    createdAt: new Date().toISOString(),
+  }));
+  value.setTask({ inputs });
+  await value.refresh();
+  await value.open();
+  const panel = detail(page);
+  await panel
+    .getByLabel('Add input for the next turn', { exact: true })
+    .fill('An unfinished new constraint.');
+  await panel.getByRole('tab', { name: 'Activity', exact: true }).click();
+  const history = panel.getByRole('region', {
+    name: 'Team input',
+    exact: true,
+  });
+  await expect(history).toContainText('Original constraint 1.');
+  await expect(history).not.toContainText('Original constraint 21.');
+  let fail = true;
+  const reads: string[] = [];
+  await page.route(`**/api/tasks/${value.task.id}/inputs?*`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const query = new URL(route.request().url()).searchParams;
+    if (query.get('after') !== '20') return route.fallback();
+    reads.push(query.toString());
+    if (!fail) return route.fallback();
+    fail = false;
+    return route.fulfill({
+      status: 503,
+      json: { error: 'History is temporarily unavailable.' },
+    });
+  });
+  await history
+    .getByRole('button', { name: 'Next Inputs', exact: true })
+    .click();
+  await expect(history).toContainText('History is temporarily unavailable.');
+  await history
+    .getByRole('button', { name: 'Retry Inputs', exact: true })
+    .click();
+  await expect(history).toContainText('Original constraint 21.');
+  expect(reads[1]).toEqual(reads[0]);
+  expect(reads[1]).toContain('through=45');
+  value.setTask({
+    revision: 2,
+    inputs: [
+      ...inputs,
+      { ...inputs[0], id: 'input-46', seq: 46, content: 'New constraint 46.' },
+    ],
+  });
+  await value.refresh();
+  await expect(
+    history.getByRole('button', { name: 'View New Inputs', exact: true }),
+  ).toBeVisible();
+  await expect(history).toContainText('Original constraint 21.');
+  await expect(history).not.toContainText('New constraint 46.');
+  await panel.getByRole('tab', { name: 'Overview', exact: true }).click();
+  await expect(
+    panel.getByLabel('Add input for the next turn', { exact: true }),
+  ).toHaveValue('An unfinished new constraint.');
+  await panel.getByRole('tab', { name: 'Activity', exact: true }).click();
+  await expect(history).toContainText('Original constraint 21.');
+  await history
+    .getByRole('button', { name: 'Next Inputs', exact: true })
+    .click();
+  await expect(history).toContainText('Original constraint 45.');
+  await expect(history).not.toContainText('New constraint 46.');
+  await history
+    .getByRole('button', { name: 'View New Inputs', exact: true })
+    .click();
+  await expect(history).toContainText('New constraint 46.');
+  await history
+    .getByRole('button', { name: 'Previous Inputs', exact: true })
+    .click();
+  await expect(history).toContainText('Original constraint 45.');
+  await expect(history).not.toContainText('New constraint 46.');
+  if (['chromium', 'touch'].includes(info.project.name))
+    await workspace(page).screenshot({
+      path: info.outputPath('collaboration-pages.png'),
+    });
+  expect(
+    await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
+  ).toBe(true);
 });
