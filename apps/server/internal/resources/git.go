@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,9 +32,8 @@ func (buffer *limitedBuffer) Write(data []byte) (int, error) {
 }
 
 // Use Git plumbing without user configuration, project filters, or hooks.
-func git(ctx context.Context, repository string, input []byte, arguments ...string) ([]byte, error) {
+func gitCommand(ctx context.Context, repository string, input []byte, arguments ...string) (*exec.Cmd, context.Context, context.CancelFunc) {
 	commandContext, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
 	args := []string{"-c", "core.hooksPath=" + os.DevNull, "-c", "core.attributesFile=" + os.DevNull,
 		"-c", "core.fsmonitor=false", "-c", "protocol.file.allow=never", "--git-dir=" + repository}
 	command := exec.CommandContext(commandContext, "git", append(args, arguments...)...)
@@ -44,6 +45,12 @@ func git(ctx context.Context, repository string, input []byte, arguments ...stri
 	}
 	command.Stdin = bytes.NewReader(input)
 	command.WaitDelay = time.Second
+	return command, commandContext, cancel
+}
+
+func git(ctx context.Context, repository string, input []byte, arguments ...string) ([]byte, error) {
+	command, commandContext, cancel := gitCommand(ctx, repository, input, arguments...)
+	defer cancel()
 	output := &limitedBuffer{limit: 2*MaxProjectBytes + (1 << 20)}
 	command.Stdout = output
 	command.Stderr = io.Discard
@@ -123,25 +130,100 @@ func readBlob(ctx context.Context, repository, object string) ([]byte, error) {
 	return content, nil
 }
 
-func loadCommit(ctx context.Context, repository, commit string) (snapshot, error) {
+// visitCommit uses one isolated Git process for all immutable blob reads. The
+// caller receives one whole bounded file at a time, in deterministic path order.
+func visitCommit(ctx context.Context, repository, commit string, visit func(string, treeEntry, []byte) error) error {
 	entries, err := listCommit(ctx, repository, commit)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	files := snapshot{}
-	total := 0
-	for name, entry := range entries {
-		content, err := readBlob(ctx, repository, entry.object)
-		if err != nil {
-			return nil, err
+	if len(entries) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(entries))
+	for name := range entries {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	var requests strings.Builder
+	for _, name := range names {
+		requests.WriteString(entries[name].object + "\n")
+	}
+	command, commandContext, cancel := gitCommand(ctx, repository, []byte(requests.String()), "cat-file", "--batch")
+	defer cancel()
+	output, err := command.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	defer output.Close()
+	if err = command.Start(); err != nil {
+		return fmt.Errorf("Git cat-file failed: %w", err)
+	}
+	readErr := readBlobBatch(ctx, bufio.NewReaderSize(output, 4096), names, entries, visit)
+	if readErr != nil {
+		_ = command.Process.Kill()
+	}
+	waitErr := command.Wait()
+	if commandContext.Err() != nil {
+		return fmt.Errorf("The Git operation was cancelled or timed out: %w", commandContext.Err())
+	}
+	if readErr != nil {
+		return readErr
+	}
+	if waitErr != nil {
+		return fmt.Errorf("Git cat-file failed: %w", waitErr)
+	}
+	return nil
+}
+
+func readBlobBatch(ctx context.Context, reader *bufio.Reader, names []string, entries map[string]treeEntry, visit func(string, treeEntry, []byte) error) error {
+	total := int64(0)
+	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		total += len(content)
+		header, err := reader.ReadSlice('\n')
+		if err != nil || len(header) > 128 {
+			return errors.New("The project revision contains an invalid or missing blob response")
+		}
+		fields := strings.Fields(string(header))
+		entry := entries[name]
+		if len(fields) != 3 || fields[0] != entry.object || fields[1] != "blob" {
+			return errors.New("The project revision returned a different or unsupported Git object")
+		}
+		size, err := strconv.ParseInt(fields[2], 10, 64)
+		if err != nil || size < 0 || size > MaxFileBytes {
+			return errors.New("The project revision exceeds the file size limit")
+		}
+		total += size
 		if total > MaxProjectBytes {
-			return nil, errors.New("The project revision exceeds the total file size limit")
+			return errors.New("The project revision exceeds the total file size limit")
 		}
-		files[name] = file{content: content, executable: entry.executable}
+		content := make([]byte, int(size))
+		if _, err = io.ReadFull(reader, content); err != nil {
+			return errors.New("A project revision blob is truncated")
+		}
+		delimiter, err := reader.ReadByte()
+		if err != nil || delimiter != '\n' {
+			return errors.New("The project revision contains an invalid blob boundary")
+		}
+		if err = visit(name, entry, content); err != nil {
+			return err
+		}
 	}
-	return files, nil
+	if _, err := reader.ReadByte(); err != io.EOF {
+		return errors.New("The project revision returned unexpected blob data")
+	}
+	return nil
+}
+
+func loadCommit(ctx context.Context, repository, commit string) (snapshot, error) {
+	files := snapshot{}
+	err := visitCommit(ctx, repository, commit, func(name string, entry treeEntry, content []byte) error {
+		files[name] = file{content: content, executable: entry.executable}
+		return nil
+	})
+	return files, err
 }
 
 type tree struct {

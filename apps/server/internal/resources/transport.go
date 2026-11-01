@@ -15,17 +15,20 @@ import (
 
 // ExportArchive writes a deterministic archive from one immutable Git revision.
 func (manager *Manager) ExportArchive(ctx context.Context, resourceID, commit string, output io.Writer) error {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
+	// Registered revisions and their objects are immutable. Holding the mutable
+	// resource lock through a slow output would block unrelated file writers.
 	repository, err := manager.repository(resourceID)
 	if err != nil {
 		return err
 	}
-	files, err := loadCommit(ctx, repository, commit)
+	writer := tar.NewWriter(output)
+	err = visitCommit(ctx, repository, commit, func(name string, entry treeEntry, content []byte) error {
+		return writeArchiveFile(writer, name, file{content: content, executable: entry.executable})
+	})
 	if err != nil {
 		return err
 	}
-	return writeArchive(ctx, files, output)
+	return writer.Close()
 }
 
 // ImportArchive validates all entries before making a new revision store visible.
@@ -114,19 +117,23 @@ func writeArchive(ctx context.Context, files snapshot, output io.Writer) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		data := files[name]
-		mode := int64(0644)
-		if data.executable {
-			mode = 0755
-		}
-		if err := writer.WriteHeader(&tar.Header{Name: name, Mode: mode, Size: int64(len(data.content)), Typeflag: tar.TypeReg, ModTime: time.Unix(0, 0), Format: tar.FormatPAX}); err != nil {
-			return err
-		}
-		if _, err := writer.Write(data.content); err != nil {
+		if err := writeArchiveFile(writer, name, files[name]); err != nil {
 			return err
 		}
 	}
 	return writer.Close()
+}
+
+func writeArchiveFile(writer *tar.Writer, name string, data file) error {
+	mode := int64(0644)
+	if data.executable {
+		mode = 0755
+	}
+	if err := writer.WriteHeader(&tar.Header{Name: name, Mode: mode, Size: int64(len(data.content)), Typeflag: tar.TypeReg, ModTime: time.Unix(0, 0), Format: tar.FormatPAX}); err != nil {
+		return err
+	}
+	_, err := writer.Write(data.content)
+	return err
 }
 
 // ExtractArchive validates the complete archive before creating any files.

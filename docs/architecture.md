@@ -82,6 +82,8 @@ Ordinary writers acquire one durable, fenced Resource lease before choosing thei
 
 A cleaned Sandbox export remains untrusted until Go validates entry types, paths, byte limits and digest. Git stores immutable bytes first. The final SQLite transaction validates Attempt, owner/fence, baseline and current permissions, then commits the Resource pointer, terminal Run, unique completion Message, publication, receipt and Inbox notification together. A failed final transaction cannot claim success. Idempotent upload/completion can finish persistence without a model replay.
 
+Immutable exports verify the registered snapshot ref and tree, then read blobs in one isolated `git cat-file --batch` process. They stream one bounded file at a time in sorted path order, preserve executable modes and deterministic archive bytes, and enforce per-file and aggregate limits even when paths share an object. Readers do not hold the mutable resource lock while writing archives. Cancellation or output failure kills and drains the child before returning; callers retain their temporary-file, fsync, digest and activation checks.
+
 Successful writing requires configured checks to pass. No checks is `not_configured`; human publications are `not_run`. Tool read-back or model claims are not independent checks. Failure/cancellation can retain confirmed captured files without publishing them. An unconfirmed export cannot be reconstructed from an unchanged host seed. Git/SQLite, not LayerFS checkpoints, are delivery authority. A crash between Git storage and SQL registration can leave unregistered objects; there is no general automatic resource/document retention collector.
 
 ## Collaboration tasks
@@ -167,7 +169,7 @@ Address shared-data correctness and contradictions in the shipped workflow first
 
 Owner: `remoteruns`; tracked in [#70](https://github.com/cofy-x/camp/issues/70). The scheduler now delegates immutable evidence/archive construction to one worker, with frozen Attempt context, atomic activation and cancellation/collection/shutdown ownership. Deterministic fixture barriers verify that an unrelated committed command, heartbeat renewal and cancellation can progress before a blocked builder exits. The opt-in preparation probe from [#73](https://github.com/cofy-x/camp/pull/73) measures warm synthetic storage/Git/fsync components separately from native or provider execution.
 
-Immutable export still loads blobs through separate Git processes and holds the resource Manager mutex. Further file-throughput work should batch/stream reads as a separately verified optimization preserving file/path/mode/byte bounds, deterministic archives, fsync/digest and current permissions. Do not infer native, production or WSS latency improvements from warm component samples; worker concurrency remains one.
+Immutable exports use the bounded batch reader described under file publication. Worker concurrency remains one. Warm component samples establish only synthetic storage/Git/fsync costs, independently of native, production or WSS latency.
 
 ### Checkpoint cost and retention
 
