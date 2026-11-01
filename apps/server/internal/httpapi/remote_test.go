@@ -189,3 +189,33 @@ func TestRunnerHTTPPatchPreservesOmittedFields(t *testing.T) {
 		t.Fatalf("enable patch changed name: %s %v", response.Body.String(), err)
 	}
 }
+
+func TestStorageAdvisoryReachesBrowserWithoutHostOrCleanupAuthority(t *testing.T) {
+	f, runner := remoteTeamFixture(t)
+	caps := json.RawMessage(`{"executor":"native","ready":true,"storage":{"schema":1,"observedAt":"2026-11-01T07:00:00Z","level":"warning","warnings":["disk-free-low"],"logicalBytes":123,"complete":true,"freeBytes":12,"retainedBudgetBytes":1024,"minFreeBytes":128,"dataRoot":"private-storage-path","credential":"private-storage-credential","planId":"private-cleanup-authority"}}`)
+	_, err := f.store.ConnectRunner(context.Background(), runner.ID, storage.RunnerConnection{StorageID: runner.StorageID, Runtime: "native", Slots: 1, Capabilities: caps})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := teamRequest(t, f, f.memberCookie, "GET", "/api/runners", nil)
+	requireHTTP(t, response, http.StatusOK)
+	var result struct {
+		Runners []browserRunner `json:"runners"`
+	}
+	if err = json.Unmarshal(response.Body.Bytes(), &result); err != nil || len(result.Runners) != 1 {
+		t.Fatal(err, response.Body.String())
+	}
+	// Decode through the public shape as well as asserting private nested fields
+	// cannot escape the allowlist when a Runner sends more than its contract.
+	if report := result.Runners[0].Capabilities.Storage; report == nil || report.Level != "warning" || report.LogicalBytes == nil || *report.LogicalBytes != 123 {
+		t.Fatal("Storage observation was lost", response.Body.String())
+	}
+	if !result.Runners[0].Capabilities.Ready {
+		t.Fatal("Storage warning changed readiness")
+	}
+	for _, secret := range []string{"private-storage-path", "private-storage-credential", "private-cleanup-authority", "dataRoot", "planId"} {
+		if strings.Contains(response.Body.String(), secret) {
+			t.Fatal("Storage view leaked", secret)
+		}
+	}
+}

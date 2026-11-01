@@ -9,6 +9,7 @@ import {
 } from '../../shared/sessionReceipt';
 import { workspaceApi, type Room } from '../workspace/api';
 import type { Runner } from './api';
+import { RunnerStorage } from './RunnerStorage';
 
 interface FirstTaskReceipt {
   id: string;
@@ -136,6 +137,7 @@ export function RunnerReadiness({ runner }: { runner: Runner }) {
       className="camp-runner-readiness"
       aria-label={`${runner.name} readiness`}
     >
+      <RunnerStorage runner={runner} />
       {!runner.revoked && runner.enabled && (
         <>
           {!runner.capabilities.ready ? (

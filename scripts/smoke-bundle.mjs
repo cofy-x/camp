@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  chmod,
   copyFile,
   cp,
   readFile,
@@ -20,6 +21,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { command, root, stop, waitFor } from './lib.mjs';
 import { baselineLauncher, upgradeBaseline } from './upgrade.mjs';
 import { setupPhases } from './setup-progress.mjs';
+import { captureTree } from '../tools/layerfs-worker/tree.mjs';
 
 const mode = process.argv[2];
 if (!mode) {
@@ -708,18 +710,17 @@ try {
     action: 'deliver',
   }));
   assert.equal(review.status, 'delivered');
-  if (checkpointWorker) {
-    const ended = new Promise((resolve) => runner.once('close', resolve));
-    runner.kill('SIGKILL');
-    await ended;
-    timings.runnerRestartKind =
-      'actual packaged Runner SIGKILL after confirmed result; uncertain coordinator/worker faults qualified separately';
-  } else await stop(runner);
-  runner = undefined;
   const checkpointAt = async (dataRoot, action, extra = []) => {
     const child = spawn(
       runnerBinary,
-      ['runner', 'checkpoint', action, '--data-dir', dataRoot, ...extra],
+      [
+        'runner',
+        'checkpoint',
+        ...(Array.isArray(action) ? action : [action]),
+        '--data-dir',
+        dataRoot,
+        ...extra,
+      ],
       { cwd, env: runnerEnv, stdio: ['ignore', 'pipe', 'pipe'] },
     );
     let output = '',
@@ -737,6 +738,35 @@ try {
     assert.equal(exit, 0, diagnostic);
     return JSON.parse(output);
   };
+  let liveStorage;
+  if (mac) {
+    liveStorage = await checkpointAt(runnerData, 'storage', ['--json']);
+    assert.equal(liveStorage.quiescent, false);
+    assert.equal(liveStorage.retention.previewAllowed, false);
+    const observed = await until(
+      'live storage heartbeat',
+      () => api('/api/runners'),
+      (value) =>
+        value.runners.some(
+          (item) =>
+            item.id === savedConfig.runnerId && item.capabilities.storage,
+        ),
+    );
+    const reported = observed.runners.find(
+      (item) => item.id === savedConfig.runnerId,
+    );
+    assert.equal(reported.capabilities.ready, true);
+    assert.equal(reported.capabilities.storage.schema, 1);
+    assert.notEqual(reported.capabilities.storage.logicalBytes, null);
+  }
+  if (checkpointWorker) {
+    const ended = new Promise((resolve) => runner.once('close', resolve));
+    runner.kill('SIGKILL');
+    await ended;
+    timings.runnerRestartKind =
+      'actual packaged Runner SIGKILL after confirmed result; uncertain coordinator/worker faults qualified separately';
+  } else await stop(runner);
+  runner = undefined;
   let checkpointStorage;
   if (mac) {
     const config = await readFile(path.join(runnerData, 'daemon.json'));
@@ -746,6 +776,100 @@ try {
     assert.equal(checkpointStorage.retention.deletionSupported, false);
     assert.equal(checkpointStorage.workerStore.observed, false);
     if (checkpointWorker) assert(checkpointStorage.retention.protected > 0);
+    // Fresh unreferenced physical capture: no worker or enrolled user's data.
+    const cleanupSource = path.join(dir, 'cleanup-source');
+    await mkdir(cleanupSource, { mode: 0o700 });
+    await writeFile(
+      path.join(cleanupSource, 'note.txt'),
+      'synthetic retained cleanup bytes',
+    );
+    const orphan = await captureTree(
+      cleanupSource,
+      path.join(runnerData, 'layerfs-worker/checkpoints/captures'),
+    );
+    await chmod(path.join(runnerData, 'layerfs-worker'), 0o700);
+    const manifest = await readFile(path.join(orphan.root, 'manifest.json'));
+    const receipt = await readFile(path.join(orphan.root, 'receipt.json'));
+    const policy = await checkpointAt(runnerData, 'budget', [
+      '--retained-budget',
+      '1B',
+      '--min-free',
+      '0',
+      '--json',
+    ]);
+    assert.equal(policy.retainedBudgetBytes, 1);
+    const beforeCleanup = await checkpointAt(runnerData, 'storage', ['--json']);
+    assert.equal(beforeCleanup.budget.observation.level, 'warning');
+    const cleanup = (verb, flags) =>
+      checkpointAt(runnerData, ['cleanup', verb], [...flags, '--json']);
+    const q = await cleanup('plan', []);
+    assert.equal(q.action, 'quarantine');
+    assert.equal(
+      (await cleanup('apply', ['--plan', q.planId])).state,
+      'complete',
+    );
+    assert.equal(
+      (await cleanup('status', ['--plan', q.planId])).state,
+      'complete',
+    );
+    const quarantined = await checkpointAt(runnerData, 'storage', ['--json']);
+    assert.equal(
+      quarantined.totals.logicalBytes,
+      beforeCleanup.totals.logicalBytes,
+    );
+    const restore = await cleanup('plan', [
+      '--action',
+      'restore',
+      '--batch',
+      q.batchId,
+    ]);
+    assert.equal(
+      (await cleanup('apply', ['--plan', restore.planId])).state,
+      'complete',
+    );
+    assert.deepEqual(
+      await readFile(path.join(orphan.root, 'manifest.json')),
+      manifest,
+    );
+    assert.deepEqual(
+      await readFile(path.join(orphan.root, 'receipt.json')),
+      receipt,
+    );
+    const again = await cleanup('plan', []);
+    await cleanup('apply', ['--plan', again.planId]);
+    const purge = await cleanup('plan', [
+      '--action',
+      'purge',
+      '--batch',
+      again.batchId,
+    ]);
+    assert.equal(
+      (await cleanup('apply', ['--plan', purge.planId, '--confirm-permanent']))
+        .state,
+      'complete',
+    );
+    const purged = await checkpointAt(runnerData, 'storage', ['--json']);
+    assert.equal(purged.quarantined.logicalBytes, 0);
+    assert.equal(
+      purged.retention.protected,
+      checkpointStorage.retention.protected,
+    );
+    await checkpointAt(runnerData, 'budget', [
+      '--retained-budget',
+      '10GiB',
+      '--min-free',
+      '2GiB',
+      '--json',
+    ]);
+    checkpointStorage.lifecycle = {
+      liveOverview: liveStorage.quiescent === false,
+      policyConfigured: true,
+      advisoryWarning: true,
+      quarantinePreservesBytes: true,
+      restoredExactly: true,
+      permanentlyPurged: true,
+      protectedHistoryPreserved: true,
+    };
     assert.deepEqual(
       await readFile(path.join(runnerData, 'daemon.json')),
       config,
@@ -1075,6 +1199,8 @@ try {
             ? [
                 'launchd-background-lifecycle',
                 'offline-checkpoint-storage-without-model-replay',
+                'live-advisory-storage-heartbeat',
+                'explicit-checkpoint-budget-quarantine-restore-purge',
               ]
             : []),
           ...(checkpointWorker

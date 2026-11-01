@@ -100,3 +100,6 @@ SELECT * FROM source_imports WHERE resource_id=? AND status='succeeded';
 SELECT CAST(COALESCE(MAX(sequence),0)+1 AS INTEGER) FROM runner_event_receipts WHERE operation_id=?;
 -- name: SetRunnerConnectionIssue :exec
 UPDATE runners SET capabilities=?,updated_at=? WHERE id=?;
+
+-- name: SetRunnerStorageHealth :execrows
+UPDATE runners SET capabilities=json_set(capabilities,'$.storage',json(sqlc.arg(storage))),updated_at=sqlc.arg(updated_at) WHERE id=sqlc.arg(id) AND connection_generation=sqlc.arg(generation);

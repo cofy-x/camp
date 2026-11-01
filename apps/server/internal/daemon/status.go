@@ -19,6 +19,7 @@ type StatusReport struct {
 	Reason     string             `json:"reason,omitempty"`
 	ObservedAt string             `json:"observedAt,omitempty"`
 	Readiness  *p.ReadinessReport `json:"readiness,omitempty"`
+	Storage    *p.StorageHealth   `json:"storage,omitempty"`
 }
 
 func WriteReadiness(directory string, report p.ReadinessReport) error {
@@ -63,6 +64,12 @@ func Status(directory string, output io.Writer) error {
 		var report p.ReadinessReport
 		if json.Unmarshal(data, &report) == nil {
 			value.Readiness = &report
+		}
+	}
+	if data, readErr := os.ReadFile(filepath.Join(directory, "storage-observation.json")); readErr == nil {
+		var report storedStorageObservation
+		if json.Unmarshal(data, &report) == nil && report.RunnerID == config.RunnerID && report.StorageID == config.StorageID && p.ValidateStorageHealth(report.Storage) == nil {
+			value.Storage = report.Storage
 		}
 	}
 	return json.NewEncoder(output).Encode(value)

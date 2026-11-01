@@ -361,6 +361,12 @@ func (s *Store) UpdateRunner(ctx context.Context, id string, input RunnerUpdate)
 	return
 }
 func (s *Store) ConnectRunner(ctx context.Context, id string, in RunnerConnection) (out Runner, err error) {
+	var capabilityStorage struct {
+		Storage *runnerprotocol.StorageHealth `json:"storage"`
+	}
+	if json.Unmarshal(in.Capabilities, &capabilityStorage) != nil || runnerprotocol.ValidateStorageHealth(capabilityStorage.Storage) != nil {
+		return out, problem("invalid_runner", "The storage observation is invalid.")
+	}
 	if !validText(in.Runtime, 240, false) || in.Slots < 1 || in.Slots > runnerprotocol.MaxSlots || !objectJSON(in.Capabilities) || len(in.Sources) > runnerprotocol.MaxSources {
 		return out, problem("invalid_runner", "The runner capability report is invalid.")
 	}
@@ -406,6 +412,44 @@ func (s *Store) TouchRunner(ctx context.Context, id string, generation int64) er
 		return problem("stale_connection", "This runner connection is no longer current.")
 	}
 	return err
+}
+
+func (s *Store) SetRunnerStorageHealth(ctx context.Context, id string, generation int64, health *runnerprotocol.StorageHealth) error {
+	if health == nil {
+		return nil
+	}
+	if err := runnerprotocol.ValidateStorageHealth(health); err != nil {
+		return problem("invalid_runner", "The storage observation is invalid.")
+	}
+	encoded, _ := json.Marshal(health)
+	return s.transaction(ctx, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		row, err := q.GetRunner(ctx, id)
+		if err != nil {
+			return err
+		}
+		if row.ConnectionGeneration != generation {
+			return problem("stale_connection", "This runner connection is no longer current.")
+		}
+		var previous struct {
+			Storage *runnerprotocol.StorageHealth `json:"storage"`
+		}
+		if json.Unmarshal([]byte(row.Capabilities), &previous) == nil && previous.Storage != nil {
+			old, e1 := time.Parse(time.RFC3339Nano, previous.Storage.ObservedAt)
+			fresh, e2 := time.Parse(time.RFC3339Nano, health.ObservedAt)
+			if e1 == nil && e2 == nil && !fresh.After(old) {
+				return nil
+			}
+		}
+		n, err := q.SetRunnerStorageHealth(ctx, sqlgen.SetRunnerStorageHealthParams{Storage: string(encoded), UpdatedAt: now(), ID: id, Generation: generation})
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			return problem("stale_connection", "This runner connection is no longer current.")
+		}
+		return event(ctx, q, "runner.updated", "", id)
+	})
 }
 func (s *Store) SetRoomRunner(ctx context.Context, room, runner string, revision int64) (out Room, err error) {
 	err = s.transaction(ctx, func(tx *sql.Tx) error {

@@ -3,6 +3,7 @@
 package execution
 
 import (
+	"errors"
 	"fmt"
 	"golang.org/x/sys/unix"
 	"os"
@@ -16,6 +17,9 @@ func AcquireLock(dir string) (*os.File, error) {
 	}
 	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		_ = file.Close()
+		if errors.Is(err, unix.EWOULDBLOCK) {
+			return nil, fmt.Errorf("%w: %w", ErrDirectoryInUse, err)
+		}
 		return nil, fmt.Errorf("Another Camp instance is using this task directory: %w", err)
 	}
 	return file, nil

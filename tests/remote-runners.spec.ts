@@ -1330,3 +1330,98 @@ test('Mac diagnostics show the reported native adapters without inventing LayerF
       path: info.outputPath('runners-mac-diagnostics.png'),
     });
 });
+
+test('checkpoint storage advisories preserve execution readiness and stay read-only', async ({
+  page,
+}, info) => {
+  await signIn(page);
+  await mockRunners(page);
+  const runner: Runner = {
+    ...runners[0],
+    name: 'Mac Studio',
+    online: true,
+    modelConfigured: true,
+    firstTaskSucceededAt: '2026-11-01T06:00:00Z',
+    capabilities: { ...runners[0].capabilities, platform: 'darwin/arm64' },
+  };
+  await page.route('**/api/runners', (route) =>
+    route.fulfill({ json: { runners: [runner] } }),
+  );
+  let writes = 0;
+  page.on('request', (request) => {
+    if (request.url().includes('/api/runners/') && request.method() !== 'GET')
+      writes++;
+  });
+  await openApp(page, 'Runners');
+  await selectRunner(page, runner);
+  await expect(runnerDetail(page)).toContainText('Ready for Agent work');
+  if (['chromium', 'touch'].includes(info.project.name))
+    await runnerApp(page).screenshot({
+      path: info.outputPath('checkpoint-storage-before.png'),
+    });
+  runner.capabilities.storage = {
+    schema: 1,
+    observedAt: new Date().toISOString(),
+    level: 'warning',
+    warnings: ['retained-budget-exceeded', 'disk-free-low'],
+    logicalBytes: 12 * 2 ** 30,
+    complete: true,
+    freeBytes: 2 ** 30,
+    retainedBudgetBytes: 10 * 2 ** 30,
+    minFreeBytes: 2 * 2 ** 30,
+  };
+  await runnerApp(page)
+    .getByRole('button', { name: 'Refresh', exact: true })
+    .click();
+  const storage = runnerDetail(page).getByRole('region', {
+    name: 'Checkpoint storage',
+    exact: true,
+  });
+  await expect(storage).toContainText('Over retained budget · Low disk space');
+  await expect(storage).toContainText('12.0 GiB');
+  await expect(storage).not.toContainText('camp runner');
+  await expect(storage).not.toContainText('Retained budget');
+  await expect(runnerDetail(page)).toContainText('Ready for Agent work');
+  await expect(runnerDetail(page)).not.toContainText(
+    'Execution needs attention',
+  );
+  if (['chromium', 'touch'].includes(info.project.name))
+    await runnerApp(page).screenshot({
+      path: info.outputPath('checkpoint-storage-after.png'),
+    });
+  runner.online = false;
+  runner.capabilities.storage = {
+    ...runner.capabilities.storage,
+    level: 'notice',
+    warnings: ['observation-incomplete'],
+    complete: false,
+    freeBytes: null,
+  };
+  await runnerApp(page)
+    .getByRole('button', { name: 'Refresh', exact: true })
+    .click();
+  await expect(storage).toContainText('At least 12.0 GiB');
+  await expect(storage).toContainText('Free disk not observed');
+  await expect(storage).toContainText('Earlier observation');
+  runner.capabilities.storage = {
+    ...runner.capabilities.storage,
+    level: 'ok',
+    warnings: [],
+    complete: true,
+    freeBytes: 20 * 2 ** 30,
+  };
+  await runnerApp(page)
+    .getByRole('button', { name: 'Refresh', exact: true })
+    .click();
+  await expect(storage).toHaveCount(0);
+  await runnerDetail(page)
+    .getByRole('tab', { name: 'Diagnostics', exact: true })
+    .click();
+  await expect(storage).toContainText('12.0 GiB retained');
+  await expect(storage).toContainText('Retained budget');
+  await expect(storage).toContainText(
+    'camp runner checkpoint storage --data-dir PATH',
+  );
+  expect(writes).toBe(0);
+  await page.unrouteAll({ behavior: 'wait' });
+});

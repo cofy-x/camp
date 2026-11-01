@@ -22,7 +22,7 @@ func storageRuntimeFixture(t *testing.T) (string, string, string) {
 	// This is the entire ordinary Mac package's offline inspection dependency
 	// closure. There is deliberately no SDK, Docker executable or worker client.
 	module := t.TempDir()
-	for _, name := range []string{"storage.mjs", "retention.mjs", "references.mjs", "contracts.mjs", "state.mjs"} {
+	for _, name := range []string{"storage.mjs", "retention.mjs", "references.mjs", "contracts.mjs", "state.mjs", "inventory.mjs", "storage-state.mjs", "storage-budget.mjs", "cleanup.mjs"} {
 		data, err := os.ReadFile(filepath.Join("../../../../tools/layerfs-worker", name))
 		if err != nil {
 			t.Fatal(err)
@@ -93,13 +93,9 @@ func TestCheckpointStoragePartialReportRemainsReadableAndFails(t *testing.T) {
 			t.Fatal(output.String())
 		}
 	}
-	var output bytes.Buffer
-	if _, err := (&checkpointStorageOutput{writer: &output}).Write(make([]byte, 8<<20+1)); err == nil || output.Len() != 0 {
-		t.Fatal("Oversized output accepted")
-	}
 }
 
-func TestCheckpointStorageRejectsRunningOwnerAndConflictingFlags(t *testing.T) {
+func TestStorageMutationRejectsRunningOwnerAndConflictingFlags(t *testing.T) {
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
 		t.Skip("The checkpoint CLI targets ARM64 Mac; offline helper and reports are tested on this host separately")
 	}
@@ -110,7 +106,7 @@ func TestCheckpointStorageRejectsRunningOwnerAndConflictingFlags(t *testing.T) {
 	}
 	defer lock.Close()
 	var output bytes.Buffer
-	err = runRunnerCheckpoint(t.Context(), []string{"storage", "--data-dir", directory, "--json"}, &output)
+	err = runRunnerCheckpoint(t.Context(), []string{"budget", "--data-dir", directory, "--retained-budget", "1GiB", "--json"}, &output)
 	if err == nil || !strings.Contains(err.Error(), "Stop this Runner") || output.Len() != 0 {
 		t.Fatalf("Running owner was not protected: %v %s", err, output.String())
 	}
@@ -118,5 +114,52 @@ func TestCheckpointStorageRejectsRunningOwnerAndConflictingFlags(t *testing.T) {
 		if err := runRunnerCheckpoint(t.Context(), args, &output); err == nil || !strings.Contains(err.Error(), "Storage accepts") {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestLiveStorageCLIAndStoppedBudgetPolicy(t *testing.T) {
+	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
+		t.Skip("ARM64 Mac operator CLI; helper is portable")
+	}
+	directory, module, node := storageRuntimeFixture(t)
+	t.Setenv("CAMP_BUNDLE_DIR", "")
+	t.Setenv("CAMP_DSH_NODE", node)
+	t.Setenv("CAMP_LAYERFS_WORKER_RUNTIME", module)
+	lock, err := execution.AcquireLock(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	err = runRunnerCheckpoint(t.Context(), []string{"storage", "--data-dir", directory, "--json"}, &output)
+	lock.Close()
+	if err != nil {
+		t.Fatal(err, output.String())
+	}
+	var observed struct {
+		Quiescent bool `json:"quiescent"`
+		Retention struct {
+			PreviewAllowed bool `json:"previewAllowed"`
+		} `json:"retention"`
+	}
+	if err = json.Unmarshal(output.Bytes(), &observed); err != nil || observed.Quiescent || observed.Retention.PreviewAllowed {
+		t.Fatal("Live overview exposed cleanup candidates", err, output.String())
+	}
+	output.Reset()
+	if err = runRunnerCheckpoint(t.Context(), []string{"budget", "--data-dir", directory, "--retained-budget", "1GiB", "--min-free", "0", "--json"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	var policy struct {
+		Retained int64 `json:"retainedBudgetBytes"`
+		Free     int64 `json:"minFreeBytes"`
+	}
+	if err = json.Unmarshal(output.Bytes(), &policy); err != nil || policy.Retained != 1<<30 || policy.Free != 0 {
+		t.Fatal(err, output.String())
+	}
+	output.Reset()
+	if err = runRunnerCheckpoint(t.Context(), []string{"budget", "--data-dir", directory, "--json"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(output.Bytes(), &policy); err != nil || policy.Retained != 1<<30 {
+		t.Fatal(err, output.String())
 	}
 }

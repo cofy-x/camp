@@ -1,16 +1,15 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"time"
+
+	"github.com/cofy-x/camp/apps/server/internal/hoststorage"
 )
 
 func runCheckpointStorage(ctx context.Context, directory, node, workerRuntime, runnerID, storageID string, lock *os.File, jsonOutput bool, output io.Writer) error {
@@ -18,38 +17,70 @@ func runCheckpointStorage(ctx context.Context, directory, node, workerRuntime, r
 	if _, err := os.Stat(script); err != nil {
 		return errors.New("Install the current Camp Runner runtime to inspect checkpoint storage; a checkpoint worker is optional")
 	}
-	input, err := json.Marshal(map[string]string{"dataRoot": directory, "runnerId": runnerID, "storageId": storageID})
-	if err != nil {
-		return err
-	}
-	var report, diagnostic bytes.Buffer
-	cmd := exec.CommandContext(ctx, node, script)
-	cmd.Env = []string{"PATH=/usr/local/bin:/usr/bin:/bin", "HOME=" + directory, "LANG=en_US.UTF-8"}
-	if lock != nil {
-		cmd.ExtraFiles = []*os.File{lock}
-	}
-	cmd.Stdin = bytes.NewReader(input)
-	cmd.Stdout = &checkpointStorageOutput{writer: &report}
-	cmd.Stderr = &checkpointDiagnostic{writer: &diagnostic}
-	cmd.WaitDelay = 2 * time.Second
+	input := map[string]any{"dataRoot": directory, "runnerId": runnerID, "storageId": storageID, "quiescent": lock != nil}
+	var report json.RawMessage
 	progressOutput := output
 	if jsonOutput {
 		progressOutput = io.Discard
 	}
-	err = installationPhase(ctx, progressOutput, "Inspecting retained checkpoint storage", 0, func(_ *installPhase) error { return cmd.Run() })
+	err := installationPhase(ctx, progressOutput, "Inspecting retained checkpoint storage", 0, func(_ *installPhase) error {
+		var e error
+		report, e = hoststorage.Call(ctx, node, workerRuntime, directory, input, lock)
+		return e
+	})
 	if err != nil {
-		return fmt.Errorf("Checkpoint storage inspection failed; retained data is unchanged: %w %s", err, diagnostic.String())
+		return err
 	}
-	return writeCheckpointStorage(output, report.Bytes(), jsonOutput)
+	return writeCheckpointStorage(output, report, jsonOutput)
 }
 
-type checkpointStorageOutput struct{ writer *bytes.Buffer }
-
-func (w *checkpointStorageOutput) Write(data []byte) (int, error) {
-	if w.writer.Len()+len(data) > 8<<20 {
-		return 0, errors.New("Checkpoint storage report exceeds its bounded output")
+func runCheckpointStorageAdmin(ctx context.Context, directory, node, workerRuntime string, input map[string]any, lock *os.File, jsonOutput bool, output io.Writer) error {
+	var data json.RawMessage
+	progress := output
+	if jsonOutput {
+		progress = io.Discard
 	}
-	return w.writer.Write(data)
+	err := installationPhase(ctx, progress, "Preparing storage administration; cleanup verifies retained bytes", 0, func(_ *installPhase) error {
+		var e error
+		data, e = hoststorage.Call(ctx, node, workerRuntime, directory, input, lock)
+		return e
+	})
+	if err != nil {
+		return err
+	}
+	if jsonOutput {
+		return json.NewEncoder(output).Encode(data)
+	}
+	var value struct {
+		Kind                string `json:"kind"`
+		PlanID              string `json:"planId"`
+		BatchID             string `json:"batchId"`
+		Action              string `json:"action"`
+		State               string `json:"state"`
+		Captures            int    `json:"captures"`
+		LogicalBytes        int64  `json:"logicalBytes"`
+		Note                string `json:"note"`
+		RetainedBudgetBytes int64  `json:"retainedBudgetBytes"`
+		MinFreeBytes        int64  `json:"minFreeBytes"`
+	}
+	if err = json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	if value.Kind == "checkpoint-storage-policy" {
+		_, err = fmt.Fprintf(output, "Retained storage budget: %s; free-volume warning: %s\nBudgets warn only; zero disables that threshold. No work is stopped and no data is removed.\n", checkpointSize(value.RetainedBudgetBytes), checkpointSize(value.MinFreeBytes))
+		return err
+	}
+	if value.Kind != "checkpoint-cleanup-result" {
+		return errors.New("The storage helper returned an incompatible administration result")
+	}
+	fmt.Fprintf(output, "Cleanup %s: %s\nPlan ID: %s\nQuarantine batch: %s\nPlanned captures: %d (%s logical file entries)\n%s\n", value.Action, value.State, value.PlanID, value.BatchID, value.Captures, checkpointSize(value.LogicalBytes), value.Note)
+	if value.State == "planned" {
+		fmt.Fprintf(output, "Apply this exact plan with cleanup apply --plan %s and the same --data-dir.\n", value.PlanID)
+		if value.Action == "purge" {
+			fmt.Fprintln(output, "Permanent purge additionally requires --confirm-permanent.")
+		}
+	}
+	return nil
 }
 
 type checkpointStorageStats struct {
@@ -69,9 +100,21 @@ func checkpointSize(bytes int64) string {
 
 func writeCheckpointStorage(output io.Writer, data []byte, jsonOutput bool) error {
 	var report struct {
-		Schema          int                    `json:"schema"`
-		Kind            string                 `json:"kind"`
-		Complete        bool                   `json:"complete"`
+		Schema    int    `json:"schema"`
+		Kind      string `json:"kind"`
+		Complete  bool   `json:"complete"`
+		Quiescent bool   `json:"quiescent"`
+		Budget    struct {
+			Observation struct {
+				Level               string   `json:"level"`
+				Warnings            []string `json:"warnings"`
+				LogicalBytes        int64    `json:"logicalBytes"`
+				Complete            bool     `json:"complete"`
+				FreeBytes           *int64   `json:"freeBytes"`
+				RetainedBudgetBytes int64    `json:"retainedBudgetBytes"`
+				MinFreeBytes        int64    `json:"minFreeBytes"`
+			} `json:"observation"`
+		} `json:"budget"`
 		Totals          checkpointStorageStats `json:"totals"`
 		Operations      int                    `json:"operations"`
 		Epochs          int                    `json:"epochs"`
@@ -110,6 +153,19 @@ func writeCheckpointStorage(output io.Writer, data []byte, jsonOutput bool) erro
 			state = "partial; retention preview blocked"
 		}
 		fmt.Fprintf(output, "Checkpoint storage: %s\nLocal logical bytes: %s (%d files, %d directories, %d symlinks)\n", state, checkpointSize(report.Totals.LogicalBytes), report.Totals.Files, report.Totals.Directories, report.Totals.Symlinks)
+		if !report.Quiescent {
+			fmt.Fprintln(output, "Live observation; stop the owning Runner before creating a cleanup plan.")
+		}
+		if report.Budget.Observation.Level != "" {
+			b := report.Budget.Observation
+			fmt.Fprintf(output, "Storage budget: %s; retained limit %s, free-volume warning %s\n", b.Level, checkpointSize(b.RetainedBudgetBytes), checkpointSize(b.MinFreeBytes))
+			if b.FreeBytes != nil {
+				fmt.Fprintf(output, "Observed free volume space: %s\n", checkpointSize(*b.FreeBytes))
+			}
+			for _, warning := range b.Warnings {
+				fmt.Fprintf(output, "  Budget observation: %s\n", warning)
+			}
+		}
 		if report.Totals.AllocatedBytes != nil {
 			fmt.Fprintf(output, "Observed allocated blocks: %s; APFS clone sharing and reclaimable space are unknown\n", checkpointSize(*report.Totals.AllocatedBytes))
 		}

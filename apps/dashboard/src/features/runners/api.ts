@@ -1,5 +1,17 @@
 import { request } from '../../shared/api/http';
 
+export interface RunnerStorageHealth {
+  schema: 1;
+  observedAt: string;
+  level: 'ok' | 'notice' | 'warning';
+  warnings: string[];
+  logicalBytes: number | null;
+  complete: boolean;
+  freeBytes: number | null;
+  retainedBudgetBytes: number | null;
+  minFreeBytes: number | null;
+}
+
 export interface Runner {
   id: string;
   name: string;
@@ -18,6 +30,7 @@ export interface Runner {
   slots?: number;
   runtime: 'native' | 'fixture' | '';
   capabilities: {
+    storage?: RunnerStorageHealth;
     platform?: string;
     workspace?: string;
     sandbox?: string;
