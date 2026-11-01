@@ -14,7 +14,7 @@ Camp is in alpha and under active development.
 With Go and Git installed:
 
 ```sh
-go install github.com/cofy-x/camp@v0.1.0-alpha.7
+go install github.com/cofy-x/camp@v0.1.0-alpha.8
 camp
 ```
 
