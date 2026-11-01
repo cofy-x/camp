@@ -31,21 +31,26 @@ type Config struct {
 }
 
 type Manager struct {
-	store       *storage.Store
-	files       *resources.Manager
-	models      *configuration.Models
-	diagnostics *configuration.Diagnostics
-	config      Config
-	logger      *slog.Logger
-	ctx         context.Context
-	cancel      context.CancelFunc
-	done        chan struct{}
-	wake        chan struct{}
-	mu          sync.Mutex
-	peers       map[string]*peer
-	proxyCalls  map[string]map[string]context.CancelFunc
-	closed      bool
-	lastGC      time.Time // scheduler-owned
+	store         *storage.Store
+	files         *resources.Manager
+	models        *configuration.Models
+	diagnostics   *configuration.Diagnostics
+	config        Config
+	logger        *slog.Logger
+	ctx           context.Context
+	cancel        context.CancelFunc
+	done          chan struct{}
+	wake          chan struct{}
+	mu            sync.Mutex
+	peers         map[string]*peer
+	proxyCalls    map[string]map[string]context.CancelFunc
+	closed        bool
+	lastGC        time.Time       // scheduler-owned
+	preparing     *preparationJob // protected by mu, retained until the builder exits
+	prepared      chan preparationOutcome
+	preparationWG sync.WaitGroup
+	build         func(context.Context, storage.Run, storage.Attempt) (PreparedInput, error)
+	activate      func(context.Context, storage.Attempt, *PreparedInput) (storage.Attempt, error)
 }
 
 func New(ctx context.Context, store *storage.Store, config Config, logger *slog.Logger) (*Manager, error) {
@@ -79,7 +84,7 @@ func New(ctx context.Context, store *storage.Store, config Config, logger *slog.
 		return nil, err
 	}
 	life, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	m := &Manager{store: store, files: resources.New(filepath.Join(config.DataDir, "resources")), models: models, diagnostics: diagnostics, config: config, logger: logger, ctx: life, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), peers: map[string]*peer{}, proxyCalls: map[string]map[string]context.CancelFunc{}}
+	m := &Manager{store: store, files: resources.New(filepath.Join(config.DataDir, "resources")), models: models, diagnostics: diagnostics, config: config, logger: logger, ctx: life, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), peers: map[string]*peer{}, proxyCalls: map[string]map[string]context.CancelFunc{}, prepared: make(chan preparationOutcome, 1)}
 	if err = m.recover(ctx); err != nil {
 		cancel()
 		return nil, err
@@ -332,6 +337,9 @@ func (m *Manager) IsOnline(id string) bool {
 func (m *Manager) StopRunner(id string) {
 	m.mu.Lock()
 	p := m.peers[id]
+	if m.preparing != nil && m.preparing.attempt.RunnerID == id {
+		m.preparing.cancel()
+	}
 	m.mu.Unlock()
 	if p != nil {
 		p.close()

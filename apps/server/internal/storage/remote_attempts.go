@@ -12,6 +12,7 @@ import (
 )
 
 type Attempt struct {
+	Preparation          *Conversation   `json:"-"`
 	ID                   string          `json:"id"`
 	RunID                string          `json:"runId"`
 	RunnerID             string          `json:"runnerId"`
@@ -46,6 +47,11 @@ type RunnerCommand struct {
 
 func attemptRow(ctx context.Context, q *sqlgen.Queries, r sqlgen.RunAttempt) (Attempt, error) {
 	out := Attempt{ID: r.ID, RunID: r.RunID, RunnerID: r.RunnerID, CommandID: r.CommandID, Phase: r.Status, LeaseUntil: r.LeaseExpiresAt, Deadline: r.Deadline, FinalizationDeadline: r.UploadExpiresAt, WriterFence: r.Fence, ModelTokenHash: r.CapabilityHash, CancelRequested: r.CancelRequested != 0, ResultDigest: r.ResultHash, CompletionID: r.ResultID, Receipt: json.RawMessage(r.Result), InputDigest: r.InputDigest, InputPath: r.InputPath, ArtifactDigest: r.ArtifactDigest, ArtifactPath: r.ArtifactPath, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+	if r.PreparationContext != "" {
+		if err := json.Unmarshal([]byte(r.PreparationContext), &out.Preparation); err != nil {
+			return Attempt{}, err
+		}
+	}
 	out.ModelInFlight = r.ModelInFlight != 0
 	command, err := q.GetRunnerCommand(ctx, sqlgen.GetRunnerCommandParams{OperationID: r.ID, Kind: "run.start"})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -163,6 +169,9 @@ func (s *Store) ClaimRemoteRun(ctx context.Context, runID, runnerID string, leas
 			return e
 		}
 		attempt, e = getAttempt(ctx, q, id)
+		if e == nil {
+			attempt, e = freezeAttemptPreparation(ctx, q, out, attempt)
+		}
 		return e
 	})
 	return

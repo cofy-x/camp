@@ -247,27 +247,28 @@ type Run struct {
 }
 
 type RunAttempt struct {
-	ID              string
-	RunID           string
-	RunnerID        string
-	Fence           int64
-	CommandID       string
-	Status          string
-	LeaseExpiresAt  string
-	Deadline        string
-	UploadExpiresAt string
-	CancelRequested int64
-	CapabilityHash  string
-	ModelInFlight   int64
-	InputDigest     string
-	InputPath       string
-	ArtifactDigest  string
-	ArtifactPath    string
-	ResultHash      string
-	ResultID        string
-	Result          string
-	CreatedAt       string
-	UpdatedAt       string
+	ID                 string
+	RunID              string
+	RunnerID           string
+	Fence              int64
+	CommandID          string
+	Status             string
+	LeaseExpiresAt     string
+	Deadline           string
+	UploadExpiresAt    string
+	CancelRequested    int64
+	CapabilityHash     string
+	ModelInFlight      int64
+	InputDigest        string
+	InputPath          string
+	ArtifactDigest     string
+	ArtifactPath       string
+	ResultHash         string
+	ResultID           string
+	Result             string
+	CreatedAt          string
+	UpdatedAt          string
+	PreparationContext string
 }
 
 type RunEvent struct {

@@ -24,6 +24,9 @@ func (m *Manager) collectTerminalScratch(ctx context.Context) error {
 			continue
 		}
 		id := entry.Name()
+		if job := m.currentPreparation(); job != nil && job.attempt.ID == id {
+			continue
+		}
 		stamp := ""
 		unregisteredResource := ""
 		attempt, err := m.store.GetAttempt(ctx, id)

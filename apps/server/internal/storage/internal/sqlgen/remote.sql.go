@@ -338,8 +338,26 @@ func (q *Queries) FinishSourceImport(ctx context.Context, arg FinishSourceImport
 	return err
 }
 
+const freezeAttemptPreparation = `-- name: FreezeAttemptPreparation :execrows
+UPDATE run_attempts SET preparation_context=?1
+WHERE id=?2 AND preparation_context=''
+`
+
+type FreezeAttemptPreparationParams struct {
+	PreparationContext string
+	ID                 string
+}
+
+func (q *Queries) FreezeAttemptPreparation(ctx context.Context, arg FreezeAttemptPreparationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, freezeAttemptPreparation, arg.PreparationContext, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getAttempt = `-- name: GetAttempt :one
-SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at FROM run_attempts WHERE id=?
+SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at, preparation_context FROM run_attempts WHERE id=?
 `
 
 func (q *Queries) GetAttempt(ctx context.Context, id string) (RunAttempt, error) {
@@ -367,12 +385,13 @@ func (q *Queries) GetAttempt(ctx context.Context, id string) (RunAttempt, error)
 		&i.Result,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PreparationContext,
 	)
 	return i, err
 }
 
 const getAttemptByCapability = `-- name: GetAttemptByCapability :one
-SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at FROM run_attempts WHERE capability_hash=?
+SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at, preparation_context FROM run_attempts WHERE capability_hash=?
 `
 
 func (q *Queries) GetAttemptByCapability(ctx context.Context, capabilityHash string) (RunAttempt, error) {
@@ -400,6 +419,7 @@ func (q *Queries) GetAttemptByCapability(ctx context.Context, capabilityHash str
 		&i.Result,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PreparationContext,
 	)
 	return i, err
 }
@@ -456,7 +476,7 @@ func (q *Queries) GetResourceSourceImport(ctx context.Context, resourceID sql.Nu
 }
 
 const getRunAttempt = `-- name: GetRunAttempt :one
-SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at FROM run_attempts WHERE run_id=?
+SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at, preparation_context FROM run_attempts WHERE run_id=?
 `
 
 func (q *Queries) GetRunAttempt(ctx context.Context, runID string) (RunAttempt, error) {
@@ -484,6 +504,7 @@ func (q *Queries) GetRunAttempt(ctx context.Context, runID string) (RunAttempt, 
 		&i.Result,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PreparationContext,
 	)
 	return i, err
 }
@@ -691,7 +712,7 @@ func (q *Queries) GetSourceImportRequest(ctx context.Context, arg GetSourceImpor
 }
 
 const listActiveAttempts = `-- name: ListActiveAttempts :many
-SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at FROM run_attempts WHERE status<>'finished' ORDER BY created_at,id
+SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at, preparation_context FROM run_attempts WHERE status<>'finished' ORDER BY created_at,id
 `
 
 func (q *Queries) ListActiveAttempts(ctx context.Context) ([]RunAttempt, error) {
@@ -725,6 +746,7 @@ func (q *Queries) ListActiveAttempts(ctx context.Context) ([]RunAttempt, error) 
 			&i.Result,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PreparationContext,
 		); err != nil {
 			return nil, err
 		}
@@ -791,7 +813,7 @@ func (q *Queries) ListActiveSourceImports(ctx context.Context) ([]SourceImport, 
 }
 
 const listRunnerAttempts = `-- name: ListRunnerAttempts :many
-SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at FROM run_attempts WHERE runner_id=? AND status<>'finished' ORDER BY created_at,id
+SELECT id, run_id, runner_id, fence, command_id, status, lease_expires_at, deadline, upload_expires_at, cancel_requested, capability_hash, model_in_flight, input_digest, input_path, artifact_digest, artifact_path, result_hash, result_id, result, created_at, updated_at, preparation_context FROM run_attempts WHERE runner_id=? AND status<>'finished' ORDER BY created_at,id
 `
 
 func (q *Queries) ListRunnerAttempts(ctx context.Context, runnerID string) ([]RunAttempt, error) {
@@ -825,6 +847,7 @@ func (q *Queries) ListRunnerAttempts(ctx context.Context, runnerID string) ([]Ru
 			&i.Result,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PreparationContext,
 		); err != nil {
 			return nil, err
 		}

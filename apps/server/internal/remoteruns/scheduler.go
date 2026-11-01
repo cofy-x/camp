@@ -3,13 +3,8 @@ package remoteruns
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"os"
-	"path/filepath"
 	"time"
 
-	"github.com/cofy-x/camp/apps/server/internal/resources"
-	"github.com/cofy-x/camp/apps/server/internal/runinput"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
@@ -48,6 +43,8 @@ func (m *Manager) recover(ctx context.Context) error {
 }
 func (m *Manager) schedule() {
 	defer close(m.done)
+	// Store and Server ownership outlive every private file builder.
+	defer m.preparationWG.Wait()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
@@ -63,6 +60,12 @@ func (m *Manager) schedule() {
 	}
 }
 func (m *Manager) tick(ctx context.Context) error {
+	// A recoverable activation failure retains its command for retry, while
+	// unrelated cancellation, expiry and committed dispatch still reconcile.
+	preparationErr := m.advancePreparation(ctx)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	tasks, e := m.store.ListOpenTasks(ctx)
 	if e != nil {
 		return e
@@ -109,14 +112,18 @@ func (m *Manager) tick(ctx context.Context) error {
 			continue
 		}
 		count++
-		if len(a.Command) == 0 {
+		if len(a.Command) == 0 && !a.CancelRequested && m.currentPreparation() == nil {
 			run, e := m.store.GetRun(ctx, a.RunID)
 			if e == nil {
-				e = m.prepare(ctx, run, a)
+				e = m.startPreparation(ctx, run, a)
 			}
 			if e != nil {
-				_, _ = m.store.InterruptAttempt(ctx, a.ID, "Execution input could not be prepared: "+m.redact(e.Error()))
-				continue
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if _, err = m.store.InterruptAttempt(ctx, a.ID, "Execution input could not be prepared: "+m.redact(e.Error())); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -125,7 +132,7 @@ func (m *Manager) tick(ctx context.Context) error {
 		return err
 	}
 	for _, run := range queued {
-		if count >= m.config.Concurrency {
+		if count >= m.config.Concurrency || m.currentPreparation() != nil {
 			break
 		}
 		if run.RunnerID == "" || !m.IsOnline(run.RunnerID) {
@@ -147,8 +154,13 @@ func (m *Manager) tick(ctx context.Context) error {
 			}
 			return err
 		}
-		if err = m.prepare(ctx, claimed, a); err != nil {
-			_, _ = m.store.InterruptAttempt(ctx, a.ID, "Execution input could not be prepared: "+m.redact(err.Error()))
+		if err = m.startPreparation(ctx, claimed, a); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if _, err = m.store.InterruptAttempt(ctx, a.ID, "Execution input could not be prepared: "+m.redact(err.Error())); err != nil {
+				return err
+			}
 			continue
 		}
 		count++
@@ -167,136 +179,15 @@ func (m *Manager) tick(ctx context.Context) error {
 			peer.close()
 		}
 	}
-	return nil
+	return preparationErr
 }
 
-func (m *Manager) operationDir(id string) string {
-	return filepath.Join(m.config.DataDir, "remote", id)
-}
-func (m *Manager) prepare(ctx context.Context, run storage.Run, a storage.Attempt) error {
-	dir := m.operationDir(a.ID)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
-	if _, err := m.models.Resolve(run.RuntimeKey); err != nil {
-		return err
-	}
-	conv, err := m.store.GetConversation(ctx, run)
-	if err != nil {
-		return err
-	}
-	prompt, err := runinput.Conversation(ctx, m.store, run, conv)
-	var refs string
-	if err == nil {
-		refs, err = runinput.PrepareReferences(ctx, m.store, m.files, run, dir)
-	}
-	defer func() {
-		if refs != "" {
-			_ = os.RemoveAll(refs)
-		}
-	}()
-	if err != nil {
-		return err
-	}
-	var taskSpec *p.Collaboration
-	if run.TaskID != "" {
-		task, e := m.store.GetTaskState(ctx, run.TaskID)
-		if e != nil {
-			return e
-		}
-		task.Inputs, e = m.store.TaskInputs(ctx, task.ID, 0, run.TaskInputRevision)
-		if e != nil {
-			return e
-		}
-		prompt = runinput.TaskBrief(task, run) + "\nRoom context:\n" + prompt
-		if run.PreviousDraftCommit != "" {
-			if refs == "" {
-				refs, e = os.MkdirTemp(dir, ".references-")
-				if e != nil {
-					return e
-				}
-			}
-			if e = m.taskDraftEvidence(ctx, run, refs); e != nil {
-				return e
-			}
-			prompt += "\nThe previous task draft is read-only evidence named previous-task-draft under the reference root announced by this turn's Runner. Reconcile it with the active workspace; do not replace the shared tree wholesale.\n"
-		}
-		taskSpec = &p.Collaboration{ID: task.ID, Goal: task.Goal, AgentID: run.AgentID, Participants: []p.Participant{}}
-		for _, participant := range task.Participants {
-			taskSpec.Participants = append(taskSpec.Participants, p.Participant{ID: participant.Agent.ID, Name: participant.Agent.Name, Access: participant.Agent.Access})
-		}
-	}
-	project, err := writeArtifact(filepath.Join(dir, "project.tar"), func(w io.Writer) error { return m.files.ExportArchive(ctx, run.ResourceID, run.BaselineCommit, w) })
-	if err != nil {
-		return err
-	}
-	project.URL = "/api/daemon/operations/" + a.ID + "/input?part=project"
-	var references *p.Artifact
-	if refs != "" {
-		v, e := writeArtifact(filepath.Join(dir, "references.tar"), func(w io.Writer) error { return resources.WriteArchive(ctx, refs, w) })
-		if e != nil {
-			return e
-		}
-		v.URL = "/api/daemon/operations/" + a.ID + "/input?part=references"
-		references = &v
-	}
-	if err = m.store.SaveAttemptInput(ctx, a.ID, project.SHA256, filepath.Join(dir, "project.tar")); err != nil {
-		return err
-	}
-	run.SessionID, run.SessionGeneration, run.SessionMode = conv.SessionID, conv.Generation, "new"
-	if conv.Resumable {
-		run.SessionMode = "resume"
-	} else if conv.Generation > 1 {
-		if err = m.store.AddRunNotice(ctx, run.ID, "Rebuilding context on the assigned runner from visible messages. Previous requests are not replayed."); err != nil {
-			return err
-		}
-	}
-	if _, err = m.store.UpdateRun(ctx, run); err != nil {
-		return err
-	}
-	token := secret()
-	command := p.Command{ID: a.CommandID, Kind: "run.start", OperationID: a.ID, Deadline: a.Deadline, Spec: &p.ExecutionSpec{Task: taskSpec, RunID: run.ID, AttemptID: a.ID, ResourceID: run.ResourceID, BaselineCommit: run.BaselineCommit, Fence: a.WriterFence, AgentName: run.AgentSnapshot.Name, Instructions: run.AgentSnapshot.Instructions, Access: run.AgentSnapshot.Access, Prompt: prompt, Request: run.Prompt, Environment: run.Environment, Model: run.Model, MaxTokens: run.MaxTokens, MaxSteps: run.MaxSteps, TimeoutSeconds: run.TimeoutSeconds, ConversationID: conv.ID, SessionID: conv.SessionID, Generation: conv.Generation, Resume: conv.Resumable, ModelURL: "/api/daemon/model/" + a.ID, ModelToken: token, Project: project, References: references}}
-	data, err := json.Marshal(command)
-	if err != nil {
-		return err
-	}
-	return m.store.SaveAttemptCommand(ctx, a.ID, data, digest([]byte(token)))
-}
-func writeArtifact(path string, write func(io.Writer) error) (p.Artifact, error) {
-	f, err := os.CreateTemp(filepath.Dir(path), ".artifact-")
-	if err != nil {
-		return p.Artifact{}, err
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-	if err = write(f); err != nil {
-		return p.Artifact{}, err
-	}
-	if err = f.Sync(); err != nil {
-		return p.Artifact{}, err
-	}
-	if err = f.Close(); err != nil {
-		return p.Artifact{}, err
-	}
-	if err = os.Rename(f.Name(), path); err != nil {
-		return p.Artifact{}, err
-	}
-	dir, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return p.Artifact{}, err
-	}
-	err = dir.Sync()
-	dir.Close()
-	if err != nil {
-		return p.Artifact{}, err
-	}
-	return artifactManifest(path)
-}
 func (m *Manager) Cancel(ctx context.Context, id string) (storage.Run, error) {
 	run, err := m.store.CancelRemoteRun(ctx, id, "Cancellation requested.")
 	if err == nil {
 		if run.AttemptID != "" {
 			m.stopProxy(run.AttemptID)
+			m.stopPreparation(run.AttemptID)
 		}
 		m.Wake()
 	}
