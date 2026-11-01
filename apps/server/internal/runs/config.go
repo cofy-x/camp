@@ -1,4 +1,5 @@
-// Package runs owns durable agent execution, admission, cancellation, and result publication.
+// Package runs provides the local execution regression harness and shared
+// execution configuration. Production execution is owned by remoteruns.
 package runs
 
 import (
@@ -52,3 +53,5 @@ func (c Config) modelDefaults() configuration.Model {
 	}
 	return model
 }
+
+func (c Config) ModelDefaults() configuration.Model { return c.modelDefaults() }

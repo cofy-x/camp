@@ -38,7 +38,8 @@ Keep these authority boundaries stable as implementations change. Workspace, san
 | [daemon](../apps/server/internal/daemon) | Outbound connection, durable inbox/outbox, authorization watchdog and retained uploads |
 | [nativeexecutor](../apps/server/internal/nativeexecutor) | Pinned native execution, checks, export and cleanup; no storage/Room dependency |
 | [Fixture executor](../apps/server/internal/daemon/fixture_tasks.go) | Deterministic scenarios using the same daemon protocol, journal and recovery lifecycle |
-| [runs](../apps/server/internal/runs) | Shared bounded context preparation and local execution regression harness |
+| [runinput](../apps/server/internal/runinput) | Bounded conversation context, frozen task briefs and immutable reference preparation through read-only interfaces |
+| [runs](../apps/server/internal/runs) | Local execution regression harness and shared execution configuration |
 | [dsh](../apps/server/internal/dsh) / [execution](../apps/server/internal/execution) | Public DSH protocol/overlays, Bubblewrap boundary and process ownership |
 | [layerfs](../apps/server/internal/layerfs) / [sandboxexec](../apps/server/internal/sandboxexec/README.md) | SDK bridge, Docker operations and trusted nonroot container helper |
 | [runnertools](../apps/server/internal/runnertools) / [workspace](../apps/server/internal/workspace) | Run-scoped file/command capabilities and replaceable workspace lifecycle/capture contracts |
@@ -48,6 +49,8 @@ Keep these authority boundaries stable as implementations change. Workspace, san
 | [httpapi](../apps/server/internal/httpapi) | Protocol parsing, request bounds, authentication integration and status mapping |
 
 Features must not import the application registry or startup implementation. Keep file browsing, editing and publication in `features/library`; keep reusable resource transport with its API models and generic transport in `shared`. Platinum must not know Camp application IDs: use host callbacks for system actions and `AppDefinition.launchable` for launcher visibility. Removing an app should require no desktop-package changes. Add a layer only when it has a distinct owner. Validate transport, archive and execution inputs at their owning boundaries; storage rechecks the business authority and versions required for atomic publication.
+
+Remote execution and the local regression harness share `runinput` directly. It reads visible history and immutable evidence from admitted records without creating an execution manager or granting authority. Callers own prepared reference directories, including partial results after an error, and retain their existing cleanup lifecycle. Task briefs use the round's frozen input revision; admission and publication remain transactional storage responsibilities.
 
 Register apps with `AppDefinition` and use shared desktop navigation, dialogs, menus and close guards. Refactors preserve observable behavior; intentional product changes update callers, tests and contracts together. Keep React Hook dependencies complete and handle asynchronous failures. Fix lint findings without blanket suppressions.
 

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/resources"
+	"github.com/cofy-x/camp/apps/server/internal/runinput"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -185,7 +185,11 @@ func (m *Manager) prepare(ctx context.Context, run storage.Run, a storage.Attemp
 	if err != nil {
 		return err
 	}
-	prompt, refs, err := runs.PrepareRemoteInput(ctx, m.store, m.files, run, conv, dir)
+	prompt, err := runinput.Conversation(ctx, m.store, run, conv)
+	var refs string
+	if err == nil {
+		refs, err = runinput.PrepareReferences(ctx, m.store, m.files, run, dir)
+	}
 	defer func() {
 		if refs != "" {
 			_ = os.RemoveAll(refs)
@@ -200,7 +204,7 @@ func (m *Manager) prepare(ctx context.Context, run storage.Run, a storage.Attemp
 		if e != nil {
 			return e
 		}
-		prompt = task.TaskBrief(run) + "\nRoom context:\n" + prompt
+		prompt = runinput.TaskBrief(task, run) + "\nRoom context:\n" + prompt
 		if run.PreviousDraftCommit != "" {
 			if refs == "" {
 				refs, e = os.MkdirTemp(dir, ".references-")

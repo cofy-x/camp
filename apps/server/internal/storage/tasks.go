@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 
@@ -421,22 +420,6 @@ func taskNotice(ctx context.Context, q *sqlgen.Queries, t CollaborationTask, kin
 	return q.CreateInboxItem(ctx, sqlgen.CreateInboxItemParams{ID: newID(), UserID: t.RequestedByUserID, Kind: kind, RoomID: t.RoomID, MessageID: m.ID, TaskID: t.ID, CreatedAt: now()})
 }
 
-// TaskBrief never truncates the original goal or explicit task inputs. General
-// room history is separately bounded by the existing context builder.
-func (t CollaborationTask) TaskBrief(r Run) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Camp collaboration %s\nOriginal goal:\n%s\n\nCurrent handoff:\n%s\n\nApproved participants:\n", t.ID, t.Goal, r.Prompt)
-	for _, p := range t.Participants {
-		fmt.Fprintf(&b, "- %s (%s), %s access\n", p.Agent.Name, p.Agent.ID, p.Agent.Access)
-	}
-	b.WriteString("\nTask inputs to process this round:\n")
-	end := min(int(r.TaskInputRevision), len(t.Inputs))
-	for _, i := range t.Inputs[:end] {
-		fmt.Fprintf(&b, "%s: %s\n", i.AuthorName, i.Content)
-	}
-	b.WriteString("\nYou must end this round with exactly one Camp coordination tool: camp_handoff, camp_ask_person, or camp_finish. Ordinary @mentions do not dispatch work. Working files are a task draft until final publication. A read-only reviewer must hand changed drafts back to a writer for final checks.\n")
-	return b.String()
-}
 func validateIntent(t CollaborationTask, r Run, i *CoordinationIntent) error {
 	if i == nil || !validText(i.CallID, 128, false) || len(i.ArtifactPaths) > 128 {
 		return problem("invalid_intent", "A successful collaboration round requires one durable coordination intent.")

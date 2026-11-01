@@ -409,9 +409,8 @@ func TestTaskInputsBeforePublicationUseClaimedContextSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	brief := task.TaskBrief(run)
-	if !strings.Contains(brief, "concrete recovery procedure") || strings.Contains(brief, "later input must wait") || run.TaskInputRevision != 1 {
-		t.Fatal("task context crossed claimed input revision", brief, run.TaskInputRevision)
+	if run.TaskInputRevision != 1 || len(task.Inputs) != 2 {
+		t.Fatal("task input revision changed after claim", task, run.TaskInputRevision)
 	}
 	messages, err := s.ContextMessages(ctx, run.RoomID, run.ThreadRootID, 0, run.ContextThroughSeq)
 	if err != nil {

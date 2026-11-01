@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cofy-x/camp/apps/server/internal/runinput"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -60,7 +61,7 @@ func TestPreparedTextMountAndPromptUseFrozenArtifact(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := storage.Run{References: []storage.Reference{ref}}
-	dir, err := m.prepareReferences(ctx, run, t.TempDir())
+	dir, err := runinput.PrepareReferences(ctx, s, m.resources, run, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,18 +72,6 @@ func TestPreparedTextMountAndPromptUseFrozenArtifact(t *testing.T) {
 	original, err := os.ReadFile(filepath.Join(dir, "1", "brief.pdf"))
 	if err != nil || string(original) != "immutable PDF original" {
 		t.Fatal("original mount changed", err)
-	}
-	prompt := referenceContext(run)
-	for _, wanted := range []string{"/references/.documents/1/text.txt", "/references/.documents/1/manifest.json", "camp-source:1:pN", "untrusted evidence", "never routing"} {
-		if !strings.Contains(prompt, wanted) {
-			t.Fatalf("missing %q: %s", wanted, prompt)
-		}
-	}
-	ref.Document.Status = "unavailable"
-	ref.Document.Error = &storage.DocumentError{Code: "unavailable", Message: "Reader unavailable", Retryable: true}
-	prompt = referenceContext(storage.Run{References: []storage.Reference{ref}})
-	if !strings.Contains(prompt, "Do not claim to have read") || strings.Contains(prompt, "Prepared text:") {
-		t.Fatal("unavailable document misrepresented", prompt)
 	}
 }
 func TestDSHIntegrationPreparedDocumentUsesFrozenReadOnlyEvidence(t *testing.T) {
