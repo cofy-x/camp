@@ -96,7 +96,7 @@ export function TaskHistory({
   const inputs = useHistoryPage(
     firstInput,
     loadInputs,
-    active,
+    active && task.inputRevision > 0,
     task.revision,
     freezeInput,
   );
@@ -143,61 +143,74 @@ export function TaskHistory({
             </ol>
           </>
         )}
-        <div className="app-actions">
-          {runs.canBack && <Button onClick={runs.back}>Previous Turns</Button>}
-          {runs.page?.nextCursor && (
-            <Button onClick={() => runs.next(runs.page!.nextCursor)}>
-              Next Turns
-            </Button>
-          )}
-        </div>
-      </section>
-      <section className="collaboration-history" aria-label="Team input">
-        <h3>Team input</h3>
-        {!inputPage && !inputs.error && <p role="status">Loading inputs…</p>}
-        {inputs.error && (
-          <p className="app-error" role="alert">
-            {inputs.error} <Button onClick={inputs.retry}>Retry Inputs</Button>
-          </p>
+        {(runs.canBack || runs.page?.nextCursor) && (
+          <div className="app-actions">
+            {runs.canBack && (
+              <Button onClick={runs.back}>Previous Turns</Button>
+            )}
+            {runs.page?.nextCursor && (
+              <Button onClick={() => runs.next(runs.page!.nextCursor)}>
+                Next Turns
+              </Button>
+            )}
+          </div>
         )}
-        {inputPage && (
-          <>
-            {!inputPage.items.length && <p>No team input yet.</p>}
-            {inputPage.items.map((input) => (
-              <article key={input.id}>
-                <strong>{input.authorName}</strong>
-                <p>{input.content}</p>
-              </article>
-            ))}
-          </>
-        )}
-        <div className="app-actions">
-          {inputs.canBack && (
-            <Button onClick={inputs.back}>Previous Inputs</Button>
-          )}
-          {inputPage?.hasMore && (
-            <Button
-              onClick={() =>
-                inputs.next(
-                  { after: inputPage.nextAfter!, through: inputPage.through },
-                  frozenCursor,
-                )
-              }
-            >
-              Next Inputs
-            </Button>
-          )}
-          {inputPage && task.inputRevision > inputPage.through && (
-            <Button
-              onClick={() =>
-                inputs.next({ after: inputPage.through }, frozenCursor)
-              }
-            >
-              View New Inputs
-            </Button>
-          )}
-        </div>
       </section>
+      {task.inputRevision > 0 && (
+        <section className="collaboration-history" aria-label="Team input">
+          <h3>Team input</h3>
+          {!inputPage && !inputs.error && <p role="status">Loading inputs…</p>}
+          {inputs.error && (
+            <p className="app-error" role="alert">
+              {inputs.error}{' '}
+              <Button onClick={inputs.retry}>Retry Inputs</Button>
+            </p>
+          )}
+          {inputPage && (
+            <>
+              {inputPage.items.map((input) => (
+                <article key={input.id}>
+                  <strong>{input.authorName}</strong>
+                  <p>{input.content}</p>
+                </article>
+              ))}
+            </>
+          )}
+          {(inputs.canBack ||
+            inputPage?.hasMore ||
+            (inputPage && task.inputRevision > inputPage.through)) && (
+            <div className="app-actions">
+              {inputs.canBack && (
+                <Button onClick={inputs.back}>Previous Inputs</Button>
+              )}
+              {inputPage?.hasMore && (
+                <Button
+                  onClick={() =>
+                    inputs.next(
+                      {
+                        after: inputPage.nextAfter!,
+                        through: inputPage.through,
+                      },
+                      frozenCursor,
+                    )
+                  }
+                >
+                  Next Inputs
+                </Button>
+              )}
+              {inputPage && task.inputRevision > inputPage.through && (
+                <Button
+                  onClick={() =>
+                    inputs.next({ after: inputPage.through }, frozenCursor)
+                  }
+                >
+                  View New Inputs
+                </Button>
+              )}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
