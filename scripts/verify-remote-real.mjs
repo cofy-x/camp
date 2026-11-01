@@ -350,6 +350,8 @@ export async function main(args = process.argv.slice(2)) {
       'Room routing was not saved.',
     );
     await api(`/api/resources/${resourceId}`, 'PATCH', {
+      expectedRevision: (await api(`/api/resources/${resourceId}`)).resource
+        .revision,
       environment: profile,
     });
     const { agent } = await api(`/api/rooms/${roomId}/agents`, 'POST', {

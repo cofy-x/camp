@@ -4,8 +4,9 @@ SELECT * FROM resources WHERE NOT EXISTS(SELECT 1 FROM room_uploads u WHERE u.re
 SELECT * FROM resources WHERE id=?;
 -- name: CreateResource :exec
 INSERT INTO resources(id,name,source_path,current_commit,environment,created_at,updated_at) VALUES(?,?,?,?,?,?,?);
--- name: UpdateResource :exec
-UPDATE resources SET name=?,environment=?,updated_at=? WHERE id=?;
+-- name: UpdateResource :execrows
+UPDATE resources SET name=@name,environment=@environment,updated_at=@updated_at,revision=revision+1
+WHERE id=@id AND revision=@expected_revision;
 -- name: PublishResource :execrows
 UPDATE resources SET current_commit=?,updated_at=? WHERE id=? AND current_commit=?;
 -- name: ListAgents :many

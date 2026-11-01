@@ -640,6 +640,8 @@ try {
   });
   assert.equal(discussion.runs.length, 0);
   await api(`/api/resources/${room.resourceId}`, 'PATCH', {
+    expectedRevision: (await api(`/api/resources/${room.resourceId}`)).resource
+      .revision,
     environment: {
       kind: 'command',
       checks: [{ name: 'test', arguments: ['node', '--test'] }],

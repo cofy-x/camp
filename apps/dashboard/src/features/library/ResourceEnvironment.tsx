@@ -1,13 +1,15 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Button, Select } from '@cofy-x/camp-platinum';
 import type { Environment, Resource } from '../workspace/api';
 import { workspaceApi } from '../workspace/api';
+import { APIError } from '../../shared/api/http';
 import {
   confirmEnvironmentSave,
   environmentChanged,
   initialEnvironment,
   observeEnvironment,
   reloadEnvironment,
+  sameEnvironment,
 } from './environmentState';
 import './ResourceEnvironment.css';
 
@@ -31,13 +33,19 @@ export function EnvironmentEditor({
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [needsRefresh, setNeedsRefresh] = useState(false);
+  const [unconfirmed, setUnconfirmed] = useState<
+    Environment | null | undefined
+  >();
+  const editVersion = useRef(0);
   const [snapshot, setSnapshot] = useState(() =>
-    initialEnvironment(resource.environment, resource.updatedAt),
+    initialEnvironment(resource.environment, resource.revision),
   );
   const observed = observeEnvironment(
     snapshot,
     resource.environment,
-    resource.updatedAt,
+    resource.revision,
   );
   if (observed !== snapshot) setSnapshot(observed);
   const updatedElsewhere = environmentChanged(observed);
@@ -45,8 +53,10 @@ export function EnvironmentEditor({
   const currentChecks = currentEnvironment?.checks ?? [];
 
   function changed() {
+    editVersion.current++;
     setSnapshot((current) => ({ ...current, saved: false }));
     setError('');
+    setNotice('');
   }
 
   function reload() {
@@ -55,13 +65,70 @@ export function EnvironmentEditor({
     setChecks(JSON.stringify(currentEnvironment?.checks ?? [], null, 2));
     setSnapshot((current) => reloadEnvironment(current));
     setError('');
+    setNotice('');
+  }
+
+  function keepEdits() {
+    setSnapshot((current) => reloadEnvironment(current));
+    setError('');
+    setNotice('');
+  }
+
+  async function readSaved(
+    desired?: Environment | null,
+    editing = editVersion.current,
+  ) {
+    const { resource: latest } = await workspaceApi.resource(resource.id);
+    const matched =
+      desired !== undefined && sameEnvironment(latest.environment, desired);
+    setSnapshot((current) => {
+      if (matched) {
+        const confirmed = confirmEnvironmentSave(
+          current,
+          latest.environment,
+          latest.revision,
+        );
+        return {
+          ...confirmed,
+          saved: confirmed.saved && editVersion.current === editing,
+        };
+      }
+      return observeEnvironment(current, latest.environment, latest.revision);
+    });
+    setUnconfirmed(undefined);
+    setNeedsRefresh(false);
+    setError('');
+    onChange();
+    return matched;
+  }
+
+  async function checkSaved() {
+    setPending(true);
+    try {
+      await readSaved(unconfirmed);
+    } catch {
+      setError(
+        'Could not read the saved settings. Your edits are kept. Check the connection and try again.',
+      );
+    } finally {
+      setPending(false);
+    }
   }
 
   async function save() {
-    if (updatedElsewhere) return;
+    if (
+      updatedElsewhere ||
+      needsRefresh ||
+      unconfirmed !== undefined ||
+      pending
+    )
+      return;
     setError('');
+    setNotice('');
     setSnapshot((current) => ({ ...current, saved: false }));
     setPending(true);
+    let desired: Environment | null | undefined;
+    const editing = editVersion.current;
     try {
       const configured = (
         kind === 'none' ? [] : JSON.parse(checks)
@@ -78,14 +145,49 @@ export function EnvironmentEditor({
                 ? { nodeVersion: '24.16.0', packageManager: manager }
                 : {}),
             };
+      desired = environment;
       const result = await workspaceApi.saveResource(resource.id, {
+        expectedRevision: observed.baselineRevision,
         environment,
       });
-      setSnapshot((current) =>
-        confirmEnvironmentSave(current, result.resource.environment),
-      );
+      setSnapshot((current) => {
+        const confirmed = confirmEnvironmentSave(
+          current,
+          result.resource.environment,
+          result.resource.revision,
+        );
+        return {
+          ...confirmed,
+          saved: confirmed.saved && editVersion.current === editing,
+        };
+      });
       onChange();
     } catch (error) {
+      if (
+        error instanceof APIError &&
+        desired !== undefined &&
+        (error.code === 'resource_conflict' ||
+          error.status === 0 ||
+          error.status >= 500)
+      ) {
+        if (error.code === 'resource_conflict') setNeedsRefresh(true);
+        else setUnconfirmed(desired);
+        try {
+          const matched = await readSaved(
+            error.code === 'resource_conflict' ? undefined : desired,
+            editing,
+          );
+          if (!matched)
+            setNotice(
+              'Saved settings were refreshed. Your edits are kept; review them before saving again.',
+            );
+        } catch {
+          setError(
+            'Could not confirm the saved settings. Your edits are kept. Check saved settings before trying to save again.',
+          );
+        }
+        return;
+      }
       setError(
         error instanceof Error
           ? error.message
@@ -132,12 +234,25 @@ export function EnvironmentEditor({
         <div className="library-environment-notice" role="status">
           <p>
             Saved settings changed in another session. Your edits are still
-            here. Reload the saved settings before saving; this replaces your
-            current edits.
+            here. Compare the saved configuration with your entries below. Keep
+            your edits to continue reviewing, or reload to replace them.
           </p>
-          <Button disabled={pending} onClick={reload}>
-            Reload Saved Settings
-          </Button>
+          <details open>
+            <summary>Saved Configuration</summary>
+            <pre>{JSON.stringify(currentEnvironment ?? {}, null, 2)}</pre>
+          </details>
+          <div className="library-environment-conflict-actions">
+            <Button disabled={pending} onClick={keepEdits}>
+              Keep My Edits
+            </Button>
+            <Button disabled={pending} onClick={reload}>
+              Reload Saved Settings
+            </Button>
+          </div>
+          <p>
+            Keeping edits does not save them. Review your entries, then choose
+            Save Environment.
+          </p>
         </div>
       )}
       <form
@@ -146,7 +261,10 @@ export function EnvironmentEditor({
           void save();
         }}
       >
-        <fieldset className="app-control-group" disabled={pending}>
+        <fieldset
+          className="app-control-group"
+          disabled={pending || unconfirmed !== undefined}
+        >
           <legend>Configuration</legend>
           <Select
             disabled={pending}
@@ -224,10 +342,30 @@ export function EnvironmentEditor({
           </p>
         )}
         <div className="library-environment-actions">
-          <Button type="submit" disabled={pending || updatedElsewhere}>
+          <Button
+            type="submit"
+            disabled={
+              pending ||
+              updatedElsewhere ||
+              needsRefresh ||
+              unconfirmed !== undefined
+            }
+          >
             {pending ? 'Saving…' : 'Save Environment'}
           </Button>
           {observed.saved && <span role="status">Environment saved.</span>}
+          {notice && !observed.saved && !updatedElsewhere && (
+            <span role="status">{notice}</span>
+          )}
+          {(needsRefresh || unconfirmed !== undefined) && (
+            <Button
+              type="button"
+              disabled={pending}
+              onClick={() => void checkSaved()}
+            >
+              Check Saved Settings
+            </Button>
+          )}
         </div>
       </form>
     </section>

@@ -115,7 +115,7 @@ The [registry](../apps/dashboard/src/app/registry.ts) composes five product apps
 
 [Private drafts](../apps/dashboard/src/team/usePrivateDraft.ts) combine server CAS revisions with account-scoped local recovery. Closing, switching and sign-out flush drafts first; errors retain local content. A lost send response retains the original request body/ID. Deferred app navigation captures both its request order and Platinum's in-memory activation revision before flushing drafts. A newer navigation, window activation or window close cancels the old navigation after storage completes; it does not cancel or discard the private save. Delayed responses cannot mark newer text published or replace a newer destination. Hide/shade keeps app state mounted; pointer previews remain separate from committed layouts and pending saves retain ordering on failure.
 
-Library consumes each navigation intent before dependent Room/list reads finish; explicit Room context is retained immediately and delayed data only resolves missing context. Loading/retry completion cannot replay navigation over a newer Sources interaction. Library freezes resource/path/baseline for an editor or review request. Obsolete reads cannot install another file after navigation. Existing filenames open saved bytes. Tabs preserve reading state; listing failures end loading and offer retry. Environment forms keep editing baselines separate from observed settings and save receipts. That API has no atomic revision precondition, so the UI cannot prevent an unseen concurrent administrator update; see [the open concurrency work](#resource-configuration-concurrency).
+Library consumes each navigation intent before dependent Room/list reads finish; explicit Room context is retained immediately and delayed data only resolves missing context. Loading/retry completion cannot replay navigation over a newer Sources interaction. Library freezes resource/path/baseline for an editor or review request. Obsolete reads cannot install another file after navigation. Existing filenames open saved bytes. Tabs preserve reading state; listing failures end loading and offer retry. Environment forms keep editing baselines separate from monotonically observed configuration revisions. Resource PATCH atomically compares the editing revision; a stale save cannot replace another administrator’s settings. A conflict preserves the draft and displays saved settings before an explicit keep/reload choice. Uncertain responses are read back without another write; if readback fails, the exact pending form remains frozen until verification. Configuration revisions are independent of file commits, and queued work retains its frozen environment.
 
 ## Readiness reporting
 
@@ -147,12 +147,6 @@ The boundaries below describe current implementation choices, not permanent requ
 Runner check/output reports assume a trusted machine; they are not remote attestation against a hostile operator. Source/browser/fixture results alone do not establish native isolation, fresh-host portability or real-provider success.
 
 Address shared-data correctness and contradictions in the shipped workflow first, then use measurements to select checkpoint or lifecycle work. The items below own the remaining implementation work; release milestones and completed implementation sequences belong in retained evidence.
-
-### Resource configuration concurrency
-
-Open work; owners: `storage`, `httpapi` and Library. The [Resource PATCH API](api.md#library-and-publication) has no revision precondition. Two administrators can overwrite each other's environment changes despite the UI retaining its editing baseline.
-
-Completion requires an atomic revision precondition, a conflict response for stale updates, and a UI recovery path that preserves unsaved edits. Verify two administrators saving from the same revision: only one update commits, and the other can inspect the latest configuration before explicitly retrying. Update the API contract and callers together.
 
 ### Checkpoint cost and retention
 

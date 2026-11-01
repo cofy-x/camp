@@ -66,7 +66,10 @@ func Validate(profile Profile) error {
 	}
 	names := map[string]bool{}
 	for _, check := range profile.Checks {
-		if !scriptPattern.MatchString(check.Name) || names[check.Name] || !safeDirectory(check.Directory) || (check.Script != "" && !scriptPattern.MatchString(check.Script)) || (profile.PackageManager == "node" && check.Script != "") {
+		if !scriptPattern.MatchString(check.Name) {
+			return errors.New("Check names must start with a letter or number and use only letters, numbers, colons, underscores or hyphens")
+		}
+		if names[check.Name] || !safeDirectory(check.Directory) || (check.Script != "" && !scriptPattern.MatchString(check.Script)) || (profile.PackageManager == "node" && check.Script != "") {
 			return errors.New("Check names must be unique, scripts must name a package script, and directories must stay within the project")
 		}
 		if profile.Kind == "command" {

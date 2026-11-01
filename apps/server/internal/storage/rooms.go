@@ -57,7 +57,7 @@ func roomRow(r sqlgen.Room) Room {
 	return Room{RunnerID: r.RunnerID.String, RunnerRevision: r.RunnerRevision, LastMessageSeq: r.LastMessageSeq, ID: r.ID, Name: r.Name, Description: r.Description, ResourceID: r.ResourceID, DefaultAgentID: r.DefaultAgentID.String, ActivitySeq: r.ActivitySeq, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
 }
 func resourceRow(r sqlgen.Resource) Resource {
-	return Resource{ID: r.ID, Name: r.Name, SourcePath: r.SourcePath, CurrentCommit: r.CurrentCommit, Environment: json.RawMessage(r.Environment), CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+	return Resource{ID: r.ID, Name: r.Name, SourcePath: r.SourcePath, CurrentCommit: r.CurrentCommit, Environment: json.RawMessage(r.Environment), Revision: r.Revision, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
 }
 func (s *Store) GetAgent(ctx context.Context, id string) (Agent, error) {
 	a, e := s.queries().GetAgent(ctx, id)
@@ -227,6 +227,7 @@ func (s *Store) CreateResource(ctx context.Context, r Resource) (Resource, error
 	}
 	r.CreatedAt = now()
 	r.UpdatedAt = r.CreatedAt
+	r.Revision = 1
 	e := s.transaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
 		if e := createResource(ctx, q, r); e != nil {
@@ -258,13 +259,21 @@ func (s *Store) UpdateResource(ctx context.Context, r Resource) (Resource, error
 		if e := requireWorkingResource(ctx, q, r.ID); e != nil {
 			return e
 		}
+		if r.Revision < 1 {
+			return problem("invalid_resource", "Read the current resource configuration before saving.")
+		}
 		r.SourcePath = old.SourcePath
 		r.CurrentCommit = old.CurrentCommit
 		r.CreatedAt = old.CreatedAt
 		r.UpdatedAt = now()
-		if e = q.UpdateResource(ctx, sqlgen.UpdateResourceParams{ID: r.ID, Name: r.Name, Environment: string(r.Environment), UpdatedAt: r.UpdatedAt}); e != nil {
+		n, e := q.UpdateResource(ctx, sqlgen.UpdateResourceParams{ID: r.ID, Name: r.Name, Environment: string(r.Environment), UpdatedAt: r.UpdatedAt, ExpectedRevision: r.Revision})
+		if e != nil {
 			return e
 		}
+		if n != 1 {
+			return problem("resource_conflict", "Resource settings changed. Review the saved settings before saving your edits.")
+		}
+		r.Revision++
 		return event(ctx, q, "resource.updated", "", r.ID)
 	})
 	return r, e

@@ -127,6 +127,22 @@
 .library-environment-notice p {
   margin: 0 0 8px;
 }
+.library-environment-notice pre {
+  max-height: 160px;
+  margin: 6px 0 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #fff;
+  padding: 8px;
+  user-select: text;
+}
+.library-environment-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
 .library-environment-actions {
   display: flex;
   flex-wrap: wrap;

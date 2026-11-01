@@ -108,7 +108,14 @@ test('an empty resource can configure its environment without starting agent wor
   const changed = await mutate(
     page,
     `/resources/${room.resourceId}`,
-    { environment: { kind: 'command', checks: [] } },
+    {
+      expectedRevision: (
+        await (
+          await page.request.get(`/api/resources/${room.resourceId}`)
+        ).json()
+      ).resource.revision,
+      environment: { kind: 'command', checks: [] },
+    },
     'PATCH',
   );
   expect(changed.ok()).toBeTruthy();
@@ -127,6 +134,9 @@ test('an empty resource can configure its environment without starting agent wor
   await expect(
     environment.getByRole('button', { name: 'Save Environment', exact: true }),
   ).toBeDisabled();
+  await page.screenshot({
+    path: testInfo.outputPath('library-environment-conflict.png'),
+  });
   await environment
     .getByRole('button', { name: 'Reload Saved Settings', exact: true })
     .click();
