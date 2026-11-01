@@ -144,7 +144,10 @@ test('Imported working files retain the initial Runner snapshot provenance', asy
   page,
 }, info) => {
   await signIn(page);
-  const room = await createRoom(page, `snapshot-proof-${info.project.name}`);
+  const room = await createRoom(
+    page,
+    `snapshot-proof-${info.project.name}-${info.repeatEachIndex}-${info.retry}`,
+  );
   const listing = await (
     await page.request.get(`/api/resources/${room.resourceId}/files`)
   ).json();
@@ -204,37 +207,43 @@ test('Imported working files retain the initial Runner snapshot provenance', asy
       },
     });
   });
-  await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
-    .click();
-  const file = library(page).getByRole('region', { name: 'Selected file' });
-  await expect(file).toContainText(
-    'This later work is not the imported snapshot.',
-  );
-  await file.getByRole('tab', { name: 'Source', exact: true }).click();
-  await expect(
-    file.getByRole('heading', { name: 'Team Notes', exact: true }),
-  ).toBeVisible();
-  await expect(file).toContainText('do not write back');
-  await expect(file).not.toContainText('runner-that-captured-source');
-  await expect(file).not.toContainText('original-import-receipt');
-  await expect(
-    file.getByRole('button', { name: 'Edit Text', exact: true }),
-  ).toBeEnabled();
-  await expect(
-    file.getByRole('button', { name: 'Create Working Copy…', exact: true }),
-  ).toHaveCount(0);
-  await file
-    .getByRole('button', { name: 'Open Imported Snapshot', exact: true })
-    .click();
-  await expect(library(page)).toContainText('Historical version · read only');
-  await expect(file).toContainText('An editable Camp copy.');
-  await expect(file).not.toContainText(
-    'This later work is not the imported snapshot.',
-  );
-  await expect(
-    file.getByRole('button', { name: 'Edit Text', exact: true }),
-  ).toBeDisabled();
+  try {
+    await workspace(page)
+      .getByRole('button', { name: 'Library', exact: true })
+      .click();
+    const file = library(page).getByRole('region', { name: 'Selected file' });
+    await expect(file).toContainText(
+      'This later work is not the imported snapshot.',
+    );
+    await file.getByRole('tab', { name: 'Source', exact: true }).click();
+    await expect(
+      file.getByRole('heading', { name: 'Team Notes', exact: true }),
+    ).toBeVisible();
+    await expect(file).toContainText('do not write back');
+    await expect(file).not.toContainText('runner-that-captured-source');
+    await expect(file).not.toContainText('original-import-receipt');
+    await expect(
+      file.getByRole('button', { name: 'Edit Text', exact: true }),
+    ).toBeEnabled();
+    await expect(
+      file.getByRole('button', { name: 'Create Working Copy…', exact: true }),
+    ).toHaveCount(0);
+    await file
+      .getByRole('button', { name: 'Open Imported Snapshot', exact: true })
+      .click();
+    await expect(library(page)).toContainText('Historical version · read only');
+    await expect(file).toContainText('An editable Camp copy.');
+    await expect(file).not.toContainText(
+      'This later work is not the imported snapshot.',
+    );
+    await expect(
+      file.getByRole('button', { name: 'Edit Text', exact: true }),
+    ).toBeDisabled();
+  } finally {
+    // Library refreshes can still be reading routed API responses when the
+    // assertions finish. Drain them before Playwright disposes the context.
+    await page.unrouteAll({ behavior: 'wait' });
+  }
 });
 
 test('Runner navigation separates connection codes from machine details and retains the private connection draft', async ({
