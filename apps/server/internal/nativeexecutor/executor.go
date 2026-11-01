@@ -165,16 +165,13 @@ func (e *Executor) Execute(ctx context.Context, input Request, emit Emit) (resul
 		err = os.MkdirAll(stateDir, 0700)
 		var overlay []byte
 		if err == nil {
-			persona := input.Persona
-			if active.Directory() != "/workspace" {
-				persona += "\nThe current native workspace is " + active.Directory() + ". Use this turn's directory for file and command operations, including after session continuation."
-				if roots, ok := active.(interface{ PathRoots() (string, string) }); ok {
-					_, references := roots.PathRoots()
-					if references != "" {
-						persona += " Read-only reference evidence is at " + references + "."
-					}
-				}
+			references := ""
+			if roots, ok := active.(interface{ PathRoots() (string, string) }); ok {
+				_, references = roots.PathRoots()
+			} else if input.ReferencesDir != "" {
+				references = "/references"
 			}
+			persona := input.Persona + executionGuidance(active.Directory(), references)
 			overlay, err = dsh.RemoteOverlayAt(persona, input.Access == "read", executionPaths(active.Directory(), stateDir, e.config.RuntimeDir), input.Task != nil)
 		}
 		if err == nil {

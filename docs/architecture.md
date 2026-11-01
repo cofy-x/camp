@@ -115,7 +115,7 @@ The [registry](../apps/dashboard/src/app/registry.ts) composes five product apps
 
 [Private drafts](../apps/dashboard/src/team/usePrivateDraft.ts) combine server CAS revisions with account-scoped local recovery. Closing, switching and sign-out flush drafts first; errors retain local content. A lost send response retains the original request body/ID. Deferred app navigation captures both its request order and Platinum's in-memory activation revision before flushing drafts. A newer navigation, window activation or window close cancels the old navigation after storage completes; it does not cancel or discard the private save. Delayed responses cannot mark newer text published or replace a newer destination. Hide/shade keeps app state mounted; pointer previews remain separate from committed layouts and pending saves retain ordering on failure.
 
-Library freezes resource/path/baseline for an editor or review request. Obsolete reads cannot install another file after navigation. Existing filenames open saved bytes. Tabs preserve reading state; listing failures end loading and offer retry. Environment forms keep editing baselines separate from observed settings and save receipts. That API has no atomic revision precondition, so the UI cannot prevent an unseen concurrent administrator update; see [the open concurrency work](#resource-configuration-concurrency).
+Library consumes each navigation intent before dependent Room/list reads finish; explicit Room context is retained immediately and delayed data only resolves missing context. Loading/retry completion cannot replay navigation over a newer Sources interaction. Library freezes resource/path/baseline for an editor or review request. Obsolete reads cannot install another file after navigation. Existing filenames open saved bytes. Tabs preserve reading state; listing failures end loading and offer retry. Environment forms keep editing baselines separate from observed settings and save receipts. That API has no atomic revision precondition, so the UI cannot prevent an unseen concurrent administrator update; see [the open concurrency work](#resource-configuration-concurrency).
 
 ## Readiness reporting
 
@@ -153,18 +153,6 @@ Address shared-data correctness and contradictions in the shipped workflow first
 Open work; owners: `storage`, `httpapi` and Library. The [Resource PATCH API](api.md#library-and-publication) has no revision precondition. Two administrators can overwrite each other's environment changes despite the UI retaining its editing baseline.
 
 Completion requires an atomic revision precondition, a conflict response for stale updates, and a UI recovery path that preserves unsaved edits. Verify two administrators saving from the same revision: only one update commits, and the other can inspect the latest configuration before explicitly retrying. Update the API contract and callers together.
-
-### Native path guidance
-
-Open [#50](https://github.com/cofy-x/camp/issues/50); owners: `runnertools`, `nativeexecutor` and `tools/dsh-runtime/camp-tools`. Mac commands run in the actual native directory, while file discovery still advertises logical `/workspace` defaults. The file capability can translate that alias; arbitrary shell text cannot.
-
-Completion requires model-facing/default guidance that agrees with the active workspace and references across continuation, actual Mac file/shell coverage and preserved Linux behavior. Preserve intentional API aliases and sandbox grants. Do not create a host-root alias or rewrite shell strings to conceal the mismatch.
-
-### Setup diagnostics and progress
-
-Open [#49](https://github.com/cofy-x/camp/issues/49) and [#51](https://github.com/cofy-x/camp/issues/51); owner: `cli`, with the Runner setup UI where it describes installation. `camp doctor` still recommends a Linux Runner on supported Apple Silicon. Runtime setup does not yet report useful intermediate verification/extraction progress after download completes.
-
-Completion requires correct Apple Silicon/Intel/Linux guidance and bounded phase/activity reporting for fresh, cached and interrupted setup. Keep doctor read-only, distinguish compressed transfer from installed work and retain registration/cache state on retries. Neither diagnostics nor installation progress may imply a model test, service start or completed execution.
 
 ### Checkpoint cost and retention
 

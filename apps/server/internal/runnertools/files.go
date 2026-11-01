@@ -102,7 +102,7 @@ func fileErrorCode(err error, code string) bool {
 
 func virtualFilePath(name, cwd string) (string, error) {
 	if name == "" || len(name) > 4096 || strings.ContainsAny(name, "\\\x00") || !utf8.ValidString(name) {
-		return "", fileProblem("FS_SANDBOX_DENIED", "Use a path under /workspace or /references.")
+		return "", fileProblem("FS_SANDBOX_DENIED", "Use a path within the active workspace or an attached read-only reference.")
 	}
 	if cwd == "" {
 		cwd = "/workspace"

@@ -233,7 +233,10 @@ test('missing terminal result and unconfirmed cleanup cannot become successful c
 test('file discovery is bounded, literal and has no command dependency', async () => {
   const target = (path) => ({ targetKey: path, displayPath: path });
   const fs = {
-    resolve: async (path) => target(path),
+    resolve: async (path) => {
+      assert.equal(path, '.');
+      return target('/workspace');
+    },
     listDir: async () => [
       {
         name: 'notes.txt',

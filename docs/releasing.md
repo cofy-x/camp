@@ -64,6 +64,8 @@ The [named baseline](../scripts/upgrade.mjs) is `v0.1.0-alpha.2`. `scripts/smoke
 
 `make smoke-bundle` exercises the explicit mirror/offline paths; `github` and `github-offline` require public assets. These tests relocate packages, remove host Node from Runner PATH and use deterministic providers. Package launchd lifecycle is separate from login startup, which the harness does not test; Linux systemd unit tests use a controlled substitute. Follow [mirror staging](install.md#stage-a-package-mirror) without changing existing Runner installations.
 
+Runner acceptance reports retain total setup time and sanitized per-phase durations under `timings.setupPhases`. Transfer, extraction, integrity validation, host preparation and self-test remain separate observations; cached setup does not stand in for a fresh download.
+
 ## Release evidence
 
 Retain sanitized evidence for the release's supported lifetime; temporary CI links alone are insufficient. Record source and test-driver modifications, artifact/runtime identities, actual host/engine, commands, outcomes, failures, skips and untested scope. Source, browser, fixture, native isolation, public installation and paid-provider results establish separate guarantees. A changed recheck driver does not change package provenance or replace an earlier failed outcome.

@@ -5,7 +5,7 @@ import { runnersApi, type Enrollment, type EnrollmentRecord } from './api';
 import { runnerSetupCommand } from './presentation';
 
 function size(bytes?: number) {
-  return bytes ? `${Math.ceil(bytes / 1_000_000)} MB` : '';
+  return bytes ? `${(bytes / (1 << 20)).toFixed(1)} MiB` : '';
 }
 
 export function ConnectRunner({
@@ -194,7 +194,7 @@ export function ConnectRunner({
                   {installation.version && `${installation.version}. `}
                   Extract on the Runner machine.
                   {installation.runtime?.bytes
-                    ? ` Setup downloads ${size(installation.runtime.bytes)} once.`
+                    ? ` Setup downloads ${size(installation.runtime.bytes)} of compressed runtime data once.`
                     : ''}
                 </p>
               </>
@@ -220,6 +220,13 @@ export function ConnectRunner({
                     GitHub access, add <code>--runtime-source server</code>.
                   </p>
                 )}
+                <p>
+                  Download completion is followed by verification, extraction
+                  and the Runner self-test. Setup reports the active phase,
+                  processed bytes and elapsed time. Wait for Setup complete
+                  before starting the Runner; retries keep its registration and
+                  verified cache.
+                </p>
                 <p>
                   Download the checksum beside the archive, then verify it
                   before extracting:
@@ -251,7 +258,7 @@ export function ConnectRunner({
                 )}
                 {installation.runtime?.unpackedBytes ? (
                   <p>
-                    Execution tools use approximately{' '}
+                    Unpacked execution files require approximately{' '}
                     {size(installation.runtime.unpackedBytes)} on disk.
                   </p>
                 ) : null}
