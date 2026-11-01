@@ -12,6 +12,7 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/dsh"
 	runner "github.com/cofy-x/camp/apps/server/internal/execution"
 	"github.com/cofy-x/camp/apps/server/internal/projectenv"
+	"github.com/cofy-x/camp/apps/server/internal/runinput"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -70,7 +71,7 @@ func (m *Manager) execute(ctx context.Context, e *execution) {
 	}
 	var referencesDir string
 	if err == nil {
-		referencesDir, err = m.prepareReferences(ctx, input, dir)
+		referencesDir, err = runinput.PrepareReferences(ctx, m.store, m.resources, input, dir)
 	}
 	if referencesDir != "" {
 		defer os.RemoveAll(referencesDir)
@@ -98,7 +99,7 @@ func (m *Manager) execute(ctx context.Context, e *execution) {
 		}
 	}
 	if err == nil {
-		prompt, err = m.conversationPrompt(ctx, input, e.conversation)
+		prompt, err = runinput.Conversation(ctx, m.store, input, e.conversation)
 	}
 	if err == nil {
 		err = m.update(e, func(r *storage.Run) {

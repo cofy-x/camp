@@ -1,4 +1,4 @@
-package runs
+package runinput
 
 import (
 	"context"
@@ -37,8 +37,7 @@ func TestTaskContextIncludesRoomAndThreadOnlyThroughFrozenCutoff(t *testing.T) {
 		t.Fatal(e)
 	}
 	run := storage.Run{ID: "round", TaskID: "task", RoomID: room.ID, ThreadRootID: goal.ID, OriginMessageID: goal.ID, ContextThroughSeq: frozen.Seq, ResourceID: room.ResourceID, BaselineCommit: strings.Repeat("a", 40), AgentID: agent.ID, AgentSnapshot: agent, Prompt: "Write the guide."}
-	m := &Manager{store: store}
-	prompt, e := m.conversationPrompt(ctx, run, storage.Conversation{})
+	prompt, e := Conversation(ctx, store, run, storage.Conversation{})
 	if e != nil {
 		t.Fatal(e)
 	}
