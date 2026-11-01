@@ -446,7 +446,7 @@ test('Connect Runner uses the fixed public release and exposes offline verificat
   );
   await expect(
     panel.getByRole('link', {
-      name: 'Download for Linux (12 MB)',
+      name: 'Download for Linux (11.4 MiB)',
       exact: true,
     }),
   ).toHaveAttribute('href', `${base}camp-runner-linux-amd64.tar.gz`);
@@ -460,7 +460,7 @@ test('Connect Runner uses the fixed public release and exposes offline verificat
   );
   await expect(
     panel.getByRole('link', {
-      name: 'Full offline package (322 MB)',
+      name: 'Full offline package (307.1 MiB)',
       exact: true,
     }),
   ).toHaveAttribute('href', `${base}camp-runner-offline-linux-amd64.tar.gz`);
@@ -533,11 +533,13 @@ test('Connect Runner distinguishes the small installer from runtime downloads an
   const panel = await connectRunner(page);
   await expect(
     panel.getByRole('link', {
-      name: 'Download for Linux (12 MB)',
+      name: 'Download for Linux (11.4 MiB)',
       exact: true,
     }),
   ).toHaveAttribute('href', '/api/runner-installation/download');
-  await expect(panel).toContainText('Setup downloads 310 MB once.');
+  await expect(panel).toContainText(
+    'Setup downloads 295.6 MiB of compressed runtime data once.',
+  );
   if (['chromium', 'touch'].includes(info.project.name))
     await runnerApp(page).screenshot({
       path: info.outputPath('runners-connect-start.png'),
@@ -545,7 +547,7 @@ test('Connect Runner distinguishes the small installer from runtime downloads an
 
   await expect(
     panel.getByRole('link', {
-      name: 'Full offline package (322 MB)',
+      name: 'Full offline package (307.1 MiB)',
       exact: true,
     }),
   ).toBeHidden();
@@ -554,7 +556,7 @@ test('Connect Runner distinguishes the small installer from runtime downloads an
     .click();
   await expect(
     panel.getByRole('link', {
-      name: 'Full offline package (322 MB)',
+      name: 'Full offline package (307.1 MiB)',
       exact: true,
     }),
   ).toHaveAttribute(
@@ -565,7 +567,7 @@ test('Connect Runner distinguishes the small installer from runtime downloads an
     'sha256sum -c camp-runner-linux-amd64.tar.gz.sha256',
   );
   await expect(panel).toContainText('--runtime-source server');
-  await expect(panel).toContainText('920 MB on disk');
+  await expect(panel).toContainText('877.4 MiB on disk');
   await panel
     .getByLabel('Runner name', { exact: true })
     .fill('Private machine');
@@ -1141,7 +1143,10 @@ test('Connect Runner selects native Mac packages with the keyboard and preserves
   await platform.press('Enter');
   await expect(platform).toHaveValue('darwin-arm64');
   await expect(
-    panel.getByRole('link', { name: 'Download for Mac (7 MB)', exact: true }),
+    panel.getByRole('link', {
+      name: 'Download for Mac (6.3 MiB)',
+      exact: true,
+    }),
   ).toHaveAttribute('href', '/api/runner-package?platform=darwin-arm64');
   await expect(
     panel.getByRole('link', { name: /Download for Linux/ }),
@@ -1154,11 +1159,21 @@ test('Connect Runner selects native Mac packages with the keyboard and preserves
   await requirements.press('Enter');
   await expect(panel).toContainText('Docker, Linux and FUSE are not required.');
   await expect(panel).toContainText(
+    'Setup downloads 200.3 MiB of compressed runtime data once.',
+  );
+  await expect(panel).toContainText('619.9 MiB on disk.');
+  await expect(panel).toContainText(
+    'verification, extraction and the Runner self-test',
+  );
+  await expect(panel).toContainText(
+    'retries keep its registration and verified cache',
+  );
+  await expect(panel).toContainText(
     'shasum -a 256 -c camp-runner-darwin-arm64.tar.gz.sha256',
   );
   await expect(
     panel.getByRole('link', {
-      name: 'Full offline package (216 MB)',
+      name: 'Full offline package (206.0 MiB)',
       exact: true,
     }),
   ).toHaveAttribute(
@@ -1255,7 +1270,10 @@ test('Late platform metadata cannot replace another download or create another c
   await chooser.selectOption('linux-amd64');
   release();
   await expect(
-    panel.getByRole('link', { name: 'Download for Linux (7 MB)', exact: true }),
+    panel.getByRole('link', {
+      name: 'Download for Linux (6.3 MiB)',
+      exact: true,
+    }),
   ).toHaveAttribute('href', '/api/runner-package');
   await expect(
     panel.getByRole('link', { name: /Download for Mac/ }),

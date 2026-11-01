@@ -19,6 +19,7 @@ import path from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 import { command, root, stop, waitFor } from './lib.mjs';
 import { baselineLauncher, upgradeBaseline } from './upgrade.mjs';
+import { setupPhases } from './setup-progress.mjs';
 
 const mode = process.argv[2];
 if (!mode) {
@@ -425,7 +426,15 @@ try {
     elapsedMs: setupMs,
   } = await setupWith(runnerBinary, token);
   timings.setupMs = setupMs;
+  timings.setupPhases = setupPhases(setupOutput);
   assert.equal(setupCode, 0, setupOutput);
+  assert.ok(
+    timings.setupPhases.some(
+      ({ phase, status }) =>
+        phase === 'Runner self-test' && status === 'complete',
+    ),
+    'Setup did not record the completed self-test phase',
+  );
   if (publicDownload && !offline && !upgrading)
     assert.ok(
       setupOutput.includes(`Downloading GitHub release ${release.version}`),

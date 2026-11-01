@@ -37,7 +37,14 @@ var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // Verify every shipped regular file and relative link before loading the image.
 // Checksums establish integrity; publisher authenticity is a release-channel concern.
 func verifyRunnerBundle(directory string) (bundleManifest, error) {
+	return verifyRunnerBundleContext(context.Background(), directory, nil)
+}
+
+func verifyRunnerBundleContext(ctx context.Context, directory string, progress *installPhase) (bundleManifest, error) {
 	var manifest bundleManifest
+	if err := ctx.Err(); err != nil {
+		return manifest, err
+	}
 	root, err := filepath.EvalSymlinks(directory)
 	if err != nil {
 		return manifest, err
@@ -102,6 +109,9 @@ func verifyRunnerBundle(directory string) (bundleManifest, error) {
 		return name, nil
 	}
 	for relative, entry := range manifest.Files {
+		if err := ctx.Err(); err != nil {
+			return manifest, err
+		}
 		name, err := inside(relative)
 		if err != nil {
 			return manifest, err
@@ -118,7 +128,7 @@ func verifyRunnerBundle(directory string) (bundleManifest, error) {
 			return manifest, err
 		}
 		hash := sha256.New()
-		_, err = io.Copy(hash, file)
+		_, err = io.Copy(hash, installReader{ctx: ctx, input: file, phase: progress})
 		err = errors.Join(err, file.Close())
 		if err != nil {
 			return manifest, err
@@ -126,8 +136,12 @@ func verifyRunnerBundle(directory string) (bundleManifest, error) {
 		if hex.EncodeToString(hash.Sum(nil)) != entry.SHA256 {
 			return manifest, fmt.Errorf("Bundle checksum failed: %s", relative)
 		}
+		progress.advance(0, 1)
 	}
 	for relative, target := range manifest.Symlinks {
+		if err := ctx.Err(); err != nil {
+			return manifest, err
+		}
 		name, err := inside(relative)
 		if err != nil {
 			return manifest, err
@@ -169,6 +183,9 @@ func verifyRunnerBundle(directory string) (bundleManifest, error) {
 		}
 	}
 	if err = filepath.WalkDir(root, func(name string, entry fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return walkErr
 		}

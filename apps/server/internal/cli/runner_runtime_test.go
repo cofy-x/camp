@@ -295,7 +295,7 @@ func TestHostPreflightPreservesRegistrationWithoutDownload(t *testing.T) {
 	if err := os.WriteFile(identity, []byte("saved-identity"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := installRunnerRuntime(context.Background(), daemon.Config{DataDir: directory, ServerURL: server.URL, DockerSocket: filepath.Join(directory, "missing-docker.sock")}, pin, io.Discard)
+	_, _, err := installRunnerRuntime(context.Background(), daemon.Config{DataDir: directory, ServerURL: server.URL, DockerSocket: filepath.Join(directory, "missing-docker.sock")}, pin, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "host requirements") || requests != 0 {
 		t.Fatal("Host failure did not stop before download", requests, err)
 	}
@@ -408,7 +408,7 @@ func TestRuntimeFailureClearsPreviousReadinessWithoutReplacingIdentity(t *testin
 	if err := daemon.WriteReadiness(directory, p.ReadinessReport{Ready: true}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := installRunnerRuntime(context.Background(), daemon.Config{DataDir: directory, ServerURL: server.URL}, pin, io.Discard)
+	_, _, err := installRunnerRuntime(context.Background(), daemon.Config{DataDir: directory, ServerURL: server.URL}, pin, io.Discard)
 	if err == nil {
 		t.Fatal("Missing runtime unexpectedly installed")
 	}

@@ -314,8 +314,11 @@ On Mac use service enable-login / disable-login to choose login startup.
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(output, "Checking Camp Runner installation…")
-			manifest, err = verifyRunnerBundle(bundle)
+			err = installationPhase(ctx, output, "Checking Camp Runner installation", 0, func(progress *installPhase) error {
+				var e error
+				manifest, e = verifyRunnerBundleContext(ctx, bundle, progress)
+				return e
+			})
 			if err != nil {
 				return err
 			}
@@ -387,21 +390,18 @@ On Mac use service enable-login / disable-login to choose login startup.
 		return err
 	}
 	if managedPin != nil {
-		bundle, err = installRunnerRuntime(ctx, config, *managedPin, output)
-		if err == nil {
-			manifest, err = verifyPinnedRuntime(bundle, *managedPin)
-		}
+		bundle, manifest, err = installRunnerRuntime(ctx, config, *managedPin, output)
 		if err != nil {
 			return err
 		}
 	}
 	if executor == "native" && !development && runtime.GOOS == "linux" {
-		fmt.Fprintln(output, "Preparing the fixed execution image…")
-		installationErr = loadRunnerImage(ctx, bundle, docker, manifest.LayerFS.Image)
+		installationErr = installationPhase(ctx, output, "Preparing fixed Linux execution image", 0, func(_ *installPhase) error { return loadRunnerImage(ctx, bundle, docker, manifest.LayerFS.Image) })
 	}
 	if executor == "native" && !development && workspaceBackend == "layerfs-worker" {
-		fmt.Fprintln(output, "Verifying the optional fixed checkpoint worker image…")
-		installationErr = loadCheckpointImage(ctx, directory, workerImage, dockerBinary, docker, manifest.CheckpointWorker)
+		installationErr = installationPhase(ctx, output, "Preparing optional checkpoint worker image", 0, func(_ *installPhase) error {
+			return loadCheckpointImage(ctx, directory, workerImage, dockerBinary, docker, manifest.CheckpointWorker)
+		})
 	}
 	if err = daemon.SaveInstallation(config, bundle, docker); err != nil {
 		return err
@@ -412,15 +412,29 @@ On Mac use service enable-login / disable-login to choose login startup.
 		native.WorkspaceBackend, native.WorkerDataRoot = config.WorkspaceBackend, directory
 		native.DockerBinary = config.DockerBinary
 		native.RunnerID, native.StorageID = config.RunnerID, config.StorageID
-		report, err := saveRunnerReadiness(ctx, directory, native, installationErr)
-		if err != nil {
-			return err
+		var report p.ReadinessReport
+		var readinessErr error
+		phaseErr := installationPhase(ctx, output, "Runner self-test", 0, func(_ *installPhase) error {
+			report, readinessErr = saveRunnerReadiness(ctx, directory, native, installationErr)
+			if readinessErr != nil {
+				return readinessErr
+			}
+			if !report.Ready {
+				return errors.New("Runner registration is saved, but execution needs attention. Correct the reported issue and repeat setup")
+			}
+			return nil
+		})
+		if readinessErr != nil {
+			return readinessErr
+		}
+		if phaseErr != nil && report.CheckedAt == "" {
+			return phaseErr
 		}
 		if err = json.NewEncoder(output).Encode(report); err != nil {
 			return err
 		}
-		if !report.Ready {
-			return errors.New("Runner registration is saved, but execution needs attention. Correct the reported issue and repeat setup")
+		if phaseErr != nil {
+			return phaseErr
 		}
 	}
 	return runnerNextSteps(output, launcherBundle, directory)

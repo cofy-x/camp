@@ -154,12 +154,6 @@ Open work; owners: `storage`, `httpapi` and Library. The [Resource PATCH API](ap
 
 Completion requires an atomic revision precondition, a conflict response for stale updates, and a UI recovery path that preserves unsaved edits. Verify two administrators saving from the same revision: only one update commits, and the other can inspect the latest configuration before explicitly retrying. Update the API contract and callers together.
 
-### Setup diagnostics and progress
-
-Open [#51](https://github.com/cofy-x/camp/issues/51); owner: `cli`, with the Runner setup UI where it describes installation. Doctor recommends local native setup on supported Apple Silicon and supported remote Runners on Intel Mac, retaining the Linux-only reader/import limits. Runtime setup does not yet report useful intermediate verification/extraction progress after download completes.
-
-Completion requires correct Apple Silicon/Intel/Linux guidance and bounded phase/activity reporting for fresh, cached and interrupted setup. Keep doctor read-only, distinguish compressed transfer from installed work and retain registration/cache state on retries. Neither diagnostics nor installation progress may imply a model test, service start or completed execution.
-
 ### Checkpoint cost and retention
 
 Owners: `nativeexecutor` and `tools/layerfs-worker`. Small-file packing and bounded concurrent restore are implemented. Further optimization must use full checkpoint/unchanged/restore measurements, including required sealing and readback, rather than extrapolating a capture-only speedup. Preserve complete manifests, legacy captures, bounded work and observation after uncertain dispatch.

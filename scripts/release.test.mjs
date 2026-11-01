@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { root } from './lib.mjs';
 import { homebrewFormula, verifyPublishedFormula } from './homebrew.mjs';
+import { setupPhases } from './setup-progress.mjs';
 import {
   hashFile,
   mergeRunnerReleases,
@@ -18,6 +19,37 @@ import {
   verifyRelease,
   verifyRunnerInstallationReport,
 } from './release.mjs';
+
+test('setup phase evidence retains durations without private diagnostics', () => {
+  assert.deepEqual(
+    setupPhases(
+      [
+        'Runtime download…',
+        'Runtime download: working; 12.0 MiB / 90.0 MiB; elapsed 2s',
+        'Runtime download: complete; 90.0 MiB / 90.0 MiB; elapsed 1m2.345s',
+        'Validating fixed runtime files: complete; 90.0 MiB processed; 123 entries processed; elapsed 12ms',
+        'Runner self-test: complete; elapsed 0s',
+        'private/signed/url?credential=secret: complete; elapsed 1s',
+        'Runtime download: failed; elapsed private-credential',
+        'Verifying runtime archive: cancelled; elapsed 15ms',
+      ].join('\n'),
+    ),
+    [
+      { phase: 'Runtime download', status: 'complete', elapsedMs: 62345 },
+      {
+        phase: 'Validating fixed runtime files',
+        status: 'complete',
+        elapsedMs: 12,
+      },
+      { phase: 'Runner self-test', status: 'complete', elapsedMs: 0 },
+      {
+        phase: 'Verifying runtime archive',
+        status: 'cancelled',
+        elapsedMs: 15,
+      },
+    ],
+  );
+});
 
 test('installation reports bind each entrypoint to its archive kind and source', () => {
   const descriptor = {
