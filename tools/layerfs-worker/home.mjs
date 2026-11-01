@@ -5,6 +5,7 @@ import { MacCheckpoints, resolveCapture } from './checkpoint.mjs';
 import { uuidPattern } from './contracts.mjs';
 import { failure, readState } from './state.mjs';
 import { selectedEpoch } from './references.mjs';
+
 export { selectedEpoch } from './references.mjs';
 
 export async function openHome(config) {
