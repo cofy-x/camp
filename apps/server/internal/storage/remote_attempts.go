@@ -133,14 +133,8 @@ func (s *Store) ClaimRemoteRun(ctx context.Context, runID, runnerID string, leas
 			if err != nil {
 				return err
 			}
-			var caps struct {
-				TaskInputsVersion int `json:"taskInputsVersion"`
-			}
-			if err = json.Unmarshal([]byte(runner.Capabilities), &caps); err != nil {
+			if err = taskInputRunnerCompatible(runner.Capabilities, t.InputProtocol); err != nil {
 				return err
-			}
-			if t.InputProtocol == 1 && caps.TaskInputsVersion != 1 {
-				return problem("runner_upgrade_required", "Update the assigned Runner to process bounded task inputs.")
 			}
 		}
 		active, e := q.CountRunnerOperations(ctx, runnerID)

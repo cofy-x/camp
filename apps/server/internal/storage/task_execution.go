@@ -53,6 +53,13 @@ func validateTaskAttempt(ctx context.Context, q *sqlgen.Queries, r Run, a Attemp
 		if t.Status != "running" {
 			return problem("run_cancelled", "This collaboration no longer authorizes execution.")
 		}
+		runner, err := q.GetRunner(ctx, r.RunnerID)
+		if err != nil {
+			return err
+		}
+		if err = taskInputRunnerCompatible(runner.Capabilities, r.TaskInputProtocol); err != nil {
+			return err
+		}
 		if e = authorizeTask(ctx, q, t); e != nil {
 			return problem("run_cancelled", e.Error())
 		}

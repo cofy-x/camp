@@ -167,14 +167,11 @@ func claimRun(ctx context.Context, q *sqlgen.Queries, id string) (out Run, err e
 			r.TaskInputProtocol = t.InputProtocol
 			if t.InputProtocol == 1 {
 				r.TaskInputAfter = t.CoveredInputRevision
-				page, err := taskInputsPage(ctx, q, t, r.TaskInputAfter, &t.InputRevision, TaskInputPageLimit)
+				_, end, err := taskInputBatch(ctx, q, t.ID, r.TaskInputAfter, t.InputRevision)
 				if err != nil {
 					return err
 				}
-				r.TaskInputRevision = r.TaskInputAfter
-				if len(page.Items) > 0 {
-					r.TaskInputRevision = page.Items[len(page.Items)-1].Seq
-				}
+				r.TaskInputRevision = end
 			}
 			r.PreviousDraftCommit = t.PreviousDraftCommit
 			seq, e := q.NextMessageSequence(ctx, r.RoomID)

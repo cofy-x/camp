@@ -6,7 +6,6 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
@@ -32,25 +31,15 @@ func taskReadAttempt(ctx context.Context, q *sqlgen.Queries, id, runner string) 
 	if r.TaskID == "" || r.TaskInputProtocol != 1 || r.TaskInputAfter < 0 || r.TaskInputRevision < r.TaskInputAfter {
 		return a, r, problem("invalid_task", "This Attempt has no bounded task input capability.")
 	}
-	runnerRow, err := q.GetRunner(ctx, a.RunnerID)
-	if err != nil {
-		return a, r, err
-	}
-	var caps struct {
-		TaskInputsVersion int `json:"taskInputsVersion"`
-	}
-	if err = json.Unmarshal([]byte(runnerRow.Capabilities), &caps); err != nil {
-		return a, r, err
-	}
-	if caps.TaskInputsVersion != 1 {
-		return a, r, problem("runner_upgrade_required", "This Runner cannot read bounded task inputs.")
-	}
 	return a, r, nil
 }
 
 // TaskReadCapability returns a stable private credential only to the owning
 // machine. It is never included in commands, journals or tool environments.
 func (s *Store) TaskReadCapability(ctx context.Context, id, runner string) (token string, run Run, err error) {
+	if runner == "" {
+		return "", run, problem("runner_mismatch", "An owning Runner identity is required.")
+	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
 		_, r, e := taskReadAttempt(ctx, q, id, runner)

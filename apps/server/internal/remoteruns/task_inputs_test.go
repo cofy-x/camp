@@ -27,7 +27,7 @@ func TestTaskInputHTTPSCapabilityPreservesFrozenScopeAcrossRestart(t *testing.T)
 		t.Fatal(err)
 	}
 	for range 25 {
-		task, err = h.store.OperateTask(h.actor, task.ID, "inputs", storage.TaskOperation{InputProtocol: 1, PagedResponse: true, RequestID: newID(), Content: "Immutable original <content>"})
+		task, err = h.store.OperateTask(h.actor, task.ID, "inputs", storage.TaskOperation{InputProtocol: 1, PagedResponse: true, RequestID: newID(), Content: strings.Repeat("x", 3000) + " Immutable original <content>"})
 		if err != nil {
 			t.Fatal(err)
 		}

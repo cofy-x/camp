@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -39,7 +40,7 @@ func TestTaskBatchesCoverOnlySuccessfulContiguousRangesWithinFiniteGrant(t *test
 	s, actor, _, room, writer, _ := taskFixture(t)
 	task := batchTask(t, s, actor, room, writer)
 	enableTaskInputs(t, s, task.Participants[0].RunnerID)
-	task = appendBatch(t, s, actor, task, 141, "Keep every original.")
+	task = appendBatch(t, s, actor, task, 141, strings.Repeat("x", 3000)+" Keep every original.")
 	for round := range 6 {
 		run, _ := s.GetRun(ctx, task.ActiveRunID)
 		run, a := prepareTaskTestAttempt(t, s, run)
@@ -63,6 +64,9 @@ func TestTaskBatchesCoverOnlySuccessfulContiguousRangesWithinFiniteGrant(t *test
 		run.ResultCommit = task.CheckpointCommit
 		if _, err = s.FinishRemoteRun(ctx, a.ID, run.RunnerID, "complete-"+a.ID, strings.Repeat("f", 64), run, "Done", true, true); err != nil {
 			t.Fatal(err)
+		}
+		if _, err = s.FinishRemoteRun(ctx, a.ID, run.RunnerID, "complete-"+a.ID, strings.Repeat("f", 64), run, "Done", true, true); err != nil {
+			t.Fatal("duplicate completion changed its receipt", err)
 		}
 		task, err = s.GetTaskState(ctx, task.ID)
 		if err != nil || task.CoveredInputRevision != run.TaskInputRevision {
@@ -157,7 +161,7 @@ func TestTaskReadCapabilityIsPrivateStableFrozenAndRevoked(t *testing.T) {
 			s, actor, _, room, writer, _ := taskFixture(t)
 			task := batchTask(t, s, actor, room, writer)
 			enableTaskInputs(t, s, task.Participants[0].RunnerID)
-			task = appendBatch(t, s, actor, task, 25, "Original")
+			task = appendBatch(t, s, actor, task, 25, strings.Repeat("x", 3000)+" Original")
 			run, _ := s.GetRun(ctx, task.ActiveRunID)
 			if _, _, err := s.TaskReadCapability(ctx, run.ID, run.RunnerID); err == nil {
 				t.Fatal("Run identity was accepted as Attempt")
@@ -236,7 +240,7 @@ func TestLegacyPendingBodiesAndActiveRoundsSurvivePromotion(t *testing.T) {
 	}
 	run, _ := s.GetRun(ctx, task.ActiveRunID)
 	run, a := prepareTaskTestAttempt(t, s, run)
-	task = appendBatch(t, s, actor, task, 130, "New original")
+	task = appendBatch(t, s, actor, task, 130, strings.Repeat("x", 3000)+" New original")
 	again, err := s.OperateTask(actor, task.ID, "inputs", request)
 	if err != nil || again.Revision != receipt.Revision || len(again.Inputs) != 1 || again.InputProtocol != 0 {
 		t.Fatal("old receipt was reinterpreted", again, err)
@@ -274,7 +278,148 @@ func TestLegacyPendingBodiesAndActiveRoundsSurvivePromotion(t *testing.T) {
 	}
 	next, _ := s.GetRun(ctx, state.ActiveRunID)
 	next, attempt, err := s.ClaimRemoteRun(ctx, next.ID, next.RunnerID, time.Minute)
-	if err != nil || next.TaskInputAfter != 0 || next.TaskInputRevision != 20 || attempt.Preparation == nil || attempt.Preparation.Resumable {
+	if err != nil || next.TaskInputAfter != 0 || next.TaskInputRevision <= 0 || next.TaskInputRevision >= state.InputRevision || attempt.Preparation == nil || attempt.Preparation.Resumable {
 		t.Fatal("promotion resumed potentially broader legacy context", next, err)
+	}
+}
+
+func TestTaskRunnerDowngradeBeforeActivationCannotInstallBoundedCommand(t *testing.T) {
+	s, actor, _, room, writer, _ := taskFixture(t)
+	task := batchTask(t, s, actor, room, writer)
+	enableTaskInputs(t, s, task.Participants[0].RunnerID)
+	run, a, err := s.ClaimRemoteRun(ctx, task.ActiveRunID, task.Participants[0].RunnerID, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, _ := json.Marshal(map[string]string{"id": a.CommandID, "operationId": a.ID, "kind": "run.start"})
+	prepared := PreparedAttempt{Conversation: *a.Preparation, InputDigest: strings.Repeat("a", 64), InputPath: "/private/synthetic/project.tar", Command: command, ModelTokenHash: strings.Repeat("b", 64)}
+	if _, err = s.db.Exec(`UPDATE runners SET capabilities=json_set(capabilities,'$.taskInputsVersion',0) WHERE id=?`, run.RunnerID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.ActivateAttempt(ctx, a.ID, prepared)
+	requireCode(t, err, "runner_upgrade_required")
+	stored, _ := s.GetAttempt(ctx, a.ID)
+	if len(stored.Command) != 0 || stored.InputDigest != "" {
+		t.Fatal("incompatible activation partially committed", stored)
+	}
+	enableTaskInputs(t, s, run.RunnerID)
+	if _, err = s.ActivateAttempt(ctx, a.ID, prepared); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.AcceptAttempt(ctx, a.ID, run.RunnerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = s.TaskReadCapability(ctx, a.ID, ""); err == nil {
+		t.Fatal("missing owning machine identity acquired a grant")
+	}
+}
+
+func TestSmallOriginalsShareOneRoundBeyondTheLegacyLifetimeCount(t *testing.T) {
+	s, actor, _, room, writer, _ := taskFixture(t)
+	task := batchTask(t, s, actor, room, writer)
+	enableTaskInputs(t, s, task.Participants[0].RunnerID)
+	task = appendBatch(t, s, actor, task, 141, "Small original")
+	run, _, err := s.ClaimRemoteRun(ctx, task.ActiveRunID, task.Participants[0].RunnerID, time.Minute)
+	if err != nil || run.TaskInputRevision != 141 || run.TaskInputAfter != 0 {
+		t.Fatal("history page size wasted execution allowance", run, err)
+	}
+	inputs, err := s.TaskBatchInputs(ctx, task.ID, 0, 141)
+	data, _ := json.Marshal(inputs)
+	if err != nil || len(inputs) != 141 || len(data)+1 > TaskInputPageBytes {
+		t.Fatal(err, len(inputs), len(data))
+	}
+	page, err := s.TaskInputsPage(ctx, task.ID, 0, &run.TaskInputRevision, 20)
+	if err != nil || len(page.Items) != 20 || !page.HasMore {
+		t.Fatal("history transport lost its independent page bound", page, err)
+	}
+}
+
+func TestConcurrentProtocolInputsAndLostRepliesAppendOncePastLegacyLimit(t *testing.T) {
+	s, actor, _, room, writer, _ := taskFixture(t)
+	task := batchTask(t, s, actor, room, writer)
+	var wg sync.WaitGroup
+	for i := range 160 {
+		for range 2 {
+			wg.Go(func() {
+				_, err := s.OperateTask(actor, task.ID, "inputs", TaskOperation{InputProtocol: 1, PagedResponse: true, RequestID: fmt.Sprint(i), Content: fmt.Sprintf("Original %d", i)})
+				if err != nil {
+					t.Error(err)
+				}
+			})
+		}
+	}
+	wg.Wait()
+	state, err := s.GetTaskState(ctx, task.ID)
+	if err != nil || state.InputRevision != 160 || state.InputProtocol != 1 {
+		t.Fatal(state, err)
+	}
+	page, err := s.TaskInputsPage(ctx, task.ID, 0, nil, 20)
+	seen := map[string]bool{}
+	for {
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, input := range page.Items {
+			if seen[input.ID] {
+				t.Fatal("duplicated original identity")
+			}
+			seen[input.ID] = true
+		}
+		if !page.HasMore {
+			break
+		}
+		page, err = s.TaskInputsPage(ctx, task.ID, *page.NextAfter, &page.Through, 20)
+	}
+	if len(seen) != 160 {
+		t.Fatal("concurrent retries lost originals", len(seen))
+	}
+}
+
+func TestUncertainBatchRetainsOriginalsWithoutCoverageOrAutomaticRound(t *testing.T) {
+	s, actor, _, room, writer, _ := taskFixture(t)
+	task := batchTask(t, s, actor, room, writer)
+	enableTaskInputs(t, s, task.Participants[0].RunnerID)
+	task = appendBatch(t, s, actor, task, 25, strings.Repeat("x", 3000))
+	run, _ := s.GetRun(ctx, task.ActiveRunID)
+	run, a := prepareTaskTestAttempt(t, s, run)
+	run.Status = "interrupted"
+	run.Error = "Unknown provider outcome."
+	if _, err := s.FinishRemoteRun(ctx, a.ID, run.RunnerID, newID(), strings.Repeat("f", 64), run, "Uncertain", false, true); err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.GetTaskState(ctx, task.ID)
+	if err != nil || state.CoveredInputRevision != 0 || state.InputRevision != 25 || state.Status != "needs_attention" || state.ActiveRunID != "" || state.TurnsUsed != 1 {
+		t.Fatal(state, err)
+	}
+	state, err = s.OperateTask(actor, task.ID, "continue", TaskOperation{InputProtocol: 1, PagedResponse: true, RequestID: newID(), Revision: state.Revision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, _, err := s.ClaimRemoteRun(ctx, state.ActiveRunID, run.RunnerID, time.Minute)
+	if err != nil || next.ID == run.ID || next.TaskInputAfter != 0 || next.TaskInputRevision != run.TaskInputRevision {
+		t.Fatal("explicit continuation skipped uncertain inputs", next, err)
+	}
+}
+
+func TestLateProtocolInputBeforePublicationRequiresAnotherAuthorizedBatch(t *testing.T) {
+	s, actor, _, room, writer, _ := taskFixture(t)
+	task := batchTask(t, s, actor, room, writer)
+	enableTaskInputs(t, s, task.Participants[0].RunnerID)
+	finishTaskTestRound(t, s, task, task.CheckpointCommit, CoordinationIntent{CallID: newID(), Kind: "finish", Summary: "Ready"})
+	task, err := s.GetTaskState(ctx, task.ID)
+	if err != nil || task.Status != "publishing" {
+		t.Fatal(task, err)
+	}
+	task = appendBatch(t, s, actor, task, 1, "Immediately before publication.")
+	if err = s.ReconcileTask(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	task, err = s.GetTaskState(ctx, task.ID)
+	if err != nil || task.Status != "queued" || task.PublishedCommit != "" || task.CoveredInputRevision != 0 {
+		t.Fatal("late original was silently published", task, err)
+	}
+	run, _, err := s.ClaimRemoteRun(ctx, task.ActiveRunID, task.Participants[0].RunnerID, time.Minute)
+	if err != nil || run.TaskInputRevision != 1 || run.TaskInputAfter != 0 {
+		t.Fatal(run, err)
 	}
 }

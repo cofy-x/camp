@@ -206,12 +206,80 @@ func validateInputProtocol(version int, paged bool) error {
 
 // TaskBatchInputs validates the entire frozen batch before constructing a brief.
 func (s *Store) TaskBatchInputs(ctx context.Context, id string, after, through int64) ([]TaskInput, error) {
-	page, err := s.TaskInputsPage(ctx, id, after, &through, TaskInputPageLimit)
+	t, err := getTask(ctx, s.queries(), id)
 	if err != nil {
 		return nil, err
 	}
-	if page.HasMore {
+	if after < 0 || through < after || through > t.InputRevision {
+		return nil, problem("invalid_page", "The input batch is outside this collaboration.")
+	}
+	inputs, end, err := taskInputBatch(ctx, s.queries(), id, after, through)
+	if err != nil {
+		return nil, err
+	}
+	if end != through {
 		return nil, problem("invalid_task", "The frozen input batch exceeds its budget.")
 	}
-	return page.Items, nil
+	return inputs, nil
+}
+
+func taskInputRunnerCompatible(capabilities string, version int) error {
+	if version == 0 {
+		return nil
+	}
+	if version != 1 {
+		return problem("invalid_task", "Unsupported task input protocol.")
+	}
+	var caps struct {
+		TaskInputsVersion int `json:"taskInputsVersion"`
+	}
+	if err := json.Unmarshal([]byte(capabilities), &caps); err != nil {
+		return err
+	}
+	if caps.TaskInputsVersion != 1 {
+		return problem("runner_upgrade_required", "Update the assigned Runner to process bounded task inputs.")
+	}
+	return nil
+}
+
+// taskInputBatch plans by the actual JSON array bytes used by TaskBrief, rather
+// than spending another execution turn merely because a history page is full.
+func taskInputBatch(ctx context.Context, q *sqlgen.Queries, id string, after, through int64) ([]TaskInput, int64, error) {
+	inputs := []TaskInput{}
+	size, end := 3, after // brackets and the input section's trailing newline
+	if after < 0 || through < after {
+		return nil, after, problem("invalid_task", "The input batch has invalid frontiers.")
+	}
+	for end < through {
+		rows, err := taskInputRange(ctx, q, id, end, through, TaskInputPageLimit)
+		if err != nil {
+			return nil, after, err
+		}
+		if len(rows) == 0 {
+			return nil, after, problem("invalid_task", "The stored input sequence is incomplete.")
+		}
+		for _, input := range rows {
+			if input.Seq != end+1 {
+				return nil, after, problem("invalid_task", "The stored input sequence is incomplete.")
+			}
+			encoded, err := json.Marshal(input)
+			if err != nil {
+				return nil, after, err
+			}
+			added := len(encoded)
+			if len(inputs) > 0 {
+				added++
+			}
+			if size+added > TaskInputPageBytes {
+				if len(inputs) == 0 {
+					return nil, after, problem("invalid_task", "A stored input cannot fit the round budget.")
+				}
+				return inputs, end, nil
+			}
+			inputs = append(inputs, input)
+			size += added
+			end = input.Seq
+		}
+	}
+	return inputs, end, nil
 }
