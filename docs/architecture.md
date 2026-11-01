@@ -88,6 +88,8 @@ Successful writing requires configured checks to pass. No checks is `not_configu
 
 [Task storage](../apps/server/internal/storage/tasks.go) and [remote orchestration](../apps/server/internal/remoteruns/tasks.go) own a persistent goal, approved Agent/Runner snapshots, finite allowance, inputs/questions and an immutable draft chain. One task has at most one active round. Waiting consumes no Runner slot, model capability or shared Resource lease.
 
+Storage owns the durable collaboration decision type and its [pure decision rules](../apps/server/internal/storage/task_policy.go). The remote result adapter explicitly copies Runner wire decisions into that model. Runner boundary validation remains separate from Server completion checks; current authority, budget, draft fencing and publication are rechecked within storage transactions. Wire and historical snapshot representations stay compatible.
+
 Task rounds hold a task fence and advance only `checkpointCommit`. Handoffs and questions defer final checks. A writer finish validates checks and persists `publishing`, then briefly acquires the Resource lease and publishes only against `baseSharedCommit`. Accepted final checkpoints no longer need Runner connectivity. Shared edits during work leave the draft in `needs_attention`. Explicit continuation from latest files mounts the old draft as read-only evidence; no automatic merge or overwrite is allowed.
 
 Execution starts consume rounds; each model request is reserved atomically before transmission. Unknown outcomes count and are not retried invisibly. Exhaustion requires another finite grant. Each round freezes its input revision; late inputs must be processed by another round or leave the task paused before finishing. Original goals and explicit inputs outlive bounded ordinary conversation history. Chat and task native sessions have separate scope keys.
@@ -150,6 +152,18 @@ The boundaries below describe current implementation choices, not permanent requ
 Runner check/output reports assume a trusted machine; they are not remote attestation against a hostile operator. Source/browser/fixture results alone do not establish native isolation, fresh-host portability or real-provider success.
 
 Address shared-data correctness and contradictions in the shipped workflow first, then use measurements to select checkpoint or lifecycle work. The items below own the remaining implementation work; release milestones and completed implementation sequences belong in retained evidence.
+
+### Collaboration input lifetime
+
+Owners: `storage` and `runinput`; tracked in [#69](https://github.com/cofy-x/camp/issues/69). Task inputs currently live in the task snapshot, with at most 128 entries and 64 KiB combined content, and each brief includes the inputs through its round's frozen revision. Original goals and admitted explicit inputs are preserved within these limits.
+
+Longer-lived input storage needs an append-only, data-preserving design with authorized pagination, frozen read cursors and bounded per-round context. Completion requires defined migration/API compatibility and restart, late-input, budget and revocation acceptance. These are follow-up requirements, not implemented paginated task support.
+
+### Remote input preparation latency
+
+Owner: `remoteruns`; tracked in [#70](https://github.com/cofy-x/camp/issues/70). The scheduler currently prepares immutable evidence and input archives synchronously during reconciliation. No preparation/reconciliation performance result is established by the input-module extraction.
+
+Measure representative workload sizes, preparation phases and unrelated dispatch/cancellation latency before selecting a bounded preparation worker design. Acceptance must retain Attempt identities, Agent ordering, current authority, lease limits and durable recovery without duplicate execution or implicit model retries.
 
 ### Checkpoint cost and retention
 

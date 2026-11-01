@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"slices"
 	"strings"
 
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
@@ -418,45 +417,6 @@ func taskNotice(ctx context.Context, q *sqlgen.Queries, t CollaborationTask, kin
 		return e
 	}
 	return q.CreateInboxItem(ctx, sqlgen.CreateInboxItemParams{ID: newID(), UserID: t.RequestedByUserID, Kind: kind, RoomID: t.RoomID, MessageID: m.ID, TaskID: t.ID, CreatedAt: now()})
-}
-
-func validateIntent(t CollaborationTask, r Run, i *CoordinationIntent) error {
-	if i == nil || !validText(i.CallID, 128, false) || len(i.ArtifactPaths) > 128 {
-		return problem("invalid_intent", "A successful collaboration round requires one durable coordination intent.")
-	}
-	for _, p := range i.ArtifactPaths {
-		if !validTaskPath(p) {
-			return problem("invalid_intent", "Artifact paths must be relative workspace files.")
-		}
-	}
-	switch i.Kind {
-	case "handoff":
-		if _, ok := taskParticipant(t, i.TargetAgentID); !ok || !validText(i.Instruction, MaxRunPromptSize, false) {
-			return problem("invalid_intent", "Handoff requires an approved participant and an instruction.")
-		}
-	case "ask_person":
-		if !validText(i.Question, MaxRunPromptSize, false) || len(i.Options) > 8 {
-			return problem("invalid_intent", "A question must be nonempty with at most eight options.")
-		}
-		for _, option := range i.Options {
-			if !validText(option, 512, false) {
-				return problem("invalid_intent", "Question options must be short nonempty text.")
-			}
-		}
-	case "finish":
-		if !validText(i.Summary, 32<<10, false) {
-			return problem("invalid_intent", "A finish intent requires a result summary.")
-		}
-		if r.AgentSnapshot.Access != "write" && t.CheckpointCommit != t.BaseSharedCommit {
-			return problem("invalid_intent", "A writer must run final checks before publishing this draft.")
-		}
-	default:
-		return problem("invalid_intent", "Unknown collaboration intent.")
-	}
-	return nil
-}
-func validTaskPath(p string) bool {
-	return validText(p, 4096, false) && p != "." && !strings.HasPrefix(p, "/") && !strings.ContainsAny(p, "\\\x00") && !slices.Contains(strings.Split(p, "/"), "..") && !strings.Contains(p, "//")
 }
 
 func (s *Store) FindTaskCreation(ctx context.Context, room string, in CreateTaskInput) (CollaborationTask, bool, error) {
