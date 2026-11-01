@@ -56,7 +56,8 @@ On Linux, ordinary Go tests require Bubblewrap (`bwrap`) on PATH to validate exe
 | `make test-layerfs test-dsh test-project-env` | Opt-in native checks; install fixed runtimes and Linux host prerequisites first |
 | `make test-remote` | Two fixture Runners over TLS/Compose; Docker required |
 | `make test-remote-native` | Actual remote DSH/LayerFS path; Linux native prerequisites |
-| `make package-daemon smoke-bundle` | Relocated online/offline Runner acceptance; installed release runtimes and native host required |
+| `make build package-runner smoke-bundle` | Host-native Runner packages and relocated online/offline acceptance on Linux amd64 or ARM64 Mac; installed native runtimes required |
+| `make package-daemon` | Complete Linux Runner and Server development packages; Linux amd64 native host required |
 
 For the four-project browser matrix:
 

@@ -34,7 +34,7 @@ gh workflow run release.yml --repo cofy-x/camp --ref your-branch \
 
 Validation-only mode has read-only permissions, retains artifacts and creates no tag, Release or registry image. It grants neither main CI nor public distribution acceptance. Inspect its exact source and outcomes before proceeding. Failed or uncertain publication is reconciled against retained identities; never move a tag, replace asset bytes or relabel a private candidate as a public build.
 
-For local packaging use [contribution commands](../CONTRIBUTING.md#build) and [worker tooling](../tools/layerfs-worker/README.md#source-builds-and-qualification). Unversioned `make package-daemon` creates host-platform development packages. `make build-server-image` builds a development image; the `release` Docker target consumes the verified Server bundle. Local builds do not publish or assemble another platform's native runtime by implication.
+For local packaging use [contribution commands](../CONTRIBUTING.md#build) and [worker tooling](../tools/layerfs-worker/README.md#source-builds-and-qualification). Unversioned `make build package-runner smoke-bundle` builds the host Server and Runner and verifies online/offline native installation on Linux amd64 or ARM64 Mac. `make package-daemon` additionally assembles the Linux Server distribution and runs only on Linux amd64. `make build-server-image` builds a development image; the `release` Docker target consumes the verified Server bundle. Local builds do not publish or assemble another platform's native runtime by implication.
 
 ## Artifacts and provenance
 
