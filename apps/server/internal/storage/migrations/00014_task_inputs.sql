@@ -25,7 +25,8 @@ INSERT INTO task_inputs(id,task_id,seq,content_bytes,value)
 SELECT json_extract(i.value,'$.id'),t.id,CAST(i.key AS INTEGER)+1,
  length(CAST(json_extract(i.value,'$.content') AS BLOB)),
  json_set(i.value,'$.seq',CAST(i.key AS INTEGER)+1)
-FROM collaboration_tasks t,json_each(t.snapshot,'$.inputs') i;
+FROM collaboration_tasks t,json_each(t.snapshot,'$.inputs') i
+WHERE json_type(t.snapshot,'$.inputs')='array';
 
 INSERT INTO task_input_migration_guard SELECT CASE WHEN NOT EXISTS (
  SELECT 1 FROM task_inputs i LEFT JOIN messages m ON m.id=i.id
@@ -40,7 +41,8 @@ INSERT INTO task_input_migration_guard SELECT CASE WHEN NOT EXISTS (
 INSERT INTO task_input_migration_guard SELECT CASE WHEN NOT EXISTS (
  SELECT 1 FROM runs r JOIN collaboration_tasks t ON t.id=json_extract(r.snapshot,'$.taskId')
  WHERE r.status='succeeded' AND json_extract(r.snapshot,'$.intent.kind') IN ('handoff','ask_person','finish')
- AND (coalesce(json_extract(r.snapshot,'$.taskInputRevision'),0)<0
+ AND (coalesce(json_type(r.snapshot,'$.taskInputRevision'),'integer')<>'integer'
+  OR coalesce(json_extract(r.snapshot,'$.taskInputRevision'),0)<0
   OR coalesce(json_extract(r.snapshot,'$.taskInputRevision'),0)>coalesce(json_array_length(t.snapshot,'$.inputs'),0))
 ) THEN 1 ELSE 0 END;
 
