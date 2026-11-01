@@ -242,16 +242,23 @@ export function EnvironmentEditor({
             <pre>{JSON.stringify(currentEnvironment ?? {}, null, 2)}</pre>
           </details>
           <div className="library-environment-conflict-actions">
-            <Button disabled={pending} onClick={keepEdits}>
+            <Button
+              disabled={pending || unconfirmed !== undefined}
+              onClick={keepEdits}
+            >
               Keep My Edits
             </Button>
-            <Button disabled={pending} onClick={reload}>
+            <Button
+              disabled={pending || unconfirmed !== undefined}
+              onClick={reload}
+            >
               Reload Saved Settings
             </Button>
           </div>
           <p>
-            Keeping edits does not save them. Review your entries, then choose
-            Save Environment.
+            {unconfirmed !== undefined
+              ? 'A save outcome is unconfirmed. Check Saved Settings before choosing a conflict action.'
+              : 'Keeping edits does not save them. Review your entries, then choose Save Environment.'}
           </p>
         </div>
       )}

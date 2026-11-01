@@ -201,6 +201,15 @@ test('an uncertain save keeps its payload until the user can verify saved settin
     await expect(
       panel.getByRole('button', { name: 'Save Environment', exact: true }),
     ).toBeDisabled();
+    // The successful write emits a background Library refresh even though its
+    // response and the direct readback are lost. Replacing the frozen draft
+    // here could later label a different form as the confirmed saved payload.
+    await expect(
+      panel.getByRole('button', { name: 'Reload Saved Settings', exact: true }),
+    ).toBeDisabled();
+    await expect(
+      panel.getByRole('button', { name: 'Keep My Edits', exact: true }),
+    ).toBeDisabled();
     readsFail = false;
     await check.click();
     await expect(
