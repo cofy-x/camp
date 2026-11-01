@@ -106,3 +106,9 @@ UPDATE runners SET capabilities=json_set(capabilities,'$.storage',json(sqlc.arg(
 -- name: FreezeAttemptPreparation :execrows
 UPDATE run_attempts SET preparation_context=sqlc.arg(preparation_context)
 WHERE id=sqlc.arg(id) AND preparation_context='';
+
+-- name: SetAttemptTaskReadToken :exec
+UPDATE run_attempts SET task_read_token=? WHERE id=? AND task_read_token='';
+
+-- name: GetAttemptTaskReadToken :one
+SELECT task_read_token FROM run_attempts WHERE id=?;

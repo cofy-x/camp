@@ -1,6 +1,7 @@
 package runinput
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -16,9 +17,16 @@ func TaskBrief(t storage.CollaborationTask, r storage.Run) string {
 		fmt.Fprintf(&b, "- %s (%s), %s access\n", p.Agent.Name, p.Agent.ID, p.Agent.Access)
 	}
 	b.WriteString("\nTask inputs to process this round:\n")
-	end := min(int(r.TaskInputRevision), len(t.Inputs))
-	for _, i := range t.Inputs[:end] {
-		fmt.Fprintf(&b, "%s: %s\n", i.AuthorName, i.Content)
+	if r.TaskInputProtocol == 1 {
+		fmt.Fprintf(&b, "Frozen interval: (%d, %d]. Earlier originals through %d are available with camp_read_task_inputs(after, limit). Later inputs remain pending. Reading history does not acknowledge inputs or extend the finite allowance.\n", r.TaskInputAfter, r.TaskInputRevision, r.TaskInputRevision)
+		encoded, _ := json.Marshal(t.Inputs)
+		b.Write(encoded)
+		b.WriteByte('\n')
+	} else {
+		end := min(int(r.TaskInputRevision), len(t.Inputs))
+		for _, i := range t.Inputs[:end] {
+			fmt.Fprintf(&b, "%s: %s\n", i.AuthorName, i.Content)
+		}
 	}
 	b.WriteString("\nYou must end this round with exactly one Camp coordination tool: camp_handoff, camp_ask_person, or camp_finish. Ordinary @mentions do not dispatch work. Working files are a task draft until final publication. A read-only reviewer must hand changed drafts back to a writer for final checks.\n")
 	return b.String()

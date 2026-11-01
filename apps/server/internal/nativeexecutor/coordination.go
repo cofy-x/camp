@@ -23,20 +23,29 @@ import (
 // The private coordinator acknowledges only a journaled decision. It exposes no
 // Camp API or Runner credentials and accepts exactly one decision per execution.
 type coordination struct {
-	ctx      context.Context
-	server   *http.Server
-	listener net.Listener
-	token    string
-	task     p.Collaboration
-	persist  func(context.Context, p.CoordinationIntent) error
-	seal     func(context.Context) error
-	mu       sync.Mutex
-	intent   *p.CoordinationIntent
+	ctx          context.Context
+	server       *http.Server
+	listener     net.Listener
+	token        string
+	task         p.Collaboration
+	persist      func(context.Context, p.CoordinationIntent) error
+	seal         func(context.Context) error
+	mu           sync.Mutex
+	intent       *p.CoordinationIntent
+	read         TaskInputReader
+	inputsClosed bool
 }
 
-func newCoordination(ctx context.Context, task p.Collaboration, persist func(context.Context, p.CoordinationIntent) error, seal func(context.Context) error) (*coordination, error) {
+func newCoordination(ctx context.Context, task p.Collaboration, persist func(context.Context, p.CoordinationIntent) error, seal func(context.Context) error, readers ...TaskInputReader) (*coordination, error) {
 	if task.ID == "" || task.AgentID == "" || len(task.Participants) == 0 || persist == nil {
 		return nil, errors.New("Collaboration requires a frozen scope and durable intent journal")
+	}
+	var read TaskInputReader
+	if len(readers) > 0 {
+		read = readers[0]
+	}
+	if task.Inputs != nil && (!task.Inputs.Valid() || read == nil) {
+		return nil, errors.New("A bounded task input scope requires its private reader")
 	}
 	var key [32]byte
 	if _, err := rand.Read(key[:]); err != nil {
@@ -46,13 +55,16 @@ func newCoordination(ctx context.Context, task p.Collaboration, persist func(con
 	if err != nil {
 		return nil, err
 	}
-	c := &coordination{ctx: ctx, listener: listener, token: hex.EncodeToString(key[:]), task: task, persist: persist, seal: seal}
+	c := &coordination{ctx: ctx, listener: listener, token: hex.EncodeToString(key[:]), task: task, persist: persist, seal: seal, read: read}
 	c.server = &http.Server{Handler: http.HandlerFunc(c.serve), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 15 * time.Second, MaxHeaderBytes: 8 << 10}
 	go func() { _ = c.server.Serve(listener) }()
 	return c, nil
 }
 func (c *coordination) endpoint() string { return "http://" + c.listener.Addr().String() }
 func (c *coordination) close() error {
+	c.mu.Lock()
+	c.inputsClosed = true
+	c.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	err := c.server.Shutdown(ctx)
@@ -77,12 +89,16 @@ func (c *coordination) serve(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(code)
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "FS_PERMISSION_DENIED", "message": message}})
 	}
-	if r.Method != http.MethodPost || r.URL.Path != "/intent" || r.URL.RawQuery != "" || r.Header.Get("Origin") != "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+c.token)) != 1 {
+	if r.Method != http.MethodPost || (r.URL.Path != "/intent" && r.URL.Path != "/task-inputs") || r.URL.RawQuery != "" || r.Header.Get("Origin") != "" || r.Header.Get("Cookie") != "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+c.token)) != 1 {
 		reject(http.StatusForbidden, "This collaboration capability is not available.")
 		return
 	}
 	if c.ctx.Err() != nil {
 		reject(http.StatusGone, "This execution has ended.")
+		return
+	}
+	if r.URL.Path == "/task-inputs" {
+		c.serveInputs(w, r)
 		return
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 96<<10))
@@ -113,6 +129,7 @@ func (c *coordination) serve(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Persist is bounded independently of the client disconnect: a lost response
 		// cannot turn an acknowledged decision into a second scheduling action.
+		c.inputsClosed = true
 		durable, cancel := context.WithTimeout(c.ctx, 5*time.Second)
 		var err error
 		if c.seal != nil {
@@ -168,4 +185,45 @@ func validateCoordination(task p.Collaboration, i p.CoordinationIntent) error {
 		return errors.New("Unknown coordination decision")
 	}
 	return nil
+}
+
+func (c *coordination) serveInputs(w http.ResponseWriter, r *http.Request) {
+	reject := func(status int) {
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "FS_PERMISSION_DENIED", "message": "Task history is unavailable for this execution or range."}})
+	}
+	var input struct {
+		After int64 `json:"after"`
+		Limit int   `json:"limit"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil {
+		reject(400)
+		return
+	}
+	var trailing any
+	if decoder.Decode(&trailing) != io.EOF || c.task.Inputs == nil || input.After < 0 || input.After > c.task.Inputs.Through || input.Limit < 1 || input.Limit > 20 {
+		reject(400)
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.inputsClosed || c.ctx.Err() != nil || c.read == nil {
+		reject(410)
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+	defer cancel()
+	page, err := c.read(ctx, input.After, input.Limit)
+	if err != nil {
+		reject(410)
+		return
+	}
+	encoded, err := json.Marshal(page)
+	if err != nil || len(encoded)+1 > 64<<10 || page.Through != c.task.Inputs.Through {
+		reject(502)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"value": page})
 }

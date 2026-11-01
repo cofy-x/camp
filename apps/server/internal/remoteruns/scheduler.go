@@ -149,7 +149,7 @@ func (m *Manager) tick(ctx context.Context) error {
 		}
 		claimed, a, err := m.store.ClaimRemoteRun(ctx, run.ID, run.RunnerID, m.config.LeaseDuration)
 		if err != nil {
-			if errorCode(err) == "run_busy" || errorCode(err) == "resource_busy" || errorCode(err) == "run_finished" || errorCode(err) == "agent_unavailable" {
+			if errorCode(err) == "runner_upgrade_required" || errorCode(err) == "run_busy" || errorCode(err) == "resource_busy" || errorCode(err) == "run_finished" || errorCode(err) == "agent_unavailable" {
 				continue
 			}
 			return err

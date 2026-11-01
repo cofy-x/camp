@@ -128,6 +128,15 @@ func (s *Store) ClaimRemoteRun(ctx context.Context, runID, runnerID string, leas
 		if r.RunnerID != runnerID {
 			return problem("runner_mismatch", "This task belongs to another runner.")
 		}
+		if r.TaskID != "" {
+			t, err := getTask(ctx, q, r.TaskID)
+			if err != nil {
+				return err
+			}
+			if err = taskInputRunnerCompatible(runner.Capabilities, t.InputProtocol); err != nil {
+				return err
+			}
+		}
 		active, e := q.CountRunnerOperations(ctx, runnerID)
 		if e != nil {
 			return e

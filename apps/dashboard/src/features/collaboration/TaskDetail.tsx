@@ -22,6 +22,7 @@ import { AssistantContent } from '../workspace/AssistantContent';
 import { TaskHistory } from './TaskHistory';
 
 interface PendingAction {
+  inputProtocol?: 1;
   key: string;
   kind: 'input' | 'answer' | 'continue' | 'cancel';
   requestId: string;
@@ -39,6 +40,7 @@ function isPendingAction(value: unknown): value is PendingAction {
   if (!value || typeof value !== 'object') return false;
   const record = value as Partial<PendingAction>;
   return (
+    (record.inputProtocol === undefined || record.inputProtocol === 1) &&
     ['input', 'answer', 'continue', 'cancel'].includes(record.kind ?? '') &&
     ['key', 'requestId', 'content', 'agentId', 'questionId'].every(
       (key) => typeof record[key as keyof PendingAction] === 'string',
@@ -206,6 +208,7 @@ export function TaskDetail({
     // including when live updates have already advanced the task.
     if (!retry && request.current?.key !== actionKey)
       request.current = {
+        inputProtocol: 1,
         key: actionKey,
         kind,
         requestId: crypto.randomUUID(),
@@ -221,7 +224,11 @@ export function TaskDetail({
     const saved = request.current;
     if (!saved) return;
     kind = saved.kind;
-    const common = { requestId: saved.requestId, revision: saved.revision };
+    const common = {
+      inputProtocol: saved.inputProtocol,
+      requestId: saved.requestId,
+      revision: saved.revision,
+    };
     setPending(true);
     setError('');
     setNotice('');
@@ -245,8 +252,12 @@ export function TaskDetail({
                 participantAgentIds: saved.participantAgentIds,
               })
             : kind === 'cancel'
-              ? await tasksApi.cancel(id, common)
+              ? await tasksApi.cancel(id, {
+                  requestId: saved.requestId,
+                  revision: saved.revision,
+                })
               : await tasksApi.input(id, {
+                  inputProtocol: saved.inputProtocol,
                   requestId: common.requestId,
                   content: saved.content,
                 });

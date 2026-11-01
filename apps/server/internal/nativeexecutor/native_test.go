@@ -84,6 +84,19 @@ func TestNativeExecutorTLSIsolationAndResume(t *testing.T) {
 			content = map[string]any{"type": "tool_use", "id": "finish-call", "name": "camp_finish", "input": map[string]any{"summary": "Native collaboration finished.", "artifactPaths": []string{"result.txt"}}}
 			stop = "tool_use"
 		}
+		if strings.Contains(string(body), "Read original task inputs.") {
+			if !strings.Contains(string(body), "camp_read_task_inputs") {
+				t.Error("History tool was not registered in native DSH")
+			}
+			if !strings.Contains(string(body), "isolation-sealed") {
+				content = map[string]any{"type": "tool_use", "id": "history-isolation", "name": "bash", "input": map[string]string{"description": "Verify private credentials stay out of commands", "command": "test -z \"$CAMP_COORDINATION_TOKEN$CAMP_TOOL_TOKEN$CAMP_TASK_INPUT_TOKEN$DEEPSEEK_API_KEY\" && printf '%s-%s' isolation sealed"}}
+			} else if strings.Contains(string(body), "task-original-keyless-fixture") {
+				content = map[string]any{"type": "tool_use", "id": "history-finish", "name": "camp_finish", "input": map[string]any{"summary": "Original inputs verified."}}
+			} else {
+				content = map[string]any{"type": "tool_use", "id": "history-read", "name": "camp_read_task_inputs", "input": map[string]any{"after": 0, "limit": 1}}
+			}
+			stop = "tool_use"
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		contents := []map[string]any{content}
 		if strings.Contains(string(body), "Finish collaboration with the Camp tool") {
@@ -139,6 +152,25 @@ func TestNativeExecutorTLSIsolationAndResume(t *testing.T) {
 				}
 				if intent.Kind != "finish" || intent.CallID != "finish-call" {
 					t.Error("unexpected intent", intent)
+				}
+				return nil
+			}
+		}
+		if id == "input-history" {
+			request.Task = &p.Collaboration{ID: "task", AgentID: "writer", Participants: []p.Participant{{ID: "writer", Access: "write"}}, Inputs: &p.TaskInputScope{Version: 1, After: 1, Through: 2}}
+			request.Prompt = "Read original task inputs."
+			request.Environment = json.RawMessage(`{}`)
+			request.SessionID, request.SessionKey = "history-session", "history-conversation:1"
+			request.ReadTaskInputs = func(_ context.Context, after int64, limit int) (p.TaskInputPage, error) {
+				if after != 0 || limit != 1 {
+					t.Error("Native tool changed read scope", after, limit)
+				}
+				next := int64(1)
+				return p.TaskInputPage{Items: []p.TaskInput{{Seq: 1, ID: "original", Content: "task-original-keyless-fixture"}}, Through: 2, NextAfter: &next, HasMore: true}, nil
+			}
+			request.PersistIntent = func(_ context.Context, intent p.CoordinationIntent) error {
+				if intent.CallID != "history-finish" {
+					t.Error(intent)
 				}
 				return nil
 			}
@@ -208,5 +240,10 @@ func TestNativeExecutorTLSIsolationAndResume(t *testing.T) {
 	failed := run("journal-failure", true)
 	if failed.Status != "interrupted" || failed.Intent != nil || !failed.CleanupConfirmed || calls.Load() != before+1 {
 		t.Fatalf("journal failure did not stop native execution: %+v; model calls=%d", failed, calls.Load()-before)
+	}
+	before = calls.Load()
+	history := run("input-history", false)
+	if history.Status != "succeeded" || history.Intent == nil || history.Intent.CallID != "history-finish" || !history.CleanupConfirmed || calls.Load() != before+3 {
+		t.Fatalf("Native isolation and original-input tool did not complete in three deterministic requests: %+v; calls=%d", history, calls.Load()-before)
 	}
 }

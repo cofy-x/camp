@@ -164,6 +164,15 @@ func claimRun(ctx context.Context, q *sqlgen.Queries, id string) (out Run, err e
 			r.BaselineCommit = t.CheckpointCommit
 			r.InputCommit = t.CheckpointCommit
 			r.TaskInputRevision = t.InputRevision
+			r.TaskInputProtocol = t.InputProtocol
+			if t.InputProtocol == 1 {
+				r.TaskInputAfter = t.CoveredInputRevision
+				_, end, err := taskInputBatch(ctx, q, t.ID, r.TaskInputAfter, t.InputRevision)
+				if err != nil {
+					return err
+				}
+				r.TaskInputRevision = end
+			}
 			r.PreviousDraftCommit = t.PreviousDraftCommit
 			seq, e := q.NextMessageSequence(ctx, r.RoomID)
 			if e != nil {
@@ -188,6 +197,8 @@ func immutableRun(previous Run, r *Run) {
 	r.TaskID = previous.TaskID
 	r.InputCommit = previous.InputCommit
 	r.TaskInputRevision = previous.TaskInputRevision
+	r.TaskInputProtocol = previous.TaskInputProtocol
+	r.TaskInputAfter = previous.TaskInputAfter
 	r.RunnerID = previous.RunnerID
 	r.RunnerName = previous.RunnerName
 	r.AttemptID = previous.AttemptID

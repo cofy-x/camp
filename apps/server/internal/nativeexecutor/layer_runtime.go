@@ -88,7 +88,7 @@ func openLayerRuntime(ctx context.Context, config Config) (*layerRuntime, error)
 	_, _ = fingerprintHash.Write(manifestBytes)
 	_, _ = fingerprintHash.Write(layerManifest)
 	_, _ = fingerprintHash.Write([]byte("camp-coordination-v1"))
-	for _, module := range []string{"coordination.mjs", "discovery.mjs", "filesystem.mjs", "shell.mjs", "transport.mjs"} {
+	for _, module := range []string{"coordination.mjs", "task-inputs.mjs", "discovery.mjs", "filesystem.mjs", "shell.mjs", "transport.mjs"} {
 		contents, readErr := os.ReadFile(filepath.Join(config.RuntimeDir, "camp-tools", module))
 		if readErr != nil {
 			return nil, errors.New("Install the complete Camp DSH tool providers before starting this Runner")

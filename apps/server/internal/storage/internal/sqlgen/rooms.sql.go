@@ -1235,6 +1235,71 @@ func (q *Queries) SetRoomMessageSequence(ctx context.Context, arg SetRoomMessage
 	return err
 }
 
+const taskContextMessages = `-- name: TaskContextMessages :many
+SELECT m.id, m.room_id, m.thread_root_id, m.seq, m.author_kind, m.agent_id, m.run_id, m.content, m.request_id, m.fingerprint, m.created_at, m.updated_at, m.references_json, m.author_user_id, m.author_name, m.review_id, m.task_id FROM messages m
+WHERE m.room_id=?1 AND (COALESCE(m.thread_root_id,'')=?2 OR m.id=?2)
+AND m.seq>?3 AND m.seq<=?4
+AND NOT EXISTS (SELECT 1 FROM task_inputs i WHERE i.id=m.id AND i.task_id=?5 AND i.seq>?6)
+ORDER BY m.seq DESC LIMIT 100
+`
+
+type TaskContextMessagesParams struct {
+	RoomID       string
+	ThreadRootID sql.NullString
+	AfterSeq     int64
+	ThroughSeq   int64
+	TaskID       string
+	InputThrough int64
+}
+
+func (q *Queries) TaskContextMessages(ctx context.Context, arg TaskContextMessagesParams) ([]Message, error) {
+	rows, err := q.db.QueryContext(ctx, taskContextMessages,
+		arg.RoomID,
+		arg.ThreadRootID,
+		arg.AfterSeq,
+		arg.ThroughSeq,
+		arg.TaskID,
+		arg.InputThrough,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Message{}
+	for rows.Next() {
+		var i Message
+		if err := rows.Scan(
+			&i.ID,
+			&i.RoomID,
+			&i.ThreadRootID,
+			&i.Seq,
+			&i.AuthorKind,
+			&i.AgentID,
+			&i.RunID,
+			&i.Content,
+			&i.RequestID,
+			&i.Fingerprint,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ReferencesJson,
+			&i.AuthorUserID,
+			&i.AuthorName,
+			&i.ReviewID,
+			&i.TaskID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const touchRoom = `-- name: TouchRoom :exec
 UPDATE rooms SET activity_seq=?,updated_at=? WHERE id=?
 `

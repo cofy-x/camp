@@ -19,6 +19,7 @@ function isStartRequest(value: unknown): value is StartRequest {
   if (!value || typeof value !== 'object') return false;
   const record = value as Partial<StartRequest>;
   return (
+    (record.inputProtocol === undefined || record.inputProtocol === 1) &&
     typeof record.requestId === 'string' &&
     typeof record.goal === 'string' &&
     typeof record.firstAgentId === 'string' &&
@@ -69,6 +70,7 @@ export function StartCollaboration({
     try {
       if (!uncertain || !request.current)
         request.current = {
+          inputProtocol: 1,
           requestId: crypto.randomUUID(),
           goal: goal.trim(),
           participantAgentIds: selected,

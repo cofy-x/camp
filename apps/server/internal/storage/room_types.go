@@ -106,6 +106,8 @@ type Message struct {
 	UpdatedAt    string      `json:"updatedAt"`
 }
 type Run struct {
+	TaskInputProtocol   int                 `json:"taskInputProtocol,omitempty"`
+	TaskInputAfter      int64               `json:"taskInputAfter,omitempty"`
 	Executor            string              `json:"executor,omitempty"`
 	ContextThroughSeq   int64               `json:"contextThroughSeq,omitempty"`
 	PreviousDraftCommit string              `json:"previousDraftCommit,omitempty"`

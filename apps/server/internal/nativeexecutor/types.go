@@ -19,7 +19,10 @@ type Config struct {
 	Lock                                                                                  *os.File
 }
 
+type TaskInputReader func(context.Context, int64, int) (p.TaskInputPage, error)
+
 type Request struct {
+	ReadTaskInputs                               TaskInputReader
 	Task                                         *p.Collaboration
 	PersistIntent                                func(context.Context, p.CoordinationIntent) error
 	AttemptID, RunID, ResourceID, BaselineCommit string

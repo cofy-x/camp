@@ -90,7 +90,7 @@ func openNativeWorkspace(ctx context.Context, config Config) (workspace.Provider
 	_, _ = fingerprint.Write(helper)
 	_, _ = fingerprint.Write(manifest)
 	_, _ = io.WriteString(fingerprint, "camp-native-local-v5-state-scope\x00"+config.NodePath)
-	for _, module := range []string{"coordination", "discovery", "filesystem", "shell", "transport"} {
+	for _, module := range []string{"coordination", "task-inputs", "discovery", "filesystem", "shell", "transport"} {
 		data, err := os.ReadFile(filepath.Join(config.RuntimeDir, "camp-tools", module+".mjs"))
 		if err != nil {
 			return nil, errors.New("Install the complete Camp DSH tool providers")

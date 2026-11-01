@@ -269,6 +269,7 @@ type RunAttempt struct {
 	CreatedAt          string
 	UpdatedAt          string
 	PreparationContext string
+	TaskReadToken      string
 }
 
 type RunEvent struct {
