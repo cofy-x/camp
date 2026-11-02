@@ -15,6 +15,19 @@ export function AccountAvatar({
     avatar: string;
     expected: string;
   } | null>(null);
+  const [confirmed, setConfirmed] = useState({
+    observed: user.avatar,
+    avatar: user.avatar,
+  });
+  // A save acknowledges its value before the background member read catches up.
+  // A changed observed member value supersedes that local acknowledgement.
+  if (confirmed.observed !== user.avatar)
+    setConfirmed({ observed: user.avatar, avatar: user.avatar });
+
+  function confirmAvatar(avatar: string) {
+    setConfirmed({ observed: user.avatar, avatar });
+  }
+
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(false);
@@ -42,7 +55,11 @@ export function AccountAvatar({
     setConflict(false);
     setNotice('');
     try {
-      await teamApi.saveAvatar(selection.avatar, selection.expected);
+      const result = await teamApi.saveAvatar(
+        selection.avatar,
+        selection.expected,
+      );
+      confirmAvatar(result.user.avatar);
       setSelection(null);
       setNotice('Avatar saved.');
       onSaved();
@@ -64,6 +81,7 @@ export function AccountAvatar({
     try {
       const { user } = await teamApi.status();
       if (!user) throw new Error('Sign in to Camp.');
+      confirmAvatar(user.avatar);
       focusChoice.current = true;
       setSelection({ avatar: user.avatar, expected: user.avatar });
       setConflict(false);
@@ -146,7 +164,10 @@ export function AccountAvatar({
         ref={opener}
         onClick={() => {
           restoreFocus.current = true;
-          setSelection({ avatar: user.avatar, expected: user.avatar });
+          setSelection({
+            avatar: confirmed.avatar,
+            expected: confirmed.avatar,
+          });
           setError('');
           setConflict(false);
           setNotice('');

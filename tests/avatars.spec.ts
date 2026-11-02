@@ -324,3 +324,48 @@ test('failed catalog loads, lost saves and concurrent edits retain an explicit r
     settings(page).getByRole('button', { name: 'Change Avatar…', exact: true }),
   ).toBeFocused();
 });
+
+test('reopening an acknowledged avatar does not use a stale member-list baseline', async ({
+  page,
+}) => {
+  const original = await profile(page);
+  const wanted = (await catalog(page, 'member')).find(
+    (entry) => entry.id !== original.avatar,
+  )!;
+  const people = await (await page.request.get('/api/team/members')).json();
+  await page.route('**/api/team/members', (route) =>
+    route.fulfill({ json: people }),
+  );
+  await account(page);
+  await settings(page)
+    .getByRole('button', { name: 'Change Avatar…', exact: true })
+    .click();
+  await settings(page)
+    .getByRole('radio', { name: wanted.name, exact: true })
+    .check();
+  await settings(page)
+    .getByRole('button', { name: 'Save Avatar', exact: true })
+    .click();
+  await expect(
+    settings(page).getByText('Avatar saved.', { exact: true }),
+  ).toBeVisible();
+  await settings(page)
+    .getByRole('button', { name: 'Change Avatar…', exact: true })
+    .click();
+  await expect(
+    settings(page).getByRole('radio', { name: wanted.name, exact: true }),
+  ).toBeChecked();
+  const previous = (await catalog(page, 'member')).find(
+    (entry) => entry.id === original.avatar,
+  )!;
+  await settings(page)
+    .getByRole('radio', { name: previous.name, exact: true })
+    .check();
+  await settings(page)
+    .getByRole('button', { name: 'Save Avatar', exact: true })
+    .click();
+  await expect(
+    settings(page).getByText('Avatar saved.', { exact: true }),
+  ).toBeVisible();
+  expect((await profile(page)).avatar).toBe(original.avatar);
+});
