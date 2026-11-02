@@ -406,18 +406,27 @@ func reviewMessage(ctx context.Context, q *sqlgen.Queries, r Review, actor User,
 	switch action {
 	case "request":
 		content = fmt.Sprintf("%s requested %s's review of %s.", actor.Name, r.ReviewerName, r.Title)
+		if actor.ID == r.ReviewerUserID {
+			content = fmt.Sprintf("%s started a self-review of %s.", actor.Name, r.Title)
+		}
 	case "approve":
 		content = fmt.Sprintf("%s approved %s.", actor.Name, r.Title)
 	case "request_changes":
 		content = fmt.Sprintf("%s requested changes to %s.", actor.Name, r.Title)
 	case "resubmit":
 		content = fmt.Sprintf("%s submitted a version of %s for %s to review.", actor.Name, r.Title, r.ReviewerName)
+		if actor.ID == r.ReviewerUserID {
+			content = fmt.Sprintf("%s submitted a version of %s for self-review.", actor.Name, r.Title)
+		}
 	case "deliver":
 		content = fmt.Sprintf("%s delivered the approved version of %s.", actor.Name, r.Title)
 	case "cancel":
 		content = fmt.Sprintf("%s cancelled the review of %s.", actor.Name, r.Title)
 	case "reassign":
 		content = fmt.Sprintf("%s assigned %s to review %s. A new decision is required.", actor.Name, r.ReviewerName, r.Title)
+		if actor.ID == r.ReviewerUserID {
+			content = fmt.Sprintf("%s assigned the review of %s to themselves. A new decision is required.", actor.Name, r.Title)
+		}
 	}
 	if comment != "" {
 		content += "\n\n" + comment

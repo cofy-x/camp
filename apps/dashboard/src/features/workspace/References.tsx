@@ -158,12 +158,14 @@ export function References({
   onSource,
   onRemove,
   onDocumentChange,
+  showLabel = true,
 }: {
   references: Reference[];
   resources: Resource[];
   onSource: (messageId: string) => void;
   onRemove?: (index: number) => void;
   onDocumentChange?: (reference: Reference, document: DocumentSnapshot) => void;
+  showLabel?: boolean;
 }) {
   if (!references.length) return null;
   return (
@@ -171,11 +173,13 @@ export function References({
       className={`workspace-references ${onRemove ? 'is-draft' : ''}`}
       aria-label={onRemove ? 'Draft references' : 'Message references'}
     >
-      <div className="workspace-reference-label">
-        {onRemove
-          ? `References · ${references.length} / 8`
-          : `Referenced sources · ${references.length}`}
-      </div>
+      {showLabel && (
+        <div className="workspace-reference-label">
+          {onRemove
+            ? `References · ${references.length} / 8`
+            : `Referenced sources · ${references.length}`}
+        </div>
+      )}
       {references.map((reference, index) => (
         <ReferenceCard
           key={referenceKey(reference)}
