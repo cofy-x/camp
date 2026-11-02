@@ -32,7 +32,11 @@ export async function systemEventScene(page: Page, suffix: string) {
   ).toBeTruthy();
   const { agents } = await (await page.request.get('/api/agents')).json();
   for (const agent of agents) {
-    if (agent.name === 'Assistant' && agent.avatar !== agentAvatar)
+    if (
+      agent.name === 'Assistant' &&
+      agent.ownerUserId === user.id &&
+      agent.avatar !== agentAvatar
+    )
       expect(
         (
           await mutate(
@@ -48,7 +52,8 @@ export async function systemEventScene(page: Page, suffix: string) {
     await page.request.get('/api/team/members')
   ).json();
   let reviewer = members.find(
-    (person: { name: string }) => person.name === 'Morgan',
+    (person: { name: string; enabled: boolean }) =>
+      person.enabled && person.name === 'Morgan',
   );
   if (!reviewer) {
     const invitation = await (

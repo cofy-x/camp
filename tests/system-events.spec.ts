@@ -137,8 +137,10 @@ test('system handoffs retain queued work and failures before an Agent reply arri
   page,
 }, info) => {
   const { room } = await systemEventScene(page, `handoff-${info.project.name}`);
-  const { agents } = await (await page.request.get('/api/agents')).json();
-  const writer = agents.find(
+  const { members } = await (
+    await page.request.get(`/api/rooms/${room.id}/members`)
+  ).json();
+  const writer = members.find(
     (agent: { name: string }) => agent.name === 'Writer',
   );
   const { messages } = await (
