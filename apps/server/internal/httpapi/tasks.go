@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
@@ -31,21 +30,6 @@ func taskSummaryView(w http.ResponseWriter, r *http.Request) (bool, bool) {
 	}
 	writeError(w, 400, "invalid_page", "Choose the summary view or omit view for the legacy response.")
 	return false, false
-}
-
-func taskPageNumber(w http.ResponseWriter, r *http.Request, name string) (int64, bool, bool) {
-	values, present := r.URL.Query()[name]
-	if !present {
-		return 0, false, true
-	}
-	if len(values) == 1 {
-		value, err := strconv.ParseInt(values[0], 10, 64)
-		if err == nil && value >= 0 {
-			return value, true, true
-		}
-	}
-	writeError(w, 400, "invalid_page", "Use a nonnegative integer for "+name+".")
-	return 0, present, false
 }
 
 func (a *API) taskRoutes(mux *http.ServeMux) {
@@ -105,11 +89,11 @@ func (a *API) taskRoutes(mux *http.ServeMux) {
 		a.respond(w, r, map[string]any{"task": task, "runs": runs}, err)
 	})
 	register("GET /api/tasks/{id}/inputs", func(w http.ResponseWriter, r *http.Request) {
-		after, _, ok := taskPageNumber(w, r, "after")
+		after, _, ok := pageNumber(w, r, "after")
 		if !ok {
 			return
 		}
-		through, present, ok := taskPageNumber(w, r, "through")
+		through, present, ok := pageNumber(w, r, "through")
 		if !ok {
 			return
 		}
@@ -117,7 +101,7 @@ func (a *API) taskRoutes(mux *http.ServeMux) {
 		if present {
 			end = &through
 		}
-		limit, _, ok := taskPageNumber(w, r, "limit")
+		limit, _, ok := pageNumber(w, r, "limit")
 		if !ok {
 			return
 		}
@@ -129,7 +113,7 @@ func (a *API) taskRoutes(mux *http.ServeMux) {
 		a.respond(w, r, page, err)
 	})
 	register("GET /api/tasks/{id}/runs", func(w http.ResponseWriter, r *http.Request) {
-		limit, _, ok := taskPageNumber(w, r, "limit")
+		limit, _, ok := pageNumber(w, r, "limit")
 		if !ok {
 			return
 		}

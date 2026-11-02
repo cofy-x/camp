@@ -33,6 +33,7 @@ Keep these authority boundaries stable as implementations change. Workspace, san
 | [Shared](../apps/dashboard/src/shared) | Generic HTTP/session and interaction helpers |
 | [team](../apps/server/internal/team) / [configuration](../apps/server/internal/configuration) | Authentication and private versioned administrator settings |
 | [collaboration](../apps/server/internal/collaboration) | Membership, explicit message admission and evidence preparation |
+| [orchestration](../apps/server/internal/orchestration) | Source-event vocabulary, pure Room admission planning and task decision classification; no storage or executor dependency |
 | [remoteruns](../apps/server/internal/remoteruns) | Admission, scheduling, model proxy, transport and publication |
 | [runnerprotocol](../apps/server/internal/runnerprotocol) | Versioned, storage-independent machine wire types |
 | [daemon](../apps/server/internal/daemon) | Outbound connection, durable inbox/outbox, authorization watchdog and retained uploads |
@@ -55,6 +56,42 @@ Features must not import the application registry or startup implementation. Kee
 Remote execution and the local regression harness share `runinput` directly. It reads visible history and immutable evidence from admitted records without creating an execution manager or granting authority. Callers own prepared reference directories, including partial results after an error, and retain their existing cleanup lifecycle. Task briefs use the round's frozen input revision; admission and publication remain transactional storage responsibilities.
 
 Register apps with `AppDefinition` and use shared desktop navigation, dialogs, menus and close guards. Refactors preserve observable behavior; intentional product changes update callers, tests and contracts together. Keep React Hook dependencies complete and handle asynchronous failures. Fix lint findings without blanket suppressions.
+
+## Event admission and orchestration
+
+Camp separates intake decisions from execution. The [orchestration policy](../apps/server/internal/orchestration/policy.go) resolves selected and mentioned Room Agents and enforces their combined limit for both readiness preflight and transactional admission. Preflight grants nothing. Storage rereads membership and current authority, freezes the actual grant and writes the [admission journal](../apps/server/internal/storage/orchestration.go) in the same transaction as the Message, Run/Task queue, receipt and notifications. A failed journal write rolls back the command; a failed command leaves no journal entry. External work begins only after commit through the existing remote scheduler. Task decisions classify commands after the task state machine has checked authority and applied the operation; they do not provide a second authorization or scheduling engine.
+
+```mermaid
+flowchart LR
+  Room[Room message source] --> Gate[Room admission plan]
+  Gate --> Transaction[Storage authority and atomic command]
+  Task[Explicit task command source] --> Transaction
+  Transaction --> Journal[Trigger, Decision and Mandate journal]
+  Transaction --> Queue[Run or CollaborationTask queue]
+  Queue --> Remote[Remote scheduler and Runner]
+  Remote --> Results[Stored reports, Room results and Inbox]
+```
+
+The two built-in Sources use trusted application metadata. A Room event points to its immutable Message. A task event identifies the authenticated actor, command scope and request ID through a stable hash, and points to its task and any original input Message. New records retain the original receipt's scope, request ID and canonical content hash, plus the task revision and input frontier accepted by that command. The receipt reference locates the original result after later task changes; a hash alone is not a readable source reference. Task IDs select input destinations explicitly; ordinary Thread discussion has no implicit subscription and never resumes work. Task inputs and answers are context under the existing grant, even when an answer schedules the next round. Only task start and explicit continuation record task Mandates. Cancellation records a stop decision. Task state, input batching and round scheduling remain with their existing owners.
+
+Each accepted Room event records one Mandate summary per Run. Each task start/continuation records its approved participant revisions, Runner routes, access, Resource, shared baseline and finite allowance. Task baseline references remain protected by the stopped storage catalog. Ordinary Run baselines are still chosen at writer-lease acquisition, so their admission summaries do not invent a baseline. A Mandate is immutable admission evidence, not an execution credential or a second authority store. Current permissions and the owning Run/Task still control execution, model access and publication. Continuation appends a new snapshot; it never rewrites the original. The policy version identifies the deterministic rule implementation, independently of Agent, model or permission revisions.
+
+The architecture follows the separation of concerns in the [dsh-superagent research prototype at reviewed commit 6337fc8](https://github.com/deepseek-ai/dsh-superagent-prototype/tree/6337fc823ce20251c8de8085948165c81aaa701e), adapted to Camp's team and publication model:
+
+| Prototype concept | Camp implementation |
+| --- | --- |
+| Source / Trigger | Built-in Room and task command adapters; immutable source identity and journal references |
+| Gate / Eval / Decision | Pure Room admission plan, task state-machine checks and persisted outcome/reason; no model assessment |
+| Mandate | Admission evidence referring to the existing finite Run/Task authority |
+| Ticket | CollaborationTask for persistent goals; an independent Run for a single request |
+| Assignment / Executor | Run round, Attempt, frozen Agent/Runner target and native executor |
+| Subscription / Input | Explicit task input destination and append-only input log; no general Thread fan-out |
+| Effects / recovery | Existing durable Run queue, Attempt commands, Runner journal and completion receipts |
+| Channel / Outbox | Atomic Room completion Messages and targeted Inbox; no external reply adapter |
+
+The prototype's policy changes and automatic resume rules do not override Camp's immediate permission revocation or finite grants. Runner source-directory imports are a separate model-free capture operation, not event Sources.
+
+The journal starts at its additive migration. Historical Messages, Run snapshots and task receipts stay unchanged; old grants, missing receipt metadata and decisions are not invented during upgrade or replay. Reads use the [bounded journal API](api.md#orchestration-journal). Records contain references and grant summaries rather than source text, instructions, model configuration or credentials. No retention or automatic deletion is implemented.
 
 ## Team and authority
 
@@ -166,6 +203,7 @@ The boundaries below describe current implementation choices, not permanent requ
 | Optional Mac checkpoint worker | The [worker adapter](layerfs-worker.md) retains a complete POSIX working-tree profile and requires independent LayerFS readback before publication. Its Disposable Store is separate from durable Server delivery. It requires an explicitly selected native ARM64 Linux engine, retains native captures and uncertain outcomes, and has no automatic fallback or model replay. UID/ACL/xattrs/times, special files and external hardlink groups are outside the declared profile. |
 | Checkpoint retention | The [Mac storage lifecycle](install.md#inspect-mac-checkpoint-storage) reports bounded advisory usage and supports explicit quarantine, restore and permanent purge of unreferenced sealed captures. All operation-referenced history, prior Store epochs and native recovery remain protected. Quarantine retains bytes; no automatic history expiration or hard lifetime quota exists. |
 | Upgrades preserve team data | Append-only Team migrations are implemented. [Migration validation](../apps/server/internal/storage/migrations.go) explicitly rejects discarded pre-Team baselines; there is no universal historical-data upgrader or automatic reset. Restore is the stopped manual procedure in [installation](install.md#data-upgrades-and-backup). |
+| Event orchestration | The explicit gate and durable journal cover Room messages and task commands. GitHub/Feishu Sources, model assessment, configurable proactive rules, cross-Thread subscriptions and external reply effects are not implemented. These extensions belong to `orchestration` and their adapters, and require source authentication/deduplication, finite grants, context-only routing, durable delivery and recovery tests before enabling automatic work. |
 
 Runner check/output reports assume a trusted machine; they are not remote attestation against a hostile operator. Source/browser/fixture results alone do not establish native isolation, fresh-host portability or real-provider success.
 

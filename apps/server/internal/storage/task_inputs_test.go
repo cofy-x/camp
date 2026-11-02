@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"database/sql"
 	"encoding/json"
 
 	"fmt"
@@ -9,6 +10,65 @@ import (
 	"sync"
 	"testing"
 )
+
+func TestTaskInputFinalPageCountsNullCursor(t *testing.T) {
+	s, actor, _, room, writer, _ := taskFixture(t)
+	task := startTask(t, s, actor, room, writer)
+	u, _ := UserFromContext(actor)
+	inputs := []TaskInput{
+		{ID: newID(), Seq: 1, AuthorUserID: u.ID, AuthorName: u.Name, CreatedAt: "2026-11-02T00:00:00Z", Content: strings.Repeat("<", 8192)},
+		{ID: newID(), Seq: 2, AuthorUserID: u.ID, AuthorName: u.Name, CreatedAt: "2026-11-02T00:00:00Z"},
+	}
+	full := TaskInputPage{Items: inputs, Through: 2}
+	encoded, err := json.Marshal(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	padding := TaskInputPageBytes - len(encoded)
+	// HTML escaping expands '<' to six JSON bytes while originals remain within
+	// the per-input limit. The complete final response is exactly one byte over.
+	inputs[1].Content = strings.Repeat("<", padding/6) + strings.Repeat("x", padding%6)
+	if len(inputs[1].Content) > MaxRunPromptSize {
+		t.Fatal("fixture exceeded the original-input limit")
+	}
+	if err := s.transaction(ctx, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		for _, input := range inputs {
+			seq, err := q.NextMessageSequence(ctx, room.ID)
+			if err != nil {
+				return err
+			}
+			m := Message{ID: input.ID, TaskID: task.ID, RoomID: room.ID, ThreadRootID: task.ThreadRootID, Seq: seq, AuthorKind: "user", AuthorUserID: u.ID, AuthorName: u.Name, Content: input.Content, CreatedAt: input.CreatedAt, UpdatedAt: input.CreatedAt}
+			if err := insertMessage(ctx, q, m, ""); err != nil {
+				return err
+			}
+			data, err := json.Marshal(input)
+			if err != nil {
+				return err
+			}
+			if err := q.InsertTaskInput(ctx, sqlgen.InsertTaskInputParams{ID: input.ID, TaskID: task.ID, Seq: input.Seq, ContentBytes: int64(len(input.Content)), Value: string(data)}); err != nil {
+				return err
+			}
+			task.InputRevision = input.Seq
+			task.InputBytes += int64(len(input.Content))
+		}
+		return saveTask(ctx, q, &task)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := s.TaskInputsPage(ctx, task.ID, 0, nil, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err = json.Marshal(page)
+	if err != nil || len(encoded)+1 > TaskInputPageBytes || !page.HasMore || page.NextAfter == nil {
+		t.Fatal("final input page exceeded its wire budget", len(encoded)+1, page.HasMore, err)
+	}
+	next, err := s.TaskInputsPage(ctx, task.ID, *page.NextAfter, &page.Through, 20)
+	if err != nil || next.HasMore || next.NextAfter != nil || len(page.Items) != 1 || len(next.Items) != 1 || page.Items[0] != inputs[0] || next.Items[0] != inputs[1] {
+		t.Fatal("byte-bound input continuation changed an original", page, next, err)
+	}
+}
 
 func TestTaskInputLogConcurrentAppendAndReceiptFrontier(t *testing.T) {
 	s, actor, _, room, writer, _ := taskFixture(t)

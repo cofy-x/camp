@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/cofy-x/camp/apps/server/internal/orchestration"
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
 
@@ -238,6 +239,9 @@ func (s *Store) CreateTask(ctx context.Context, roomID string, in CreateTaskInpu
 		if e = saveTask(ctx, q, &out); e != nil {
 			return e
 		}
+		if e = recordTaskAdmission(ctx, q, out, orchestration.TaskStart, orchestration.RequestRef{Scope: scope, ID: in.RequestID, Hash: hash}, m.ID); e != nil {
+			return e
+		}
 		return saveTaskReceipt(ctx, q, scope, in.RequestID, hash, out)
 	})
 	return taskOutput(ctx, s.queries(), out, err, in.PagedResponse)
@@ -329,16 +333,17 @@ func (s *Store) OperateTask(ctx context.Context, id, action string, in TaskOpera
 		if in.InputProtocol == 1 && action != "cancel" {
 			out.InputProtocol = 1
 		}
+		messageID := ""
 		switch action {
 		case "inputs":
-			if e = addTaskInput(ctx, q, &out, in.Content, in.InputProtocol == 1); e != nil {
+			if messageID, e = addTaskInput(ctx, q, &out, in.Content, in.InputProtocol == 1); e != nil {
 				return e
 			}
 		case "answers":
 			if out.Status != "waiting_for_person" || out.Question == nil || out.Question.ID != in.QuestionID || out.Question.Answer != "" {
 				return problem("question_answered", "This question is no longer waiting for an answer.")
 			}
-			if e = addTaskInput(ctx, q, &out, in.Content, in.InputProtocol == 1); e != nil {
+			if messageID, e = addTaskInput(ctx, q, &out, in.Content, in.InputProtocol == 1); e != nil {
 				return e
 			}
 			out.Question.Answer = strings.TrimSpace(in.Content)
@@ -380,7 +385,7 @@ func (s *Store) OperateTask(ctx context.Context, id, action string, in TaskOpera
 				out.PublicationRunID = ""
 			}
 			if strings.TrimSpace(in.Content) != "" {
-				if e = addTaskInput(ctx, q, &out, in.Content, in.InputProtocol == 1); e != nil {
+				if messageID, e = addTaskInput(ctx, q, &out, in.Content, in.InputProtocol == 1); e != nil {
 					return e
 				}
 			}
@@ -425,41 +430,44 @@ func (s *Store) OperateTask(ctx context.Context, id, action string, in TaskOpera
 		if e = saveTask(ctx, q, &out); e != nil {
 			return e
 		}
+		if e = recordTaskAdmission(ctx, q, out, orchestration.Kind("task."+action), orchestration.RequestRef{Scope: scope, ID: in.RequestID, Hash: hash}, messageID); e != nil {
+			return e
+		}
 		return saveTaskReceipt(ctx, q, scope, in.RequestID, hash, out)
 	})
 	return taskOutput(ctx, s.queries(), out, err, in.PagedResponse)
 }
-func addTaskInput(ctx context.Context, q *sqlgen.Queries, t *CollaborationTask, content string, batched bool) error {
+func addTaskInput(ctx context.Context, q *sqlgen.Queries, t *CollaborationTask, content string, batched bool) (string, error) {
 	content = strings.TrimSpace(content)
 	if !validText(content, MaxRunPromptSize, false) {
-		return problem("invalid_task", "Provide a task input of at most 8192 bytes.")
+		return "", problem("invalid_task", "Provide a task input of at most 8192 bytes.")
 	}
 	if !batched && (t.InputRevision >= 128 || t.InputBytes+int64(len(content)) > 64<<10) {
-		return problem("invalid_task", "Refresh Camp to use bounded input batches beyond the legacy 128-input / 64 KiB limits.")
+		return "", problem("invalid_task", "Refresh Camp to use bounded input batches beyond the legacy 128-input / 64 KiB limits.")
 	}
 	u, e := q.GetUser(ctx, actorID(ctx))
 	if e != nil {
-		return e
+		return "", e
 	}
 	input := TaskInput{Seq: t.InputRevision + 1, ID: newID(), AuthorUserID: u.ID, AuthorName: u.Name, Content: content, CreatedAt: now()}
 	seq, e := q.NextMessageSequence(ctx, t.RoomID)
 	if e != nil {
-		return e
+		return "", e
 	}
 	m := Message{ID: input.ID, TaskID: t.ID, RoomID: t.RoomID, ThreadRootID: t.ThreadRootID, Seq: seq, AuthorKind: "user", AuthorUserID: u.ID, AuthorName: u.Name, Content: content, CreatedAt: input.CreatedAt, UpdatedAt: input.CreatedAt}
 	if e = insertMessage(ctx, q, m, ""); e != nil {
-		return e
+		return "", e
 	}
 	data, e := json.Marshal(input)
 	if e != nil {
-		return e
+		return "", e
 	}
 	if e = q.InsertTaskInput(ctx, sqlgen.InsertTaskInputParams{ID: input.ID, TaskID: t.ID, Seq: input.Seq, ContentBytes: int64(len(content)), Value: string(data)}); e != nil {
-		return e
+		return "", e
 	}
 	t.InputRevision = input.Seq
 	t.InputBytes += int64(len(content))
-	return nil
+	return input.ID, nil
 }
 func taskNotice(ctx context.Context, q *sqlgen.Queries, t CollaborationTask, kind, text string) error {
 	seq, e := q.NextMessageSequence(ctx, t.RoomID)

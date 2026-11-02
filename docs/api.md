@@ -70,11 +70,23 @@ The append-only schema upgrade transactionally assigns missing avatars before se
 }
 ```
 
-Selected plus mentioned joined Agents produce at most one Run each. With neither, a message is discussion. `postOnly:true` suppresses Agent mentions and cannot accompany explicit recipients. Human mentions notify people. Agent/system output is not an admission source. Joining never replays history. Bodies allow 8192 UTF-8 bytes, up to 16 recipient IDs and 8 references; limits live in [room types](../apps/server/internal/storage/room_types.go).
+Selected plus mentioned joined Agents produce at most one Run each, with at most 16 distinct recipients including mentions. With neither, a message is discussion. `postOnly:true` suppresses Agent mentions and cannot accompany explicit recipients. Human mentions notify people. Agent/system output is not an admission source. Joining never replays history. Bodies allow 8192 UTF-8 bytes, up to 16 recipient IDs and 8 references; limits live in [room types](../apps/server/internal/storage/room_types.go) and the [admission policy](../apps/server/internal/orchestration/policy.go).
 
 Message references use `{kind:"message",messageId}` within the Room. File references can select any known team Resource revision; server resolves excerpts and identity. PDF/DOCX references may include `documentId` to pin preparation. Admission freezes actual author, references, Agent, Resource identity, environment, model revision and budget atomically. The writable baseline is selected when an ordinary writer acquires its lease; it need not equal an older evidence version.
 
 Idempotency is user × Room × requestId. Identical canonical intent replays the original receipt before route/configuration changes; changed intent returns 409 `request_conflict`. Preserve the exact body/ID after an uncertain response. `runnerRevision` is required when a team Agent uses the saved Room route; see [routing](#runners-and-source-snapshots).
+
+## Orchestration journal
+
+GET `/api/rooms/:id/orchestration?after=seq&through=seq&limit=20` returns `{items,through,nextAfter,hasMore}` to any enabled team member. The endpoint is read-only and uses the same Room visibility as messages and tasks. Each item has a monotonic `seq`, a source `trigger`, a versioned `decision` and zero or more immutable `mandates`. [Orchestration types](../apps/server/internal/orchestration/model.go) own the wire fields. Original text remains at the referenced Message or task request; grant summaries omit instructions, model configuration and credentials.
+
+New records include `trigger.request:{scope,id,hash}`, identifying the original actor-scoped receipt and canonical request hash. A Room receipt's scope is its Room ID; task scopes match their create/operation receipts. Task work references include their admitted `revision`, and `trigger.inputRevision` identifies the committed input frontier when nonzero. Task Mandates include their shared `baseCommit`; ordinary Run baselines are selected later and are omitted. These fields are absent from older records when they were not captured; reads, upgrades and replays never backfill them from today's mutable work.
+
+`after` is exclusive and defaults to zero. Omitting `through` captures the current Room journal frontier; carry it with `nextAfter` to finish a stable traversal while work continues. Pages contain at most 20 whole records and 64 KiB of encoded JSON including escaping. Limits of zero use the default. Invalid, duplicate or out-of-range numeric parameters return 400 `invalid_page`; a missing Room returns 404. Sequence gaps are valid because other Rooms share the journal sequence.
+
+Room sends record `accept` or `ignore` (`discussion`/`post_only`). Task creation and continuation record `accept`; explicit inputs and answers record `context`; cancellation records `stop`. Mandates summarize grants on accepted Room requests and task start/continuation. They do not replace current permission checks. Task `maxRounds` and `maxModelRequests` are total approved ceilings at that command, not a remaining allowance; single-Run grants have one round and no separate task request ceiling.
+
+The source event, decision, grant summary and work creation/input/operation commit atomically. Replays append nothing, and refused commands leave no admission record. Existing send/task response shapes and request hashes are unchanged. The journal covers commands accepted after its migration; historical decisions are not reconstructed. Agent/system output, handoffs and completion notifications cannot admit new work through this endpoint. See the [architecture mapping](architecture.md#event-admission-and-orchestration) for the implemented boundary.
 
 ## Runs and events
 

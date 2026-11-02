@@ -5,38 +5,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"strings"
-	"unicode"
-	"unicode/utf8"
 
+	"github.com/cofy-x/camp/apps/server/internal/orchestration"
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
 
 // Mentions require a token boundary; email addresses and longer handles do not
 // address a member. Delivery is resolved against current enabled membership.
 func mentionsHandle(content, handle string) bool {
-	content = strings.ToLower(content)
-	target := "@" + strings.ToLower(handle)
-	for offset := 0; offset < len(content); {
-		i := strings.Index(content[offset:], target)
-		if i < 0 {
-			return false
-		}
-		i += offset
-		end := i + len(target)
-		previous, _ := utf8.DecodeLastRuneInString(content[:i])
-		next, _ := utf8.DecodeRuneInString(content[end:])
-		before := i == 0 || !handleCharacter(previous)
-		after := end == len(content) || !handleCharacter(next)
-		if before && after {
-			return true
-		}
-		offset = end
-	}
-	return false
-}
-func handleCharacter(r rune) bool {
-	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '@'
+	return orchestration.MentionsHandle(content, handle)
 }
 func notifyMentions(ctx context.Context, q *sqlgen.Queries, m Message) error {
 	users, e := q.ListUsers(ctx)
@@ -247,23 +224,11 @@ func (s *Store) ListDrafts(ctx context.Context, kind string) ([]DraftSummary, er
 }
 
 func (s *Store) MessageRecipientIDs(ctx context.Context, room string, input SendMessageInput) ([]string, error) {
-	if input.PostOnly {
-		return []string{}, nil
-	}
-	members, e := s.ListMembers(ctx, room)
-	if e != nil {
-		return nil, e
-	}
-	ids := append([]string{}, input.RecipientAgentIDs...)
-	seen := map[string]bool{}
-	for _, id := range ids {
-		seen[id] = true
-	}
-	for _, member := range members {
-		if !seen[member.ID] && mentionsHandle(input.Content, member.Handle) {
-			ids = append(ids, member.ID)
-			seen[member.ID] = true
+	if !input.PostOnly {
+		if _, err := s.GetRoom(ctx, room); err != nil {
+			return nil, err
 		}
 	}
-	return ids, nil
+	decision, err := planRoomMessage(ctx, s.queries(), room, input)
+	return decision.RecipientAgentIDs, err
 }
