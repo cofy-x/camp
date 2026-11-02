@@ -348,14 +348,23 @@ test('release versions select immutable numbered releases', () => {
     assert.equal(validVersion(version), false);
 });
 
-test('upgrade fixture loses only control replies and releases them exactly', async () => {
+test('upgrade fixture retains completion replies while grants and ordinary reads continue', async () => {
   const { runnerReplyProxy } = await import('./upgrade-proxy.mjs');
   const { createServer: httpServer } = await import('node:http');
   const { connect } = await import('node:net');
   const { once } = await import('node:events');
-  const server = httpServer((request, response) =>
-    response.end('ordinary-read'),
-  );
+  let accepted;
+  const committed = new Promise((resolve) => {
+    accepted = resolve;
+  });
+  const server = httpServer((request, response) => {
+    response.end(
+      request.url.endsWith('/complete')
+        ? 'retained-completion'
+        : 'ordinary-read',
+    );
+    if (request.url.endsWith('/complete')) accepted();
+  });
   let control;
   server.on('upgrade', (request, socket) => {
     control = socket;
@@ -373,16 +382,22 @@ test('upgrade fixture loses only control replies and releases them exactly', asy
     );
     assert.match((await headers)[0].toString(), /101 Switching/);
     proxy.holdReplies();
-    let reply = '';
-    client.on('data', (chunk) => {
-      reply += chunk.toString();
+    let resolved = false;
+    const reply = fetch(
+      `${proxy.origin}/api/daemon/operations/previous/complete`,
+      { method: 'POST' },
+    ).then((response) => {
+      resolved = true;
+      return response.text();
     });
-    control.write('retained-completion-reply');
+    await committed;
     assert.equal(await (await fetch(proxy.origin)).text(), 'ordinary-read');
-    assert.equal(reply, '');
-    const released = once(client, 'data');
+    const grant = once(client, 'data');
+    control.write('continued-grant');
+    assert.equal((await grant)[0].toString(), 'continued-grant');
+    assert.equal(resolved, false);
     proxy.releaseReplies();
-    assert.equal((await released)[0].toString(), 'retained-completion-reply');
+    assert.equal(await reply, 'retained-completion');
   } finally {
     client.destroy();
     control?.destroy();

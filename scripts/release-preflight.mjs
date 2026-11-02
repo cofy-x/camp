@@ -9,10 +9,10 @@ assert.equal(process.env.GITHUB_SHA, identity.sourceCommit);
 if (process.env.CAMP_RELEASE_VALIDATE_ONLY === 'true') {
   await appendFile(
     process.env.GITHUB_OUTPUT,
-    `source=${identity.sourceCommit}\nci-url=\n`,
+    `source=${identity.sourceCommit}\nci-url=https://github.com/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}\n`,
   );
   console.log(
-    `Validation only: Native package checks for ${identity.sourceCommit}; publication and Source/Browser/Fixture acceptance are not granted.`,
+    `Validation only: Native package checks for ${identity.sourceCommit}; the required complete regression and native packages qualify this candidate; publication is not granted.`,
   );
   process.exit(0);
 }

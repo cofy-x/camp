@@ -409,12 +409,19 @@ try {
   if (upgrading) {
     // Optional local reruns reuse only already verified immutable runtime files,
     // never another installation's identity, credentials or durable journal.
-    if (previousUpgrade && process.env.CAMP_TEST_UPGRADE_RUNTIME_CACHE)
+    if (previousUpgrade && process.env.CAMP_TEST_UPGRADE_RUNTIME_CACHE) {
+      await mkdir(runnerData, { mode: 0o700 });
       await cp(
         path.resolve(process.env.CAMP_TEST_UPGRADE_RUNTIME_CACHE),
         path.join(runnerData, 'runtime/cache'),
-        { recursive: true, errorOnExist: true, force: false },
+        {
+          recursive: true,
+          errorOnExist: true,
+          force: false,
+          verbatimSymlinks: true,
+        },
       );
+    }
     const previous = await baselineLauncher(dir, 'runner', baseline);
     runnerEnv.XDG_CACHE_HOME = previous.cache;
     const setup = await setupWith(previous.binary, token, true);
@@ -1392,7 +1399,7 @@ try {
               journalPreserved: true,
               ...(previousUpgrade
                 ? {
-                    baselineRuntimeCacheReused: Boolean(
+                    baselineRuntimeCacheProvided: Boolean(
                       process.env.CAMP_TEST_UPGRADE_RUNTIME_CACHE,
                     ),
                     legacyProtocolAccepted: true,

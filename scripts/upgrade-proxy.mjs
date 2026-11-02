@@ -1,33 +1,69 @@
-import { connect, createServer } from 'node:net';
+import { createServer, request } from 'node:http';
+import { connect } from 'node:net';
 
-// A private loopback fixture can lose Runner completion replies while allowing
-// the Server to commit the outcome. Never inspect or log authenticated bytes.
+// Private loopback fault injection: commit completion HTTP requests but retain
+// their replies and subsequent receipt readback. Control grants, coordination,
+// model streaming and unrelated HTTP traffic continue normally.
 export async function runnerReplyProxy(targetPort) {
-  const sockets = new Set();
-  const control = new Map();
   let held = false;
-  const server = createServer((client) => {
-    const upstream = connect(targetPort, '127.0.0.1');
+  const completed = new Set();
+  const replies = new Map();
+  const sockets = new Set();
+  const forward = (source, target) => {
+    target.writeHead(source.statusCode, source.headers);
+    source.pipe(target);
+  };
+  const server = createServer((incoming, response) => {
+    const upstream = request(
+      {
+        host: '127.0.0.1',
+        port: targetPort,
+        method: incoming.method,
+        path: incoming.url,
+        headers: incoming.headers,
+      },
+      (source) => {
+        const operation = incoming.url.match(
+          /^\/api\/daemon\/operations\/([^/]+)\/(complete|finalizing)$/,
+        );
+        const drop =
+          held &&
+          operation &&
+          (operation[2] === 'complete' || completed.has(operation[1]));
+        if (drop) {
+          completed.add(operation[1]);
+          replies.set(source, response);
+          response.once('close', () => {
+            replies.delete(source);
+            source.destroy();
+          });
+        } else forward(source, response);
+      },
+    );
+    upstream.on('error', () => {
+      if (!response.headersSent) response.writeHead(502);
+      response.end();
+    });
+    response.once('close', () => upstream.destroy());
+    incoming.pipe(upstream);
+  });
+  // Forward authenticated WebSocket bytes without decoding or retaining them.
+  server.on('upgrade', (incoming, client, head) => {
+    const upstream = connect(targetPort, '127.0.0.1', () => {
+      const headers = incoming.rawHeaders.reduce(
+        (out, value, index, all) =>
+          index % 2 === 0 ? out + `${value}: ${all[index + 1]}\r\n` : out,
+        '',
+      );
+      upstream.write(
+        `${incoming.method} ${incoming.url} HTTP/${incoming.httpVersion}\r\n${headers}\r\n`,
+      );
+      if (head.length) upstream.write(head);
+      client.pipe(upstream);
+      upstream.pipe(client);
+    });
     sockets.add(client);
     sockets.add(upstream);
-    let headers = '';
-    const observe = (chunk) => {
-      headers += chunk.toString('latin1');
-      if (headers.length > 65536) {
-        client.destroy();
-        return;
-      }
-      if (!headers.includes('\r\n\r\n')) return;
-      client.removeListener('data', observe);
-      if (headers.startsWith('GET /api/daemon/connect ')) {
-        control.set(upstream, client);
-        if (held) upstream.unpipe(client);
-      }
-      headers = '';
-    };
-    client.on('data', observe);
-    client.pipe(upstream);
-    upstream.pipe(client);
     for (const [socket, peer] of [
       [client, upstream],
       [upstream, client],
@@ -35,7 +71,6 @@ export async function runnerReplyProxy(targetPort) {
       socket.on('error', () => peer.destroy());
       socket.on('close', () => {
         sockets.delete(socket);
-        control.delete(upstream);
         peer.destroy();
       });
     }
@@ -48,14 +83,20 @@ export async function runnerReplyProxy(targetPort) {
     origin: `http://127.0.0.1:${server.address().port}`,
     holdReplies() {
       held = true;
-      for (const [upstream, client] of control) upstream.unpipe(client);
     },
     releaseReplies() {
       held = false;
-      for (const [upstream, client] of control) upstream.pipe(client);
+      for (const [source, target] of replies)
+        if (!target.destroyed) forward(source, target);
+      replies.clear();
     },
     async close() {
       for (const socket of sockets) socket.destroy();
+      for (const [source, target] of replies) {
+        source.destroy();
+        target.destroy();
+      }
+      server.closeAllConnections();
       await new Promise((resolve) => server.close(resolve));
     },
   };

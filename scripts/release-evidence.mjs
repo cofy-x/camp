@@ -26,15 +26,15 @@ export async function collectReleaseEvidence(
   const acceptance = JSON.parse(
     await readFile(join(directory, 'acceptance.json'), 'utf8'),
   );
+  assert.equal(acceptance.version, identity.version);
   assert.equal(acceptance.sourceCommit, identity.sourceCommit);
   assert.equal(acceptance.sourceModified, false);
   assert.equal(acceptance.native.status, 'passed');
   assert.equal(acceptance.validationOnly, validationOnly);
-  if (!validationOnly)
-    assert.match(
-      acceptance.ci.sourceBrowserFixture,
-      /^https:\/\/github\.com\/cofy-x\/camp\/actions\/runs\/\d+$/,
-    );
+  assert.match(
+    acceptance.ci.sourceBrowserFixture,
+    /^https:\/\/github\.com\/cofy-x\/camp\/actions\/runs\/\d+$/,
+  );
   const macReports = [];
   for (const platform of ['darwin-arm64', 'darwin-amd64']) {
     const report = JSON.parse(
