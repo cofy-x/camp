@@ -569,9 +569,11 @@ try {
       assert.equal(queued.task.status, 'queued');
       assert.equal(queued.task.turnsUsed, 0);
       assert.equal(queued.task.modelRequestsUsed, 0);
-      assert.equal(queued.task.draftFence, 0);
+      assert.equal(queued.task.draftFence, protocolTask.draftFence);
       assert.equal(queued.task.activeAttemptId, '');
-      assert.equal(queued.runs.length, 0);
+      assert.ok(
+        queued.runs.every((run) => run.status === 'queued' && !run.attemptId),
+      );
       assert.equal(compatibilityRequests, 1);
     }
     await stop(runner);
@@ -687,7 +689,7 @@ try {
       'runner',
       'setup',
       '--server',
-      origin,
+      replyProxy?.origin ?? origin,
       '--name',
       'Installed Camp Runner',
       '--data-dir',
@@ -750,7 +752,12 @@ try {
   do {
     const { runners } = await api('/api/runners');
     assigned = runners.find((item) => item.name === 'Installed Camp Runner');
-    if (assigned?.online && assigned.capabilities?.ready) break;
+    if (
+      assigned?.online &&
+      assigned.capabilities?.ready &&
+      (!previousUpgrade || assigned.capabilities.taskInputsVersion === 1)
+    )
+      break;
     if (runner.exitCode !== null)
       throw new Error(`Runner stopped: ${runnerOutput}`);
     await pause(250);
