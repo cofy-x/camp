@@ -162,7 +162,7 @@ func (s *session) load(id string) (Manifest, State, error) {
 		seen[entry.Path] = true
 		names := map[string]bool{}
 		for i, file := range entry.Files {
-			if file.Path != "." && (path.Clean(file.Path) != file.Path || path.IsAbs(file.Path) || strings.HasPrefix(file.Path, "../") || strings.ContainsAny(file.Path, "\\\x00")) {
+			if file.Path != "." && (file.Path == ".." || path.Clean(file.Path) != file.Path || path.IsAbs(file.Path) || strings.HasPrefix(file.Path, "../") || strings.ContainsAny(file.Path, "\\\x00")) {
 				return manifest, state, errors.New("A maintenance file path is unsafe")
 			}
 			if names[file.Path] || file.Mode > 0777 || file.Bytes < 0 || (i == 0 && file.Path != ".") || (!file.Directory && !planID.MatchString(file.SHA256)) {

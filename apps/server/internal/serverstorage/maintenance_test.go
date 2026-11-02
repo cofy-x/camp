@@ -502,3 +502,35 @@ func TestInspectionRejectsIncompleteMigrationHistoryWithoutChangingData(t *testi
 	}
 	owner.Close()
 }
+
+func TestManifestCannotNameAnObjectParent(t *testing.T) {
+	root, _, _ := fixture(t)
+	ctx := context.Background()
+	plan, err := Plan(ctx, root, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := open(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.close()
+	manifest, _, err := session.load(plan.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Entries[0].Files = append(manifest.Entries[0].Files, File{Path: "..", Directory: true, Mode: 0700})
+	id, data, err := fingerprint(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = session.atomicWrite(maintenanceRoot+"/plans/"+id+"/manifest.json", data); err != nil {
+		t.Fatal(err)
+	}
+	if err = session.saveState(State{ID: id, Status: "purging", Completed: []string{}, UpdatedAt: now()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = session.load(id); err == nil {
+		t.Fatal("A sealed manifest named its parent")
+	}
+}
