@@ -275,6 +275,25 @@ try {
     assert.ok(response.ok, `${method} ${url}: ${JSON.stringify(value)}`);
     return value;
   };
+
+  function recordedInputProtocol(id) {
+    // The browser DTO intentionally omits internal admission feature versions.
+    const database = new DatabaseSync(path.join(data, 'desktop.sqlite'), {
+      readOnly: true,
+    });
+    try {
+      return (
+        database
+          .prepare(
+            "SELECT json_extract(capabilities,'$.taskInputsVersion') AS version FROM runners WHERE id=?",
+          )
+          .get(id)?.version ?? 0
+      );
+    } finally {
+      database.close();
+    }
+  }
+
   await api('/api/auth/setup', 'POST', {
     token: (await readFile(path.join(data, 'team-setup.token'), 'utf8')).trim(),
     username: 'release-admin',
@@ -494,7 +513,7 @@ try {
       const oldRunner = (await api('/api/runners')).runners.find(
         (item) => item.id === previousConfig.runnerId,
       );
-      assert.notEqual(oldRunner.capabilities.taskInputsVersion, 1);
+      assert.notEqual(recordedInputProtocol(oldRunner.id), 1);
       let compatRoom = (await api('/api/rooms')).rooms.find(
         (room) => room.id === previousImport.roomId,
       );
@@ -755,7 +774,7 @@ try {
     if (
       assigned?.online &&
       assigned.capabilities?.ready &&
-      (!previousUpgrade || assigned.capabilities.taskInputsVersion === 1)
+      (!previousUpgrade || recordedInputProtocol(assigned.id) === 1)
     )
       break;
     if (runner.exitCode !== null)
@@ -809,7 +828,7 @@ try {
     );
   }
   if (previousUpgrade) {
-    assert.equal(assigned.capabilities.taskInputsVersion, 1);
+    assert.equal(recordedInputProtocol(assigned.id), 1);
     const recovered = await api(
       '/api/source-imports',
       'POST',
@@ -850,8 +869,8 @@ try {
     try {
       assert.equal(
         serverDatabase
-          .prepare('SELECT completion_id FROM run_attempts WHERE id=?')
-          .get(legacyOperation).completion_id,
+          .prepare('SELECT result_id FROM run_attempts WHERE id=?')
+          .get(legacyOperation).result_id,
         previousCompletion,
       );
     } finally {
