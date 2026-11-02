@@ -1,24 +1,24 @@
 class Camp < Formula
   desc "A shared browser workspace for people and agents"
   homepage "https://github.com/cofy-x/camp"
-  version "0.1.0-alpha.8"
+  version "0.1.0-alpha.9"
   license "MIT"
 
   on_macos do
     on_arm do
-      url "https://github.com/cofy-x/camp/releases/download/v0.1.0-alpha.8/camp-server-darwin-arm64.tar.gz"
-      sha256 "7fd30b561315eb853034da9635a159a524637624ad2d2098be340fb5dd7b9386"
+      url "https://github.com/cofy-x/camp/releases/download/v0.1.0-alpha.9/camp-server-darwin-arm64.tar.gz"
+      sha256 "abe0e5d8a731d08d5edde618980d414e4affc7f99fdda4ab98d35cbe218bdfc1"
     end
     on_intel do
-      url "https://github.com/cofy-x/camp/releases/download/v0.1.0-alpha.8/camp-server-darwin-amd64.tar.gz"
-      sha256 "6b0cb680f3ed5efc1eb8c87606c02cdf4830cc7820bde6911840097c2af45ec5"
+      url "https://github.com/cofy-x/camp/releases/download/v0.1.0-alpha.9/camp-server-darwin-amd64.tar.gz"
+      sha256 "f627e0645099955946eb93a31d25cfe6ec1d9123ba100f8219cacdef966db91d"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/cofy-x/camp/releases/download/v0.1.0-alpha.8/camp-server-linux-amd64.tar.gz"
-      sha256 "ab27c711539829b7e21ba7d3e0836c6968e13930beda22b41a2061b2e52f2028"
+      url "https://github.com/cofy-x/camp/releases/download/v0.1.0-alpha.9/camp-server-linux-amd64.tar.gz"
+      sha256 "3ca38c3e4c9c77f2dc716e3c43dfe326e8f27cf535ecfd161b448ee39f85f5b7"
     end
   end
 
