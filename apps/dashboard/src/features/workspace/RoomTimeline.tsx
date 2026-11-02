@@ -84,11 +84,13 @@ function WorkCard({
   avatar,
   onInspect,
   onChange,
+  showTaskLink = true,
 }: {
   run: Run;
   avatar?: string;
   onInspect: (id: string) => void;
   onChange: () => void;
+  showTaskLink?: boolean;
 }) {
   const team = useTeam();
   const [pending, setPending] = useState(false);
@@ -126,7 +128,7 @@ function WorkCard({
         <Button onClick={() => onInspect(run.id)}>
           {isActiveRun(run) ? 'Activity' : 'Details'}
         </Button>
-        {run.taskId && (
+        {run.taskId && showTaskLink && (
           <Button
             onClick={() =>
               void team.navigate({
@@ -377,6 +379,20 @@ export function RoomTimeline({
             [...threadRuns].sort((a, b) =>
               b.updatedAt.localeCompare(a.updatedAt),
             )[0];
+          const workCards = work.map((item) => (
+            <WorkCard
+              key={item.id}
+              run={item}
+              avatar={agents.find((agent) => agent.id === item.agentId)?.avatar}
+              onInspect={onInspect}
+              onChange={onChange}
+              showTaskLink={
+                message.authorKind !== 'system' ||
+                Boolean(message.reviewId) ||
+                message.taskId !== item.taskId
+              }
+            />
+          ));
           if (message.authorKind === 'system')
             return (
               <SystemMessage
@@ -402,7 +418,9 @@ export function RoomTimeline({
                 onAsk={() => onAsk(message)}
                 onThread={!threadId ? () => onThread(message.id) : undefined}
                 onSource={onSource}
-              />
+              >
+                {workCards}
+              </SystemMessage>
             );
           return (
             <article
@@ -498,17 +516,7 @@ export function RoomTimeline({
                     </button>
                   )}
                 </div>
-                {work.map((item) => (
-                  <WorkCard
-                    key={item.id}
-                    run={item}
-                    avatar={
-                      agents.find((agent) => agent.id === item.agentId)?.avatar
-                    }
-                    onInspect={onInspect}
-                    onChange={onChange}
-                  />
-                ))}
+                {workCards}
               </div>
             </article>
           );

@@ -132,3 +132,94 @@ test('review events preserve exact sources, drafts and explicit work admission',
   ).toHaveLength(0);
   expect(errors).toEqual([]);
 });
+
+test('system handoffs retain queued work and failures before an Agent reply arrives', async ({
+  page,
+}, info) => {
+  const { room } = await systemEventScene(page, `handoff-${info.project.name}`);
+  const { agents } = await (await page.request.get('/api/agents')).json();
+  const writer = agents.find(
+    (agent: { name: string }) => agent.name === 'Writer',
+  );
+  const { messages } = await (
+    await page.request.get(`/api/rooms/${room.id}/messages`)
+  ).json();
+  const now = new Date().toISOString();
+  const eventId = randomUUID();
+  const taskId = randomUUID();
+  const event = {
+    id: eventId,
+    roomId: room.id,
+    taskId,
+    threadRootId: '',
+    authorKind: 'system',
+    authorUserId: '',
+    authorName: '',
+    agentId: '',
+    runId: '',
+    content: 'Next: Writer. Finish the checked launch plan.',
+    requestId: '',
+    references: [],
+    seq: messages.at(-1).seq + 1,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const run = {
+    id: randomUUID(),
+    roomId: room.id,
+    taskId,
+    originMessageId: eventId,
+    threadRootId: '',
+    agentId: writer.id,
+    agentSnapshot: writer,
+    resourceId: room.resourceId,
+    runnerName: 'Personal Runner',
+    status: 'queued',
+    waitingReason: 'Personal Runner is offline.',
+    prompt: '',
+    references: [],
+    createdAt: now,
+    updatedAt: now,
+    finishedAt: '',
+    error: '',
+    output: '',
+    sessionId: '',
+    sessionMode: '',
+    baselineCommit: '',
+    resultCommit: '',
+    environment: null,
+    checks: [],
+    files: [],
+    exitCode: null,
+    testExitCode: null,
+    maxTokens: 4096,
+    maxSteps: 8,
+    timeoutSeconds: 180,
+    sessionGeneration: 0,
+    published: false,
+  };
+  await page.route(`**/api/rooms/${room.id}/messages?*`, (route) =>
+    route.fulfill({ json: { messages: [...messages, event] } }),
+  );
+  await page.route(`**/api/rooms/${room.id}/runs`, (route) =>
+    route.fulfill({ json: { runs: [run] } }),
+  );
+  await page.reload();
+  const activity = workspace(page).locator(`[data-message-id="${eventId}"]`);
+  const work = activity.getByTestId('agent-work');
+  await expect(work).toHaveAttribute('data-state', 'queued');
+  await expect(work).toContainText('Writer');
+  await expect(work).toContainText('Personal Runner is offline.');
+  await expect(
+    activity.getByRole('button', { name: 'Open collaboration', exact: true }),
+  ).toHaveCount(1);
+  run.status = 'failed';
+  run.error = 'Runner disconnected; no files were published.';
+  run.updatedAt = new Date().toISOString();
+  await page.reload();
+  await expect(work).toHaveAttribute('data-state', 'failed');
+  await expect(work).toContainText(run.error);
+  await expect(
+    work.getByRole('button', { name: 'Details', exact: true }),
+  ).toBeVisible();
+});

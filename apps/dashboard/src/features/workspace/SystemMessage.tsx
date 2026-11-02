@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   PixelIcon,
   type DesktopAPI,
@@ -19,6 +19,7 @@ export function SystemMessage({
   onAsk,
   onThread,
   onSource,
+  children,
 }: {
   desktop: DesktopAPI;
   message: Message;
@@ -31,6 +32,7 @@ export function SystemMessage({
   onAsk: () => void;
   onThread?: () => void;
   onSource: (id: string) => void;
+  children?: ReactNode;
 }) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const sources = useRef<HTMLDivElement>(null);
@@ -134,6 +136,7 @@ export function SystemMessage({
             />
           </div>
         )}
+        {children}
       </div>
     </article>
   );
