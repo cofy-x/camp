@@ -2,6 +2,7 @@ package remoteruns
 
 import (
 	"encoding/json"
+	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"io"
 	"net/http"
 	"os"
@@ -12,7 +13,6 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
 	"github.com/cofy-x/camp/apps/server/internal/releaseinfo"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -134,7 +134,7 @@ func TestRunnerReleasePublicationRequiresCompleteInstallerAndRuntime(t *testing.
 }
 
 func TestRuntimeDownloadRequiresLiveMachineAuthorization(t *testing.T) {
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	config := h.join(t, "Installer", "fixture", nil, nativeexecutor.Config{})
 	sha := strings.Repeat("a", 64)
 	packages := filepath.Join(h.data, "packages")

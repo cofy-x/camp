@@ -85,7 +85,7 @@ func NewWithOwnership(ctx context.Context, store *storage.Store, ownership *Owne
 	if logger == nil {
 		logger = slog.Default()
 	}
-	dir, lock, err := ownership.take()
+	dir, lock, err := ownership.Take()
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +256,7 @@ func (m *Manager) Availability() (bool, string, Budget) {
 }
 func (m *Manager) availableLocked() (bool, string, Budget) {
 	_, model := m.models.Snapshot()
-	budget := Budget{model.MaxTokens, model.MaxSteps, model.TimeoutSeconds}
+	budget := Budget{MaxTokens: model.MaxTokens, MaxSteps: model.MaxSteps, TimeoutSeconds: model.TimeoutSeconds}
 	if problem := m.admissionProblemLocked(); problem != "" {
 		return false, problem, budget
 	}

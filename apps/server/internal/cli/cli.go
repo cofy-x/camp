@@ -104,10 +104,11 @@ not be empty. Put options after "serve"; positional arguments are not accepted.
 			return fmt.Errorf("resolve working directory: %w", err)
 		}
 		config.DocumentRuntimeDir = documentRuntime(os.Getenv, cwd)
-		config.DSH, err = readDSHConfig(cmd.options, os.Getenv, cwd)
+		settings, err := readServiceSettings(cmd.options, os.Getenv, cwd)
 		if err != nil {
 			return err
 		}
+		config.Models, config.DocumentNodePath = settings.ModelInput, settings.NodePath
 		config.OnReady = func(address, setupPath string) {
 			config.Addr = address
 			if url, err := browserURL(config); err == nil {

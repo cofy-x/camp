@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"io"
 	"log/slog"
 	"net/http"
@@ -24,7 +25,6 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
 	"github.com/cofy-x/camp/apps/server/internal/projectenv"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -66,7 +66,7 @@ type remoteHarness struct {
 	completions  map[string]int
 }
 
-func newRemoteHarness(t *testing.T, model runs.Config) *remoteHarness {
+func newRemoteHarness(t *testing.T, model configuration.ModelInput) *remoteHarness {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	h := &remoteHarness{ctx: ctx, cancel: cancel, data: t.TempDir(), results: map[string]p.Result{}, completions: map[string]int{}}
@@ -278,7 +278,7 @@ func (h *remoteHarness) request(t *testing.T, config daemon.Config, method, path
 }
 
 func TestRemoteTLSRunnersPublishOnceAndContinueReview(t *testing.T) {
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	a := h.start(t, h.join(t, "alpha", "fixture", nil, nativeexecutor.Config{}))
 	b := h.start(t, h.join(t, "bravo", "fixture", nil, nativeexecutor.Config{}))
 	roomA, agentA := h.room(t, "Alpha work", a.config.RunnerID)
@@ -365,7 +365,7 @@ func TestRemoteTLSRunnersPublishOnceAndContinueReview(t *testing.T) {
 }
 
 func TestRemoteCompletionReceiptSurvivesTransferCollection(t *testing.T) {
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	a := h.start(t, h.join(t, "alpha", "fixture", nil, nativeexecutor.Config{}))
 	room, agent := h.room(t, "Retained delivery", a.config.RunnerID)
 	run := h.finished(t, h.send(t, room, agent, "Create a retained result.").ID)
@@ -427,7 +427,7 @@ func TestRemoteCompletionReceiptSurvivesTransferCollection(t *testing.T) {
 }
 
 func TestRemoteReconnectAndServerRestartKeepAttemptAndCancellation(t *testing.T) {
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	a := h.start(t, h.join(t, "alpha", "fixture", nil, nativeexecutor.Config{}))
 	b := h.start(t, h.join(t, "bravo", "fixture", nil, nativeexecutor.Config{}))
 	room, agent := h.room(t, "Waiting", a.config.RunnerID)
@@ -484,7 +484,7 @@ func TestRemoteReconnectAndServerRestartKeepAttemptAndCancellation(t *testing.T)
 }
 
 func TestRemoteDaemonRestartDoesNotReplayExecution(t *testing.T) {
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	config := h.join(t, "alpha", "fixture", nil, nativeexecutor.Config{})
 	runner := h.start(t, config)
 	room, agent := h.room(t, "Restart", config.RunnerID)
@@ -511,7 +511,7 @@ func TestRemoteDaemonRestartDoesNotReplayExecution(t *testing.T) {
 }
 
 func TestRemoteRejectsCorruptChecksAndUnsafeArchives(t *testing.T) {
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	runner := h.start(t, h.join(t, "alpha", "fixture", nil, nativeexecutor.Config{}))
 	room, agent := h.room(t, "Checked", runner.config.RunnerID)
 	resource, err := h.store.GetResource(h.ctx, room.ResourceID)
@@ -564,7 +564,7 @@ func TestRemoteRejectsCorruptChecksAndUnsafeArchives(t *testing.T) {
 }
 
 func TestRemoteSourceImportExecutesOnAnotherRunner(t *testing.T) {
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	source := t.TempDir()
 	original := []byte("Original local evidence.\n")
 	if err := os.WriteFile(filepath.Join(source, "brief.txt"), original, 0644); err != nil {
@@ -621,7 +621,7 @@ func TestRemoteSourceImportExecutesOnAnotherRunner(t *testing.T) {
 }
 
 func TestRemoteMachineBoundaryRejectsBrowserCredentials(t *testing.T) {
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	config := h.join(t, "alpha", "fixture", nil, nativeexecutor.Config{})
 	for _, header := range []string{"Origin", "Cookie"} {
 		request, err := http.NewRequestWithContext(h.ctx, "GET", h.server.URL+"/api/daemon/connect", nil)

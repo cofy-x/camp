@@ -10,16 +10,15 @@ import (
 
 	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 )
 
 func TestReadinessRefreshPreservesObservationScopeWithoutModelCalls(t *testing.T) {
 	var calls atomic.Int64
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); w.WriteHeader(500) }))
 	defer provider.Close()
-	h := newRemoteHarness(t, runs.Config{APIKey: "private-test-key", BaseURL: provider.URL})
+	h := newRemoteHarness(t, configuration.ModelInput{APIKey: "private-test-key", BaseURL: provider.URL})
 	m := h.manager.Load()
-	component := func(report runs.Readiness, id string) configuration.Diagnostic {
+	component := func(report configuration.Readiness, id string) configuration.Diagnostic {
 		t.Helper()
 		for _, value := range report.Components {
 			if value.ID == id {

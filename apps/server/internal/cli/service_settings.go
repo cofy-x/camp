@@ -16,17 +16,20 @@ import (
 	"unicode/utf8"
 
 	"github.com/cofy-x/camp/apps/server/internal/configuration"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 )
 
-var dshKeys = []string{
-	"DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "CAMP_DSH_MODEL", "CAMP_DSH_RUNTIME",
+var serviceKeys = []string{
+	"DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "CAMP_DSH_MODEL",
 	"CAMP_DSH_NODE", "CAMP_DSH_MAX_TOKENS", "CAMP_DSH_MAX_STEPS", "CAMP_DSH_TIMEOUT_SECONDS",
-	"CAMP_LAYERFS_RUNTIME", "CAMP_SANDBOX_HELPER",
 }
 
-// readDSHConfig reads only the selected private file and allowed variables without changing the environment or evaluating shell syntax.
-func readDSHConfig(options serveOptions, getenv func(string) string, cwd string) (runs.Config, error) {
+// serviceSettings separates model bootstrap from the optional document worker.
+type serviceSettings struct {
+	configuration.ModelInput
+	NodePath string
+}
+
+func readServiceSettings(options serveOptions, getenv func(string) string, cwd string) (serviceSettings, error) {
 	filename := options.envFile
 	if filename == "" {
 		filename = getenv("CAMP_ENV_FILE")
@@ -40,7 +43,7 @@ func readDSHConfig(options serveOptions, getenv func(string) string, cwd string)
 	}
 	values, err := readPrivateEnv(filename, explicitFile)
 	if err != nil {
-		return runs.Config{}, err
+		return serviceSettings{}, err
 	}
 
 	overrides := &configuration.Overrides{Environment: map[string]string{}, EnvFile: map[string]string{}}
@@ -50,7 +53,7 @@ func readDSHConfig(options serveOptions, getenv func(string) string, cwd string)
 			overrides.EnvFile[field] = values[key]
 		}
 	}
-	for _, key := range dshKeys {
+	for _, key := range serviceKeys {
 		if value := getenv(key); value != "" {
 			values[key] = value
 			if field := modelFields[key]; field != "" {
@@ -58,7 +61,7 @@ func readDSHConfig(options serveOptions, getenv func(string) string, cwd string)
 			}
 		}
 		if !utf8.ValidString(values[key]) || strings.ContainsAny(values[key], "\x00\r\n") {
-			return runs.Config{}, fmt.Errorf("%s must be a single-line UTF-8 value", key)
+			return serviceSettings{}, fmt.Errorf("%s must be a single-line UTF-8 value", key)
 		}
 	}
 	value := func(key, fallback string) string {
@@ -68,40 +71,27 @@ func readDSHConfig(options serveOptions, getenv func(string) string, cwd string)
 		return fallback
 	}
 	node, _ := exec.LookPath("node")
-	config := runs.Config{
-		ModelOverrides:    overrides,
-		APIKey:            values["DEEPSEEK_API_KEY"],
-		BaseURL:           value("DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic"),
-		Model:             value("CAMP_DSH_MODEL", "deepseek-v4-pro"),
-		RuntimeDir:        value("CAMP_DSH_RUNTIME", filepath.Join(cwd, "tools", "dsh-runtime")),
-		NodePath:          value("CAMP_DSH_NODE", node),
-		LayerFSRuntimeDir: value("CAMP_LAYERFS_RUNTIME", filepath.Join(cwd, "tools", "layerfs-runtime")),
-		SandboxHelper:     value("CAMP_SANDBOX_HELPER", filepath.Join(cwd, "dist", "camp-sandbox")),
-		DockerSocket:      getenv("CAMP_DOCKER_SOCKET"),
-	}
-	if !filepath.IsAbs(config.RuntimeDir) {
-		config.RuntimeDir = filepath.Join(cwd, config.RuntimeDir)
-	}
-	for _, target := range []*string{&config.LayerFSRuntimeDir, &config.SandboxHelper} {
-		if !filepath.IsAbs(*target) {
-			*target = filepath.Join(cwd, *target)
-		}
-	}
+	config := serviceSettings{ModelInput: configuration.ModelInput{
+		ModelOverrides: overrides,
+		APIKey:         values["DEEPSEEK_API_KEY"],
+		BaseURL:        value("DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic"),
+		Model:          value("CAMP_DSH_MODEL", "deepseek-v4-pro"),
+	}, NodePath: value("CAMP_DSH_NODE", node)}
 	parsedURL, err := url.Parse(config.BaseURL)
 	if err != nil || parsedURL.Hostname() == "" || (parsedURL.Scheme != "https" && parsedURL.Scheme != "http") || parsedURL.User != nil || parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
-		return runs.Config{}, errors.New("DEEPSEEK_BASE_URL must be an HTTP(S) URL without credentials, query parameters, or a fragment")
+		return serviceSettings{}, errors.New("DEEPSEEK_BASE_URL must be an HTTP(S) URL without credentials, query parameters, or a fragment")
 	}
 	config.MaxTokens, err = dshBudget(values, "CAMP_DSH_MAX_TOKENS", 4096, 8192)
 	if err != nil {
-		return runs.Config{}, err
+		return serviceSettings{}, err
 	}
 	config.MaxSteps, err = dshBudget(values, "CAMP_DSH_MAX_STEPS", 8, 32)
 	if err != nil {
-		return runs.Config{}, err
+		return serviceSettings{}, err
 	}
 	seconds, err := dshBudget(values, "CAMP_DSH_TIMEOUT_SECONDS", 180, 900)
 	if err != nil {
-		return runs.Config{}, err
+		return serviceSettings{}, err
 	}
 	config.Timeout = time.Duration(seconds) * time.Second
 	return config, nil
@@ -145,11 +135,11 @@ func readPrivateEnv(filename string, required bool) (map[string]string, error) {
 }
 
 func parseDSHEnv(input io.Reader) (map[string]string, error) {
-	allowed := make(map[string]bool, len(dshKeys))
-	for _, key := range dshKeys {
+	allowed := make(map[string]bool, len(serviceKeys))
+	for _, key := range serviceKeys {
 		allowed[key] = true
 	}
-	values := make(map[string]string, len(dshKeys))
+	values := make(map[string]string, len(serviceKeys))
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 4096), 64<<10)
 	lineNumber := 0

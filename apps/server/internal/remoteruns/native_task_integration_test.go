@@ -3,6 +3,7 @@ package remoteruns
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +17,6 @@ import (
 
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
 	"github.com/cofy-x/camp/apps/server/internal/projectenv"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -93,7 +93,7 @@ func TestRemoteNativeCollaborationAcrossRunners(t *testing.T) {
 		}
 	}))
 	defer provider.Close()
-	h := newRemoteHarness(t, runs.Config{BaseURL: provider.URL, APIKey: "server-only-native-test-key", Model: "deepseek-v4-pro", MaxSteps: 6, Timeout: time.Minute})
+	h := newRemoteHarness(t, configuration.ModelInput{BaseURL: provider.URL, APIKey: "server-only-native-test-key", Model: "deepseek-v4-pro", MaxSteps: 6, Timeout: time.Minute})
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Fatal(err)

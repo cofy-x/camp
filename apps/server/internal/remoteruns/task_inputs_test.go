@@ -2,6 +2,7 @@ package remoteruns
 
 import (
 	"encoding/json"
+	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"io"
 	"net/http"
 	"strings"
@@ -10,12 +11,11 @@ import (
 
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
 func TestTaskInputHTTPSCapabilityPreservesFrozenScopeAcrossRestart(t *testing.T) {
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	config := h.join(t, "history-owner", "fixture", nil, nativeexecutor.Config{})
 	other := h.join(t, "history-other", "fixture", nil, nativeexecutor.Config{})
 	if _, err := h.store.ConnectRunner(h.ctx, config.RunnerID, storage.RunnerConnection{StorageID: config.StorageID, Runtime: "fixture", Slots: 1, Capabilities: json.RawMessage(`{"executor":"fixture","ready":true,"taskInputsVersion":1}`)}); err != nil {

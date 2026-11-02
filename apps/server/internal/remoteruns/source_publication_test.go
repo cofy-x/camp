@@ -4,18 +4,18 @@ import (
 	"archive/tar"
 	"bytes"
 	"encoding/json"
+	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
 func TestSourcePublicationConflictSealsFailureAndReplaysReceipt(t *testing.T) {
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	config := h.join(t, "source-collision", "fixture", nil, nativeexecutor.Config{})
 	_, err := h.store.ConnectRunner(h.ctx, config.RunnerID, storage.RunnerConnection{StorageID: config.StorageID, Runtime: "fixture", Slots: 1, Capabilities: json.RawMessage(`{"executor":"fixture","ready":true}`), Sources: []storage.RunnerSource{{ID: "project", Alias: "Project", Revision: "source-v1", Available: true}}})
 	if err != nil {

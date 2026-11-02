@@ -24,22 +24,22 @@ func privateEnv(t *testing.T, filename, content string) {
 func TestDSHConfigDefaultsAndEnvironmentAllowlist(t *testing.T) {
 	cwd := t.TempDir()
 	accessed := make(map[string]bool)
-	config, err := readDSHConfig(serveOptions{}, func(key string) string {
+	config, err := readServiceSettings(serveOptions{}, func(key string) string {
 		accessed[key] = true
 		return ""
 	}, cwd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.APIKey != "" || config.Model != "deepseek-v4-pro" || config.BaseURL != "https://api.deepseek.com/anthropic" || config.RuntimeDir != filepath.Join(cwd, "tools", "dsh-runtime") || config.MaxTokens != 4096 || config.MaxSteps != 8 || config.Timeout != 180*time.Second {
+	if config.APIKey != "" || config.Model != "deepseek-v4-pro" || config.BaseURL != "https://api.deepseek.com/anthropic" || config.MaxTokens != 4096 || config.MaxSteps != 8 || config.Timeout != 180*time.Second {
 		t.Fatal("DSH defaults do not match the documented configuration")
 	}
 	delete(accessed, "CAMP_ENV_FILE")
 	delete(accessed, "CAMP_DOCKER_SOCKET")
-	if len(accessed) != len(dshKeys) {
-		t.Fatalf("read %d process variables, expected %d", len(accessed), len(dshKeys))
+	if len(accessed) != len(serviceKeys) {
+		t.Fatalf("read %d process variables, expected %d", len(accessed), len(serviceKeys))
 	}
-	for _, key := range dshKeys {
+	for _, key := range serviceKeys {
 		if !accessed[key] {
 			t.Errorf("did not resolve supported key %s", key)
 		}
@@ -67,16 +67,14 @@ func TestDSHConfigPrecedence(t *testing.T) {
 		{name: "empty process uses file", options: serveOptions{envFile: "explicit.env"}, env: map[string]string{"DEEPSEEK_API_KEY": "", "CAMP_DSH_MAX_STEPS": ""}, wantKey: "explicit-file-value", steps: 4},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			config, err := readDSHConfig(test.options, func(key string) string { return test.env[key] }, cwd)
+			config, err := readServiceSettings(test.options, func(key string) string { return test.env[key] }, cwd)
 			if err != nil || config.APIKey != test.wantKey || config.MaxSteps != test.steps {
 				t.Fatalf("configuration precedence failed: %v", err)
 			}
 			if test.options.envFile != "" && (config.NodePath != "node-custom" || config.Model != "test-model" || config.BaseURL != "https://model.invalid/v1" || config.MaxTokens != 1024 || config.Timeout != 30*time.Second) {
 				t.Fatal("selected file fields were not resolved")
 			}
-			if test.env["CAMP_ENV_FILE"] == "selected.env" && config.RuntimeDir != filepath.Join(cwd, "local-runtime") {
-				t.Fatal("relative runtime directory was not based on the service working directory")
-			}
+
 		})
 	}
 }
@@ -99,7 +97,6 @@ CAMP_DSH_RUNTIME=
 		"CAMP_DSH_MODEL":    "literal-model",
 		"CAMP_DSH_NODE":     "/path/with space/node",
 		"DEEPSEEK_BASE_URL": "https://example.invalid/api#literal",
-		"CAMP_DSH_RUNTIME":  "",
 	}
 	if !reflect.DeepEqual(values, want) {
 		t.Fatal("parser expanded or incorrectly interpreted literal values")
@@ -124,7 +121,7 @@ func TestDSHEnvErrorsNeverIncludeValues(t *testing.T) {
 
 func TestDSHConfigAcceptsExplicitProjectTimeout(t *testing.T) {
 	for _, seconds := range []int{600, 900} {
-		config, err := readDSHConfig(serveOptions{}, func(key string) string {
+		config, err := readServiceSettings(serveOptions{}, func(key string) string {
 			if key == "CAMP_DSH_TIMEOUT_SECONDS" {
 				return fmt.Sprint(seconds)
 			}
@@ -140,7 +137,7 @@ func TestDSHConfigRejectsUnsafeBudgetsWithoutEchoingValues(t *testing.T) {
 	cwd := t.TempDir()
 	for key, maximum := range map[string]string{"CAMP_DSH_MAX_TOKENS": "8193", "CAMP_DSH_MAX_STEPS": "33", "CAMP_DSH_TIMEOUT_SECONDS": "901"} {
 		for _, value := range []string{"0", "-1", maximum, "secret-sentinel", "99999999999999999999999999999999"} {
-			_, err := readDSHConfig(serveOptions{}, func(name string) string {
+			_, err := readServiceSettings(serveOptions{}, func(name string) string {
 				if name == key {
 					return value
 				}
@@ -152,7 +149,7 @@ func TestDSHConfigRejectsUnsafeBudgetsWithoutEchoingValues(t *testing.T) {
 		}
 	}
 	for _, value := range []string{"https://user:secret-sentinel@example.invalid", "https://example.invalid?secret-sentinel", "secret-sentinel", "https://example.invalid\nsecret-sentinel"} {
-		_, err := readDSHConfig(serveOptions{}, func(key string) string {
+		_, err := readServiceSettings(serveOptions{}, func(key string) string {
 			if key == "DEEPSEEK_BASE_URL" {
 				return value
 			}
@@ -166,10 +163,10 @@ func TestDSHConfigRejectsUnsafeBudgetsWithoutEchoingValues(t *testing.T) {
 
 func TestDSHEnvSelectionAndPrivacy(t *testing.T) {
 	cwd := t.TempDir()
-	if _, err := readDSHConfig(serveOptions{envFile: "missing"}, func(string) string { return "" }, cwd); !errors.Is(err, os.ErrNotExist) {
+	if _, err := readServiceSettings(serveOptions{envFile: "missing"}, func(string) string { return "" }, cwd); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing explicit file: %v", err)
 	}
-	if _, err := readDSHConfig(serveOptions{}, func(key string) string {
+	if _, err := readServiceSettings(serveOptions{}, func(key string) string {
 		if key == "CAMP_ENV_FILE" {
 			return "missing"
 		}
@@ -212,26 +209,17 @@ func TestDSHConfigFailureDoesNotStartService(t *testing.T) {
 	}
 }
 
-func TestLayerFSConfigPathsAndOperatorOnlyDockerSocket(t *testing.T) {
+func TestServerSettingsIgnoreNativeExecutorPaths(t *testing.T) {
 	cwd := t.TempDir()
 	privateEnv(t, filepath.Join(cwd, ".env"), "CAMP_LAYERFS_RUNTIME=private-runtime\nCAMP_SANDBOX_HELPER=private-helper\nCAMP_DOCKER_SOCKET=/untrusted/file.sock\n")
-	config, err := readDSHConfig(serveOptions{}, func(key string) string {
-		switch key {
-		case "CAMP_SANDBOX_HELPER":
-			return "operator-helper"
-		case "CAMP_DOCKER_SOCKET":
-			return "/operator/docker.sock"
-		}
-		return ""
-	}, cwd)
+	accessed := map[string]bool{}
+	_, err := readServiceSettings(serveOptions{}, func(key string) string { accessed[key] = true; return "" }, cwd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.LayerFSRuntimeDir != filepath.Join(cwd, "private-runtime") || config.SandboxHelper != filepath.Join(cwd, "operator-helper") || config.DockerSocket != "/operator/docker.sock" {
-		t.Fatalf("wrong runtime config: %+v", config)
-	}
-	config, err = readDSHConfig(serveOptions{}, func(string) string { return "" }, cwd)
-	if err != nil || config.DockerSocket != "" {
-		t.Fatal("private model file selected Docker control socket")
+	for _, key := range []string{"CAMP_DSH_RUNTIME", "CAMP_LAYERFS_RUNTIME", "CAMP_SANDBOX_HELPER", "CAMP_DOCKER_SOCKET"} {
+		if accessed[key] {
+			t.Fatal("Server read a native execution setting", key)
+		}
 	}
 }

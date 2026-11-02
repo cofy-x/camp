@@ -6,15 +6,14 @@ import (
 	"net/http"
 
 	"github.com/cofy-x/camp/apps/server/internal/configuration"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 )
 
 type SettingsService interface {
 	ModelSettings() configuration.View
 	UpdateModelSettings(context.Context, configuration.Update) (configuration.View, error)
-	EnvironmentSettings() runs.EnvironmentSettings
-	StorageSettings() runs.StorageSettings
-	Readiness(context.Context) (runs.Readiness, error)
+	EnvironmentSettings() configuration.EnvironmentSettings
+	StorageSettings() configuration.StorageSettings
+	Readiness(context.Context) (configuration.Readiness, error)
 }
 
 func (a *API) EnableSettings(service SettingsService, policy configuration.ImportPolicy) {
@@ -45,7 +44,7 @@ func (a *API) settingsRoutes(mux *http.ServeMux) {
 	})
 	register("GET /api/settings/storage", func(w http.ResponseWriter, r *http.Request) {
 		a.write(w, http.StatusOK, struct {
-			runs.StorageSettings
+			configuration.StorageSettings
 			configuration.ImportPolicy
 		}{a.settings.StorageSettings(), a.importPolicy})
 	})

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"os"
 	"path/filepath"
 	"sync"
@@ -16,7 +17,6 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/documents"
 	"github.com/cofy-x/camp/apps/server/internal/projectenv"
 	"github.com/cofy-x/camp/apps/server/internal/resources"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -29,7 +29,7 @@ type Service struct {
 }
 
 type RunManager interface {
-	Availability() (bool, string, runs.Budget)
+	Availability() (bool, string, configuration.Budget)
 	AgentStates(context.Context) (map[string]string, error)
 	Send(context.Context, string, storage.SendMessageInput) (storage.SendResult, error)
 	Get(context.Context, string) (storage.Run, error)
@@ -77,11 +77,11 @@ func (s *Service) Status() any {
 		reason = "Agent activity could not be loaded. Check server storage and try again."
 	}
 	return struct {
-		Available     bool              `json:"available"`
-		Reason        string            `json:"reason"`
-		Budget        runs.Budget       `json:"budget"`
-		MaxConcurrent int               `json:"maxConcurrent"`
-		AgentStates   map[string]string `json:"agentStates"`
+		Available     bool                 `json:"available"`
+		Reason        string               `json:"reason"`
+		Budget        configuration.Budget `json:"budget"`
+		MaxConcurrent int                  `json:"maxConcurrent"`
+		AgentStates   map[string]string    `json:"agentStates"`
 	}{available, reason, budget, s.maxConcurrent(), states}
 }
 func (s *Service) maxConcurrent() int {

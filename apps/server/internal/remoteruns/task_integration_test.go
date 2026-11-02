@@ -3,6 +3,7 @@ package remoteruns
 import (
 	"context"
 	"encoding/json"
+	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"io"
 	"log/slog"
 	"strings"
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -41,7 +41,7 @@ func (h *remoteHarness) restartTaskServer(t *testing.T) {
 	h.manager.Store(fresh)
 }
 func TestRemoteCollaborationHandoffQuestionRestartAndOnePublication(t *testing.T) {
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	a := h.start(t, h.join(t, "task-alpha", "fixture", nil, nativeexecutor.Config{}))
 	b := h.start(t, h.join(t, "task-bravo", "fixture", nil, nativeexecutor.Config{}))
 	room, writer := h.room(t, "Collaboration", a.config.RunnerID)
@@ -161,7 +161,7 @@ func TestRemoteCollaborationHandoffQuestionRestartAndOnePublication(t *testing.T
 }
 
 func TestRemoteCollaborationCancellationStopsOnlyItsActiveRound(t *testing.T) {
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	a := h.start(t, h.join(t, "cancel-alpha", "fixture", nil, nativeexecutor.Config{}))
 	b := h.start(t, h.join(t, "cancel-bravo", "fixture", nil, nativeexecutor.Config{}))
 	room, writer := h.room(t, "Cancelled collaboration", a.config.RunnerID)

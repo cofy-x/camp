@@ -17,7 +17,6 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"github.com/cofy-x/camp/apps/server/internal/resources"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -67,7 +66,7 @@ func proxyFixture(t *testing.T, upstream string) (*Manager, *storage.Store, cont
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager, err := New(ctx, store, Config{DataDir: dir, Models: runs.Config{BaseURL: upstream, APIKey: "private-upstream-key", Model: "test-model"}}, nil)
+	manager, err := New(ctx, store, Config{DataDir: dir, Models: configuration.ModelInput{BaseURL: upstream, APIKey: "private-upstream-key", Model: "test-model"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

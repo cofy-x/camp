@@ -18,13 +18,12 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"github.com/cofy-x/camp/apps/server/internal/resources"
 	"github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
 type Config struct {
 	DataDir       string
-	Models        runs.Config
+	Models        configuration.ModelInput
 	AllowFixture  bool
 	Concurrency   int
 	LeaseDuration time.Duration
@@ -112,9 +111,9 @@ func (m *Manager) Wake() {
 	}
 }
 
-func (m *Manager) Availability() (bool, string, runs.Budget) {
+func (m *Manager) Availability() (bool, string, configuration.Budget) {
 	_, model := m.models.Snapshot()
-	budget := runs.Budget{MaxTokens: model.MaxTokens, MaxSteps: model.MaxSteps, TimeoutSeconds: model.TimeoutSeconds}
+	budget := configuration.Budget{MaxTokens: model.MaxTokens, MaxSteps: model.MaxSteps, TimeoutSeconds: model.TimeoutSeconds}
 	m.mu.Lock()
 	closed := m.closed
 	m.mu.Unlock()
@@ -264,14 +263,14 @@ func (m *Manager) UpdateModelSettings(ctx context.Context, input configuration.U
 	}
 	return value, err
 }
-func (m *Manager) EnvironmentSettings() runs.EnvironmentSettings {
-	return runs.EnvironmentSettings{Platform: "Remote Linux runners", NodeVersion: "Runner capability", PackageManager: "Runner capability", CommandNetwork: false, Concurrency: m.config.Concurrency, Checks: "Resource-specific checks on the assigned runner.", Limits: map[string]int{"maxFiles": 10000, "maxFileBytes": 8 << 20, "maxProjectBytes": 128 << 20}}
+func (m *Manager) EnvironmentSettings() configuration.EnvironmentSettings {
+	return configuration.EnvironmentSettings{Platform: "Remote Runners", NodeVersion: "Runner capability", PackageManager: "Runner capability", CommandNetwork: false, Concurrency: m.config.Concurrency, Checks: "Resource-specific checks on the assigned runner.", Limits: map[string]int{"maxFiles": 10000, "maxFileBytes": 8 << 20, "maxProjectBytes": 128 << 20}}
 }
 func (m *Manager) MaxConcurrent() int { return m.config.Concurrency }
-func (m *Manager) StorageSettings() runs.StorageSettings {
-	return runs.StorageSettings{DataDirectory: m.config.DataDir, Files: "Immutable Git resource versions", Versions: "SQLite publication and review records", Backups: "Stop the server and back up its complete data directory."}
+func (m *Manager) StorageSettings() configuration.StorageSettings {
+	return configuration.StorageSettings{DataDirectory: m.config.DataDir, Files: "Immutable Git resource versions", Versions: "SQLite publication and review records", Backups: "Stop the server and back up its complete data directory."}
 }
-func (m *Manager) Readiness(ctx context.Context) (runs.Readiness, error) {
+func (m *Manager) Readiness(ctx context.Context) (configuration.Readiness, error) {
 	revision, model := m.models.Snapshot()
 	stamp := time.Now().UTC().Format(time.RFC3339Nano)
 	modelState, modelDetail := "missing", "Configure a model connection."
@@ -280,7 +279,7 @@ func (m *Manager) Readiness(ctx context.Context) (runs.Readiness, error) {
 	}
 	runners, err := m.ListRunners(ctx)
 	if err != nil {
-		return runs.Readiness{}, err
+		return configuration.Readiness{}, err
 	}
 	ready := 0
 	firstTask := configuration.Diagnostic{Status: "unknown", Detail: "No successful native task has been recorded. Installation self-tests and fixture tasks do not verify model-backed native work."}
@@ -308,7 +307,7 @@ func (m *Manager) Readiness(ctx context.Context) (runs.Readiness, error) {
 	if connection.Status == "" {
 		connection = configuration.Diagnostic{Status: "unknown", Detail: "No model connection has been observed."}
 	}
-	return runs.Readiness{Ready: ready > 0 && (model.APIKey != "" || m.config.AllowFixture), CheckedAt: stamp, Components: []runs.ReadinessComponent{{ID: "model", Label: "Model", Diagnostic: configuration.Diagnostic{Status: modelState, Detail: modelDetail, CheckedAt: stamp}}, {ID: "connection", Label: "Model connection", Diagnostic: connection}, {ID: "execution", Label: "Runner execution reports", Diagnostic: configuration.Diagnostic{Status: runnerState, Detail: runnerDetail, CheckedAt: lastSelfTest}}, {ID: "first-task", Label: "Native task", Diagnostic: firstTask}}}, nil
+	return configuration.Readiness{Ready: ready > 0 && (model.APIKey != "" || m.config.AllowFixture), CheckedAt: stamp, Components: []configuration.ReadinessComponent{{ID: "model", Label: "Model", Diagnostic: configuration.Diagnostic{Status: modelState, Detail: modelDetail, CheckedAt: stamp}}, {ID: "connection", Label: "Model connection", Diagnostic: connection}, {ID: "execution", Label: "Runner execution reports", Diagnostic: configuration.Diagnostic{Status: runnerState, Detail: runnerDetail, CheckedAt: lastSelfTest}}, {ID: "first-task", Label: "Native task", Diagnostic: firstTask}}}, nil
 }
 
 type RunnerView struct {

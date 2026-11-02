@@ -1,5 +1,10 @@
 package execution
 
-import "errors"
+import (
+	"github.com/cofy-x/camp/apps/server/internal/serviceowner"
+	"os"
+)
 
-var ErrDirectoryInUse = errors.New("Another Camp instance is using this task directory")
+var ErrDirectoryInUse = serviceowner.ErrDirectoryInUse
+
+func AcquireLock(dir string) (*os.File, error) { return serviceowner.AcquireDirectory(dir) }
