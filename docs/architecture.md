@@ -44,6 +44,7 @@ Keep these authority boundaries stable as implementations change. Workspace, san
 | [dsh](../apps/server/internal/dsh) / [execution](../apps/server/internal/execution) | Public DSH protocol/overlays, Bubblewrap boundary and process ownership |
 | [layerfs](../apps/server/internal/layerfs) / [sandboxexec](../apps/server/internal/sandboxexec/README.md) | SDK bridge, Docker operations and trusted nonroot container helper |
 | [runnertools](../apps/server/internal/runnertools) / [workspace](../apps/server/internal/workspace) | Run-scoped file/command capabilities and replaceable workspace lifecycle/capture contracts |
+| [serverstorage](../apps/server/internal/serverstorage) | Stopped Server inventory, portable identity-bound orphan maintenance and recoverable receipts; no model/service authority |
 | [resources](../apps/server/internal/resources) / [library](../apps/server/internal/library) | Safe ingestion, immutable Git bytes and human publication using writer leases |
 | [documents](../apps/server/internal/documents) / [documenttext](../apps/server/internal/documenttext) | Durable text-preparation queue and isolated bounded parsers |
 | [storage](../apps/server/internal/storage) | Persistent business invariants and atomic state changes, including authority/version checks at commit |
@@ -85,7 +86,7 @@ A cleaned Sandbox export remains untrusted until Go validates entry types, paths
 
 Immutable exports verify the registered snapshot ref and tree, then read blobs in one isolated `git cat-file --batch` process. They stream one bounded file at a time in sorted path order, preserve executable modes and deterministic archive bytes, and enforce per-file and aggregate limits even when paths share an object. Readers do not hold the mutable resource lock while writing archives. Cancellation or output failure kills and drains the child before returning; callers retain their temporary-file, fsync, digest and activation checks.
 
-Successful writing requires configured checks to pass. No checks is `not_configured`; human publications are `not_run`. Tool read-back or model claims are not independent checks. Failure/cancellation can retain confirmed captured files without publishing them. An unconfirmed export cannot be reconstructed from an unchanged host seed. Git/SQLite, not LayerFS checkpoints, are delivery authority. A crash between Git storage and SQL registration can leave unregistered objects; there is no general automatic resource/document retention collector.
+Successful writing requires configured checks to pass. No checks is `not_configured`; human publications are `not_run`. Tool read-back or model claims are not independent checks. Failure/cancellation can retain confirmed captured files without publishing them. An unconfirmed export cannot be reconstructed from an unchanged host seed. Git/SQLite, not LayerFS checkpoints, are delivery authority. A crash between Git storage and SQL registration can leave unregistered objects. [Stopped Server storage](install.md#stopped-server-storage) owns bounded reference/space inspection and explicit orphan quarantine, restore and purge. Registered originals and history, including parser results stored in SQLite, remain protected without automatic expiration.
 
 ## Collaboration tasks
 

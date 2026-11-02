@@ -212,3 +212,42 @@ Maintainers use [Releasing](releasing.md) for package assembly, reviewed-main pu
 ## Release evidence
 
 Read the exact release's acceptance and distribution reports before selecting an optional backend or upgrading. Source, browser, fixture, native isolation, public installation and paid-provider results establish separate guarantees; a report for another source/runtime does not automatically apply. [Releasing](releasing.md#release-evidence) owns how maintainers retain and sanitize that evidence.
+
+## Stopped Server storage
+
+`camp storage` owns offline Server inspection and orphan maintenance. Stop the Server and wait for it to release its data-directory lock. Select the directory explicitly; these commands do not read model configuration, start a service, migrate or repair the selected database. Use the matching current Server version. Older/future schemas, broken references, an active owner and incomplete/link-containing inventories refuse maintenance.
+
+```sh
+camp storage inspect --data-dir /private/camp
+camp storage verify --data-dir /private/camp
+camp storage plan --data-dir /private/camp --limit 50
+camp storage apply --data-dir /private/camp --plan PLAN_ID
+camp storage status --data-dir /private/camp --plan PLAN_ID
+camp storage restore --data-dir /private/camp --plan PLAN_ID
+```
+
+Inspection reads a stable private temporary copy of SQLite and any committed WAL, then deletes that copy. It does not checkpoint the original. Reports contain counts, relative object paths, a Server identity and reference digest, without credentials or original contents. `verify` additionally checks retained Git snapshot references and object integrity. It verifies the stopped bytes; it does not establish native/model success or make source-directory capture atomic.
+
+The retention policy is explicit:
+
+| Data | Lifetime |
+| --- | --- |
+| Registered Resource trees and all retained versions, uploaded originals, parser results, messages/task inputs, drafts, review/publication history, receipts and private settings | Protected; maintenance never expires or rewrites them |
+| Pending or active transfer/preparation directories, including source-import reservations | Protected until their durable lifecycle becomes terminal |
+| Unregistered Resource directories and unknown/terminal transfer copies | Eligible only for an exact stopped quarantine plan |
+| Runner identity/journal/session/checkpoint data | A separate Runner owner; use the existing `runner checkpoint storage` and cleanup commands |
+| Maintenance plans, receipts and quarantined bytes | Retained until an explicit action; quarantine has no expiry |
+
+Plans bind the Server's persistent identity, reference snapshot, exact relative paths, file modes and hashes. Applying checks current references and unchanged bytes before mutation, journals intent, renames complete objects and syncs both parents. Exact retry reconciles a lost result. `cancel` restores a partial quarantine; restore never overwrites a path. A changed reference snapshot requires restoring/cancelling any partial quarantine and creating a new plan. An object that becomes referenced or active remains protected even if an old plan named it.
+
+Quarantine retains bytes and does not reclaim space. Permanent removal is separate:
+
+```sh
+camp storage purge --data-dir /private/camp --plan PLAN_ID --confirm-permanent
+```
+
+A dispatched purge cannot be cancelled or restored. Repeating its exact ID reconciles missing expected files after an interruption; extra or changed files stop it without deleting those bytes. Receipts record the accepted operation, not perpetual filesystem health. Logical bytes are not a promise of physical disk space reclaimed.
+
+Inspection is bounded to 100,000 entries, depth 64 and a 1 GiB database/WAL copy. A plan contains at most 50 objects, 512 MiB of payload, 10,000 entries per object and 32 MiB of manifest metadata. An exceeded budget is an explicit refusal, not a healthy zero or authority to remove data. There is no automatic age-based expiration or hard lifetime quota.
+
+For a restore drill, keep a complete stopped copy, including Git, SQLite/WAL, private settings and `.storage-maintenance`. Restore to a **new** private directory without overwriting the original, then run `camp storage verify` there before starting it. The persistent Server identity and relative maintenance records permit quarantine recovery after relocation. Keep Server backups and Runner backups separate; this tool cannot reconstruct a missing Runner journal or replay an uncertain request.
