@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"io"
 	"os"
 	"os/exec"
@@ -18,7 +19,6 @@ import (
 
 	"github.com/cofy-x/camp/apps/server/internal/resources"
 	"github.com/cofy-x/camp/apps/server/internal/runinput"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -91,7 +91,7 @@ func TestRemoteInputPreparationMeasurements(t *testing.T) {
 		}
 	})
 
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	m := h.manager.Load()
 	// Admission below uses storage directly. Stop the background scheduler so
 	// exactly one caller builds each input and no command can be dispatched.

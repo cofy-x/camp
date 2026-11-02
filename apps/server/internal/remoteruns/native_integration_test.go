@@ -3,6 +3,7 @@ package remoteruns
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +17,6 @@ import (
 
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
 	"github.com/cofy-x/camp/apps/server/internal/projectenv"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -67,7 +67,7 @@ func TestRemoteNativeIntegration(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	defer provider.Close()
-	h := newRemoteHarness(t, runs.Config{APIKey: privateKey, BaseURL: provider.URL, Model: "deepseek-v4-pro", MaxTokens: 4096, MaxSteps: 8, Timeout: 90 * time.Second})
+	h := newRemoteHarness(t, configuration.ModelInput{APIKey: privateKey, BaseURL: provider.URL, Model: "deepseek-v4-pro", MaxTokens: 4096, MaxSteps: 8, Timeout: 90 * time.Second})
 	helper := os.Getenv("CAMP_TEST_SANDBOX_HELPER")
 	if helper == "" {
 		helper = filepath.Join(t.TempDir(), "camp-sandbox")

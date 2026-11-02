@@ -24,34 +24,8 @@ type Config struct {
 	ModelOverrides     *configuration.Overrides
 }
 
-type Budget struct {
-	MaxTokens      int `json:"maxTokens"`
-	MaxSteps       int `json:"maxSteps"`
-	TimeoutSeconds int `json:"timeoutSeconds"`
-}
+type Budget = configuration.Budget
 
 func (c Config) modelDefaults() configuration.Model {
-	model := configuration.Defaults()
-	if c.ModelOverrides != nil {
-		return model
-	}
-	model.APIKey = c.APIKey
-	if c.Model != "" {
-		model.Model = c.Model
-	}
-	if c.BaseURL != "" {
-		model.BaseURL = c.BaseURL
-	}
-	if c.MaxTokens > 0 {
-		model.MaxTokens = c.MaxTokens
-	}
-	if c.MaxSteps > 0 {
-		model.MaxSteps = c.MaxSteps
-	}
-	if c.Timeout > 0 {
-		model.TimeoutSeconds = int(c.Timeout / time.Second)
-	}
-	return model
+	return (configuration.ModelInput{APIKey: c.APIKey, BaseURL: c.BaseURL, Model: c.Model, MaxTokens: c.MaxTokens, MaxSteps: c.MaxSteps, Timeout: c.Timeout, ModelOverrides: c.ModelOverrides}).ModelDefaults()
 }
-
-func (c Config) ModelDefaults() configuration.Model { return c.modelDefaults() }

@@ -9,7 +9,6 @@ import (
 	"os/exec"
 )
 
-func AcquireLock(string) (*os.File, error) { return nil, nil }
 func Command(Config, string, *os.File, bool) (*exec.Cmd, error) {
 	return nil, fmt.Errorf("Task execution currently requires Linux and Bubblewrap")
 }

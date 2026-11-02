@@ -30,7 +30,7 @@ Go validates exported archive paths, types, limits and digest before [Server pub
 
 ## Configuration and budgets
 
-Server model precedence is **nonempty process environment → selected private file → managed Settings → defaults**. File selection is `serve --env-file` → `CAMP_ENV_FILE` → working-directory `.env`. A missing default file is allowed; a missing explicitly selected file fails. Parsing uses an allowlist without shell execution or interpolation; [.env.example](../.env.example) lists accepted keys. [CLI resolution](../apps/server/internal/cli/dsh.go) and [managed settings](../apps/server/internal/configuration/models.go) are authoritative.
+Server model precedence is **nonempty process environment → selected private file → managed Settings → defaults**. File selection is `serve --env-file` → `CAMP_ENV_FILE` → working-directory `.env`. A missing default file is allowed; a missing explicitly selected file fails. Parsing uses an allowlist without shell execution or interpolation; [.env.example](../.env.example) lists accepted keys. [CLI resolution](../apps/server/internal/cli/service_settings.go) and [managed settings](../apps/server/internal/configuration/models.go) are authoritative.
 
 Keep the file mode 600. Keys are write-only in Settings and stay on Server. Queued work freezes an opaque private revision that can resolve old credentials after restart. Settings reports external overrides and cannot overwrite them. A configured key does not prove connectivity; observed provider responses are a separate fact.
 

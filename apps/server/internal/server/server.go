@@ -19,7 +19,7 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/library"
 	"github.com/cofy-x/camp/apps/server/internal/remoteruns"
 	"github.com/cofy-x/camp/apps/server/internal/resources"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
+	"github.com/cofy-x/camp/apps/server/internal/serviceowner"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 	"github.com/cofy-x/camp/apps/server/internal/team"
 	"github.com/cofy-x/camp/apps/server/internal/webui"
@@ -40,7 +40,8 @@ type Config struct {
 	TrustedOrigins      []string
 	Logger              *slog.Logger
 	ShutdownTimeout     time.Duration
-	DSH                 runs.Config
+	Models              configuration.ModelInput
+	DocumentNodePath    string
 	DocumentRuntimeDir  string
 	OnReady             func(address, setupPath string)
 }
@@ -75,7 +76,7 @@ func Run(ctx context.Context, config Config) error {
 		return fmt.Errorf("create data directory: %w", err)
 	}
 	// Claim the existing execution fence before migrations can modify live data.
-	ownership, err := runs.AcquireOwnership(config.DataDir)
+	ownership, err := serviceowner.Acquire(config.DataDir)
 	if err != nil {
 		return fmt.Errorf("claim execution ownership: %w", err)
 	}
@@ -96,13 +97,13 @@ func Run(ctx context.Context, config Config) error {
 		setupPath = auth.SetupPath()
 		logger.Info("Camp setup required", "token_file", auth.SetupPath())
 	}
-	runManager, err := remoteruns.New(ctx, store, remoteruns.Config{DataDir: config.DataDir, Models: config.DSH, AllowFixture: config.AllowFixtureRunners, Concurrency: config.MaxConcurrentRuns}, logger)
+	runManager, err := remoteruns.New(ctx, store, remoteruns.Config{DataDir: config.DataDir, Models: config.Models, AllowFixture: config.AllowFixtureRunners, Concurrency: config.MaxConcurrentRuns}, logger)
 	if err != nil {
 		return fmt.Errorf("initialize agent runs: %w", err)
 	}
 	defer runManager.Shutdown(context.Background())
 	executable, _ := os.Executable()
-	documentManager, err := documents.New(ctx, store, resources.New(filepath.Join(config.DataDir, "resources")), documenttext.New(documenttext.Config{ExecutablePath: executable, RuntimeDir: config.DocumentRuntimeDir, NodePath: config.DSH.NodePath}), logger)
+	documentManager, err := documents.New(ctx, store, resources.New(filepath.Join(config.DataDir, "resources")), documenttext.New(documenttext.Config{ExecutablePath: executable, RuntimeDir: config.DocumentRuntimeDir, NodePath: config.DocumentNodePath}), logger)
 	if err != nil {
 		return fmt.Errorf("initialize document preparation: %w", err)
 	}

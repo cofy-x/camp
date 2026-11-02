@@ -15,31 +15,10 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
-type ReadinessComponent struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	configuration.Diagnostic
-}
-type Readiness struct {
-	Ready      bool                 `json:"ready"`
-	CheckedAt  string               `json:"checkedAt"`
-	Components []ReadinessComponent `json:"components"`
-}
-type EnvironmentSettings struct {
-	Platform       string         `json:"platform"`
-	NodeVersion    string         `json:"nodeVersion"`
-	PackageManager string         `json:"packageManager"`
-	CommandNetwork bool           `json:"commandNetwork"`
-	Concurrency    int            `json:"concurrency"`
-	Checks         string         `json:"checks"`
-	Limits         map[string]int `json:"limits"`
-}
-type StorageSettings struct {
-	DataDirectory string `json:"dataDirectory"`
-	Files         string `json:"files"`
-	Versions      string `json:"versions"`
-	Backups       string `json:"backups"`
-}
+type ReadinessComponent = configuration.ReadinessComponent
+type Readiness = configuration.Readiness
+type EnvironmentSettings = configuration.EnvironmentSettings
+type StorageSettings = configuration.StorageSettings
 
 func (m *Manager) ModelSettings() configuration.View { return m.models.View() }
 func (m *Manager) UpdateModelSettings(ctx context.Context, input configuration.Update) (configuration.View, error) {

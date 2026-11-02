@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cofy-x/camp/apps/server/internal/runs"
+	"github.com/cofy-x/camp/apps/server/internal/serviceowner"
 )
 
 func TestBlockedStartupDoesNotOpenStorage(t *testing.T) {
@@ -30,7 +30,7 @@ func TestBlockedStartupDoesNotOpenStorage(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			owner, err := runs.AcquireOwnership(dir)
+			owner, err := serviceowner.Acquire(dir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -89,7 +89,7 @@ func TestFreshStartupRetainsOwnershipUntilShutdown(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "desktop.sqlite")); err != nil {
 		t.Fatalf("Fresh startup did not create storage: %v", err)
 	}
-	if contender, err := runs.AcquireOwnership(dir); err == nil {
+	if contender, err := serviceowner.Acquire(dir); err == nil {
 		_ = contender.Close()
 		t.Fatal("Startup released ownership instead of transferring it to the manager")
 	}
@@ -102,7 +102,7 @@ func TestFreshStartupRetainsOwnershipUntilShutdown(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("Shutdown did not finish")
 	}
-	next, err := runs.AcquireOwnership(dir)
+	next, err := serviceowner.Acquire(dir)
 	if err != nil {
 		t.Fatalf("Shutdown leaked execution ownership: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestDatabaseStartupFailureReleasesExecutionOwnership(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "open database") {
 		t.Fatalf("Expected database startup failure: %v", err)
 	}
-	owner, err := runs.AcquireOwnership(dir)
+	owner, err := serviceowner.Acquire(dir)
 	if err != nil {
 		t.Fatalf("Database failure leaked execution ownership: %v", err)
 	}

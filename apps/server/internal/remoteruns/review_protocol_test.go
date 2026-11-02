@@ -2,6 +2,7 @@ package remoteruns
 
 import (
 	"encoding/json"
+	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,12 +12,11 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
 func TestRejectedSourceCompletionImmediatelyReleasesRunnerSlot(t *testing.T) {
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	config := h.join(t, "source-review", "fixture", nil, nativeexecutor.Config{})
 	_, err := h.store.ConnectRunner(h.ctx, config.RunnerID, storage.RunnerConnection{StorageID: config.StorageID, Runtime: "fixture", Slots: 1, Capabilities: json.RawMessage(`{"executor":"fixture","ready":true}`), Sources: []storage.RunnerSource{{ID: "project", Alias: "Project", Revision: "source-v1", Available: true}}})
 	if err != nil {
@@ -50,7 +50,7 @@ func TestRejectedSourceCompletionImmediatelyReleasesRunnerSlot(t *testing.T) {
 }
 
 func TestDuplicateAcceptanceAfterCommitDoesNotRejectDurableCompletion(t *testing.T) {
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	d := h.start(t, h.join(t, "acceptance-review", "fixture", nil, nativeexecutor.Config{}))
 	room, agent := h.room(t, "Acceptance review", d.config.RunnerID)
 	run := h.finished(t, h.send(t, room, agent, "Complete once.").ID)
@@ -91,7 +91,7 @@ func TestDuplicateAcceptanceAfterCommitDoesNotRejectDurableCompletion(t *testing
 func TestRejectedArchiveUploadImmediatelySealsOperations(t *testing.T) {
 	for _, kind := range []string{"run", "source"} {
 		t.Run(kind, func(t *testing.T) {
-			h := newRemoteHarness(t, runs.Config{})
+			h := newRemoteHarness(t, configuration.ModelInput{})
 			// Claim and prepare manually without racing the normal scheduler's
 			// restart recovery of an unprepared durable attempt.
 			h.manager.Load().cancel()

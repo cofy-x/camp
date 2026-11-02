@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,7 +19,6 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -26,7 +26,7 @@ import (
 // and fixture daemons use the same production code; no live function is swapped.
 func preparationHarness(t *testing.T) (*remoteHarness, *Manager) {
 	t.Helper()
-	h := newRemoteHarness(t, runs.Config{})
+	h := newRemoteHarness(t, configuration.ModelInput{})
 	old := h.manager.Load()
 	if err := old.Shutdown(h.ctx); err != nil {
 		t.Fatal(err)

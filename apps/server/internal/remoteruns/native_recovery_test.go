@@ -3,6 +3,7 @@ package remoteruns
 import (
 	"context"
 	"encoding/json"
+	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,7 +20,6 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/daemon"
 	"github.com/cofy-x/camp/apps/server/internal/execution"
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 )
 
 func nativeRecoveryConfig(t *testing.T) nativeexecutor.Config {
@@ -79,7 +79,7 @@ func waitNativeBarrier(t *testing.T, barrier <-chan struct{}, reason string) {
 func TestRemoteNativeControlReconnectAndCancellation(t *testing.T) {
 	native := nativeRecoveryConfig(t)
 	provider := holdNativeModel(t)
-	h := newRemoteHarness(t, runs.Config{APIKey: "local-provider-test-key", BaseURL: provider.server.URL, Timeout: 90 * time.Second})
+	h := newRemoteHarness(t, configuration.ModelInput{APIKey: "local-provider-test-key", BaseURL: provider.server.URL, Timeout: 90 * time.Second})
 	runner := h.start(t, h.join(t, "native-cancel", "native", nil, native))
 	room, agent := h.room(t, "Native cancellation", runner.config.RunnerID)
 	run := h.send(t, room, agent, "Wait for a result.")
@@ -130,7 +130,7 @@ func TestRemoteNativeControlReconnectAndCancellation(t *testing.T) {
 func TestRemoteNativeAgentRevocationStopsActiveModel(t *testing.T) {
 	native := nativeRecoveryConfig(t)
 	provider := holdNativeModel(t)
-	h := newRemoteHarness(t, runs.Config{APIKey: "local-provider-test-key", BaseURL: provider.server.URL, Timeout: 90 * time.Second})
+	h := newRemoteHarness(t, configuration.ModelInput{APIKey: "local-provider-test-key", BaseURL: provider.server.URL, Timeout: 90 * time.Second})
 	runner := h.start(t, h.join(t, "native-revoked", "native", nil, native))
 	room, agent := h.room(t, "Revoked model authority", runner.config.RunnerID)
 	run := h.send(t, room, agent, "Wait for a result.")
@@ -158,7 +158,7 @@ func TestRemoteNativeAgentRevocationStopsActiveModel(t *testing.T) {
 func TestRemoteNativeServerRestartInterruptsModelStream(t *testing.T) {
 	native := nativeRecoveryConfig(t)
 	provider := holdNativeModel(t)
-	h := newRemoteHarness(t, runs.Config{APIKey: "local-provider-test-key", BaseURL: provider.server.URL, Timeout: 90 * time.Second})
+	h := newRemoteHarness(t, configuration.ModelInput{APIKey: "local-provider-test-key", BaseURL: provider.server.URL, Timeout: 90 * time.Second})
 	runner := h.start(t, h.join(t, "native-restart", "native", nil, native))
 	room, agent := h.room(t, "Server restart", runner.config.RunnerID)
 	run := h.send(t, room, agent, "Wait for a result.")
@@ -192,7 +192,7 @@ func TestRemoteNativeServerRestartInterruptsModelStream(t *testing.T) {
 func TestRemoteNativeDaemonSIGKILLRecovery(t *testing.T) {
 	native := nativeRecoveryConfig(t)
 	provider := holdNativeModel(t)
-	h := newRemoteHarness(t, runs.Config{APIKey: "local-provider-test-key", BaseURL: provider.server.URL, Timeout: 90 * time.Second})
+	h := newRemoteHarness(t, configuration.ModelInput{APIKey: "local-provider-test-key", BaseURL: provider.server.URL, Timeout: 90 * time.Second})
 	config := h.join(t, "native-killed", "native", nil, native)
 	nativeJSON, err := json.Marshal(native)
 	if err != nil {

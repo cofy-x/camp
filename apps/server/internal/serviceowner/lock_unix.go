@@ -1,6 +1,6 @@
 //go:build linux || darwin
 
-package execution
+package serviceowner
 
 import (
 	"errors"
@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 )
 
-func AcquireLock(dir string) (*os.File, error) {
+func AcquireDirectory(dir string) (*os.File, error) {
 	file, err := os.OpenFile(filepath.Join(dir, ".lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
