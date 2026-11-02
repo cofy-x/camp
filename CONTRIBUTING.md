@@ -82,6 +82,10 @@ Current guides describe implemented behavior and repeatable procedures. Record u
 
 Keep changes focused and update the owning documentation when behavior changes. Add tests for meaningful behavior and failure cases. Explain the problem, resulting behavior and relevant tradeoffs. Include the commands you actually ran and their results, including skipped cases.
 
+Use Conventional Commits for PR titles and new commit messages: `type(scope): summary`, with an optional scope. Choose `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, `chore` or `revert` according to the primary change. For example, `feat(runner): add task input history reads` or `fix: preserve unsaved Library edits`. Keep the summary concise and describe the final change. Mark breaking changes with `!` before the colon and explain their impact in the PR description.
+
+Camp uses squash merges with the PR title as the commit subject. Verify the PR title and final squash subject before merging. Correct merged PR titles through GitHub metadata; do not rewrite published main history just to normalize old messages. Preserve release tags and their recorded commit identities.
+
 UI changes should include reviewed before/after images using synthetic data, embedded directly as GitHub image attachments. Follow the interactions in the [design review checklist](docs/design.md#review-checklist). Keep secrets, personal team data and generated runtime files out of patches and public attachments. Retain formal acceptance under the [release evidence policy](docs/releasing.md#release-evidence).
 
 The [CI workflow](.github/workflows/ci.yml) owns the current source/browser/fixture and Mac Server job matrix. [Native Mac qualification](.github/workflows/native-mac.yml), [Linux checkpoint qualification](.github/workflows/checkpoint-proof.yml) and [release verification](docs/releasing.md) establish separate guarantees. CI uses fresh test data without model credentials; source or fixture success does not establish native isolation, public installation or real-provider success.
