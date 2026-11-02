@@ -41,6 +41,7 @@ export async function main(args = process.argv.slice(2)) {
     origin,
     startedAt: new Date().toISOString(),
     status: 'preparing',
+    inputProtocol: 1,
     maxTasks: 1,
     maxTurns: 6,
     maxModelRequests: 24,
@@ -129,6 +130,7 @@ export async function main(args = process.argv.slice(2)) {
     );
     report.agentIds = [writer.id, reviewer.id];
     report.request = {
+      inputProtocol: 1,
       requestId: randomUUID(),
       goal: `Create only collaboration.md with exactly these three lines and a final newline:\n${expected}\nThe Writer must write and read back the file, then use camp_handoff to ${reviewer.id}. The read-only Reviewer must read the actual file and hand the checked result back to ${writer.id}. The Writer must then use camp_finish. Use the current handoff to identify the stage; do not loop or ask a person. Each terminal tool should list collaboration.md as the artifact.`,
       participantAgentIds: [writer.id, reviewer.id],
@@ -138,7 +140,7 @@ export async function main(args = process.argv.slice(2)) {
     // The durable reservation precedes the only work-creating network request.
     await save();
     let { task } = await api(
-      `/api/rooms/${room.id}/tasks`,
+      `/api/rooms/${room.id}/tasks?view=summary`,
       'POST',
       report.request,
     );
@@ -166,7 +168,10 @@ export async function main(args = process.argv.slice(2)) {
       'Collaboration did not complete. Inspect its saved task; no work or model request was retried.',
     );
     check(
-      runs.length === 3 && runs.every((r) => r.status === 'succeeded'),
+      runs.length === 3 &&
+        runs.every(
+          (r) => r.status === 'succeeded' && r.taskInputProtocol === 1,
+        ),
       'Expected exactly Writer → Reviewer → Writer.',
     );
     check(
