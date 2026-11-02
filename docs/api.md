@@ -88,6 +88,32 @@ Room sends record `accept` or `ignore` (`discussion`/`post_only`). Task creation
 
 The source event, decision, grant summary and work creation/input/operation commit atomically. Replays append nothing, and refused commands leave no admission record. Existing send/task response shapes and request hashes are unchanged. The journal covers commands accepted after its migration; historical decisions are not reconstructed. Agent/system output, handoffs and completion notifications cannot admit new work through this endpoint. See the [architecture mapping](architecture.md#event-admission-and-orchestration) for the implemented boundary.
 
+## GitHub observation
+
+Enabled team members can read Room sources and events, dismiss a pending event, or explicitly confirm it through the existing task-create API. Only current administrators can create, disable/re-enable or rotate a source. Setup is scoped to one Room and repository; source deletion and repository/Room retargeting are not offered. [GitHub observations](github.md) owns the operator workflow, supported event actions and private credential lifecycle.
+
+| Method | Route | Body or result |
+| --- | --- | --- |
+| GET | `/api/rooms/:id/github-sources` | `{sources}` with safe configuration, revision and observed repository ID |
+| POST | `/api/rooms/:id/github-sources` | `{requestId,repository,secret}` → `{source}` |
+| PATCH | `/api/github-sources/:id` | `{requestId,revision,enabled?,secret?}` → `{source}` |
+| GET | `/api/github-requests/:requestId` | Original safe configuration/dismissal receipt, scoped to the signed-in actor |
+| GET | `/api/rooms/:id/github-events?state=pending&after=0&through=seq&limit=20` | `{items,through,nextAfter,hasMore}`; no event bodies in list items |
+| GET | `/api/github-events/:id` | `{event}` with original normalized body and current decision |
+| GET | `/api/github-events/:id/payload` | Exact original JSON as an attachment |
+| POST | `/api/github-events/:id/dismiss` | `{requestId,reason}` → `{event}`; one immutable decision |
+| POST | `/api/hooks/github/:sourceId` | Signed GitHub JSON → `{eventId,status,duplicate}` after durable commit |
+
+Source writes and dismissal require a stable actor-scoped request ID. Reusing it with changed intent returns `request_conflict`. Safe receipts omit credential text and opaque private references. Source settings use expected-revision CAS; pending decisions use the immutable event ID and one final decision. A decided event returns 409 `event_decided` for another confirmation/dismissal. Disabled sources return 409 `source_unavailable` at ingress and confirmation. Re-enabling does not replay old deliveries or start pending events.
+
+Only one source per Room and case-insensitive repository address can be enabled. Disable it before creating or enabling a replacement; competing activation returns 409 `source_conflict`. Replacement preserves all earlier source IDs, pinned repository identities, originals, decisions and receipts. A Room retains at most 32 sources, including disabled sources.
+
+Event `state` is `pending` (default), `all`, `accepted`, `dismissed` or `ignored`. Pagination uses exclusive `after`, a captured `through` frontier, at most 20 whole items and 64 KiB of encoded JSON including its newline. The event frontier is stable; human decision states are current. Detail bodies are independently bounded at 64 KiB before JSON encoding. Repository names are case-insensitive; the first valid delivery additionally pins the numeric repository identity.
+
+The webhook endpoint is a separate route tree, with the same HTTPS/localhost transport rule and outer Host policy. It requires exactly one each of `X-Hub-Signature-256`, `X-GitHub-Delivery`, `X-GitHub-Event` and JSON Content-Type. Cookie, Origin and Authorization are refused. Signature verification covers exact body bytes before parsing. The source and verified private credential revision are rechecked transactionally. Invalid signatures return 401; invalid/oversized payloads return 400/413. A delivery GUID or fingerprint replay creates no new event, decision or work. Changed content under an existing GUID conflicts.
+
+Task POST `/api/rooms/:id/tasks?view=summary` additionally accepts optional `sourceEventId` with `inputProtocol:1`. The ID must select a pending event in this Room from a currently enabled source. Normal task permission, participant, route and model checks still apply. The human-authored `goal` stays separate from the complete source context copied into the input log. The response task and admission trigger retain `sourceEventId`. Confirmation, inputs, work admission and receipts commit atomically; failure leaves the event pending. This adds no authority to external sender identities and leaves old task request hashes unchanged.
+
 ## Runs and events
 
 | Method | Path | Contract |

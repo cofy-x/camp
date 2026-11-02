@@ -80,7 +80,7 @@ The architecture follows the separation of concerns in the [dsh-superagent resea
 
 | Prototype concept | Camp implementation |
 | --- | --- |
-| Source / Trigger | Built-in Room and task command adapters; immutable source identity and journal references |
+| Source / Trigger | Built-in Room/task commands and authenticated GitHub observations; immutable source identity and journal references |
 | Gate / Eval / Decision | Pure Room admission plan, task state-machine checks and persisted outcome/reason; no model assessment |
 | Mandate | Admission evidence referring to the existing finite Run/Task authority |
 | Ticket | CollaborationTask for persistent goals; an independent Run for a single request |
@@ -88,6 +88,8 @@ The architecture follows the separation of concerns in the [dsh-superagent resea
 | Subscription / Input | Explicit task input destination and append-only input log; no general Thread fan-out |
 | Effects / recovery | Existing durable Run queue, Attempt commands, Runner journal and completion receipts |
 | Channel / Outbox | Atomic Room completion Messages and targeted Inbox; no external reply adapter |
+
+[GitHub observation](github.md) adds a separate, signature-authenticated ingress adapter. It commits the source-scoped delivery receipt and immutable original without admitting execution. A human confirmation uses the existing task create transaction to freeze the complete normalized event in the input log, record the event's one final decision and link the original source event from the task and admission journal. The task's requester remains the confirming Camp member. Source disable/rotation is rechecked at ingress commit; current source enablement is rechecked at confirmation. Already authorized tasks retain their existing lifecycle and permission checks. Webhook credentials have private immutable files outside team SQLite, referenced by the source revision. No second executor, model-assessment loop or external-effect scheduler is introduced.
 
 The prototype's policy changes and automatic resume rules do not override Camp's immediate permission revocation or finite grants. Runner source-directory imports are a separate model-free capture operation, not event Sources.
 
@@ -203,7 +205,7 @@ The boundaries below describe current implementation choices, not permanent requ
 | Optional Mac checkpoint worker | The [worker adapter](layerfs-worker.md) retains a complete POSIX working-tree profile and requires independent LayerFS readback before publication. Its Disposable Store is separate from durable Server delivery. It requires an explicitly selected native ARM64 Linux engine, retains native captures and uncertain outcomes, and has no automatic fallback or model replay. UID/ACL/xattrs/times, special files and external hardlink groups are outside the declared profile. |
 | Checkpoint retention | The [Mac storage lifecycle](install.md#inspect-mac-checkpoint-storage) reports bounded advisory usage and supports explicit quarantine, restore and permanent purge of unreferenced sealed captures. All operation-referenced history, prior Store epochs and native recovery remain protected. Quarantine retains bytes; no automatic history expiration or hard lifetime quota exists. |
 | Upgrades preserve team data | Append-only Team migrations are implemented. [Migration validation](../apps/server/internal/storage/migrations.go) explicitly rejects discarded pre-Team baselines; there is no universal historical-data upgrader or automatic reset. Restore is the stopped manual procedure in [installation](install.md#data-upgrades-and-backup). |
-| Event orchestration | The explicit gate and durable journal cover Room messages and task commands. GitHub/Feishu Sources, model assessment, configurable proactive rules, cross-Thread subscriptions and external reply effects are not implemented. These extensions belong to `orchestration` and their adapters, and require source authentication/deduplication, finite grants, context-only routing, durable delivery and recovery tests before enabling automatic work. |
+| Event orchestration | Explicit admission covers Room messages, task commands and human confirmation of GitHub webhook observations. GitHub history polling, Feishu, model assessment, configurable automatic rules, cross-Thread subscriptions and external reply effects remain unimplemented. Extensions must preserve source authentication/deduplication, finite grants, context-only routing and durable delivery/recovery. |
 
 Runner check/output reports assume a trusted machine; they are not remote attestation against a hostile operator. Source/browser/fixture results alone do not establish native isolation, fresh-host portability or real-provider success.
 

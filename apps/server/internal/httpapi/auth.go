@@ -66,17 +66,8 @@ func (a *API) EnableTeam(service *team.Service, trustedOrigins []string, publicO
 func (a *API) protect(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		if r.TLS == nil && !strings.HasPrefix(a.publicOrigin, "https://") && r.URL.Path != "/api/health" {
-			peer, _, err := net.SplitHostPort(r.RemoteAddr)
-			host := r.Host
-			if parsed, _, err := net.SplitHostPort(host); err == nil {
-				host = parsed
-			}
-			host = strings.Trim(host, "[]")
-			if err != nil || !net.ParseIP(peer).IsLoopback() || (host != "localhost" && !net.ParseIP(host).IsLoopback()) {
-				writeError(w, 403, "https_required", "Team access requires HTTPS outside localhost.")
-				return
-			}
+		if !a.allowTransport(w, r) {
+			return
 		}
 		public := r.URL.Path == "/api/health" || r.URL.Path == "/api/auth/status" || r.URL.Path == "/api/auth/setup" || r.URL.Path == "/api/auth/login" || r.URL.Path == "/api/auth/accept-invite"
 		if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" {
@@ -134,6 +125,25 @@ func (a *API) protect(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// Team and webhook requests share the same deployment transport requirement.
+// Webhooks have their own mux and signature authentication, never a session or
+// Origin exception inside the team's protected route tree.
+func (a *API) allowTransport(w http.ResponseWriter, r *http.Request) bool {
+	if r.TLS == nil && !strings.HasPrefix(a.publicOrigin, "https://") && r.URL.Path != "/api/health" {
+		peer, _, err := net.SplitHostPort(r.RemoteAddr)
+		host := r.Host
+		if parsed, _, err := net.SplitHostPort(host); err == nil {
+			host = parsed
+		}
+		host = strings.Trim(host, "[]")
+		if err != nil || !net.ParseIP(peer).IsLoopback() || (host != "localhost" && !net.ParseIP(host).IsLoopback()) {
+			writeError(w, 403, "https_required", "Team access requires HTTPS outside localhost.")
+			return false
+		}
+	}
+	return true
 }
 func (a *API) authRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/auth/status", func(w http.ResponseWriter, r *http.Request) {

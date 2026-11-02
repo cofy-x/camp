@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHmac, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
@@ -416,6 +417,110 @@ try {
     )
   ).json();
   assert.equal(persistedDraft.draft.value.content, 'Private unsaved draft');
+  // Run this after the public-baseline upgrade as well: both current startup
+  // and restart must retain private webhook credentials and immutable receipts.
+  const sourceInput = {
+    requestId: randomUUID(),
+    repository: 'camp-smoke/observations',
+    secret: 'private-synthetic-webhook-smoke-secret',
+  };
+  const sourceResponse = await api(`/api/rooms/${room.id}/github-sources`, {
+    method: 'POST',
+    body: sourceInput,
+  });
+  assert.equal(sourceResponse.status, 200);
+  const { source } = await sourceResponse.json();
+  const observations = [];
+
+  async function sendObservation(observation) {
+    return fetch(`${base}/api/hooks/github/${source.id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-GitHub-Event': 'issues',
+        'X-GitHub-Delivery': observation.guid,
+        'X-Hub-Signature-256': `sha256=${createHmac('sha256', sourceInput.secret).update(observation.body).digest('hex')}`,
+      },
+      body: observation.body,
+    });
+  }
+
+  for (let number = 1; number <= 2; number++) {
+    const observation = {
+      guid: randomUUID(),
+      body: JSON.stringify({
+        action: 'opened',
+        repository: { id: 123, full_name: sourceInput.repository },
+        sender: { id: 7, login: 'smoke-person', type: 'User' },
+        issue: {
+          id: 99 + number,
+          number,
+          title: `Observation ${number}`,
+          body: '  Exact original context.\n你好\n ',
+        },
+      }),
+    };
+    const delivery = await sendObservation(observation);
+    assert.equal(delivery.status, 200);
+    const receipt = await delivery.json();
+    assert.equal(receipt.status, 'pending');
+    observations.push({ ...observation, eventId: receipt.eventId });
+  }
+  const dismissal = await api(
+    `/api/github-events/${observations[0].eventId}/dismiss`,
+    {
+      method: 'POST',
+      body: { requestId: randomUUID(), reason: 'No work needed.' },
+    },
+  );
+  assert.equal(dismissal.status, 200);
+  await stop(restarted);
+  const sourceRestart = start(
+    ['serve', '--addr', addr, '--data-dir', dataDir],
+    invalidEnvironment,
+  );
+  await waitFor(`${base}/api/health`, sourceRestart);
+  const sourceReplay = await api(`/api/rooms/${room.id}/github-sources`, {
+    method: 'POST',
+    body: sourceInput,
+  });
+  assert.equal(sourceReplay.status, 200);
+  assert.equal((await sourceReplay.json()).source.id, source.id);
+  const privateFiles = await readdir(
+    join(dataDir, 'configuration/github-webhooks'),
+  );
+  assert.equal(
+    privateFiles.length,
+    1,
+    'Source replay must not mint another private key.',
+  );
+  assert.equal(
+    (
+      await stat(
+        join(dataDir, 'configuration/github-webhooks', privateFiles[0]),
+      )
+    ).mode & 0o777,
+    0o600,
+  );
+  for (const [index, observation] of observations.entries()) {
+    const replay = await sendObservation(observation);
+    assert.equal(replay.status, 200);
+    const receipt = await replay.json();
+    assert.equal(receipt.duplicate, true);
+    assert.equal(receipt.eventId, observation.eventId);
+    assert.equal(receipt.status, index === 0 ? 'dismissed' : 'pending');
+    assert.equal(
+      await (
+        await api(`/api/github-events/${observation.eventId}/payload`)
+      ).text(),
+      observation.body,
+    );
+  }
+  assert.equal(
+    (await (await api(`/api/rooms/${room.id}/tasks?view=summary`)).json()).tasks
+      .length,
+    0,
+  );
   assert.equal(
     (await api('/api/auth/logout', { method: 'POST', body: {} })).status,
     200,
@@ -428,7 +533,7 @@ try {
     'Explicit serve flags must override ADDR, PORT, and DATA_DIR.',
   );
   console.log(
-    'Production smoke passed: CLI, independent working directory, embedded UI, protected setup, authentication, Origin/Host boundaries, attributed discussion, Library save/retry/download/history/patch, private drafts, restart persistence, logout and removed host/VFS endpoints.',
+    'Production smoke passed: CLI, independent working directory, embedded UI, protected setup, authentication, Origin/Host boundaries, attributed discussion, Library save/retry/download/history/patch, private drafts, restart persistence, signed GitHub observations/decisions/credentials/deduplication without execution, logout and removed host/VFS endpoints.',
   );
 } finally {
   await dispose(dir, children);

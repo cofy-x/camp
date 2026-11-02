@@ -8,26 +8,29 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/remoteruns"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 	"github.com/cofy-x/camp/apps/server/internal/team"
 )
 
 type API struct {
-	settings     SettingsService
-	importPolicy configuration.ImportPolicy
-	library      *library.Service
-	team         *team.Service
-	authOrigins  map[string]bool
-	publicOrigin string
-	authLimiter  authLimiter
-	store        *storage.Store
-	logger       *slog.Logger
-	rooms        RoomService
-	remote       *remoteruns.Manager
-	handler      http.Handler
-	streams      context.Context
-	stopStreams  context.CancelFunc
+	settings       SettingsService
+	webhookSecrets *configuration.WebhookSecrets
+	hooks          *http.ServeMux
+	importPolicy   configuration.ImportPolicy
+	library        *library.Service
+	team           *team.Service
+	authOrigins    map[string]bool
+	publicOrigin   string
+	authLimiter    authLimiter
+	store          *storage.Store
+	logger         *slog.Logger
+	rooms          RoomService
+	remote         *remoteruns.Manager
+	handler        http.Handler
+	streams        context.Context
+	stopStreams    context.CancelFunc
 }
 
 func New(store *storage.Store, logger *slog.Logger, managers ...RoomService) *API {
@@ -43,6 +46,7 @@ func New(store *storage.Store, logger *slog.Logger, managers ...RoomService) *AP
 	a.roomRoutes(mux)
 	a.orchestrationRoutes(mux)
 	a.taskRoutes(mux)
+	a.githubRoutes(mux)
 	a.runnerInstallationRoutes(mux)
 	a.authRoutes(mux)
 	a.avatarRoutes(mux)
@@ -87,6 +91,10 @@ func New(store *storage.Store, logger *slog.Logger, managers ...RoomService) *AP
 }
 
 func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/hooks/") {
+		a.hooks.ServeHTTP(w, r)
+		return
+	}
 	a.handler.ServeHTTP(w, r)
 }
 
