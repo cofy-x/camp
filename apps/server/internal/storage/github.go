@@ -141,8 +141,8 @@ func (s *Store) CreateGitHubSource(ctx context.Context, room string, in CreateGi
 			return problem("invalid_source", "A Room supports at most 32 GitHub sources.")
 		}
 		for _, row := range rows {
-			if row.Repository == in.Repository {
-				return problem("source_conflict", "This Room already has a source for this repository.")
+			if row.Repository == in.Repository && row.Enabled != 0 {
+				return problem("source_conflict", "Disable this repository's active source before creating its replacement.")
 			}
 		}
 		if len(secretRef) != 48 {
@@ -193,6 +193,15 @@ func (s *Store) UpdateGitHubSource(ctx context.Context, id string, in UpdateGitH
 		if in.Enabled != nil {
 			row.Enabled = 0
 			if *in.Enabled {
+				others, e := q.ListGitHubSources(ctx, row.RoomID)
+				if e != nil {
+					return e
+				}
+				for _, other := range others {
+					if other.ID != id && other.Repository == row.Repository && other.Enabled != 0 {
+						return problem("source_conflict", "Another source for this repository is enabled. Disable it before enabling this source.")
+					}
+				}
 				row.Enabled = 1
 			}
 		}

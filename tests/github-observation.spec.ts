@@ -97,6 +97,7 @@ test('signed observations stay pending, retain originals and require an explicit
   expect(await page.evaluate(() => 'untrustedSourceExecuted' in window)).toBe(
     false,
   );
+  await panel(page).getByText('Event details', { exact: true }).click();
   const download = await page.request.get(
     (await panel(page)
       .getByRole('link', { name: 'Download Original Payload' })
@@ -109,10 +110,37 @@ test('signed observations stay pending, retain originals and require an explicit
     !(await sources.evaluate((element) => (element as HTMLDetailsElement).open))
   )
     await sources.locator('summary').first().click();
-  await panel(page).getByRole('button', { name: 'Disable Source' }).click();
+  await panel(page)
+    .getByRole('checkbox', { name: 'Enabled', exact: true })
+    .uncheck();
+  await expect
+    .poll(async () => {
+      const result = await (
+        await page.request.get(`/api/rooms/${room.id}/github-sources`)
+      ).json();
+      return (result.sources as GitHubSource[]).find(
+        (item) => item.id === source.id,
+      )?.enabled;
+    })
+    .toBe(false);
+  const replacement = await mutate(page, `/rooms/${room.id}/github-sources`, {
+    requestId: randomUUID(),
+    repository: source.repository,
+    secret,
+  });
+  expect(replacement.ok()).toBe(true);
+  const oldSource = panel(page)
+    .locator('.github-sources li')
+    .filter({ hasText: 'Repository ID 123' });
+  await oldSource
+    .getByRole('checkbox', { name: 'Enabled', exact: true })
+    .click();
+  await expect(oldSource.getByRole('alert')).toContainText(
+    'Another source for this repository is enabled.',
+  );
   await expect(
-    panel(page).getByRole('button', { name: 'Enable Source' }),
-  ).toBeVisible();
+    oldSource.getByRole('checkbox', { name: 'Enabled', exact: true }),
+  ).not.toBeChecked();
   expect(
     (
       await deliver(
@@ -268,6 +296,17 @@ test('confirming an event preserves the exact task request across an uncertain r
     updatedAt: now,
   };
   const bodies: Record<string, unknown>[] = [];
+  let available = true;
+  await page.route('**/api/workspace/status', (route) =>
+    route.fulfill({
+      json: {
+        available,
+        reason: available ? '' : 'Configure a model first.',
+        budget: { maxTokens: 4096, maxSteps: 8, timeoutSeconds: 180 },
+        maxConcurrent: 2,
+      },
+    }),
+  );
   // Browser-only task response fixture; storage/HTTP tests exercise the actual
   // atomic confirmation, and no provider is configured in this browser Server.
   await page.route(`**/api/rooms/${room.id}/tasks?*`, async (route) => {
@@ -320,6 +359,7 @@ test('confirming an event preserves the exact task request across an uncertain r
     form.getByRole('button', { name: 'Retry Start', exact: true }),
   ).toBeVisible();
   await expect(form.getByLabel('Shared goal')).toBeDisabled();
+  available = false;
   await errors.reload();
   await openEvents(page);
   await panel(page)
@@ -353,25 +393,33 @@ test('event details retain a read error and fit a narrow window', async ({
   browserName,
 }) => {
   const errors = watchPageErrors(page, browserName);
+  const longTitle = 'UnbrokenSubject'.repeat(60);
   const { source } = await fixture(page, 'GitHub reading and recovery');
   const response = await deliver(
     page,
     source,
-    payload('Original body with long text '.repeat(80)),
+    payload('Original body with long text '.repeat(80), longTitle),
   );
   const { eventId } = (await response.json()) as { eventId: string };
-  await panel(page).getByRole('button', { name: 'Refresh Events' }).click();
   await panel(page)
-    .getByRole('button', { name: new RegExp(title) })
+    .getByRole('button', { name: 'Refresh Events', exact: true })
+    .click();
+  await panel(page)
+    .getByRole('button', { name: new RegExp(longTitle) })
     .click();
   await expect(panel(page).locator('.github-event-body')).toBeVisible();
+  await expect(panel(page).getByRole('heading', { level: 2 })).toHaveText(
+    longTitle,
+  );
   await page.route(`**/api/github-events/${eventId}`, (route) =>
     route.fulfill({
       status: 503,
       json: { error: 'Temporary event read failure', code: 'unavailable' },
     }),
   );
-  await panel(page).getByRole('button', { name: 'Refresh Events' }).click();
+  await panel(page)
+    .getByRole('button', { name: 'Refresh Event', exact: true })
+    .click();
   await expect(panel(page).getByRole('alert')).toContainText(
     'Temporary event read failure',
   );
@@ -394,5 +442,72 @@ test('event details retain a read error and fit a narrow window', async ({
     (element) => element.scrollWidth > element.clientWidth + 1,
   );
   expect(overflow).toBe(false);
+  expect(errors.errors).toEqual([]);
+});
+
+test('reading needs no execution setup and the authorization form keeps its blocking reason at Start', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  const { room, source } = await fixture(
+    page,
+    'GitHub reading without execution',
+  );
+  const agent = await mutate(page, `/rooms/${room.id}/agents`, {
+    name: 'Observation Writer',
+    handle: `reader-${randomUUID().slice(0, 8)}`,
+    enabled: true,
+    access: 'write',
+  });
+  expect(agent.ok()).toBe(true);
+  let starts = 0;
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      request.url().includes(`/rooms/${room.id}/tasks`)
+    )
+      starts++;
+  });
+  expect(
+    (
+      await deliver(
+        page,
+        source,
+        payload('Read this event before choosing whether to start work.'),
+      )
+    ).ok,
+  ).toBe(true);
+  await panel(page)
+    .getByRole('button', { name: 'Refresh Events', exact: true })
+    .click();
+  await expect(workspace(page).locator('.workspace-unavailable')).toHaveCount(
+    0,
+  );
+  await panel(page)
+    .getByRole('button', { name: new RegExp(title) })
+    .click();
+  await expect(panel(page).getByRole('heading', { level: 2 })).toHaveCount(1);
+  await expect(panel(page).locator('.github-event-body')).toBeVisible();
+  await panel(page)
+    .getByRole('button', { name: 'Start collaboration…', exact: true })
+    .click();
+  const form = workspace(page).getByRole('region', {
+    name: 'Start collaboration',
+    exact: true,
+  });
+  await form
+    .getByRole('checkbox', { name: 'Observation Writer', exact: true })
+    .check();
+  const status = await (await page.request.get('/api/workspace/status')).json();
+  expect(status.available).toBe(false);
+  await expect(form.getByRole('alert')).toContainText(status.reason);
+  await expect(
+    form.getByRole('button', { name: 'Start collaboration', exact: true }),
+  ).toBeDisabled();
+  await expect(
+    form.getByRole('button', { name: 'Set Up Agent Work…', exact: true }),
+  ).toBeVisible();
+  expect(starts).toBe(0);
   expect(errors.errors).toEqual([]);
 });

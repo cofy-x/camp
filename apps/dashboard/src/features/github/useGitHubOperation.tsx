@@ -83,24 +83,20 @@ export function useGitHubOperation(scope: string) {
 
   const feedback = (
     <>
-      {error && (
+      {(error || recovery) && (
         <p className="app-error" role="alert">
-          {error}
+          {recovery ? `Save not confirmed.${error ? ` ${error}` : ''}` : error}
         </p>
       )}
       {recovery && (
         <div className="github-recovery">
-          <p>A previous operation is awaiting confirmation.</p>
           <Button disabled={busy} onClick={() => void check()}>
             Check Saved Operation
           </Button>
           {missing && (
             <details>
               <summary>Clear recovery</summary>
-              <p>
-                This does not cancel an in-flight settings change or decision.
-                Current revisions and event decisions still apply.
-              </p>
+              <p>Clearing recovery does not cancel an in-flight change.</p>
               <Button disabled={busy} onClick={confirmed}>
                 Refresh and Clear Recovery
               </Button>

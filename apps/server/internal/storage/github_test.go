@@ -267,3 +267,73 @@ func TestGitHubEventPagingDismissalReceiptsAndReopen(t *testing.T) {
 		t.Fatal(result, duplicate, err)
 	}
 }
+
+func TestGitHubRepositoryReplacementRetainsHistoryAndSerializesActivation(t *testing.T) {
+	s, actor, _, room, _, _ := taskFixture(t)
+	original := testGitHubSource(t, s, actor, room)
+	oldPayload := testGitHubPayload("Original repository", "Retain this original.")
+	oldEvent := receiveTestGitHub(t, s, original, oldPayload)
+	original, err := s.UpdateGitHubSource(actor, original.ID, UpdateGitHubSourceInput{RequestID: newID(), Revision: original.Revision, Enabled: new(false)}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := s.CreateGitHubSource(actor, room.ID, CreateGitHubSourceInput{RequestID: newID(), Repository: original.Repository, Secret: strings.Repeat("new-secret", 4)}, strings.Repeat("b", 48))
+	if err != nil || replacement.ID == original.ID {
+		t.Fatal("disabled source prevented replacement", replacement, err)
+	}
+	newPayload := strings.Replace(string(testGitHubPayload("Replacement repository", "New identity.")), `"id":123`, `"id":124`, 1)
+	newEvent := receiveTestGitHub(t, s, replacement, []byte(newPayload))
+	if oldEvent.RepositoryID == newEvent.RepositoryID || oldEvent.SourceID == newEvent.SourceID {
+		t.Fatal("replacement reused the original identity")
+	}
+	if _, err = s.UpdateGitHubSource(actor, original.ID, UpdateGitHubSourceInput{RequestID: newID(), Revision: original.Revision, Enabled: new(true)}, ""); err == nil {
+		t.Fatal("two active sources acquired the same address")
+	}
+	if _, err = s.CreateGitHubSource(actor, room.ID, CreateGitHubSourceInput{RequestID: newID(), Repository: original.Repository, Secret: strings.Repeat("another", 8)}, strings.Repeat("c", 48)); err == nil {
+		t.Fatal("created a second active source")
+	}
+	replacement, err = s.UpdateGitHubSource(actor, replacement.ID, UpdateGitHubSourceInput{RequestID: newID(), Revision: replacement.Revision, Enabled: new(false)}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	outcomes := make(chan error, 2)
+	for _, source := range []GitHubSource{original, replacement} {
+		wg.Go(func() {
+			_, err := s.UpdateGitHubSource(actor, source.ID, UpdateGitHubSourceInput{RequestID: newID(), Revision: source.Revision, Enabled: new(true)}, "")
+			outcomes <- err
+		})
+	}
+	wg.Wait()
+	close(outcomes)
+	success := 0
+	for err := range outcomes {
+		if err == nil {
+			success++
+		}
+	}
+	if success != 1 {
+		t.Fatal("concurrent activations were not exclusive", success)
+	}
+	sources, err := s.ListGitHubSources(ctx, room.ID)
+	if err != nil || len(sources) != 2 {
+		t.Fatal(sources, err)
+	}
+	active := 0
+	for _, source := range sources {
+		if source.Enabled {
+			active++
+		}
+	}
+	if active != 1 {
+		t.Fatal("invalid active route count", active)
+	}
+	retained, _ := s.GitHubPayload(ctx, oldEvent.ID)
+	if string(retained) != string(oldPayload) {
+		t.Fatal("replacement changed original payload")
+	}
+	retainedEvent, _ := s.GetGitHubEvent(ctx, oldEvent.ID)
+	if retainedEvent != oldEvent {
+		t.Fatal("replacement changed event metadata")
+	}
+}

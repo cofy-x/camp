@@ -3,13 +3,14 @@
   min-width: 0;
 }
 .github-panel p,
+.github-panel h2,
 .github-panel h3,
 .github-panel a,
 .github-panel strong {
   overflow-wrap: anywhere;
 }
 .github-panel form,
-.github-panel label {
+.github-panel form label {
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -72,4 +73,41 @@
   gap: 10px;
   flex-wrap: wrap;
   margin-bottom: 8px;
+}
+.github-list-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-block: 16px;
+}
+.github-list-controls > .github-sources {
+  margin: 0;
+}
+.github-list-controls > .github-sources[open] {
+  flex-basis: 100%;
+}
+.github-event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-block: 14px;
+}
+.github-panel .github-event-title {
+  font-family: var(--p9-body-font, Inter, sans-serif);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.github-facts {
+  display: grid;
+  grid-template-columns: minmax(90px, 128px) minmax(0, 1fr);
+  gap: 8px 12px;
+}
+.github-facts dt {
+  color: #555;
+}
+.github-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }

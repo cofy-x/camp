@@ -11,13 +11,13 @@ A Room can receive GitHub repository webhooks in observation mode. Deliveries cr
 
 Camp verifies `X-Hub-Signature-256` against the exact body using HMAC-SHA256 and a constant-time comparison, following [GitHub's signature contract](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries). This endpoint accepts no member Cookie, browser Origin or Authorization header. The ordinary team APIs retain session and Origin protection. The [API contract](api.md#github-observation) owns request and response details.
 
-Sources are fixed to a Room and repository name. The first valid delivery pins the repository's numeric identity; later deliveries must match both. A rename, transfer or replacement needs a new explicitly configured source. Disable the old source to retain its events and decisions. A Room supports up to 32 sources.
+Sources are fixed to a Room and repository name. The first valid delivery pins the repository's numeric identity; later deliveries must match both. A rename, transfer or replacement needs a new explicitly configured source. Disable the old source to retain its events and decisions. The same address can then have a replacement source, including after repository deletion/recreation. Only one source for that Room/address can be enabled at a time; re-enabling an older source requires disabling its replacement first. Repository IDs distinguish their histories. A Room supports up to 32 retained sources.
 
-**Disable Source** stops new deliveries and confirmations, including pending events. It preserves observations, receipts and already authorized tasks; use a task's own cancellation controls to stop that work. Rotating a secret immediately rejects deliveries verified with the old credential, including an ingress request that raced the rotation. Update the repository's webhook secret separately.
+Clearing **Enabled** stops new deliveries and confirmations, including pending events. It preserves observations, receipts and already authorized tasks; use a task's own cancellation controls to stop that work. Rotating a secret immediately rejects deliveries verified with the old credential, including an ingress request that raced the rotation. Update the repository's webhook secret separately.
 
 ## Decide an event
 
-The initial view lists events awaiting confirmation. **All events** includes accepted, dismissed and ignored observations. Event details show the external actor and original body as text, with the original JSON available for download. GitHub identities are never mapped to Camp members. Bot, unresolved/ghost and unsupported events remain recorded as ignored observations.
+The initial view lists events awaiting confirmation. **All events** includes accepted, dismissed and ignored observations. Opening an event shows its subject, external actor, original text and next action. **Event details** holds transport metadata and the original JSON download. GitHub identities are never mapped to Camp members. Bot, unresolved/ghost and unsupported events remain recorded as ignored observations.
 
 The supported candidate actions are:
 

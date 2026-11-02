@@ -10,7 +10,7 @@ import {
 import { useAccount } from '../../team/AuthContext';
 import { useTeam } from '../../team/TeamContext';
 import { useRunners } from '../runners/useRunners';
-import type { Agent, Room } from '../workspace/api';
+import type { Agent, Room, WorkspaceStatus } from '../workspace/api';
 import { tasksApi, type Task } from './api';
 
 type StartRequest = Parameters<typeof tasksApi.create>[1];
@@ -38,6 +38,7 @@ export function StartCollaboration({
   onStarted,
   onClose,
   sourceEvent,
+  availability,
 }: {
   room: Room;
   members: Agent[];
@@ -45,6 +46,7 @@ export function StartCollaboration({
   onStarted: (task: Task) => void;
   onClose: () => void;
   sourceEvent?: { id: string; title: string; url?: string };
+  availability?: Pick<WorkspaceStatus, 'available' | 'reason'>;
 }) {
   const team = useTeam();
   const { user } = useAccount();
@@ -82,6 +84,7 @@ export function StartCollaboration({
   );
   const request = useRef<StartRequest | null>(savedRequest);
   const available = members.filter((agent) => agent.enabled);
+  const unavailable = !uncertain && availability?.available === false;
 
   useEffect(() => {
     if (uncertain) return;
@@ -103,7 +106,7 @@ export function StartCollaboration({
   }, [draftKey, goal, first, selected, threadId, uncertain]);
 
   async function start() {
-    if (pending) return;
+    if (pending || unavailable) return;
     setPending(true);
     setError('');
     try {
@@ -163,12 +166,9 @@ export function StartCollaboration({
       >
         {sourceEvent && (
           <p>
-            The full{' '}
             <a href={sourceEvent.url} target="_blank" rel="noreferrer">
-              GitHub event
-            </a>{' '}
-            will be included as external context. Starting confirms this event
-            and authorizes the selected Agents.
+              Original GitHub event
+            </a>
           </p>
         )}
         <div className="collaboration-input">
@@ -257,7 +257,25 @@ export function StartCollaboration({
             Selected Agents can hand off work. Files stay in a task draft until
             completion.
           </p>
+          {sourceEvent && (
+            <p>Includes the full GitHub event as external context.</p>
+          )}
         </div>
+        {unavailable && (
+          <div className="app-error" role="alert">
+            <p>{availability.reason}</p>
+            {user.role === 'admin' && (
+              <Button
+                type="button"
+                onClick={() =>
+                  void team.navigate({ app: 'settings', section: 'readiness' })
+                }
+              >
+                Set Up Agent Work…
+              </Button>
+            )}
+          </div>
+        )}
         {error && (
           <p className="app-error" role="alert">
             {error}
@@ -269,7 +287,13 @@ export function StartCollaboration({
           <Button
             primary
             type="submit"
-            disabled={pending || !goal.trim() || !first || !selected.length}
+            disabled={
+              pending ||
+              unavailable ||
+              !goal.trim() ||
+              !first ||
+              !selected.length
+            }
           >
             {pending
               ? 'Starting…'

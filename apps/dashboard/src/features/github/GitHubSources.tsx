@@ -1,37 +1,59 @@
 import { useState } from 'react';
-import { Button } from '@cofy-x/camp-platinum';
+import { Button, Checkbox } from '@cofy-x/camp-platinum';
 import { useAccount } from '../../team/AuthContext';
 import { githubApi, type GitHubSource } from './api';
 import { useGitHubOperation } from './useGitHubOperation';
 
-function Source({ source }: { source: GitHubSource }) {
+function Source({
+  source: observed,
+  showIdentity,
+}: {
+  source: GitHubSource;
+  showIdentity: boolean;
+}) {
   const { user } = useAccount();
+  const [confirmed, setConfirmed] = useState<GitHubSource | null>(null);
+  const [proposedEnabled, setProposedEnabled] = useState<boolean | null>(null);
+  const source =
+    confirmed && confirmed.revision > observed.revision ? confirmed : observed;
   const operation = useGitHubOperation(source.id);
   const [secret, setSecret] = useState('');
+
+  async function save(change: { enabled?: boolean; secret?: string }) {
+    return operation.run(async (requestId) => {
+      const result = await githubApi.updateSource(source.id, {
+        requestId,
+        revision: source.revision,
+        ...change,
+      });
+      setConfirmed(result.source);
+    });
+  }
+
   return (
-    <li>
+    <li aria-busy={operation.busy}>
       <div className="github-source-heading">
         <strong>{source.repository}</strong>
-        <span>{source.enabled ? 'Enabled' : 'Disabled'}</span>
+        {user.role === 'admin' ? (
+          <Checkbox
+            label="Enabled"
+            checked={proposedEnabled ?? source.enabled}
+            disabled={operation.blocked}
+            onChange={(event) => {
+              const enabled = event.target.checked;
+              setProposedEnabled(enabled);
+              void save({ enabled }).finally(() => setProposedEnabled(null));
+            }}
+          />
+        ) : (
+          <span>{source.enabled ? 'Enabled' : 'Disabled'}</span>
+        )}
       </div>
+      {showIdentity && source.repositoryId > 0 && (
+        <small>Repository ID {source.repositoryId}</small>
+      )}
       {user.role === 'admin' && (
         <>
-          <div className="app-actions">
-            <Button
-              disabled={operation.blocked}
-              onClick={() =>
-                void operation.run((requestId) =>
-                  githubApi.updateSource(source.id, {
-                    requestId,
-                    revision: source.revision,
-                    enabled: !source.enabled,
-                  }),
-                )
-              }
-            >
-              {source.enabled ? 'Disable Source' : 'Enable Source'}
-            </Button>
-          </div>
           <details>
             <summary>Webhook setup</summary>
             <label>
@@ -43,25 +65,22 @@ function Source({ source }: { source: GitHubSource }) {
                 onFocus={(event) => event.target.select()}
               />
             </label>
-            <p>
-              In this repository’s GitHub Webhooks settings, choose
-              application/json and subscribe to Issues, Pull requests and Issue
-              comments. Use the same secret and keep SSL verification enabled.
-            </p>
+            <dl className="github-facts">
+              <dt>Content type</dt>
+              <dd>application/json</dd>
+              <dt>Events</dt>
+              <dd>Issues, Pull requests, Issue comments</dd>
+              <dt>SSL verification</dt>
+              <dd>Keep enabled on GitHub</dd>
+              <dt>Repository ID</dt>
+              <dd>{source.repositoryId || 'Not received yet'}</dd>
+            </dl>
             <form
               onSubmit={(event) => {
                 event.preventDefault();
-                void operation
-                  .run((requestId) =>
-                    githubApi.updateSource(source.id, {
-                      requestId,
-                      revision: source.revision,
-                      secret,
-                    }),
-                  )
-                  .then((saved) => {
-                    if (saved) setSecret('');
-                  });
+                void save({ secret }).then((saved) => {
+                  if (saved) setSecret('');
+                });
               }}
             >
               <label>
@@ -85,12 +104,6 @@ function Source({ source }: { source: GitHubSource }) {
                 Rotate Secret
               </Button>
             </form>
-            <p>
-              Disabling stops new deliveries and confirmations. Already
-              authorized collaborations keep their own controls. The repository
-              name is fixed; its numeric identity is pinned on the first valid
-              delivery.
-            </p>
           </details>
           {operation.feedback}
         </>
@@ -102,11 +115,9 @@ function Source({ source }: { source: GitHubSource }) {
 export function GitHubSources({
   roomId,
   sources,
-  error,
 }: {
   roomId: string;
   sources: GitHubSource[];
-  error: string;
 }) {
   const { user } = useAccount();
   const operation = useGitHubOperation(`create:${roomId}`);
@@ -120,14 +131,16 @@ export function GitHubSources({
       onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
       <summary>Sources ({sources.length})</summary>
-      {error && (
-        <p className="app-error" role="alert">
-          {error}
-        </p>
-      )}
       <ul>
         {sources.map((source) => (
-          <Source key={source.id} source={source} />
+          <Source
+            key={source.id}
+            source={source}
+            showIdentity={
+              sources.filter((item) => item.repository === source.repository)
+                .length > 1
+            }
+          />
         ))}
       </ul>
       {user.role === 'admin' ? (
@@ -180,10 +193,7 @@ export function GitHubSources({
           <p>
             Events and original payloads are visible to everyone in this team.
           </p>
-          <p>
-            Use a random secret of 32–256 bytes. It is stored privately on
-            Server and is never returned.
-          </p>
+          <p>Use a random secret of 32–256 bytes.</p>
           <Button type="submit" disabled={operation.blocked}>
             {operation.busy ? 'Saving…' : 'Add Source'}
           </Button>

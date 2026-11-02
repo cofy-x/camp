@@ -523,6 +523,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
             </div>
           )}
           {panel !== 'reviews' &&
+            panel !== 'github' &&
             !inspect &&
             workspace.status &&
             !workspace.status.available && (
@@ -600,6 +601,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 key={room.id}
                 room={room}
                 members={members}
+                availability={workspace.status ?? undefined}
                 onOpenTask={(id) => {
                   setTaskId(id);
                   setPanel('tasks');

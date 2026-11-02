@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Select } from '@cofy-x/camp-platinum';
 import { useTeam } from '../../team/TeamContext';
-import type { Agent, Room } from '../workspace/api';
+import type { Agent, Room, WorkspaceStatus } from '../workspace/api';
 import { StartCollaboration } from '../collaboration/StartCollaboration';
 import {
   githubApi,
@@ -29,6 +29,8 @@ function EventDetail({
   id,
   sources,
   sourcesError,
+  sourcesReady,
+  onRefreshSources,
   onPrepare,
   onOpenTask,
   onClose,
@@ -36,6 +38,8 @@ function EventDetail({
   id: string;
   sources: GitHubSource[];
   sourcesError: string;
+  sourcesReady: boolean;
+  onRefreshSources: () => void;
   onPrepare: (event: GitHubEvent) => void;
   onOpenTask: (id: string) => void;
   onClose: () => void;
@@ -67,48 +71,44 @@ function EventDetail({
     return () => controller.abort();
   }, [id, team.revision, retry]);
   const source = sources.find((source) => source.id === event?.sourceId);
+  const readError = error || sourcesError;
   return (
     <section className="github-event-detail" aria-label="GitHub event">
       <div className="workspace-panel-heading">
-        <h3>{event?.title || 'GitHub event'}</h3>
-        <Button onClick={onClose}>Back to Events</Button>
-      </div>
-      {error && (
-        <p className="app-error" role="alert">
-          {error}{' '}
-          <Button onClick={() => setRetry((value) => value + 1)}>
-            Retry Event
+        <h2 className="github-event-title">{event?.title || 'GitHub event'}</h2>
+        <div className="app-actions">
+          <Button
+            onClick={() => {
+              setRetry((value) => value + 1);
+              onRefreshSources();
+            }}
+          >
+            {readError ? 'Retry Event' : 'Refresh Event'}
           </Button>
+          <Button onClick={onClose}>Back to Events</Button>
+        </div>
+      </div>
+      {readError && (
+        <p className="app-error" role="alert">
+          {readError}
         </p>
       )}
-      {!event && !error && <p role="status">Loading event…</p>}
+      {!event && !readError && <p role="status">Loading event…</p>}
       {event && (
         <>
-          <p>
-            {labels[event.status]} · {event.repository} · {event.kind} /{' '}
-            {event.action || 'ping'}
-          </p>
-          <p>
-            {event.actorLogin && `GitHub: @${event.actorLogin} · `}Received{' '}
-            {new Date(event.receivedAt).toLocaleString()}
-          </p>
-          <div className="app-actions">
+          <div className="github-event-meta">
             {event.url && (
               <a href={event.url} target="_blank" rel="noreferrer">
-                Open on GitHub
+                {event.repository}
+                {event.number ? ` #${event.number}` : ''}
               </a>
             )}
-            <a href={githubApi.payloadURL(event.id)} download>
-              Download Original Payload
-            </a>
+            {event.actorLogin && <span>@{event.actorLogin}</span>}
+            <span>{labels[event.status]}</span>
           </div>
           {event.body && <pre className="github-event-body">{event.body}</pre>}
           {event.status === 'pending' && (
             <>
-              <p>
-                Confirm a goal and participants to start Agent work. The
-                original event will be included as external context.
-              </p>
               <Button
                 primary
                 disabled={
@@ -119,9 +119,9 @@ function EventDetail({
                 }
                 onClick={() => onPrepare(event)}
               >
-                Start collaboration…
+                {sourcesReady ? 'Start collaboration…' : 'Loading source…'}
               </Button>
-              {!source?.enabled && (
+              {sourcesReady && !source?.enabled && (
                 <p className="app-error">
                   This source is disabled or unavailable. An administrator must
                   enable it before confirmation.
@@ -170,6 +170,22 @@ function EventDetail({
           {event.decisionReason && event.status === 'dismissed' && (
             <p>{event.decisionReason}</p>
           )}
+          <details>
+            <summary>Event details</summary>
+            <dl className="github-facts">
+              <dt>Event</dt>
+              <dd>
+                {event.kind} / {event.action || 'ping'}
+              </dd>
+              <dt>Repository ID</dt>
+              <dd>{event.repositoryId}</dd>
+              <dt>Received</dt>
+              <dd>{new Date(event.receivedAt).toLocaleString()}</dd>
+            </dl>
+            <a href={githubApi.payloadURL(event.id)} download>
+              Download Original Payload
+            </a>
+          </details>
           {operation.feedback}
         </>
       )}
@@ -182,11 +198,13 @@ export function GitHubEvents({
   members,
   onOpenTask,
   onClose,
+  availability,
 }: {
   room: Room;
   members: Agent[];
   onOpenTask: (id: string) => void;
   onClose: () => void;
+  availability?: Pick<WorkspaceStatus, 'available' | 'reason'>;
 }) {
   const team = useTeam();
   const [sources, setSources] = useState<GitHubSource[]>([]);
@@ -284,6 +302,7 @@ export function GitHubEvents({
         room={room}
         members={members}
         threadId=""
+        availability={availability}
         sourceEvent={{
           id: preparing.id,
           title: `Address ${preparing.repository}#${preparing.number}: ${preparing.title}`,
@@ -298,16 +317,18 @@ export function GitHubEvents({
       className="workspace-panel github-panel"
       aria-label="GitHub events"
     >
-      <div className="workspace-panel-heading">
-        <h2>GitHub events</h2>
-        <div className="app-actions">
-          <Button onClick={() => setRetry((value) => value + 1)}>
-            Refresh Events
-          </Button>
-          <Button onClick={onClose}>Back to Chat</Button>
+      {!selected && (
+        <div className="workspace-panel-heading">
+          <h2>GitHub events</h2>
+          <div className="app-actions">
+            <Button onClick={() => setRetry((value) => value + 1)}>
+              Refresh Events
+            </Button>
+            <Button onClick={onClose}>Back to Chat</Button>
+          </div>
         </div>
-      </div>
-      {sourcesError && (
+      )}
+      {sourcesError && !selected && (
         <p className="app-error" role="alert">
           {sourcesError}
         </p>
@@ -318,33 +339,33 @@ export function GitHubEvents({
           id={selected}
           sources={sources}
           sourcesError={sourcesError}
+          sourcesReady={sourcesReady}
+          onRefreshSources={() => setRetry((value) => value + 1)}
           onPrepare={setPreparing}
           onOpenTask={onOpenTask}
           onClose={() => setSelected('')}
         />
       ) : (
         <>
-          <p>
-            Observation only. Events wait here until a teammate confirms or
-            dismisses them.
-          </p>
-          {sourcesReady && (
-            <GitHubSources roomId={room.id} sources={sources} error="" />
-          )}
-          <Select
-            label="Event state"
-            value={state}
-            onChange={(event) => {
-              setState(event.target.value);
-              setPage(null);
-            }}
-          >
-            <option value="pending">Awaiting confirmation</option>
-            <option value="all">All events</option>
-            <option value="accepted">Collaboration started</option>
-            <option value="dismissed">Dismissed</option>
-            <option value="ignored">Ignored</option>
-          </Select>
+          <div className="github-list-controls">
+            <Select
+              aria-label="Event state"
+              value={state}
+              onChange={(event) => {
+                setState(event.target.value);
+                setPage(null);
+              }}
+            >
+              <option value="pending">Awaiting confirmation</option>
+              <option value="all">All events</option>
+              <option value="accepted">Collaboration started</option>
+              <option value="dismissed">Dismissed</option>
+              <option value="ignored">Ignored</option>
+            </Select>
+            {sourcesReady && (
+              <GitHubSources roomId={room.id} sources={sources} />
+            )}
+          </div>
           {error && (
             <p className="app-error" role="alert">
               {error}{' '}
@@ -371,7 +392,7 @@ export function GitHubEvents({
                   onClick={() => setSelected(event.id)}
                 >
                   <strong>{event.title || event.kind}</strong>
-                  <span>{labels[event.status]}</span>
+                  {state === 'all' && <span>{labels[event.status]}</span>}
                   <small>
                     {event.repository}
                     {event.number ? ` #${event.number}` : ''} ·{' '}
