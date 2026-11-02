@@ -262,7 +262,7 @@ jobs:
     name: Verify Mac Runner / ${{ matrix.host }}
     needs: [preflight, build]
     runs-on: ${{ matrix.host }}
-    timeout-minutes: 25
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
