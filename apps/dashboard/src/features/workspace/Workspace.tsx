@@ -629,6 +629,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
             ) : (
               <RoomTimeline
                 key={`${roomId}:${threadId}`}
+                desktop={desktop}
                 room={room}
                 threadId={threadId}
                 messages={workspace.messages}

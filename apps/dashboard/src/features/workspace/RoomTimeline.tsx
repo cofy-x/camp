@@ -5,7 +5,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { Button, PixelIcon } from '@cofy-x/camp-platinum';
+import { Button, PixelIcon, type DesktopAPI } from '@cofy-x/camp-platinum';
 import { useTeam } from '../../team/TeamContext';
 import { IdentityAvatar } from '../identity/IdentityAvatar';
 import type { Agent, Message, Reference, Resource, Room, Run } from './api';
@@ -15,6 +15,7 @@ import { CitedReply } from './CitedReply';
 import { Composer } from './Composer';
 import { References } from './References';
 import { WorkActivity } from './WorkActivity';
+import { SystemMessage } from './SystemMessage';
 import {
   conversationKey,
   readStored,
@@ -164,6 +165,7 @@ function WorkCard({
 }
 
 export function RoomTimeline({
+  desktop,
   room,
   threadId,
   messages,
@@ -184,6 +186,7 @@ export function RoomTimeline({
   onAgents,
   onSetup,
 }: {
+  desktop: DesktopAPI;
   room: Room;
   threadId: string;
   messages: Message[];
@@ -357,9 +360,7 @@ export function RoomTimeline({
           const author =
             message.authorKind === 'user'
               ? message.authorName || 'Team member'
-              : message.authorKind === 'system'
-                ? 'Camp'
-                : (agent?.name ?? 'Agent');
+              : (agent?.name ?? 'Agent');
           const work = conversationRuns.filter(
             (item) =>
               item.originMessageId === message.id &&
@@ -376,6 +377,33 @@ export function RoomTimeline({
             [...threadRuns].sort((a, b) =>
               b.updatedAt.localeCompare(a.updatedAt),
             )[0];
+          if (message.authorKind === 'system')
+            return (
+              <SystemMessage
+                key={message.id}
+                desktop={desktop}
+                message={message}
+                resources={resources}
+                highlighted={sourceId === message.id}
+                threadLabel={
+                  threadWork
+                    ? `Open thread · ${statusLabel[threadWork.status]}`
+                    : 'Reply in thread'
+                }
+                onReview={onReview}
+                onTask={(id) =>
+                  void team.navigate({
+                    app: 'workspace',
+                    roomId: room.id,
+                    taskId: id,
+                  })
+                }
+                onInspect={onInspect}
+                onAsk={() => onAsk(message)}
+                onThread={!threadId ? () => onThread(message.id) : undefined}
+                onSource={onSource}
+              />
+            );
           return (
             <article
               className={`workspace-message author-${message.authorKind} ${sourceId === message.id ? 'is-source' : ''}`}
@@ -387,18 +415,14 @@ export function RoomTimeline({
               tabIndex={-1}
             >
               <div className="workspace-message-avatar">
-                {message.authorKind === 'system' ? (
-                  <PixelIcon name="info" size={32} />
-                ) : (
-                  <IdentityAvatar
-                    avatar={
-                      message.authorKind === 'agent'
-                        ? (currentAgent?.avatar ?? agent?.avatar)
-                        : person?.avatar
-                    }
-                    kind={message.authorKind === 'agent' ? 'agent' : 'member'}
-                  />
-                )}
+                <IdentityAvatar
+                  avatar={
+                    message.authorKind === 'agent'
+                      ? (currentAgent?.avatar ?? agent?.avatar)
+                      : person?.avatar
+                  }
+                  kind={message.authorKind === 'agent' ? 'agent' : 'member'}
+                />
               </div>
               <div className="workspace-message-copy">
                 <header>

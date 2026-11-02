@@ -57,6 +57,51 @@ func publishReviewVersion(t *testing.T, f reviewFixture, commit string) {
 		t.Fatal(err)
 	}
 }
+
+func TestReviewSelfReviewAttributionUsesIdentity(t *testing.T) {
+	for _, name := range []string{"self", "other", "same display name"} {
+		t.Run(name, func(t *testing.T) {
+			f := newReviewFixture(t)
+			owner, _ := UserFromContext(f.owner)
+			reviewer, _ := UserFromContext(f.reviewer)
+			if name == "self" {
+				f.input.ReviewerUserID = owner.ID
+			} else if name == "same display name" {
+				if _, err := f.store.db.ExecContext(ctx, "UPDATE users SET name=? WHERE id=?", owner.Name, reviewer.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			created := requestReview(t, f)
+			messages, err := f.store.ListMessages(f.owner, f.room.ID, "", 0)
+			if err != nil || len(messages) == 0 {
+				t.Fatal(messages, err)
+			}
+			message := messages[len(messages)-1]
+			want := fmt.Sprintf("%s requested %s's review of %s.", owner.Name, created.Review.ReviewerName, f.input.Title)
+			if name == "self" {
+				want = fmt.Sprintf("%s started a self-review of %s.", owner.Name, f.input.Title)
+			}
+			if message.Content != want || message.AuthorUserID != owner.ID || message.ID != created.Review.ThreadRootID || len(message.References) != 1 || message.References[0].Commit != f.input.Commit {
+				t.Fatalf("incorrect review attribution: %+v", message)
+			}
+			if name != "self" {
+				return
+			}
+			changes := reviewAction(t, f, f.owner, created, "request_changes", "Clarify the owner.", "")
+			commit := strings.Repeat("b", 40)
+			publishReviewVersion(t, f, commit)
+			resubmitted := reviewAction(t, f, f.owner, changes, "resubmit", "Owner clarified.", commit)
+			messages, err = f.store.ListMessages(f.owner, f.room.ID, created.Review.ThreadRootID, 0)
+			if err != nil || len(messages) != len(resubmitted.Events) {
+				t.Fatal(messages, err)
+			}
+			last := messages[len(messages)-1]
+			if messages[0].Content != want || last.Content != fmt.Sprintf("%s submitted a version of %s for self-review.\n\nOwner clarified.", owner.Name, f.input.Title) || last.References[0].Commit != commit {
+				t.Fatalf("self-review lost its original or resubmission: %+v", messages)
+			}
+		})
+	}
+}
 func TestReviewRevisionDecisionDeliveryAndThread(t *testing.T) {
 	f := newReviewFixture(t)
 	first := requestReview(t, f)
@@ -221,6 +266,10 @@ func TestReviewDisabledActorReassignmentAndCancellation(t *testing.T) {
 	reassigned, err := f.store.ActOnReview(f.owner, r.Review.ID, ReviewActionInput{RequestID: "reassign", Revision: 1, Action: "reassign", ReviewerUserID: owner.ID})
 	if err != nil || !reassigned.Review.ReviewerEnabled || reassigned.Review.ReviewerUserID != owner.ID {
 		t.Fatal(reassigned, err)
+	}
+	messages, err := f.store.ListMessages(f.owner, f.room.ID, r.Review.ThreadRootID, 0)
+	if err != nil || len(messages) != 2 || messages[1].Content != fmt.Sprintf("%s assigned the review of %s to themselves. A new decision is required.", owner.Name, r.Review.Title) {
+		t.Fatal(messages, err)
 	}
 	approved := reviewAction(t, f, f.owner, reassigned, "approve", "Self-reviewed by the named requester.", "")
 	cancelled := reviewAction(t, f, f.owner, approved, "cancel", "Superseded by a new proposal.", "")

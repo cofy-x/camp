@@ -228,6 +228,38 @@
   font-size: 11px;
   background: #fafafa;
 }
+.workspace-message.workspace-system-event {
+  padding-block: 9px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.workspace-system-event-icon {
+  display: flex;
+  justify-content: center;
+  flex: 0 0 32px;
+  padding-top: 2px;
+}
+.workspace-system-event-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 14px;
+  row-gap: 3px;
+}
+.workspace-system-event-row > .workspace-message-text {
+  flex: 1 1 280px;
+  margin: 0;
+}
+.workspace-system-event-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+.workspace-system-event-more {
+  min-width: 22px;
+  padding-inline: 3px;
+}
 .workspace-result-status {
   font-size: 10px;
   color: #555;
@@ -879,6 +911,9 @@
   .workspace-message-avatar .p9-avatar {
     width: 24px;
     height: 24px;
+  }
+  .workspace-system-event-icon {
+    flex-basis: 24px;
   }
   .workspace-composer {
     padding: 7px 9px;
