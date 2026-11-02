@@ -27,7 +27,7 @@ Early releases use numbered `alpha`, `beta` and `rc` versions. Alpha/beta versio
 Install the fixed release entrypoint using the [pinned Go toolchain](../CONTRIBUTING.md#development):
 
 ```sh
-go install github.com/cofy-x/camp@v0.1.0-alpha.8
+go install github.com/cofy-x/camp@v0.1.0-alpha.9
 camp
 ```
 
@@ -49,7 +49,7 @@ brew install cofy-x/camp/camp
 camp
 ```
 
-The explicit repository URL is required because this tap lives in the Camp repository. The fully qualified formula selects Camp's own package. The formula pins `v0.1.0-alpha.8`; release maintainers update it in a reviewed PR after public verification. `brew upgrade cofy-x/camp/camp` is an explicit installation update; stop Camp and retain a full backup first. Homebrew keeps team data outside its Cellar and never starts a Camp service. On Apple Silicon, run `camp runner setup` directly: its compiled catalog pins the native runtime without a second installer download. Intel Mac connects a separate supported Runner.
+The explicit repository URL is required because this tap lives in the Camp repository. The fully qualified formula selects Camp's own package. The formula pins `v0.1.0-alpha.9`; release maintainers update it in a reviewed PR after public verification. `brew upgrade cofy-x/camp/camp` is an explicit installation update; stop Camp and retain a full backup first. Homebrew keeps team data outside its Cellar and never starts a Camp service. On Apple Silicon, run `camp runner setup` directly: its compiled catalog pins the native runtime without a second installer download. Intel Mac connects a separate supported Runner.
 
 ### Standalone Server
 
