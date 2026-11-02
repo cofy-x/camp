@@ -407,6 +407,14 @@ try {
   }
 
   if (upgrading) {
+    // Optional local reruns reuse only already verified immutable runtime files,
+    // never another installation's identity, credentials or durable journal.
+    if (previousUpgrade && process.env.CAMP_TEST_UPGRADE_RUNTIME_CACHE)
+      await cp(
+        path.resolve(process.env.CAMP_TEST_UPGRADE_RUNTIME_CACHE),
+        path.join(runnerData, 'runtime/cache'),
+        { recursive: true, errorOnExist: true, force: false },
+      );
     const previous = await baselineLauncher(dir, 'runner', baseline);
     runnerEnv.XDG_CACHE_HOME = previous.cache;
     const setup = await setupWith(previous.binary, token, true);
@@ -480,11 +488,25 @@ try {
         (item) => item.id === previousConfig.runnerId,
       );
       assert.notEqual(oldRunner.capabilities.taskInputsVersion, 1);
-      let { room: compatRoom } = await api(
-        `/api/rooms/${previousImport.roomId}`,
+      let compatRoom = (await api('/api/rooms')).rooms.find(
+        (room) => room.id === previousImport.roomId,
+      );
+      assert.ok(compatRoom);
+      const { agent: compatAgent } = await api(
+        `/api/rooms/${compatRoom.id}/agents`,
+        'POST',
+        {
+          name: 'Package compatibility writer',
+          handle: 'package-compatibility-writer',
+          access: 'write',
+          enabled: true,
+          preferredRunnerId: oldRunner.id,
+          instructions:
+            'Use only the requested Camp tool to verify package compatibility.',
+        },
       );
       await api(
-        `/api/runners/${oldRunner.id}/agents/${compatRoom.defaultAgentId}`,
+        `/api/runners/${oldRunner.id}/agents/${compatAgent.id}`,
         'PUT',
         {},
       );
@@ -496,8 +518,8 @@ try {
       const legacy = await api(`/api/rooms/${compatRoom.id}/tasks`, 'POST', {
         requestId: randomUUID(),
         goal: 'Camp previous-package compatibility: finish legacy work.',
-        participantAgentIds: [compatRoom.defaultAgentId],
-        firstAgentId: compatRoom.defaultAgentId,
+        participantAgentIds: [compatAgent.id],
+        firstAgentId: compatAgent.id,
       });
       const legacyResult = await until(
         'Previous package legacy task',
@@ -517,8 +539,8 @@ try {
           inputProtocol: 1,
           requestId: randomUUID(),
           goal: 'Camp previous-package compatibility: Read original history and finish.',
-          participantAgentIds: [compatRoom.defaultAgentId],
-          firstAgentId: compatRoom.defaultAgentId,
+          participantAgentIds: [compatAgent.id],
+          firstAgentId: compatAgent.id,
         },
       ));
       await api(`/api/tasks/${protocolTask.id}/inputs?view=summary`, 'POST', {
@@ -1370,6 +1392,9 @@ try {
               journalPreserved: true,
               ...(previousUpgrade
                 ? {
+                    baselineRuntimeCacheReused: Boolean(
+                      process.env.CAMP_TEST_UPGRADE_RUNTIME_CACHE,
+                    ),
                     legacyProtocolAccepted: true,
                     unsupportedInputProtocolQueued: true,
                     upgradedInputHistoryVerified: true,
