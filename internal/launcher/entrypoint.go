@@ -38,6 +38,7 @@ Commands:
   doctor    Check local Server prerequisites without changing data
   open      Open the browser address (use --print on headless hosts)
   runner    Set up or operate a supported Mac or Linux Runner
+  storage   Inspect or maintain stopped Server storage
   version   Print this fixed installation's version
 
 The first invocation downloads and verifies this version's full release package.
