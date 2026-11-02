@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
+import { runnerReplyProxy } from './upgrade-proxy.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   chmod,
@@ -19,7 +21,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 import { command, root, stop, waitFor } from './lib.mjs';
-import { baselineLauncher, upgradeBaseline } from './upgrade.mjs';
+import {
+  baselineLauncher,
+  upgradeBaseline,
+  previousRelease,
+} from './upgrade.mjs';
 import { setupPhases } from './setup-progress.mjs';
 import { captureTree } from '../tools/layerfs-worker/tree.mjs';
 
@@ -40,11 +46,15 @@ assert.ok(
     'github',
     'github-offline',
     'github-upgrade',
+    'previous-upgrade',
   ].includes(mode),
 );
 const publicDownload = mode.startsWith('github');
 const offline = mode.endsWith('offline');
-const upgrading = mode === 'upgrade' || mode === 'github-upgrade';
+const previousUpgrade = mode === 'previous-upgrade';
+const upgrading =
+  previousUpgrade || mode === 'upgrade' || mode === 'github-upgrade';
+const baseline = previousUpgrade ? previousRelease : upgradeBaseline;
 const mac = process.platform === 'darwin' && process.arch === 'arm64';
 const target = mac ? 'darwin-arm64' : 'linux-amd64';
 const checkpointWorker =
@@ -53,7 +63,7 @@ assert.ok(
   !checkpointWorker || mac,
   'The native checkpoint worker fixture requires an ARM64 Mac.',
 );
-if (upgrading && mac)
+if (upgrading && mac && !previousUpgrade)
   throw new Error('The public upgrade baseline has no Mac Runner.');
 const reportFile = path.join(
   root,
@@ -87,6 +97,13 @@ let calls = 0;
 let previousConfig;
 let previousImport;
 let previousJournal;
+let previousImportRequest;
+let replyProxy;
+let legacyOperation;
+let previousCompletion;
+let protocolTask;
+let firstNativeRunId = '';
+let compatibilityRequests = 0;
 let passed = false;
 const timings = {};
 
@@ -101,14 +118,48 @@ async function until(label, read, accept) {
 }
 
 const provider = createServer(async (request, response) => {
-  for await (const chunk of request) void chunk;
-  calls++;
-  if (calls > 2) {
+  const chunks = [];
+  for await (const chunk of request) chunks.push(chunk);
+  const body = Buffer.concat(chunks).toString('utf8');
+  const compatibility = body.includes('Camp previous-package compatibility');
+  if (compatibility) {
+    compatibilityRequests++;
+    if (previousUpgrade && compatibilityRequests === 1)
+      replyProxy.holdReplies();
+  } else calls++;
+  if ((!compatibility && calls > 2) || compatibilityRequests > 4) {
     response.writeHead(500).end('Unexpected extra model request');
     return;
   }
-  const content =
-    calls === 1
+
+  function historyResultIn(value) {
+    if (!value || typeof value !== 'object') return false;
+    if (
+      value.type === 'tool_result' &&
+      value.tool_use_id === 'upgrade-history-read'
+    )
+      return true;
+    return Object.values(value).some(historyResultIn);
+  }
+
+  const historyResult = compatibility && historyResultIn(JSON.parse(body));
+  if (historyResult)
+    assert.ok(body.includes('previous-package-original-input'));
+  const content = compatibility
+    ? body.includes('Read original history') && !historyResult
+      ? {
+          type: 'tool_use',
+          id: 'upgrade-history-read',
+          name: 'camp_read_task_inputs',
+          input: { after: 0, limit: 1 },
+        }
+      : {
+          type: 'tool_use',
+          id: 'upgrade-finish',
+          name: 'camp_finish',
+          input: { summary: 'Previous package compatibility verified.' },
+        }
+    : calls === 1
       ? {
           type: 'tool_use',
           id: 'bundle-write',
@@ -140,7 +191,9 @@ node --test`,
     { type: 'content_block_stop', index: 0 },
     {
       type: 'message_delta',
-      delta: { stop_reason: calls === 1 ? 'tool_use' : 'end_turn' },
+      delta: {
+        stop_reason: compatibility || calls === 1 ? 'tool_use' : 'end_turn',
+      },
       usage: { output_tokens: 1 },
     },
     { type: 'message_stop' },
@@ -194,6 +247,7 @@ try {
   const port = socket.address().port;
   await new Promise((resolve) => socket.close(resolve));
   const origin = `http://127.0.0.1:${port}`;
+  if (previousUpgrade) replyProxy = await runnerReplyProxy(port);
   child = spawn(
     path.join(root, 'dist/camp'),
     ['serve', '--addr', `127.0.0.1:${port}`, '--data-dir', data],
@@ -221,6 +275,25 @@ try {
     assert.ok(response.ok, `${method} ${url}: ${JSON.stringify(value)}`);
     return value;
   };
+
+  function recordedInputProtocol(id) {
+    // The browser DTO intentionally omits internal admission feature versions.
+    const database = new DatabaseSync(path.join(data, 'desktop.sqlite'), {
+      readOnly: true,
+    });
+    try {
+      return (
+        database
+          .prepare(
+            "SELECT json_extract(capabilities,'$.taskInputsVersion') AS version FROM runners WHERE id=?",
+          )
+          .get(id)?.version ?? 0
+      );
+    } finally {
+      database.close();
+    }
+  }
+
   await api('/api/auth/setup', 'POST', {
     token: (await readFile(path.join(data, 'team-setup.token'), 'utf8')).trim(),
     username: 'release-admin',
@@ -300,7 +373,7 @@ try {
     'runner',
     'setup',
     '--server',
-    origin,
+    replyProxy?.origin ?? origin,
     '--name',
     'Installed Camp Runner',
     '--data-dir',
@@ -353,7 +426,22 @@ try {
   }
 
   if (upgrading) {
-    const previous = await baselineLauncher(dir, 'runner');
+    // Optional local reruns reuse only already verified immutable runtime files,
+    // never another installation's identity, credentials or durable journal.
+    if (previousUpgrade && process.env.CAMP_TEST_UPGRADE_RUNTIME_CACHE) {
+      await mkdir(runnerData, { mode: 0o700 });
+      await cp(
+        path.resolve(process.env.CAMP_TEST_UPGRADE_RUNTIME_CACHE),
+        path.join(runnerData, 'runtime/cache'),
+        {
+          recursive: true,
+          errorOnExist: true,
+          force: false,
+          verbatimSymlinks: true,
+        },
+      );
+    }
+    const previous = await baselineLauncher(dir, 'runner', baseline);
     runnerEnv.XDG_CACHE_HOME = previous.cache;
     const setup = await setupWith(previous.binary, token, true);
     // Do not publish legacy transport diagnostics or private configuration.
@@ -395,13 +483,18 @@ try {
         ),
     );
     const source = sources.find((item) => item.alias === 'upgrade-notes');
-    const imported = await api('/api/source-imports', 'POST', {
+    previousImportRequest = {
       requestId: randomUUID(),
       runnerId: previousConfig.runnerId,
       sourceId: source.id,
       expectedSourceRevision: source.revision,
       roomName: 'Before Runner upgrade',
-    });
+    };
+    const imported = await api(
+      '/api/source-imports',
+      'POST',
+      previousImportRequest,
+    );
     const receipt = await until(
       'Baseline durable source import',
       () => api(`/api/source-imports/${imported.sourceImport.id}`),
@@ -416,8 +509,113 @@ try {
       'Baseline source import failed',
     );
     previousImport = receipt.sourceImport;
+    if (previousUpgrade) {
+      const oldRunner = (await api('/api/runners')).runners.find(
+        (item) => item.id === previousConfig.runnerId,
+      );
+      assert.notEqual(recordedInputProtocol(oldRunner.id), 1);
+      let compatRoom = (await api('/api/rooms')).rooms.find(
+        (room) => room.id === previousImport.roomId,
+      );
+      assert.ok(compatRoom);
+      const { agent: compatAgent } = await api(
+        `/api/rooms/${compatRoom.id}/agents`,
+        'POST',
+        {
+          name: 'Package compatibility writer',
+          handle: 'package-compatibility-writer',
+          access: 'write',
+          enabled: true,
+          preferredRunnerId: oldRunner.id,
+          instructions:
+            'Use only the requested Camp tool to verify package compatibility.',
+        },
+      );
+      await api(
+        `/api/runners/${oldRunner.id}/agents/${compatAgent.id}`,
+        'PUT',
+        {},
+      );
+      ({ room: compatRoom } = await api(
+        `/api/rooms/${compatRoom.id}/runner`,
+        'PUT',
+        { runnerId: oldRunner.id, revision: compatRoom.runnerRevision },
+      ));
+      const legacy = await api(`/api/rooms/${compatRoom.id}/tasks`, 'POST', {
+        requestId: randomUUID(),
+        goal: 'Camp previous-package compatibility: finish legacy work.',
+        participantAgentIds: [compatAgent.id],
+        firstAgentId: compatAgent.id,
+      });
+      const legacyResult = await until(
+        'Previous package legacy task',
+        () => api(`/api/tasks/${legacy.task.id}`),
+        (value) =>
+          !['queued', 'running', 'publishing'].includes(value.task.status),
+      );
+      assert.equal(legacyResult.task.status, 'completed');
+      assert.equal(legacyResult.runs.length, 1);
+      assert.equal(legacyResult.runs[0].status, 'succeeded');
+      firstNativeRunId = legacyResult.runs[0].id;
+      legacyOperation = legacyResult.runs[0].attemptId;
+      ({ task: protocolTask } = await api(
+        `/api/rooms/${compatRoom.id}/tasks?view=summary`,
+        'POST',
+        {
+          inputProtocol: 1,
+          requestId: randomUUID(),
+          goal: 'Camp previous-package compatibility: Read original history and finish.',
+          participantAgentIds: [compatAgent.id],
+          firstAgentId: compatAgent.id,
+        },
+      ));
+      await api(`/api/tasks/${protocolTask.id}/inputs?view=summary`, 'POST', {
+        inputProtocol: 1,
+        requestId: randomUUID(),
+        content: 'previous-package-original-input',
+      });
+      await until(
+        'Previous package scheduling heartbeat',
+        () => api('/api/runners'),
+        (value) =>
+          value.runners.some(
+            (item) =>
+              item.id === oldRunner.id &&
+              item.lastSeenAt !== oldRunner.lastSeenAt,
+          ),
+      );
+      const queued = await api(`/api/tasks/${protocolTask.id}`);
+      assert.equal(queued.task.status, 'queued');
+      assert.equal(queued.task.turnsUsed, 0);
+      assert.equal(queued.task.modelRequestsUsed, 0);
+      assert.equal(queued.task.draftFence, protocolTask.draftFence);
+      assert.equal(queued.task.activeAttemptId, '');
+      assert.ok(
+        queued.runs.every((run) => run.status === 'queued' && !run.attemptId),
+      );
+      assert.equal(compatibilityRequests, 1);
+    }
     await stop(runner);
     runner = undefined;
+    if (previousUpgrade) {
+      const journal = new DatabaseSync(
+        path.join(runnerData, 'journal.sqlite'),
+        { readOnly: true },
+      );
+      try {
+        const operation = journal
+          .prepare('SELECT state,result FROM commands WHERE operation_id=?')
+          .get(legacyOperation);
+        assert.equal(operation.state, 'uploading');
+        previousCompletion = JSON.parse(
+          Buffer.from(operation.result).toString('utf8'),
+        ).completionId;
+        assert.ok(previousCompletion);
+      } finally {
+        journal.close();
+      }
+      replyProxy.releaseReplies();
+    }
     previousJournal = createHash('sha256')
       .update(await readFile(path.join(runnerData, 'journal.sqlite')))
       .digest('hex');
@@ -510,7 +708,7 @@ try {
       'runner',
       'setup',
       '--server',
-      origin,
+      replyProxy?.origin ?? origin,
       '--name',
       'Installed Camp Runner',
       '--data-dir',
@@ -573,7 +771,12 @@ try {
   do {
     const { runners } = await api('/api/runners');
     assigned = runners.find((item) => item.name === 'Installed Camp Runner');
-    if (assigned?.online && assigned.capabilities?.ready) break;
+    if (
+      assigned?.online &&
+      assigned.capabilities?.ready &&
+      (!previousUpgrade || recordedInputProtocol(assigned.id) === 1)
+    )
+      break;
     if (runner.exitCode !== null)
       throw new Error(`Runner stopped: ${runnerOutput}`);
     await pause(250);
@@ -611,8 +814,8 @@ try {
   if (checkpointWorker)
     assert.equal(assigned.capabilities.layerfsVersion, '1.1.0');
   else if (mac) assert.equal(assigned.capabilities.layerfsVersion, undefined);
-  assert.equal(assigned.firstTaskRunId, '');
-  assert.equal(assigned.firstTaskSucceededAt, '');
+  assert.equal(assigned.firstTaskRunId, firstNativeRunId);
+  if (!previousUpgrade) assert.equal(assigned.firstTaskSucceededAt, '');
   assert.equal(assigned.modelConfigured, true);
   if (upgrading) {
     const retained = (await api(`/api/source-imports/${previousImport.id}`))
@@ -623,6 +826,56 @@ try {
       await readFile(path.join(sourceDirectory, 'before-upgrade.txt'), 'utf8'),
       'Preserve the original source.\n',
     );
+  }
+  if (previousUpgrade) {
+    assert.equal(recordedInputProtocol(assigned.id), 1);
+    const recovered = await api(
+      '/api/source-imports',
+      'POST',
+      previousImportRequest,
+    );
+    assert.equal(recovered.sourceImport.id, previousImport.id);
+    assert.equal(recovered.sourceImport.status, 'succeeded');
+    const result = await until(
+      'Upgraded package bounded-input task',
+      () => api(`/api/tasks/${protocolTask.id}`),
+      (value) =>
+        !['queued', 'running', 'publishing'].includes(value.task.status),
+    );
+    assert.equal(result.task.status, 'completed');
+    assert.equal(result.runs.length, 1);
+    assert.equal(result.runs[0].taskInputProtocol, 1);
+    assert.equal(result.task.processedInputRevision, 1);
+    assert.equal(compatibilityRequests, 3);
+    const journal = new DatabaseSync(path.join(runnerData, 'journal.sqlite'), {
+      readOnly: true,
+    });
+    try {
+      const operation = journal
+        .prepare('SELECT state,receipt FROM commands WHERE operation_id=?')
+        .get(legacyOperation);
+      assert.equal(operation.state, 'terminal');
+      const receipt = JSON.parse(
+        Buffer.from(operation.receipt).toString('utf8'),
+      );
+      assert.equal(receipt.disposition, 'committed');
+      assert.equal(receipt.runId, firstNativeRunId);
+    } finally {
+      journal.close();
+    }
+    const serverDatabase = new DatabaseSync(path.join(data, 'desktop.sqlite'), {
+      readOnly: true,
+    });
+    try {
+      assert.equal(
+        serverDatabase
+          .prepare('SELECT result_id FROM run_attempts WHERE id=?')
+          .get(legacyOperation).result_id,
+        previousCompletion,
+      );
+    } finally {
+      serverDatabase.close();
+    }
   }
   const { rooms } = await api('/api/rooms');
   let room =
@@ -676,7 +929,7 @@ try {
   const completedRunner = completedRunners.runners.find(
     (item) => item.id === assigned.id,
   );
-  assert.equal(completedRunner.firstTaskRunId, run.id);
+  assert.equal(completedRunner.firstTaskRunId, firstNativeRunId || run.id);
   assert.ok(completedRunner.firstTaskSucceededAt);
   assert.equal(completedRunner.earlierTaskRunId, undefined);
   const response = await fetch(
@@ -1120,7 +1373,7 @@ try {
   assert.equal(
     (await api('/api/runners')).runners.find((item) => item.id === assigned.id)
       .firstTaskRunId,
-    run.id,
+    firstNativeRunId || run.id,
   );
   await stop(child);
   child = undefined;
@@ -1166,10 +1419,22 @@ try {
         archiveSHA256: artifact.sha256,
         ...(upgrading
           ? {
-              fromVersion: upgradeBaseline,
+              fromVersion: baseline,
               runnerIdentityPreserved: true,
               durableSourceReceiptPreserved: true,
               journalPreserved: true,
+              ...(previousUpgrade
+                ? {
+                    baselineRuntimeCacheProvided: Boolean(
+                      process.env.CAMP_TEST_UPGRADE_RUNTIME_CACHE,
+                    ),
+                    legacyProtocolAccepted: true,
+                    unsupportedInputProtocolQueued: true,
+                    upgradedInputHistoryVerified: true,
+                    sourceReceiptRetryPreserved: true,
+                    lostCompletionReplyRecovered: true,
+                  }
+                : {}),
             }
           : {}),
         completedAt: new Date().toISOString(),
@@ -1179,7 +1444,7 @@ try {
         ...(checkpointStorage ? { checkpointStorage } : {}),
         model: {
           kind: 'deterministic-local-provider',
-          requests: calls,
+          requests: calls + compatibilityRequests,
           paid: false,
         },
         checks: [
@@ -1252,6 +1517,7 @@ try {
     }
   }
   if (runner) await stop(runner);
+  if (replyProxy) await replyProxy.close();
   if (child) await stop(child);
   provider.closeAllConnections();
   await new Promise((resolve) => provider.close(resolve));

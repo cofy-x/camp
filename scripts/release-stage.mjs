@@ -3,7 +3,11 @@ import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { root } from './lib.mjs';
 import { hashFile, releaseIdentity, verifyRelease } from './release.mjs';
-import { upgradeBaseline } from './upgrade.mjs';
+import {
+  upgradeBaseline,
+  previousRelease,
+  verifyPreviousRunnerUpgrade,
+} from './upgrade.mjs';
 import { verifyWorkerArtifact } from './worker-release.mjs';
 
 const identity = await releaseIdentity();
@@ -26,7 +30,19 @@ assert.equal(
   upgrade.binarySHA256,
   await hashFile(join(directory, 'camp-server-linux-amd64/camp')),
 );
-for (const mode of ['online', 'offline', 'upgrade']) {
+const previousUpgrade = JSON.parse(
+  await readFile(
+    join(directory, 'server-previous-upgrade-verification.json'),
+    'utf8',
+  ),
+);
+assert.equal(previousUpgrade.status, 'passed');
+assert.equal(previousUpgrade.version, identity.version);
+assert.equal(previousUpgrade.sourceCommit, identity.sourceCommit);
+assert.equal(previousUpgrade.sourceModified, false);
+assert.equal(previousUpgrade.fromVersion, previousRelease);
+assert.equal(previousUpgrade.binarySHA256, upgrade.binarySHA256);
+for (const mode of ['online', 'offline', 'upgrade', 'previous-upgrade']) {
   const report = JSON.parse(
     await readFile(join(directory, `smoke-${mode}.json`), 'utf8'),
   );
@@ -39,8 +55,11 @@ for (const mode of ['online', 'offline', 'upgrade']) {
       ? runner.runners['linux-amd64'].offline.sha256
       : runner.runners['linux-amd64'].installer.sha256,
   );
-  if (mode === 'upgrade') {
-    assert.equal(report.fromVersion, upgradeBaseline);
+  if (mode === 'upgrade' || mode === 'previous-upgrade') {
+    assert.equal(
+      report.fromVersion,
+      mode === 'upgrade' ? upgradeBaseline : previousRelease,
+    );
     for (const field of [
       'runnerIdentityPreserved',
       'durableSourceReceiptPreserved',
@@ -48,6 +67,8 @@ for (const mode of ['online', 'offline', 'upgrade']) {
     ])
       assert.equal(report[field], true);
   }
+  if (mode === 'previous-upgrade')
+    verifyPreviousRunnerUpgrade(report, runner, 'linux-amd64');
   reports.push(report);
 }
 const image = JSON.parse(
@@ -124,13 +145,14 @@ const evidence = {
   installations: reports,
   serverImage: image,
   serverUpgrade: upgrade,
+  serverPreviousUpgrade: previousUpgrade,
   publicDistribution:
     process.env.CAMP_RELEASE_VALIDATE_ONLY === 'true'
       ? 'not published; this run validates Native packages only'
       : 'pending; see appended distribution-verification evidence',
   untested: [
     'paid model provider',
-    'upgrades from releases other than the named baseline',
+    'upgrades from releases other than the two named baselines',
     'systemd service installation',
   ],
 };

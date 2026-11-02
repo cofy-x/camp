@@ -58,13 +58,15 @@ After public verification, update the maintained [tap formula](../Formula/camp.r
 
 ## Upgrade qualification
 
-The [named baseline](../scripts/upgrade.mjs) is `v0.1.0-alpha.2`. `scripts/smoke-upgrade.mjs` creates baseline Server data and verifies authentication, discussion, exact file versions, private drafts and history on Linux and both Mac Server architectures. It needs Git/Go/public downloads and no model call.
+The [fixed baselines](../scripts/upgrade.mjs) are `v0.1.0-alpha.2` and the previous public release `v0.1.0-alpha.8`. `scripts/smoke-upgrade.mjs` installs both actual Server packages and verifies authentication, discussion, exact file versions, private drafts, history and replay of original write receipts after upgrade on Linux and both Mac Server architectures. It needs Git/Go/public downloads and no model call.
 
-`scripts/smoke-bundle.mjs upgrade` additionally checks Linux Runner setup against a staged mirror; `github-upgrade` repeats against public downloads. Preserve identity, credentials, storage/registration IDs and exact stopped journal bytes, then verify native work, checks, review/delivery and backup/restore. The baseline has no Mac Runner: Mac repeated setup and stopped backup/restore do not establish cross-version worker-image upgrade compatibility.
+`scripts/smoke-bundle.mjs upgrade` retains the older Linux Runner acceptance; `github-upgrade` repeats it against public downloads. `previous-upgrade` installs the actual alpha.8 Runner on Linux and native ARM64 Mac hosts. It completes legacy collaboration, verifies that a protocol-1 task stays queued without consuming a turn/Attempt/fence on that Runner, then upgrades the installation and completes the same task with the private bounded-history tool. A private loopback proxy drops the old Runner’s completion replies after the Server commits the legacy outcome. The old journal retains that unacknowledged completion; upgrading preserves its exact stopped bytes, then reconnecting acknowledges the same completion ID without another execution. Identity, credentials, storage/registration IDs and source-import receipts also remain intact. Native work, checks, review/delivery and backup/restore follow. These checks use a deterministic local provider without paid calls. They do not establish cross-version upgrades of in-flight checkpoint worker images.
 
 `make smoke-bundle` exercises the explicit mirror/offline paths; `github` and `github-offline` require public assets. These tests relocate packages, remove host Node from Runner PATH and use deterministic providers. Package launchd lifecycle is separate from login startup, which the harness does not test; Linux systemd unit tests use a controlled substitute. Follow [mirror staging](install.md#stage-a-package-mirror) without changing existing Runner installations.
 
 Runner acceptance reports retain total setup time and sanitized per-phase durations under `timings.setupPhases`. Transfer, extraction, integrity validation, host preparation and self-test remain separate observations; cached setup does not stand in for a fresh download.
+
+Validation-only runs also collect Linux and both Mac host reports through the same package/source checks as publication. The `candidate-acceptance` artifact records the exact fixed candidate and retains its distinction from public distribution evidence.
 
 ## Release evidence
 

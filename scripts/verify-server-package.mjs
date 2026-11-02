@@ -4,7 +4,11 @@ import { join } from 'node:path';
 import { release as osRelease } from 'node:os';
 import { command, root, scratch } from './lib.mjs';
 import { hashFile, serverPlatforms } from './release.mjs';
-import { baselineLauncher, upgradeBaseline } from './upgrade.mjs';
+import {
+  baselineLauncher,
+  upgradeBaseline,
+  previousRelease,
+} from './upgrade.mjs';
 
 const platform = `${process.platform}-${process.arch === 'x64' ? 'amd64' : process.arch}`;
 assert.ok(serverPlatforms.includes(platform));
@@ -26,19 +30,21 @@ assert.equal(
 const temporary = await scratch();
 try {
   await command('tar', ['-xzf', filename, '-C', temporary]);
-  const previous = await baselineLauncher(temporary, 'server');
-  await command(
-    process.execPath,
-    [join(root, 'scripts/smoke-production.mjs')],
-    {
-      env: {
-        ...process.env,
-        CAMP_SMOKE_BINARY: join(temporary, `camp-server-${platform}/camp`),
-        CAMP_SMOKE_PREVIOUS_BINARY: previous.binary,
-        XDG_CACHE_HOME: previous.cache,
+  for (const baseline of [upgradeBaseline, previousRelease]) {
+    const previous = await baselineLauncher(temporary, 'server', baseline);
+    await command(
+      process.execPath,
+      [join(root, 'scripts/smoke-production.mjs')],
+      {
+        env: {
+          ...process.env,
+          CAMP_SMOKE_BINARY: join(temporary, `camp-server-${platform}/camp`),
+          CAMP_SMOKE_PREVIOUS_BINARY: previous.binary,
+          XDG_CACHE_HOME: previous.cache,
+        },
       },
-    },
-  );
+    );
+  }
   const report = {
     schema: 1,
     status: 'passed',
@@ -48,6 +54,7 @@ try {
     host: { os: osRelease(), architecture: process.arch },
     archiveSHA256: artifact.sha256,
     upgrade: { fromVersion: upgradeBaseline },
+    previousUpgrade: { fromVersion: previousRelease },
     completedAt: new Date().toISOString(),
     workflow: `https://github.com/cofy-x/camp/actions/runs/${process.env.GITHUB_RUN_ID}`,
     checks: [
