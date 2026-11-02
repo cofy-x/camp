@@ -301,3 +301,47 @@ func saveTree(ctx context.Context, repository string, current *tree) (string, er
 	id, err := git(ctx, repository, records.Bytes(), "mktree", "-z")
 	return strings.TrimSpace(string(id)), err
 }
+
+// VerifyRevisions checks retained snapshot ownership and object integrity without
+// pruning, repairing, creating a worktree or invoking user filters/hooks.
+func (manager *Manager) VerifyRevisions(ctx context.Context, resourceID string, commits []string) error {
+	repository, err := manager.repository(resourceID)
+	if err != nil {
+		return err
+	}
+	allEmpty := true
+	for _, commit := range commits {
+		if commit != EmptyRevision {
+			allEmpty = false
+		}
+		if !commitPattern.MatchString(commit) {
+			return errors.New("A retained revision identity is invalid")
+		}
+	}
+	if allEmpty {
+		if err = checkEmptyResource(repository); err == nil {
+			return nil
+		}
+	}
+	output, err := git(ctx, repository, nil, "show-ref")
+	if err != nil {
+		return err
+	}
+	refs := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		parts := strings.Fields(line)
+		if len(parts) == 2 {
+			refs[parts[1]] = parts[0]
+		}
+	}
+	for _, commit := range commits {
+		if commit == EmptyRevision {
+			continue
+		}
+		if refs["refs/camp/snapshots/"+commit] != commit {
+			return errors.New("A retained revision has lost its immutable snapshot reference")
+		}
+	}
+	_, err = git(ctx, repository, nil, "fsck", "--full", "--strict", "--no-reflogs", "--no-dangling")
+	return err
+}

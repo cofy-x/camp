@@ -338,6 +338,11 @@ type RunnerEventReceipt struct {
 	CreatedAt   string
 }
 
+type ServerIdentity struct {
+	ID    int64
+	Value string
+}
+
 type Session struct {
 	TokenHash string
 	UserID    string
