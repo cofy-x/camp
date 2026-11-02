@@ -62,6 +62,55 @@ type Document struct {
 	UpdatedAt        string
 }
 
+type GithubDelivery struct {
+	SourceID    string
+	DeliveryID  string
+	Fingerprint string
+	EventID     string
+}
+
+type GithubEvent struct {
+	Seq            int64
+	ID             string
+	SourceID       string
+	RoomID         string
+	SourceRevision int64
+	Fingerprint    string
+	Disposition    string
+	Value          string
+	Payload        []byte
+	ReceivedAt     string
+}
+
+type GithubEventDecision struct {
+	EventID   string
+	Outcome   string
+	ActorID   string
+	TaskID    sql.NullString
+	Reason    string
+	CreatedAt string
+}
+
+type GithubRequest struct {
+	UserID      string
+	RequestID   string
+	RequestHash string
+	Result      string
+}
+
+type GithubSource struct {
+	ID           string
+	RoomID       string
+	Repository   string
+	RepositoryID int64
+	Enabled      int64
+	Revision     int64
+	SecretRef    string
+	CreatedBy    string
+	CreatedAt    string
+	UpdatedAt    string
+}
+
 type Inbox struct {
 	ID        string
 	UserID    string

@@ -26,6 +26,7 @@ import { useTasks } from '../collaboration/useTasks';
 import { TaskAttention, TaskList } from '../collaboration/TaskList';
 import { StartCollaboration } from '../collaboration/StartCollaboration';
 import { TaskDetail } from '../collaboration/TaskDetail';
+import { GitHubEvents } from '../github/GitHubEvents';
 
 export function Workspace({ window, desktop }: AppWindowProps) {
   const team = useTeam();
@@ -40,7 +41,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
     return () => document.removeEventListener('visibilitychange', update);
   }, []);
   const [panel, setPanel] = useState<
-    'chat' | 'agents' | 'reviews' | 'tasks' | 'start-task'
+    'chat' | 'agents' | 'reviews' | 'tasks' | 'start-task' | 'github'
   >('chat');
   const [inspect, setInspect] = useState('');
   const [taskId, setTaskId] = useState('');
@@ -388,6 +389,20 @@ export function Workspace({ window, desktop }: AppWindowProps) {
               </Button>
               <Button
                 disabled={!room}
+                aria-pressed={panel === 'github'}
+                onClick={() =>
+                  void flushPrivateDrafts().then((saved) => {
+                    if (saved) {
+                      setPanel('github');
+                      setInspect('');
+                    }
+                  })
+                }
+              >
+                GitHub
+              </Button>
+              <Button
+                disabled={!room}
                 onClick={() =>
                   void team.navigate({
                     app: 'library',
@@ -579,6 +594,18 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                         ),
                       );
                 }}
+              />
+            ) : panel === 'github' ? (
+              <GitHubEvents
+                key={room.id}
+                room={room}
+                members={members}
+                onOpenTask={(id) => {
+                  setTaskId(id);
+                  setPanel('tasks');
+                  setInspect('');
+                }}
+                onClose={back}
               />
             ) : panel === 'tasks' ? (
               taskId ? (

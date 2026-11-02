@@ -114,6 +114,11 @@ func Run(ctx context.Context, config Config) error {
 	}
 	mux := http.NewServeMux()
 	api := httpapi.New(store, logger, rooms)
+	webhookSecrets, err := configuration.OpenWebhookSecrets(filepath.Join(config.DataDir, "configuration", "github-webhooks"))
+	if err != nil {
+		return fmt.Errorf("initialize webhook credentials: %w", err)
+	}
+	api.EnableGitHub(webhookSecrets)
 	api.EnableTeam(auth, config.TrustedOrigins, config.PublicOrigin)
 	api.EnableRemote(runManager)
 	api.EnableSettings(runManager, importPolicy)

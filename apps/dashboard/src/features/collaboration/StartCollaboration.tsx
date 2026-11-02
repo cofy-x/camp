@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Button, Checkbox, Select } from '@cofy-x/camp-platinum';
 import { APIError } from '../../shared/api/http';
 import {
@@ -21,6 +21,8 @@ function isStartRequest(value: unknown): value is StartRequest {
   return (
     (record.inputProtocol === undefined || record.inputProtocol === 1) &&
     typeof record.requestId === 'string' &&
+    (record.sourceEventId === undefined ||
+      typeof record.sourceEventId === 'string') &&
     typeof record.goal === 'string' &&
     typeof record.firstAgentId === 'string' &&
     typeof record.threadRootId === 'string' &&
@@ -35,26 +37,44 @@ export function StartCollaboration({
   threadId,
   onStarted,
   onClose,
+  sourceEvent,
 }: {
   room: Room;
   members: Agent[];
   threadId: string;
   onStarted: (task: Task) => void;
   onClose: () => void;
+  sourceEvent?: { id: string; title: string; url?: string };
 }) {
   const team = useTeam();
   const { user } = useAccount();
   const goalId = useId();
   const runners = useRunners();
-  const key = receiptKey(user.id, 'collaboration-start', room.id);
+  const key = receiptKey(
+    user.id,
+    'collaboration-start',
+    sourceEvent ? `${room.id}:${sourceEvent.id}` : room.id,
+  );
   const [savedRequest] = useState(() =>
     readSessionReceipt(key, isStartRequest),
   );
-  const [goal, setGoal] = useState(savedRequest?.goal ?? '');
-  const [selected, setSelected] = useState<string[]>(
-    savedRequest?.participantAgentIds ?? [],
+  const draftKey = receiptKey(
+    user.id,
+    'collaboration-draft',
+    `${room.id}:${threadId}:${sourceEvent?.id ?? ''}`,
   );
-  const [first, setFirst] = useState(savedRequest?.firstAgentId ?? '');
+  const [savedDraft] = useState(() =>
+    readSessionReceipt(draftKey, isStartRequest),
+  );
+  const [goal, setGoal] = useState(
+    savedRequest?.goal ?? savedDraft?.goal ?? sourceEvent?.title ?? '',
+  );
+  const [selected, setSelected] = useState<string[]>(
+    savedRequest?.participantAgentIds ?? savedDraft?.participantAgentIds ?? [],
+  );
+  const [first, setFirst] = useState(
+    savedRequest?.firstAgentId ?? savedDraft?.firstAgentId ?? '',
+  );
   const [pending, setPending] = useState(false);
   const [uncertain, setUncertain] = useState(Boolean(savedRequest));
   const [error, setError] = useState(
@@ -62,6 +82,25 @@ export function StartCollaboration({
   );
   const request = useRef<StartRequest | null>(savedRequest);
   const available = members.filter((agent) => agent.enabled);
+
+  useEffect(() => {
+    if (uncertain) return;
+    try {
+      writeSessionReceipt(draftKey, {
+        requestId: '',
+        goal,
+        firstAgentId: first,
+        participantAgentIds: selected,
+        threadRootId: threadId,
+      });
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'Could not retain this collaboration draft.',
+      );
+    }
+  }, [draftKey, goal, first, selected, threadId, uncertain]);
 
   async function start() {
     if (pending) return;
@@ -72,6 +111,7 @@ export function StartCollaboration({
         request.current = {
           inputProtocol: 1,
           requestId: crypto.randomUUID(),
+          sourceEventId: sourceEvent?.id,
           goal: goal.trim(),
           participantAgentIds: selected,
           firstAgentId: first,
@@ -80,6 +120,7 @@ export function StartCollaboration({
       writeSessionReceipt(key, request.current);
       const { task } = await tasksApi.create(room.id, request.current);
       clearSessionReceipt(key);
+      clearSessionReceipt(draftKey);
       team.refresh();
       onStarted(task);
     } catch (error) {
@@ -120,6 +161,16 @@ export function StartCollaboration({
           void start();
         }}
       >
+        {sourceEvent && (
+          <p>
+            The full{' '}
+            <a href={sourceEvent.url} target="_blank" rel="noreferrer">
+              GitHub event
+            </a>{' '}
+            will be included as external context. Starting confirms this event
+            and authorizes the selected Agents.
+          </p>
+        )}
         <div className="collaboration-input">
           <label htmlFor={goalId}>Shared goal</label>
           <textarea
@@ -227,7 +278,11 @@ export function StartCollaboration({
                 : 'Start collaboration'}
           </Button>
           <Button type="button" disabled={pending} onClick={onClose}>
-            {uncertain ? 'Back to Collaborations' : 'Cancel'}
+            {sourceEvent
+              ? 'Back to GitHub Event'
+              : uncertain
+                ? 'Back to Collaborations'
+                : 'Cancel'}
           </Button>
         </div>
       </form>

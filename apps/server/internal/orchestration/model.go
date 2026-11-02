@@ -29,6 +29,7 @@ type Trigger struct {
 	ThreadRootID  string      `json:"threadRootId"`
 	MessageID     string      `json:"messageId,omitempty"`
 	TaskID        string      `json:"taskId,omitempty"`
+	SourceEventID string      `json:"sourceEventId,omitempty"`
 	Request       *RequestRef `json:"request,omitempty"`
 	InputRevision int64       `json:"inputRevision,omitempty"`
 	OccurredAt    string      `json:"occurredAt"`

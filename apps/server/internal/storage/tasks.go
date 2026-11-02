@@ -189,6 +189,19 @@ func (s *Store) CreateTask(ctx context.Context, roomID string, in CreateTaskInpu
 		if e = validateInputProtocol(in.InputProtocol, in.PagedResponse); e != nil {
 			return e
 		}
+		var sourceEvent GitHubEvent
+		if in.SourceEventID != "" {
+			if e = githubActor(ctx, q, false); e != nil {
+				return e
+			}
+			if in.InputProtocol != 1 || !in.PagedResponse {
+				return problem("invalid_task", "GitHub event confirmation requires bounded task input protocol 1 and a summary response.")
+			}
+			sourceEvent, e = pendingGitHubEvent(ctx, q, roomID, in.SourceEventID)
+			if e != nil {
+				return e
+			}
+		}
 		room, e := q.GetRoom(ctx, roomID)
 		if e != nil {
 			return missing(e, "The room")
@@ -223,6 +236,7 @@ func (s *Store) CreateTask(ctx context.Context, roomID string, in CreateTaskInpu
 		}
 		m := Message{ID: newID(), TaskID: out.ID, RoomID: roomID, ThreadRootID: in.ThreadRootID, Seq: seq, AuthorKind: "user", AuthorUserID: user.ID, AuthorName: user.Name, Content: in.Goal, References: refs, CreatedAt: stamp, UpdatedAt: stamp}
 		out.OriginMessageID = m.ID
+		out.SourceEventID = in.SourceEventID
 		if out.ThreadRootID == "" {
 			out.ThreadRootID = m.ID
 		}
@@ -232,6 +246,11 @@ func (s *Store) CreateTask(ctx context.Context, roomID string, in CreateTaskInpu
 		raw, _ := json.Marshal(out)
 		if e = q.CreateTask(ctx, sqlgen.CreateTaskParams{ID: out.ID, RoomID: roomID, RequestedByUserID: out.RequestedByUserID, Status: out.Status, Revision: out.Revision, Snapshot: string(raw), CreatedAt: stamp, UpdatedAt: stamp}); e != nil {
 			return e
+		}
+		if in.SourceEventID != "" {
+			if e = acceptGitHubEvent(ctx, q, &out, sourceEvent); e != nil {
+				return e
+			}
 		}
 		if e = enqueueTaskRound(ctx, q, &out, in.FirstAgentID, in.Goal); e != nil {
 			return e

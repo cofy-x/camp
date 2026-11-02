@@ -8,6 +8,7 @@ Start with the guide for the work you are doing. Each contract has one owner; re
 | --- | --- |
 | [Product overview](../README.md) | Product scope and quick start |
 | [Team workflow](workflow.md) | Discussion, sources, Agent work, shared files, review and delivery |
+| [GitHub observations](github.md) | Repository webhook setup, pending events, explicit task confirmation and delivery recovery |
 | [Installation](install.md) | Supported hosts, fixed-version setup, services, package mirrors, upgrades, backup and stopped storage maintenance |
 | [Security](../SECURITY.md) | Trust model and private vulnerability reporting |
 

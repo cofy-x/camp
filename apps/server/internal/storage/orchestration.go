@@ -81,6 +81,7 @@ func recordTaskAdmission(ctx context.Context, q *sqlgen.Queries, t Collaboration
 		}
 		record.Mandates = append(record.Mandates, mandate)
 	}
+	record.Trigger.SourceEventID = t.SourceEventID
 	return recordOrchestration(ctx, q, record)
 }
 

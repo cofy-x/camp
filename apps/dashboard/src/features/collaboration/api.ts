@@ -6,6 +6,7 @@ export interface Task {
   roomId: string;
   threadRootId: string;
   originMessageId: string;
+  sourceEventId?: string;
   resourceId: string;
   requestedByUserId: string;
   goal: string;
@@ -119,6 +120,7 @@ export const tasksApi = {
     body: {
       inputProtocol?: 1;
       requestId: string;
+      sourceEventId?: string;
       goal: string;
       participantAgentIds: string[];
       firstAgentId: string;

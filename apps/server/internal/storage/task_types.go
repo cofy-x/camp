@@ -44,6 +44,7 @@ type CollaborationTask struct {
 	RoomID                 string            `json:"roomId"`
 	ThreadRootID           string            `json:"threadRootId"`
 	OriginMessageID        string            `json:"originMessageId"`
+	SourceEventID          string            `json:"sourceEventId,omitempty"`
 	ResourceID             string            `json:"resourceId"`
 	RequestedByUserID      string            `json:"requestedByUserId"`
 	Goal                   string            `json:"goal"`
@@ -83,6 +84,7 @@ type CreateTaskInput struct {
 	InputProtocol       int              `json:"inputProtocol,omitempty"`
 	PagedResponse       bool             `json:"-"`
 	RequestID           string           `json:"requestId"`
+	SourceEventID       string           `json:"sourceEventId,omitempty"`
 	Goal                string           `json:"goal"`
 	ParticipantAgentIDs []string         `json:"participantAgentIds"`
 	FirstAgentID        string           `json:"firstAgentId"`

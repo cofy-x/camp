@@ -1,0 +1,75 @@
+.github-panel {
+  overflow: auto;
+  min-width: 0;
+}
+.github-panel p,
+.github-panel h3,
+.github-panel a,
+.github-panel strong {
+  overflow-wrap: anywhere;
+}
+.github-panel form,
+.github-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.github-panel form {
+  margin-block: 10px;
+  max-width: 640px;
+}
+.github-panel input,
+.github-panel textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+.github-panel details {
+  margin-block: 12px;
+}
+.github-panel summary {
+  cursor: pointer;
+}
+.github-event-list,
+.github-sources ul {
+  list-style: none;
+  padding: 0;
+}
+.github-event-list li,
+.github-sources li {
+  padding: 10px;
+  border: 1px solid #999;
+  margin-block: 8px;
+  background: #f5f5f5;
+}
+.github-event-link {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  padding: 3px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.github-event-link:focus-visible {
+  outline: 2px solid var(--p9-highlight);
+}
+.github-event-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  line-height: 1.5;
+  border: 1px solid #999;
+  padding: 12px;
+  background: white;
+}
+.github-source-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
