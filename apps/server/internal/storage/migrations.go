@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -72,7 +73,7 @@ func (s *Store) applyMigrations(ctx context.Context, fsys fs.FS) error {
 		return fmt.Errorf("configure database migrations: %w", err)
 	}
 	if hasVersionTable != 0 {
-		if err := s.checkMigrationHistory(ctx, provider.ListSources()); err != nil {
+		if err := checkMigrationHistory(ctx, s.db, provider.ListSources()); err != nil {
 			return err
 		}
 	}
@@ -86,13 +87,13 @@ func (s *Store) applyMigrations(ctx context.Context, fsys fs.FS) error {
 // every recorded version as applied, so validate the ledger before allowing it
 // to decide which migrations to skip. A failed migration leaves a valid prefix
 // and can be retried without resetting or reseeding completed versions.
-func (s *Store) checkMigrationHistory(ctx context.Context, sources []*goose.Source) error {
+func checkMigrationHistory(ctx context.Context, db *sql.DB, sources []*goose.Source) error {
 	versions := make([]int64, 1, len(sources)+1) // Goose's initial version is zero.
 	for _, source := range sources {
 		versions = append(versions, source.Version)
 	}
 	latest := versions[len(versions)-1]
-	rows, err := s.db.QueryContext(ctx, "SELECT version_id, is_applied FROM goose_db_version ORDER BY version_id")
+	rows, err := db.QueryContext(ctx, "SELECT version_id, is_applied FROM goose_db_version ORDER BY version_id")
 	if err != nil {
 		return fmt.Errorf("read database migration history: %w", err)
 	}
@@ -121,7 +122,7 @@ func (s *Store) checkMigrationHistory(ctx context.Context, sources []*goose.Sour
 	}
 	if index == 1 {
 		var applicationID int
-		if err := s.db.QueryRowContext(ctx, "PRAGMA application_id").Scan(&applicationID); err != nil {
+		if err := db.QueryRowContext(ctx, "PRAGMA application_id").Scan(&applicationID); err != nil {
 			return err
 		}
 		if applicationID == databaseApplicationID {

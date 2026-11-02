@@ -58,3 +58,23 @@ func (o *Ownership) Take() (string, *os.File, error) {
 	o.released = true
 	return o.dir, o.lock, nil
 }
+
+// AcquireExisting fences offline inspection without creating a directory or lock.
+func AcquireExisting(dataDir string) (*Ownership, error) {
+	dir, err := filepath.Abs(filepath.Join(dataDir, "runs"))
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("The Server ownership directory must be a real directory")
+	}
+	lock, err := acquireExistingDirectory(dir)
+	if err != nil {
+		return nil, err
+	}
+	return &Ownership{dir: dir, lock: lock}, nil
+}

@@ -34,6 +34,9 @@ func Run(ctx context.Context, args []string, output io.Writer, version string) e
 	if len(args) > 0 && (args[0] == "doctor" || args[0] == "open") {
 		return runLocal(ctx, args, output)
 	}
+	if len(args) > 0 && args[0] == "storage" {
+		return runServerStorage(ctx, args[1:], output)
+	}
 	if len(args) > 0 && args[0] == "runner" {
 		return runRunner(ctx, args[1:], output)
 	}
@@ -56,6 +59,7 @@ Commands:
   doctor    Check local Server prerequisites without changing data
   open      Open the browser address (use --print on headless hosts)
   runner    Install, connect, run, or inspect a Camp Runner
+  storage   Inspect or maintain stopped Server storage
   help      Show this help (--help, -h)
   version   Print the version (--version)
 
