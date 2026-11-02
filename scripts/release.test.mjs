@@ -347,3 +347,111 @@ test('release versions select immutable numbered releases', () => {
   ])
     assert.equal(validVersion(version), false);
 });
+
+test('upgrade fixture loses only control replies and releases them exactly', async () => {
+  const { runnerReplyProxy } = await import('./upgrade-proxy.mjs');
+  const { createServer: httpServer } = await import('node:http');
+  const { connect } = await import('node:net');
+  const { once } = await import('node:events');
+  const server = httpServer((request, response) =>
+    response.end('ordinary-read'),
+  );
+  let control;
+  server.on('upgrade', (request, socket) => {
+    control = socket;
+    socket.write(
+      'HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n',
+    );
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const proxy = await runnerReplyProxy(server.address().port);
+  const client = connect(Number(new URL(proxy.origin).port), '127.0.0.1');
+  try {
+    const headers = once(client, 'data');
+    client.write(
+      'GET /api/daemon/connect HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n',
+    );
+    assert.match((await headers)[0].toString(), /101 Switching/);
+    proxy.holdReplies();
+    let reply = '';
+    client.on('data', (chunk) => {
+      reply += chunk.toString();
+    });
+    control.write('retained-completion-reply');
+    assert.equal(await (await fetch(proxy.origin)).text(), 'ordinary-read');
+    assert.equal(reply, '');
+    const released = once(client, 'data');
+    proxy.releaseReplies();
+    assert.equal((await released)[0].toString(), 'retained-completion-reply');
+  } finally {
+    client.destroy();
+    control?.destroy();
+    await proxy.close();
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('previous package evidence binds both artifact provenance and recovery checks', async () => {
+  const { previousRelease, verifyPreviousRunnerUpgrade } =
+    await import('./upgrade.mjs');
+  const descriptor = {
+    version: 'v0.1.0-alpha.9',
+    sourceCommit: 'a'.repeat(40),
+    runners: { 'linux-amd64': { installer: { sha256: 'b'.repeat(64) } } },
+  };
+  const report = {
+    status: 'passed',
+    mode: 'previous-upgrade',
+    platform: 'linux',
+    architecture: 'x64',
+    version: descriptor.version,
+    sourceCommit: descriptor.sourceCommit,
+    fromVersion: previousRelease,
+    entrypoint: 'runner-installer',
+    entrypointBinarySHA256: 'c'.repeat(64),
+    archiveSHA256: 'b'.repeat(64),
+    model: { paid: false, requests: 5 },
+  };
+  const checks = [
+    'runnerIdentityPreserved',
+    'durableSourceReceiptPreserved',
+    'journalPreserved',
+    'legacyProtocolAccepted',
+    'unsupportedInputProtocolQueued',
+    'upgradedInputHistoryVerified',
+    'sourceReceiptRetryPreserved',
+    'lostCompletionReplyRecovered',
+  ];
+  for (const field of checks) report[field] = true;
+  verifyPreviousRunnerUpgrade(report, descriptor, 'linux-amd64');
+  for (const field of checks)
+    assert.throws(() =>
+      verifyPreviousRunnerUpgrade(
+        { ...report, [field]: false },
+        descriptor,
+        'linux-amd64',
+      ),
+    );
+  assert.throws(() =>
+    verifyPreviousRunnerUpgrade(
+      { ...report, sourceCommit: 'd'.repeat(40) },
+      descriptor,
+      'linux-amd64',
+    ),
+  );
+  assert.throws(() =>
+    verifyPreviousRunnerUpgrade(
+      { ...report, archiveSHA256: 'e'.repeat(64) },
+      descriptor,
+      'linux-amd64',
+    ),
+  );
+  assert.throws(() =>
+    verifyPreviousRunnerUpgrade(
+      { ...report, model: { paid: true, requests: 5 } },
+      descriptor,
+      'linux-amd64',
+    ),
+  );
+});

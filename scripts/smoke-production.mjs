@@ -381,6 +381,26 @@ try {
   );
   await waitFor(`${base}/api/health`, restarted);
   assert.equal((await (await api('/api/auth/status')).json()).user.id, user.id);
+  // A client may have lost the original reply before the package upgrade.
+  // Replaying its exact frozen request must resolve to the original receipt.
+  const recoveredSave = await api(`/api/resources/${resource.id}/files`, {
+    method: 'PUT',
+    body: edit,
+  });
+  assert.equal(recoveredSave.status, 200);
+  assert.equal(
+    (await recoveredSave.json()).publication.id,
+    saved.publication.id,
+  );
+  const recoveredMessage = await api(`/api/rooms/${room.id}/messages`, {
+    method: 'POST',
+    body: {
+      requestId: 'smoke-discussion',
+      content: 'A discussion without model execution.',
+    },
+  });
+  assert.equal(recoveredMessage.status, 200);
+  assert.equal((await recoveredMessage.json()).message.id, turn.message.id);
   const download = await api(
     `/api/resources/${resource.id}/file?path=notes%2Fwelcome.md&commit=${saved.resource.currentCommit}`,
   );
