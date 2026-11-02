@@ -99,7 +99,7 @@ node scripts/verify-collaboration-real.mjs --allow-one-real-task \
   https://camp.example.com /private/access.json RUNNER_A RUNNER_B /private/new-task-report
 ```
 
-The first submits two Runs (create/revise), checks native resume and human review/resubmission/delivery through HTTP. The second authorizes one bounded Writer → read-only Reviewer → Writer collaboration across distinct native Runners, then verifies exact publication and human delivery. Neither is browser acceptance.
+The first submits two Runs (create/revise), checks native resume and human review/resubmission/delivery through HTTP. The second submits the current bounded input protocol with summary responses, checks that every admitted Run retains protocol 1, and authorizes one bounded Writer → read-only Reviewer → Writer collaboration across distinct native Runners, then verifies exact publication and human delivery. Neither is browser acceptance.
 
 The access format is `{"origin":"https://camp.example.com","admin":{"username":"...","password":"..."}}`. Use an enabled administrator and a small owner-only file (mode 600 on Unix). Both tools require the effective per-Run model limits at or below the defaults in this guide; they do not change settings. Keep configuration stable during a run. Use `NODE_EXTRA_CA_CERTS` for a private CA rather than disabling verification.
 
