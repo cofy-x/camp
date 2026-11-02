@@ -19,7 +19,7 @@
   margin-block: 10px;
   max-width: 640px;
 }
-.github-panel input,
+.github-panel input:not([type='checkbox']):not([type='radio']),
 .github-panel textarea {
   width: 100%;
   box-sizing: border-box;
