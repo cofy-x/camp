@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cofy-x/camp/apps/server/internal/orchestration"
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
 
@@ -66,7 +67,7 @@ func (s *Store) ContextMessages(ctx context.Context, room, thread string, after,
 func normalizedSend(in SendMessageInput) (SendMessageInput, string, error) {
 	in.Content = strings.TrimSpace(in.Content)
 	in.RequestID = strings.TrimSpace(in.RequestID)
-	if !validText(in.Content, MaxRunPromptSize, false) || !validText(in.RequestID, 128, false) || len(in.RecipientAgentIDs) > 16 {
+	if !validText(in.Content, MaxRunPromptSize, false) || !validText(in.RequestID, 128, false) || len(in.RecipientAgentIDs) > orchestration.MaxRecipients {
 		return in, "", problem("invalid_message", "Provide a message, a request ID, and at most 16 recipients.")
 	}
 	if in.PostOnly && len(in.RecipientAgentIDs) > 0 {
@@ -153,23 +154,13 @@ func (s *Store) SendMessage(ctx context.Context, room string, input SendMessageI
 				return problem("invalid_message", "The thread root must be a top-level message in this room.")
 			}
 		}
-		recipients := in.RecipientAgentIDs
-		if !in.PostOnly {
-			members, err := q.ListMembers(ctx, room)
-			if err != nil {
-				return err
-			}
-			for _, member := range members {
-				if mentionsHandle(in.Content, member.Handle) {
-					recipients = append(recipients, member.ID)
-				}
-			}
-			slices.Sort(recipients)
-			recipients = slices.Compact(recipients)
+		decision, e := planRoomMessage(ctx, q, room, in)
+		if e != nil {
+			return e
 		}
 		agents := []Agent{}
-		if !in.PostOnly {
-			for _, agentID := range recipients {
+		if decision.Outcome == "accept" {
+			for _, agentID := range decision.RecipientAgentIDs {
 				a, e := q.GetAgent(ctx, agentID)
 				if e != nil || !a.Enabled {
 					return problem("invalid_agent", "A recipient does not exist or is disabled.")
@@ -225,6 +216,9 @@ func (s *Store) SendMessage(ctx context.Context, room string, input SendMessageI
 			if e := event(ctx, q, "run.queued", room, run.ID); e != nil {
 				return e
 			}
+		}
+		if err := recordRoomAdmission(ctx, q, result, decision, f); err != nil {
+			return err
 		}
 		if err := notifyMentions(ctx, q, m); err != nil {
 			return err

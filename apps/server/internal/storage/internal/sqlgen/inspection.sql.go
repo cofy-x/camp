@@ -97,6 +97,8 @@ SELECT resource_id,commit_id FROM (
  UNION SELECT CAST(json_extract(snapshot,'$.resourceId') AS TEXT),CAST(coalesce(json_extract(snapshot,'$.checkpointCommit'),'') AS TEXT) FROM collaboration_tasks
  UNION SELECT CAST(json_extract(snapshot,'$.resourceId') AS TEXT),CAST(coalesce(json_extract(snapshot,'$.previousDraftCommit'),'') AS TEXT) FROM collaboration_tasks
  UNION SELECT CAST(json_extract(snapshot,'$.resourceId') AS TEXT),CAST(coalesce(json_extract(snapshot,'$.publishedCommit'),'') AS TEXT) FROM collaboration_tasks
+ UNION SELECT CAST(json_extract(g.value,'$.resourceId') AS TEXT),CAST(json_extract(g.value,'$.baseCommit') AS TEXT)
+ FROM orchestration_records o,json_each(o.value,'$.mandates') g
  UNION SELECT CAST(json_extract(j.value,'$.resourceId') AS TEXT),CAST(json_extract(j.value,'$.commit') AS TEXT)
  FROM messages m,json_each(m.references_json) j WHERE json_extract(j.value,'$.kind')='file'
  UNION SELECT CAST(json_extract(j.value,'$.resourceId') AS TEXT),CAST(json_extract(j.value,'$.commit') AS TEXT)

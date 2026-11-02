@@ -120,6 +120,16 @@ type Message struct {
 	TaskID         string
 }
 
+type OrchestrationRecord struct {
+	Seq       int64
+	Source    string
+	EventID   string
+	RoomID    string
+	MessageID sql.NullString
+	TaskID    sql.NullString
+	Value     string
+}
+
 type PersonalRunnerDefault struct {
 	UserID   string
 	RunnerID sql.NullString

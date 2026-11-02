@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
+	"github.com/cofy-x/camp/apps/server/internal/orchestration"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -59,6 +60,14 @@ func TestRemoteCollaborationHandoffQuestionRestartAndOnePublication(t *testing.T
 	if err != nil || duplicate.ID != task.ID {
 		t.Fatal("Create receipt did not replay", duplicate, err)
 	}
+	admitted, err := h.store.OrchestrationPage(h.ctx, room.ID, 0, nil, 20)
+	if err != nil || len(admitted.Items) != 1 || admitted.Items[0].Trigger.Kind != orchestration.TaskStart || admitted.Items[0].Trigger.Request == nil || admitted.Items[0].Trigger.Request.ID != request.RequestID || admitted.Items[0].Decision.Work[0].Revision != task.Revision {
+		t.Fatal("task source did not preserve its admission", admitted, err)
+	}
+	admissionSnapshot, err := json.Marshal(admitted.Items)
+	if err != nil {
+		t.Fatal(err)
+	}
 	task = h.taskState(t, task.ID, "waiting_for_person")
 	if task.Question == nil || task.ActiveRunID != "" || task.CurrentAgentID != reviewer.ID || task.TurnsUsed != 2 {
 		t.Fatalf("Question did not release execution: %+v", task)
@@ -88,6 +97,14 @@ func TestRemoteCollaborationHandoffQuestionRestartAndOnePublication(t *testing.T
 	if restored.Question.ID != task.Question.ID || restored.CheckpointCommit != task.CheckpointCommit || restored.TurnsUsed != 2 {
 		t.Fatal("Waiting state changed across restart", restored)
 	}
+	restoredAdmissions, err := h.store.OrchestrationPage(h.ctx, room.ID, 0, nil, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredSnapshot, err := json.Marshal(restoredAdmissions.Items)
+	if err != nil || string(restoredSnapshot) != string(admissionSnapshot) {
+		t.Fatal("handoffs or restart changed the original admission", err)
+	}
 	h.mu.Lock()
 	result := h.results[first.AttemptID]
 	h.mu.Unlock()
@@ -106,6 +123,10 @@ func TestRemoteCollaborationHandoffQuestionRestartAndOnePublication(t *testing.T
 		t.Fatal("Answer receipt started a second round", replay, err)
 	}
 	finished := h.taskState(t, task.ID, "completed")
+	admissions, err := h.store.OrchestrationPage(h.ctx, room.ID, 0, nil, 20)
+	if err != nil || len(admissions.Items) != 2 || admissions.Items[1].Trigger.Kind != orchestration.TaskAnswer || admissions.Items[1].Trigger.Request == nil || admissions.Items[1].Trigger.Request.ID != answer.RequestID || admissions.Items[1].Trigger.InputRevision != 1 || len(admissions.Items[1].Mandates) != 0 || admissions.Items[1].Decision.Work[0].Revision != accepted.Revision {
+		t.Fatal("answer or automatic rounds created another grant", admissions, err)
+	}
 	rounds, err = h.store.ListTaskRuns(h.ctx, task.ID)
 	if err != nil || len(rounds) != 3 {
 		t.Fatal("Expected exactly three authorized rounds", rounds, err)

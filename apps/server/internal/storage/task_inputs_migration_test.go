@@ -20,7 +20,7 @@ func legacyTaskInputs(t *testing.T) (*Store, context.Context, CollaborationTask,
 	actor, _ := teamUsers(t, s)
 	runner, _ := enrollTestRunner(t, s, actor, "legacy")
 	room, writer := remoteTestRoom(t, s, actor, runner)
-	task := startTask(t, s, actor, room, writer)
+	task := seedLegacyTask(t, s, actor, room, writer)
 	user, _ := UserFromContext(actor)
 	for _, text := range []string{"Original input <one>.", "Original input two."} {
 		input := TaskInput{ID: newID(), AuthorUserID: user.ID, AuthorName: user.Name, Content: text, CreatedAt: now()}
@@ -144,7 +144,7 @@ func TestEmptyLegacyTaskInputRepresentationsMigrate(t *testing.T) {
 			actor, _ := teamUsers(t, s)
 			runner, _ := enrollTestRunner(t, s, actor, "empty")
 			room, writer := remoteTestRoom(t, s, actor, runner)
-			task := startTask(t, s, actor, room, writer)
+			task := seedLegacyTask(t, s, actor, room, writer)
 			if _, err := s.db.Exec("UPDATE collaboration_tasks SET snapshot="+change+" WHERE id=?", task.ID); err != nil {
 				t.Fatal(err)
 			}

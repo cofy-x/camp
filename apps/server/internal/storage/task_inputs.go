@@ -87,7 +87,10 @@ func taskInputsPage(ctx context.Context, q *sqlgen.Queries, t CollaborationTask,
 		}
 		page.Items = append(page.Items, input)
 		page.HasMore = input.Seq < page.Through
-		page.NextAfter = &page.Items[len(page.Items)-1].Seq
+		page.NextAfter = nil
+		if page.HasMore {
+			page.NextAfter = &page.Items[len(page.Items)-1].Seq
+		}
 		encoded, err := json.Marshal(page)
 		if err != nil {
 			return page, err

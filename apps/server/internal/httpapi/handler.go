@@ -41,6 +41,7 @@ func New(store *storage.Store, logger *slog.Logger, managers ...RoomService) *AP
 	}
 	mux := http.NewServeMux()
 	a.roomRoutes(mux)
+	a.orchestrationRoutes(mux)
 	a.taskRoutes(mux)
 	a.runnerInstallationRoutes(mux)
 	a.authRoutes(mux)
