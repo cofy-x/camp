@@ -1,0 +1,63 @@
+{
+  "before": "aa0e4221b7511a3d25f39c28af53eae87ff110f2",
+  "after": "73c53f646e5eca2dde3735fd0496bc6cbcd53335",
+  "scope": "Synthetic original-only attachments and preserved saved citations; no customer data or model calls.",
+  "images": [
+    {
+      "file": "chromium-docx-original-after.png",
+      "sha256": "71f3afb5ae233bc7ab772b2bd3540fa9732f0c6898b66110399fe8174671ba98"
+    },
+    {
+      "file": "chromium-docx-original-before.png",
+      "sha256": "8ab290bdd1168ceb5f544a264cd253fa5bd6f99391009d742fbd3d5150945439"
+    },
+    {
+      "file": "chromium-pdf-original-after.png",
+      "sha256": "c0bf15c15b177ec1ecb5055ac40e955d12c6d809abfed6a30e163dff87536a2f"
+    },
+    {
+      "file": "chromium-pdf-original-before.png",
+      "sha256": "ef4e5fa0f1e1b07d76e9cf5283d85a5ab04971db1b1a066ba641e242d6581427"
+    },
+    {
+      "file": "chromium-saved-citation-after.png",
+      "sha256": "9d26f9172b5eb93a054d9a164b64f524c74986cfc8654887a93a08a715cd519c"
+    },
+    {
+      "file": "chromium-saved-citation-before.png",
+      "sha256": "6e972ca10a65f77a18240c7b26f31315e3664d486505a320d4b883ad6b6e95a2"
+    },
+    {
+      "file": "chromium-saved-read-error-after.png",
+      "sha256": "ba54a3ace9c91f8c19da8c1cd03496a3d1b46d71d0a599e44f3f7c74e0399953"
+    },
+    {
+      "file": "touch-docx-original-after.png",
+      "sha256": "68396b09cd378503d26703892b578fbf6d8ddd2218b826b423347f5c803d3dbb"
+    },
+    {
+      "file": "touch-docx-original-before.png",
+      "sha256": "38fd5bd6531a0c45dd6430db6e99450bd1b9095b576abb43533144cefdd4737b"
+    },
+    {
+      "file": "touch-pdf-original-after.png",
+      "sha256": "5945bdb1661aaffc573fd7e122b948669f0c138dea6c3049a2268fbe98efe7ac"
+    },
+    {
+      "file": "touch-pdf-original-before.png",
+      "sha256": "10f12b9e5019af403874c8e7258d0e1b801af32eea9152836eff2998942d139c"
+    },
+    {
+      "file": "touch-saved-citation-after.png",
+      "sha256": "2fc845c01f51145f6a4ac4ea6343d8135467fd55969879d6429c84bc054a21ef"
+    },
+    {
+      "file": "touch-saved-citation-before.png",
+      "sha256": "d4ada8d4a3aba4c98bfa479bd14e5c3ca69d4b52b027d8b365e5f49c5f3bcdd7"
+    },
+    {
+      "file": "touch-saved-read-error-after.png",
+      "sha256": "1858e08dc13fffb658d789099059b0996b7b551c4d9539146fbaf42450bd379f"
+    }
+  ]
+}
