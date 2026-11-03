@@ -46,7 +46,7 @@ func (m *Manager) taskInputs(w http.ResponseWriter, r *http.Request) {
 	}
 	wire := p.TaskInputPage{Items: []p.TaskInput{}, Through: page.Through, NextAfter: page.NextAfter, HasMore: page.HasMore}
 	for _, item := range page.Items {
-		wire.Items = append(wire.Items, p.TaskInput{Seq: item.Seq, ID: item.ID, AuthorUserID: item.AuthorUserID, AuthorName: item.AuthorName, Content: item.Content, CreatedAt: item.CreatedAt})
+		wire.Items = append(wire.Items, p.TaskInput{Seq: item.Seq, ID: item.ID, MessageID: item.MessageID, SourceEventID: item.SourceEventID, PartIndex: item.PartIndex, AuthorKind: item.AuthorKind, ExternalActorID: item.ExternalActorID, AuthorUserID: item.AuthorUserID, AuthorName: item.AuthorName, Content: item.Content, CreatedAt: item.CreatedAt})
 	}
 	sendJSON(w, 200, wire)
 }

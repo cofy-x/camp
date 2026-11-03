@@ -171,6 +171,11 @@ export function TaskHistory({
               {inputPage.items.map((input) => (
                 <article key={input.id}>
                   <strong>{input.authorName}</strong>
+                  {input.externalActorId && (
+                    <small>External actor {input.externalActorId}</small>
+                  )}
+                  {input.authorKind === 'external' &&
+                    !input.externalActorId && <small>External context</small>}
                   <p>{input.content}</p>
                 </article>
               ))}

@@ -94,6 +94,23 @@ func (q *Queries) GetTask(ctx context.Context, id string) (string, error) {
 	return snapshot, err
 }
 
+const getTaskInputDelivery = `-- name: GetTaskInputDelivery :one
+SELECT value FROM task_inputs WHERE task_id=? AND source_event_id=? AND part_index=?
+`
+
+type GetTaskInputDeliveryParams struct {
+	TaskID        string
+	SourceEventID string
+	PartIndex     int64
+}
+
+func (q *Queries) GetTaskInputDelivery(ctx context.Context, arg GetTaskInputDeliveryParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getTaskInputDelivery, arg.TaskID, arg.SourceEventID, arg.PartIndex)
+	var value string
+	err := row.Scan(&value)
+	return value, err
+}
+
 const getTaskRequest = `-- name: GetTaskRequest :one
 SELECT user_id, scope, request_id, request_hash, result FROM task_requests WHERE user_id=? AND scope=? AND request_id=?
 `
@@ -118,21 +135,28 @@ func (q *Queries) GetTaskRequest(ctx context.Context, arg GetTaskRequestParams) 
 }
 
 const insertTaskInput = `-- name: InsertTaskInput :exec
-INSERT INTO task_inputs(id,task_id,seq,content_bytes,value) VALUES(?,?,?,?,?)
+INSERT INTO task_inputs(id,task_id,message_id,source_event_id,part_index,seq,content_bytes,value)
+VALUES(?1,?2,coalesce(nullif(?3,''),?1),?4,?5,?6,?7,?8)
 `
 
 type InsertTaskInputParams struct {
-	ID           string
-	TaskID       string
-	Seq          int64
-	ContentBytes int64
-	Value        string
+	ID            string
+	TaskID        string
+	MessageID     interface{}
+	SourceEventID string
+	PartIndex     int64
+	Seq           int64
+	ContentBytes  int64
+	Value         string
 }
 
 func (q *Queries) InsertTaskInput(ctx context.Context, arg InsertTaskInputParams) error {
 	_, err := q.db.ExecContext(ctx, insertTaskInput,
 		arg.ID,
 		arg.TaskID,
+		arg.MessageID,
+		arg.SourceEventID,
+		arg.PartIndex,
 		arg.Seq,
 		arg.ContentBytes,
 		arg.Value,

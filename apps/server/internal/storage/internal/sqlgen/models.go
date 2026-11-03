@@ -38,6 +38,84 @@ type AgentConversation struct {
 	Resumable     bool
 }
 
+type AutomationDelivery struct {
+	ID            string
+	TaskID        string
+	SourceID      string
+	PolicyID      string
+	Revision      int64
+	Status        string
+	Value         string
+	CredentialRef string
+	CreatedAt     string
+}
+
+type AutomationEvaluation struct {
+	ID         string
+	SourceID   string
+	ThreadKey  string
+	Status     string
+	Candidate  string
+	Assessment string
+	CreatedAt  string
+}
+
+type AutomationEvent struct {
+	Seq             int64
+	ID              string
+	RoomID          string
+	SourceID        string
+	ThreadKey       string
+	Kind            string
+	ActorID         string
+	ActorKind       string
+	MessageID       string
+	ExternalEventID string
+	Status          string
+	Value           string
+	EvaluationID    string
+	TaskID          string
+	Reason          string
+	PolicyRevision  int64
+}
+
+type AutomationPolicy struct {
+	ID            string
+	RoomID        string
+	SourceID      string
+	Revision      int64
+	OwnerUserID   string
+	Enabled       int64
+	Mode          string
+	Value         string
+	CredentialRef string
+	StartAfter    int64
+}
+
+type AutomationRequest struct {
+	UserID      string
+	RequestID   string
+	RequestHash string
+	Result      string
+}
+
+type AutomationSubscription struct {
+	ID          string
+	TaskID      string
+	SourceID    string
+	ThreadKey   string
+	Enabled     int64
+	Revision    int64
+	ClosedAfter int64
+}
+
+type AutomationUsage struct {
+	PolicyID    string
+	Day         string
+	Evaluations int64
+	Tasks       int64
+}
+
 type CollaborationTask struct {
 	ID                string
 	RoomID            string
@@ -436,11 +514,14 @@ type SourceImport struct {
 }
 
 type TaskInput struct {
-	ID           string
-	TaskID       string
-	Seq          int64
-	ContentBytes int64
-	Value        string
+	ID            string
+	TaskID        string
+	MessageID     string
+	SourceEventID string
+	PartIndex     int64
+	Seq           int64
+	ContentBytes  int64
+	Value         string
 }
 
 type TaskRequest struct {

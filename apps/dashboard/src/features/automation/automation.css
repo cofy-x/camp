@@ -1,0 +1,224 @@
+.automation-panel {
+  overflow: auto;
+  min-width: 0;
+}
+.automation-panel p,
+.automation-panel summary,
+.automation-panel strong,
+.automation-panel dd,
+.automation-task-context p,
+.automation-task-context span,
+.automation-task-context strong {
+  overflow-wrap: anywhere;
+}
+.automation-evaluation .p9-button {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+.automation-form {
+  display: grid;
+  gap: 12px;
+  max-width: 720px;
+  margin-block: 14px;
+}
+.automation-form fieldset {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+}
+.automation-state {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+}
+.automation-form p {
+  margin: 0;
+}
+.automation-form .automation-draft-recovery {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.automation-form label:not(.p9-checkbox):not(.p9-radio) {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.automation-input {
+  display: grid;
+  gap: 5px;
+}
+.automation-form .p9-field {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+.automation-form textarea.p9-field {
+  height: auto;
+  resize: vertical;
+}
+.automation-form pre,
+.automation-event-content,
+.automation-delivery-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+.automation-limits {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+  gap: 10px;
+}
+.automation-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.automation-event-list,
+.automation-subscriptions,
+.automation-deliveries {
+  list-style: none;
+  padding: 0;
+}
+.automation-event-list > li,
+.automation-subscriptions > li,
+.automation-deliveries > li {
+  border: 1px solid #999;
+  padding: 10px;
+  margin-block: 8px;
+  background: #f5f5f5;
+}
+.automation-event-list details,
+.automation-deliveries details {
+  margin-block: 8px;
+}
+.automation-event-list summary,
+.automation-credential summary {
+  cursor: pointer;
+}
+.automation-facts {
+  display: grid;
+  grid-template-columns: minmax(75px, 125px) minmax(0, 1fr);
+  gap: 7px;
+}
+.automation-facts dd {
+  margin: 0;
+}
+.automation-events {
+  margin-top: 24px;
+}
+.automation-follow {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.automation-policy-form .automation-policy-core,
+.automation-policy-form .automation-policy-mode,
+.automation-policy-form .automation-policy-participants {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.automation-policy-mode-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+.automation-policy-picker summary,
+.automation-policy-allowance-editor summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.automation-policy-choice-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  max-height: 180px;
+  overflow: auto;
+  gap: 6px 12px;
+  padding: 8px;
+  margin-top: 8px;
+  border: 1px solid #999;
+  background: #fff;
+}
+.automation-policy-choice-list .p9-checkbox {
+  min-width: 0;
+  align-items: flex-start;
+}
+.automation-policy-choice-list .p9-checkbox span {
+  overflow-wrap: anywhere;
+}
+.automation-policy-unavailable {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.automation-policy-unavailable span {
+  overflow-wrap: anywhere;
+}
+.automation-policy-allowance-summary {
+  display: grid;
+  gap: 3px;
+}
+.automation-policy-limits {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.automation-view-controls {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-block: 4px 16px;
+}
+.automation-view-controls .p9-select {
+  max-width: 100%;
+}
+.automation-view-controls label {
+  min-width: 0;
+}
+.automation-panel .automation-events {
+  margin-top: 0;
+}
+.automation-event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  color: #555;
+}
+.automation-event-meta time {
+  margin-left: auto;
+}
+.automation-event-list .automation-event-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-block: 8px;
+}
+.automation-event-outcome {
+  justify-content: flex-start;
+  gap: 8px 16px;
+}
+.automation-event-list > .automation-event-attention {
+  border-left: 4px solid #8a4b08;
+}
+.automation-panel .github-panel {
+  padding: 0;
+  overflow: visible;
+}
+@media (max-width: 520px) {
+  .automation-event-meta time {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+}

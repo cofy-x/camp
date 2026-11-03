@@ -15,19 +15,20 @@ import (
 func (a *API) EnableRemote(manager *remoteruns.Manager) { a.remote = manager }
 
 type runnerCapabilitiesView struct {
-	Installation   *runnerprotocol.Installation    `json:"installation,omitempty"`
-	Platform       string                          `json:"platform,omitempty"`
-	Workspace      string                          `json:"workspace,omitempty"`
-	Sandbox        string                          `json:"sandbox,omitempty"`
-	Checkpoint     string                          `json:"checkpoint,omitempty"`
-	Readiness      *runnerprotocol.ReadinessReport `json:"readiness,omitempty"`
-	Storage        *runnerprotocol.StorageHealth   `json:"storage,omitempty"`
-	Executor       string                          `json:"executor"`
-	Ready          bool                            `json:"ready"`
-	Reason         string                          `json:"reason,omitempty"`
-	Slots          int                             `json:"slots"`
-	DSHVersion     string                          `json:"dshVersion,omitempty"`
-	LayerFSVersion string                          `json:"layerfsVersion,omitempty"`
+	Installation      *runnerprotocol.Installation    `json:"installation,omitempty"`
+	TaskInputsVersion int                             `json:"taskInputsVersion,omitempty"`
+	Platform          string                          `json:"platform,omitempty"`
+	Workspace         string                          `json:"workspace,omitempty"`
+	Sandbox           string                          `json:"sandbox,omitempty"`
+	Checkpoint        string                          `json:"checkpoint,omitempty"`
+	Readiness         *runnerprotocol.ReadinessReport `json:"readiness,omitempty"`
+	Storage           *runnerprotocol.StorageHealth   `json:"storage,omitempty"`
+	Executor          string                          `json:"executor"`
+	Ready             bool                            `json:"ready"`
+	Reason            string                          `json:"reason,omitempty"`
+	Slots             int                             `json:"slots"`
+	DSHVersion        string                          `json:"dshVersion,omitempty"`
+	LayerFSVersion    string                          `json:"layerfsVersion,omitempty"`
 }
 
 type browserRunner struct {

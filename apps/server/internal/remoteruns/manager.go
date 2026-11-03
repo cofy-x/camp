@@ -255,6 +255,10 @@ func (m *Manager) WithResourceLeaseWriter(ctx context.Context, id string, apply 
 }
 
 func (m *Manager) ModelSettings() configuration.View { return m.models.View() }
+
+// ModelConfiguration shares the single private configuration owner with trusted
+// Server services. Callers use its immutable Snapshot/Resolve read interface.
+func (m *Manager) ModelConfiguration() *configuration.Models { return m.models }
 func (m *Manager) UpdateModelSettings(ctx context.Context, input configuration.Update) (configuration.View, error) {
 	value, err := m.models.Update(input)
 	if err == nil {
