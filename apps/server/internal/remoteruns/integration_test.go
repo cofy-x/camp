@@ -181,29 +181,48 @@ func (h *remoteHarness) join(t *testing.T, name string, executor string, sources
 }
 func (h *remoteHarness) start(t *testing.T, config daemon.Config) *remoteTestDaemon {
 	t.Helper()
+	before, err := h.store.GetRunner(h.ctx, config.RunnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(h.ctx)
 	d := &remoteTestDaemon{config: config, cancel: cancel, done: make(chan error, 1)}
 	h.runners = append(h.runners, d)
 	go func() { d.done <- daemon.Run(ctx, config, io.Discard) }()
-	remoteEventually(t, 90*time.Second, "runner did not connect", func() bool {
+	var registered storage.Runner
+	remoteEventually(t, 90*time.Second, "runner did not establish a fresh connection", func() bool {
 		select {
 		case err := <-d.done:
 			d.done <- err
 			t.Fatalf("daemon stopped before connecting: %v", err)
 		default:
 		}
-		return h.manager.Load().IsOnline(config.RunnerID)
+		var readErr error
+		registered, readErr = h.store.GetRunner(h.ctx, config.RunnerID)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		return currentTestConnection(h.manager.Load(), registered, before.ConnectionGeneration)
 	})
-	registered, err := h.store.GetRunner(h.ctx, config.RunnerID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var caps p.Capabilities
 	_ = json.Unmarshal(registered.Capabilities, &caps)
 	if !caps.Ready {
 		t.Fatalf("runner not ready: %s", caps.Reason)
 	}
 	return d
+}
+
+// A previous boot can remain online while its replacement recovers storage and
+// runs its self-test. Only the replacement HELLO advances the persisted epoch;
+// match that epoch to the installed peer before observing readiness or cleanup.
+func currentTestConnection(manager *Manager, runner storage.Runner, after int64) bool {
+	if manager == nil || runner.ConnectionGeneration <= after || !manager.IsOnline(runner.ID) {
+		return false
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	peer := manager.peers[runner.ID]
+	return peer != nil && peer.epoch == runner.ConnectionGeneration
 }
 func (h *remoteHarness) room(t *testing.T, name, runnerID string) (storage.Room, storage.Agent) {
 	t.Helper()

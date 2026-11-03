@@ -110,6 +110,36 @@ func TestConcurrentInstallationCacheAndRepair(t *testing.T) {
 	}
 }
 
+func TestBundledReaderExecutablesAndCacheRepair(t *testing.T) {
+	payload := packageBytes(t,
+		tar.Header{Name: "camp-server-linux-amd64/camp", Typeflag: tar.TypeReg, Mode: 0755, Size: 5},
+		tar.Header{Name: "camp-server-linux-amd64/documents/bin/node", Typeflag: tar.TypeReg, Mode: 0755, Size: 10},
+		tar.Header{Name: "camp-server-linux-amd64/documents/runtime/extract.mjs", Typeflag: tar.TypeReg, Mode: 0644, Size: 12},
+	)
+	o, requests := fixture(t, payload)
+	binary, err := Ensure(t.Context(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := filepath.Join(filepath.Dir(binary), "documents/bin/node")
+	info, err := os.Stat(node)
+	if err != nil || info.Mode().Perm() != 0700 {
+		t.Fatal("private runtime executable mode was lost", err)
+	}
+	if err := os.WriteFile(node, []byte("corrupt runtime"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Ensure(t.Context(), o); err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 4 {
+		t.Fatal("corrupt reader runtime did not repair from the same fixed archive")
+	}
+	if data, err := os.ReadFile(node); err != nil || string(data) != strings.Repeat("x", 10) {
+		t.Fatal("repaired runtime differs", err)
+	}
+}
+
 func TestUnsafeArchivesNeverPublish(t *testing.T) {
 	for _, h := range []tar.Header{
 		{Name: "camp-server-linux-amd64/../escape", Typeflag: tar.TypeReg, Size: 1},

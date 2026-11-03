@@ -117,12 +117,15 @@ func runServe(ctx context.Context, options serveOptions, output io.Writer, geten
 	if err != nil {
 		return fmt.Errorf("resolve working directory: %w", err)
 	}
-	config.DocumentRuntimeDir = documentRuntime(getenv, cwd)
+	program, _ := os.Executable()
+	documentConfig := resolveDocumentSettings(getenv, cwd, program)
+	config.DocumentRuntimeDir, config.DocumentNodePath = documentConfig.RuntimeDir, documentConfig.NodePath
+	config.DocumentHelperPath, config.DocumentError = documentConfig.HelperPath, documentConfig.InstallationError
 	settings, err := readServiceSettings(options, getenv, cwd)
 	if err != nil {
 		return err
 	}
-	config.Models, config.DocumentNodePath = settings.ModelInput, settings.NodePath
+	config.Models = settings.ModelInput
 	config.Logger = logger
 	config.OnReady = func(address, setupPath string) {
 		config.Addr = address
