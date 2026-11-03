@@ -16,7 +16,7 @@ func TestMacServiceObservationSeparatesInstallationRunningAndLogin(t *testing.T)
 	if label != macServiceLabel(data) {
 		t.Fatal("Runner status has another service identity")
 	}
-	missing := func(string) (string, error) { return "Could not find service", errors.New("not loaded") }
+	missing := func(string) (string, error) { return "Could not find service", errMacServiceNotFound }
 	observe := func(read func(string) (string, error)) serviceStatus {
 		return observeMacService(data, "runner", login, 501, read)
 	}

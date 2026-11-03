@@ -40,9 +40,31 @@ type macRunnerService struct {
 	otherDomains                      []string
 	command                           func(context.Context, ...string) error
 	loaded                            func(context.Context, string) bool
+	lookup                            func(context.Context, string) (bool, error)
 }
 
-func (s macRunnerService) loadedTargets(ctx context.Context) []string {
+// Legacy boolean probes remain a test adapter. Production constructors always
+// supply lookup so failed inspection cannot look like an absent service.
+func (s macRunnerService) isLoaded(ctx context.Context, target string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	var loaded bool
+	var err error
+	if s.lookup != nil {
+		loaded, err = s.lookup(ctx, target)
+	} else if s.loaded != nil {
+		loaded = s.loaded(ctx, target)
+	} else {
+		return false, errors.New("Service lookup is unavailable")
+	}
+	if failure := ctx.Err(); failure != nil {
+		return false, failure
+	}
+	return loaded, err
+}
+
+func (s macRunnerService) loadedTargets(ctx context.Context) ([]string, error) {
 	var targets []string
 	seen := map[string]bool{}
 	for _, domain := range append([]string{s.domain}, s.otherDomains...) {
@@ -51,11 +73,39 @@ func (s macRunnerService) loadedTargets(ctx context.Context) []string {
 		}
 		seen[domain] = true
 		target := domain + "/" + s.label()
-		if s.loaded(ctx, target) {
+		loaded, err := s.isLoaded(ctx, target)
+		if err != nil {
+			return nil, errors.Join(errors.New("Service ownership could not be confirmed; installation and process state were preserved"), err)
+		}
+		if loaded {
 			targets = append(targets, target)
 		}
 	}
-	return targets
+	return targets, nil
+}
+
+func (s macRunnerService) waitStopped(ctx context.Context, target string) error {
+	stopping, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	for {
+		loaded, err := s.isLoaded(stopping, target)
+		if err != nil {
+			return errors.Join(errors.New("Service shutdown is not confirmed; preserve its data and inspect service status"), err)
+		}
+		if failure := stopping.Err(); failure != nil {
+			return errors.Join(errors.New("Service shutdown is not confirmed"), failure)
+		}
+		if !loaded {
+			return nil
+		}
+		timer := time.NewTimer(25 * time.Millisecond)
+		select {
+		case <-stopping.Done():
+			timer.Stop()
+			return errors.Join(errors.New("Service shutdown is not confirmed"), stopping.Err())
+		case <-timer.C:
+		}
+	}
 }
 
 func macServiceLabel(directory string) string {
@@ -160,7 +210,10 @@ func (s macRunnerService) apply(ctx context.Context, action, binary string) erro
 	target := s.domain + "/" + label
 	private := filepath.Join(s.directory, "service", label+".plist")
 	login := filepath.Join(s.loginDirectory, label+".plist")
-	loaded := s.loadedTargets(ctx)
+	loaded, err := s.loadedTargets(ctx)
+	if err != nil {
+		return err
+	}
 	if action == "install" {
 		if len(loaded) > 0 {
 			return errors.New("Stop this Runner service before updating its installation")
@@ -213,16 +266,9 @@ func (s macRunnerService) apply(ctx context.Context, action, binary string) erro
 			if err := s.command(ctx, "bootout", current); err != nil {
 				return err
 			}
-			stopping, cancel := context.WithTimeout(ctx, 30*time.Second)
-			for s.loaded(stopping, current) {
-				select {
-				case <-stopping.Done():
-					cancel()
-					return errors.New("Service shutdown is not confirmed; preserve its data and inspect service status")
-				case <-time.After(25 * time.Millisecond):
-				}
+			if err := s.waitStopped(ctx, current); err != nil {
+				return err
 			}
-			cancel()
 		}
 		if action == "stop" {
 			return nil
@@ -333,11 +379,9 @@ func runMacRunnerService(ctx context.Context, args []string, output io.Writer) e
 		cmd.Stdout, cmd.Stderr = output, output
 		return cmd.Run()
 	}
-	loaded := func(ctx context.Context, target string) bool {
-		return exec.CommandContext(ctx, "/bin/launchctl", "print", target).Run() == nil
-	}
+
 	domain := macServiceDomain(ctx)
-	manager := macRunnerService{domain: domain, otherDomains: []string{"gui/" + strconv.Itoa(os.Geteuid()), "user/" + strconv.Itoa(os.Geteuid())}, directory: directory, loginDirectory: filepath.Join(home, "Library", "LaunchAgents"), command: run, loaded: loaded}
+	manager := macRunnerService{domain: domain, otherDomains: []string{"gui/" + strconv.Itoa(os.Geteuid()), "user/" + strconv.Itoa(os.Geteuid())}, directory: directory, loginDirectory: filepath.Join(home, "Library", "LaunchAgents"), command: run, lookup: lookupMacService}
 	if err := manager.apply(ctx, action, binary); err != nil {
 		return err
 	}

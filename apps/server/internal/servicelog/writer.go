@@ -18,6 +18,7 @@ type Writer struct {
 	path  string
 	limit int64
 	file  *os.File
+	lock  *os.File
 	size  int64
 }
 
@@ -40,6 +41,20 @@ func open(directory, name string, limit int64) (*Writer, error) {
 		return nil, errors.New("Service logs require a canonical directory")
 	}
 	w := &Writer{path: filepath.Join(directory, name), limit: limit}
+	// The stable lock inode is separate from rotating payloads. Acquire it
+	// before trimming or opening any log bytes, including failed/duplicate
+	// service startup. Never unlink it while another opener can observe it.
+	lock, err := lockPrivate(w.path + ".lock")
+	if err != nil {
+		return nil, err
+	}
+	w.lock = lock
+	opened := false
+	defer func() {
+		if !opened {
+			_ = lock.Close()
+		}
+	}()
 	for i := 0; i < Files; i++ {
 		name := w.filename(i)
 		info, err := os.Lstat(name)
@@ -58,6 +73,7 @@ func open(directory, name string, limit int64) (*Writer, error) {
 	if err := w.openFile(); err != nil {
 		return nil, err
 	}
+	opened = true
 	return w, nil
 }
 
@@ -103,10 +119,11 @@ func (w *Writer) openFile() error {
 	return nil
 }
 func (w *Writer) rotate() error {
-	if err := errors.Join(w.file.Sync(), w.file.Close()); err != nil {
+	err := errors.Join(w.file.Sync(), w.file.Close())
+	w.file = nil
+	if err != nil {
 		return err
 	}
-	w.file = nil
 	for i := Files - 1; i >= 0; i-- {
 		name := w.filename(i)
 		info, err := os.Lstat(name)
@@ -160,10 +177,16 @@ func (w *Writer) Write(data []byte) (int, error) {
 func (w *Writer) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.file == nil {
-		return nil
+	var err error
+	if w.file != nil {
+		err = errors.Join(w.file.Sync(), w.file.Close())
+		w.file = nil
 	}
-	err := errors.Join(w.file.Sync(), w.file.Close())
-	w.file = nil
+	// Failed rotation may already have closed the payload. It must not retain
+	// stream ownership after the service has finished draining.
+	if w.lock != nil {
+		err = errors.Join(err, w.lock.Close())
+		w.lock = nil
+	}
 	return err
 }

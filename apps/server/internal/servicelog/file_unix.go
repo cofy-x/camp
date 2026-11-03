@@ -28,3 +28,15 @@ func openPrivate(name string, flags int) (*os.File, error) {
 	}
 	return file, nil
 }
+
+func lockPrivate(name string) (*os.File, error) {
+	file, err := openPrivate(name, os.O_CREATE|os.O_RDWR)
+	if err != nil {
+		return nil, err
+	}
+	if err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = file.Close()
+		return nil, errors.New("Another Camp service owns this log stream")
+	}
+	return file, nil
+}

@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/cofy-x/camp/apps/server/internal/servicelog"
 	"github.com/cofy-x/camp/apps/server/internal/serviceowner"
@@ -84,6 +85,9 @@ func serverServiceSettings(options serveOptions, getenv func(string) string, cwd
 			config.Environment[name] = value
 		}
 	}
+	if err := validateServerServiceConfig(config, directory); err != nil {
+		return config, err
+	}
 	return config, nil
 }
 
@@ -112,22 +116,75 @@ func readServerServiceConfig(directory string) (serverServiceConfig, error) {
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return config, errors.New("Invalid Server service configuration")
 	}
-	if config.Schema != 1 || config.DataDir != directory {
-		return config, errors.New("Reinstall the Server service after relocating its data directory")
-	}
-	cmd, err := parseServe(config.Arguments)
-	if err != nil || cmd.kind != commandServe || cmd.options.dataDir != directory {
-		return config, errors.New("Invalid Server service arguments")
-	}
-	for key, value := range config.Environment {
-		if !serverServiceEnvironment[key] || strings.ContainsAny(value, "\x00\r\n") {
-			return config, errors.New("Invalid Server service environment")
-		}
+	if err := validateServerServiceConfig(config, directory); err != nil {
+		return config, err
 	}
 	return config, nil
 }
 
+// Install and read share one bounded configuration contract. No environment
+// file, model credential, service or filesystem owner is opened here.
+func validateServerServiceConfig(config serverServiceConfig, directory string) error {
+	data, err := json.Marshal(config)
+	if err != nil || len(data)+1 > 64<<10 {
+		return errors.New("Server service configuration exceeds its bounded format")
+	}
+	if config.Schema != 1 || config.DataDir != directory || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory || !utf8.ValidString(directory) || strings.ContainsAny(directory, "\x00\r\n") {
+		return errors.New("Server service configuration requires its exact canonical data directory")
+	}
+	for _, value := range config.Arguments {
+		if !utf8.ValidString(value) || strings.ContainsAny(value, "\x00\r\n") {
+			return errors.New("Invalid Server service arguments")
+		}
+	}
+	cmd, err := parseServe(config.Arguments)
+	if err != nil || cmd.kind != commandServe || cmd.options.dataDir != directory {
+		return errors.New("Invalid Server service arguments")
+	}
+	for key, value := range config.Environment {
+		if !serverServiceEnvironment[key] || !utf8.ValidString(value) || strings.ContainsAny(value, "\x00\r\n") {
+			return errors.New("Invalid Server service environment")
+		}
+	}
+	return nil
+}
+
+func installServerService(ctx context.Context, manager macRunnerService, config serverServiceConfig, binary string) error {
+	if err := validateServerServiceConfig(config, manager.directory); err != nil {
+		return err
+	}
+	// Stage public plist validation and known metadata checks before server.json
+	// is replaced. A rejected path/environment cannot leave unreadable settings.
+	if _, err := macServicePlistFor("server", binary, manager.directory, manager.arguments); err != nil {
+		return err
+	}
+	for _, name := range []string{filepath.Join(manager.directory, "service", manager.label()+".plist"), filepath.Join(manager.loginDirectory, manager.label()+".plist")} {
+		if _, err := readManagedMacPlist(name); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	targets, err := manager.loadedTargets(ctx)
+	if err != nil {
+		return err
+	}
+	if len(targets) != 0 {
+		return errors.New("Stop this Server service before updating its installation")
+	}
+	ownership, err := serviceowner.Acquire(manager.directory)
+	if err != nil {
+		return err
+	}
+	defer ownership.Close()
+	if err := writeServerServiceConfig(manager.directory, config); err != nil {
+		return err
+	}
+	return manager.apply(ctx, "install", binary)
+}
+
 func writeServerServiceConfig(directory string, config serverServiceConfig) error {
+	if err := validateServerServiceConfig(config, directory); err != nil {
+		return err
+	}
 	path := filepath.Join(directory, "service")
 	if err := os.MkdirAll(path, 0700); err != nil {
 		return err
@@ -239,9 +296,7 @@ func runServerService(ctx context.Context, args []string, output io.Writer, _ st
 	if err != nil {
 		return err
 	}
-	manager := macRunnerService{role: "server", domain: macServiceDomain(ctx), otherDomains: []string{"gui/" + strconv.Itoa(os.Geteuid()), "user/" + strconv.Itoa(os.Geteuid())}, directory: directory, loginDirectory: filepath.Join(home, "Library", "LaunchAgents"), arguments: []string{"service", "run", "--data-dir", directory}, loaded: func(ctx context.Context, target string) bool {
-		return exec.CommandContext(ctx, "/bin/launchctl", "print", target).Run() == nil
-	}, command: func(ctx context.Context, args ...string) error {
+	manager := macRunnerService{role: "server", domain: macServiceDomain(ctx), otherDomains: []string{"gui/" + strconv.Itoa(os.Geteuid()), "user/" + strconv.Itoa(os.Geteuid())}, directory: directory, loginDirectory: filepath.Join(home, "Library", "LaunchAgents"), arguments: []string{"service", "run", "--data-dir", directory}, lookup: lookupMacService, command: func(ctx context.Context, args ...string) error {
 		cmd := exec.CommandContext(ctx, "/bin/launchctl", args...)
 		cmd.Stdout, cmd.Stderr = output, output
 		return cmd.Run()
@@ -255,14 +310,6 @@ func runServerService(ctx context.Context, args []string, output io.Writer, _ st
 		return err
 	}
 	if action == "install" {
-		if len(manager.loadedTargets(ctx)) != 0 {
-			return errors.New("Stop this Server service before updating its installation")
-		}
-		ownership, err := serviceowner.Acquire(directory)
-		if err != nil {
-			return err
-		}
-		defer ownership.Close()
 		cwd, err := os.Getwd()
 		if err != nil {
 			return err
@@ -271,13 +318,13 @@ func runServerService(ctx context.Context, args []string, output io.Writer, _ st
 		if err != nil {
 			return err
 		}
-		if err := writeServerServiceConfig(directory, config); err != nil {
+		if err := installServerService(ctx, manager, config, binary); err != nil {
 			return err
 		}
-	}
-	if err := manager.apply(ctx, action, binary); err != nil {
+	} else if err := manager.apply(ctx, action, binary); err != nil {
 		return err
 	}
+
 	if action == "remove" {
 		if _, err := readServerServiceConfig(directory); err != nil {
 			return err
@@ -322,9 +369,17 @@ func runServerServiceProcess(ctx context.Context, directory string) error {
 
 func printServerServiceStatus(ctx context.Context, directory string, output io.Writer, jsonOutput bool) error {
 	status := readMacServiceStatus(ctx, directory, "server")
+	if status.Installed {
+		if _, err := readServerServiceConfig(directory); err != nil {
+			status.Reason = "Saved service settings are missing or invalid. Inspect the private settings and use foreground serve with explicit configuration for diagnostics before reinstalling."
+		}
+	}
 	if jsonOutput {
 		return json.NewEncoder(output).Encode(status)
 	}
 	_, err := fmt.Fprintf(output, "Server service: %s\nInstalled: %t\nLoaded: %t\nRunning: %t\nLogin startup: %t\n", status.State, status.Installed, status.Loaded, status.Running, status.LoginEnabled)
+	if err == nil && status.Reason != "" {
+		_, err = fmt.Fprintln(output, status.Reason)
+	}
 	return err
 }

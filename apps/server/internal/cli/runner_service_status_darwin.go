@@ -3,28 +3,15 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 )
-
-type serviceObservationOutput struct{ bytes.Buffer }
-
-func (b *serviceObservationOutput) Write(data []byte) (int, error) {
-	n := len(data)
-	if left := (64 << 10) - b.Len(); left > 0 {
-		_, _ = b.Buffer.Write(data[:min(left, len(data))])
-	}
-	return n, nil
-}
 
 func serviceStatusLabel(role, directory string) string {
 	digest := sha256.Sum256([]byte(directory))
@@ -36,15 +23,7 @@ func readMacServiceStatus(ctx context.Context, directory, role string) serviceSt
 	if err != nil {
 		return serviceStatus{Supported: true, State: "unknown"}
 	}
-	read := func(target string) (string, error) {
-		probe, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(probe, "/bin/launchctl", "print", target)
-		var output serviceObservationOutput
-		cmd.Stdout, cmd.Stderr = &output, &output
-		err := cmd.Run()
-		return output.String(), err
-	}
+	read := func(target string) (string, error) { return readMacServiceTarget(ctx, target) }
 	return observeMacService(directory, role, filepath.Join(home, "Library", "LaunchAgents"), os.Geteuid(), read)
 }
 
@@ -70,7 +49,7 @@ func observeMacService(directory, role, loginDirectory string, uid int, read fun
 		if err != nil {
 			// Both login domains can be absent on a headless account. Other failures
 			// remain unknown instead of being interpreted as a stopped owned service.
-			if !strings.Contains(output, "Could not find service") && !strings.Contains(output, "Could not find domain") {
+			if !errors.Is(err, errMacServiceNotFound) {
 				invalid = true
 			}
 			continue

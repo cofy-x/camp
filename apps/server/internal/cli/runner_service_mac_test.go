@@ -1,13 +1,16 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMacServiceSeparatesInstallationStartAndLogin(t *testing.T) {
@@ -129,5 +132,143 @@ func TestMacServiceFindsRunnerStartedBeforeGuiLogin(t *testing.T) {
 	}
 	if len(active) != 0 {
 		t.Fatal("Runner from the prior login context survived stop")
+	}
+}
+
+func TestUncertainServiceLookupCannotChangeInstallationOrProcesses(t *testing.T) {
+	for _, action := range []string{"install", "start", "stop", "remove", "enable-login", "disable-login"} {
+		t.Run(action, func(t *testing.T) {
+			directory, login := t.TempDir(), t.TempDir()
+			manager := macRunnerService{directory: directory, loginDirectory: login, domain: "gui/501", loaded: func(context.Context, string) bool { return false }, command: func(context.Context, ...string) error { t.Fatal("Uncertain lookup changed a process"); return nil }}
+			if err := manager.apply(context.Background(), "install", "/private/camp"); err != nil {
+				t.Fatal(err)
+			}
+			if err := manager.apply(context.Background(), "enable-login", ""); err != nil {
+				t.Fatal(err)
+			}
+			private := filepath.Join(directory, "service", manager.label()+".plist")
+			startup := filepath.Join(login, manager.label()+".plist")
+			before, _ := os.ReadFile(private)
+			beforeLogin, _ := os.ReadFile(startup)
+			manager.lookup = func(context.Context, string) (bool, error) { return false, errors.New("fixture permission denied") }
+			if err := manager.apply(context.Background(), action, "/private/new-camp"); err == nil {
+				t.Fatal("Uncertain lookup authorized mutation")
+			}
+			after, err := os.ReadFile(private)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatal("Private installation changed", err)
+			}
+			after, err = os.ReadFile(startup)
+			if err != nil || !bytes.Equal(beforeLogin, after) {
+				t.Fatal("Login installation changed", err)
+			}
+		})
+	}
+}
+
+func TestShutdownProbeExpiryCannotConfirmStopOrAuthorizeRemoval(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(map[bool]string{true: "legacy-probe", false: "error-aware-probe"}[legacy], func(t *testing.T) {
+			directory, login := t.TempDir(), t.TempDir()
+			manager := macRunnerService{directory: directory, loginDirectory: login, domain: "gui/501", loaded: func(context.Context, string) bool { return false }, command: func(context.Context, ...string) error { return nil }}
+			if err := manager.apply(context.Background(), "install", "/private/camp"); err != nil {
+				t.Fatal(err)
+			}
+			if err := manager.apply(context.Background(), "enable-login", ""); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			stopping := false
+			manager.command = func(_ context.Context, args ...string) error {
+				if args[0] != "bootout" {
+					t.Fatal(args)
+				}
+				stopping = true
+				return nil
+			}
+			probe := func(context.Context, string) bool {
+				if stopping {
+					cancel()
+					return false
+				}
+				return true
+			}
+			if legacy {
+				manager.loaded = probe
+			} else {
+				manager.lookup = func(ctx context.Context, target string) (bool, error) { return probe(ctx, target), nil }
+			}
+			if err := manager.apply(ctx, "remove", ""); err == nil || !errors.Is(err, context.Canceled) {
+				t.Fatal("Expired lookup confirmed stop", err)
+			}
+			for _, name := range []string{filepath.Join(directory, "service", manager.label()+".plist"), filepath.Join(login, manager.label()+".plist")} {
+				if _, err := os.Stat(name); err != nil {
+					t.Fatal("Unconfirmed stop removed installation", name, err)
+				}
+			}
+		})
+	}
+}
+
+func TestShutdownUnknownAfterBootoutPreservesInstallation(t *testing.T) {
+	directory := t.TempDir()
+	stopping := false
+	manager := macRunnerService{directory: directory, loginDirectory: t.TempDir(), domain: "gui/501", loaded: func(context.Context, string) bool { return false }, command: func(context.Context, ...string) error { return nil }}
+	if err := manager.apply(context.Background(), "install", "/private/camp"); err != nil {
+		t.Fatal(err)
+	}
+	manager.lookup = func(context.Context, string) (bool, error) {
+		if stopping {
+			return false, context.DeadlineExceeded
+		}
+		return true, nil
+	}
+	manager.command = func(_ context.Context, args ...string) error {
+		if args[0] != "bootout" {
+			t.Fatal(args)
+		}
+		stopping = true
+		return nil
+	}
+	if err := manager.apply(context.Background(), "remove", ""); err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("Uncertain shutdown was accepted", err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, "service", manager.label()+".plist")); err != nil {
+		t.Fatal("Uncertain shutdown removed private installation", err)
+	}
+}
+
+func TestExpiredDeadlineReturningFalseDoesNotConfirmShutdown(t *testing.T) {
+	directory := t.TempDir()
+	stopping := false
+	manager := macRunnerService{directory: directory, loginDirectory: t.TempDir(), domain: "gui/501", loaded: func(context.Context, string) bool { return false }, command: func(context.Context, ...string) error { return nil }}
+	if err := manager.apply(context.Background(), "install", "/private/camp"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	manager.lookup = func(ctx context.Context, _ string) (bool, error) {
+		if stopping {
+			<-ctx.Done()
+			return false, nil
+		}
+		return true, nil
+	}
+	manager.command = func(_ context.Context, args ...string) error {
+		if args[0] != "bootout" {
+			t.Fatal(args)
+		}
+		stopping = true
+		return nil
+	}
+	if err := manager.apply(ctx, "remove", ""); err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("A false result after deadline confirmed shutdown", err)
+	}
+	if !stopping {
+		t.Fatal("Did not reach the post-dispatch confirmation boundary")
+	}
+	if _, err := os.Stat(filepath.Join(directory, "service", manager.label()+".plist")); err != nil {
+		t.Fatal("Expired confirmation removed installation", err)
 	}
 }

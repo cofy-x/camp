@@ -12,3 +12,7 @@ func ownedSingle(os.FileInfo) bool { return false }
 func openPrivate(string, int) (*os.File, error) {
 	return nil, errors.New("Unsupported service log platform")
 }
+
+func lockPrivate(string) (*os.File, error) {
+	return nil, errors.New("Unsupported service log platform")
+}

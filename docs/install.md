@@ -182,7 +182,7 @@ Installation saves the resolved listener, TLS paths, import policy and selected 
 
 Use `stop`, `disable-login` and `remove` with the same directory. Removal preserves team data. A failure remains stopped until explicitly started. Stop before reinstalling from an upgraded package or relocating a stopped backup; reinstall records the new absolute executable/data paths. Server and Runner services have distinct owned labels. Service status distinguishes installed, loaded, running and login-enabled states; an uncertain observation is not a confirmed stop.
 
-Mac Server and Runner services retain private logs under their respective data directories. Each output stream retains at most three 10 MiB files, including the current file. Rotation does not expire team data or checkpoint history. Existing Runner service installations adopt bounded logging when explicitly reinstalled from the new package.
+Mac Server and Runner services retain private logs under their respective data directories. Each output stream retains at most three 10 MiB payload files, including the current file, plus a stable private coordination file. A second opener cannot trim or rotate the active stream; coordination files remain in place across rotations. Rotation does not expire team data or checkpoint history. Existing Runner service installations adopt bounded logging when explicitly reinstalled from the new package.
 
 ### Runner background operation
 
