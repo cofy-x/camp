@@ -17,6 +17,7 @@ interface FirstTaskReceipt {
   phase?: 'preparing' | 'sending' | 'admitted' | 'rejected';
   input?: SendInput;
   runId?: string;
+  dispatchId?: string;
 }
 
 function validReceipt(value: unknown): value is FirstTaskReceipt {
@@ -31,6 +32,8 @@ function validReceipt(value: unknown): value is FirstTaskReceipt {
         record.phase,
       )) &&
     (record.runId === undefined || typeof record.runId === 'string') &&
+    (record.dispatchId === undefined ||
+      typeof record.dispatchId === 'string') &&
     (record.input === undefined ||
       (record.input.requestId === record.id &&
         typeof record.input.content === 'string' &&
@@ -106,9 +109,35 @@ export function useFirstTask(
   }
 
   function save(value: FirstTaskReceipt, current: () => boolean) {
+    const observed = readSessionReceipt(key, validReceipt);
+    if (observed && observed.id !== value.id) {
+      // A reopened view may have explicitly started another operation while
+      // this controller was awaiting a reply. Retain the old outcome separately.
+      const lateKey = receiptKey(
+        user.id,
+        'runner-first-task-late-result',
+        `${runner.id}:${value.id}:${value.phase ?? 'legacy'}:${value.dispatchId ?? 'preparation'}`,
+      );
+      if (!readSessionReceipt(lateKey, validReceipt))
+        writeSessionReceipt(lateKey, value);
+      return value;
+    }
+    if (
+      observed &&
+      (observed.phase === 'admitted' ||
+        (observed.input &&
+          value.input &&
+          JSON.stringify(observed.input) !== JSON.stringify(value.input)) ||
+        (value.phase === 'preparing' && observed.phase !== 'preparing') ||
+        (value.phase === 'rejected' &&
+          observed.phase === 'sending' &&
+          observed.dispatchId !== value.dispatchId))
+    )
+      value = observed;
     writeSessionReceipt(key, value);
     request.current = value;
     if (current()) setReceipt(value);
+    return value;
   }
 
   async function start(roomId: string) {
@@ -119,12 +148,12 @@ export function useFirstTask(
     let attempt = { ...request.current };
     // A retained sending phase means an earlier response was uncertain. A later
     // rejection cannot prove that the original request was never admitted.
-    const uncertain =
-      attempt.phase === 'sending' || attempt.phase === undefined;
+    let uncertain = true;
     let sending = false;
     try {
       attempt.roomId ||= roomId;
-      save(attempt, current);
+      attempt = save(attempt, current);
+      uncertain = attempt.phase === 'sending' || attempt.phase === undefined;
       if (attempt.phase === 'admitted') {
         if (current())
           await team.navigate({
@@ -156,26 +185,34 @@ export function useFirstTask(
             })
           ).agent;
         attempt = { ...attempt, agentId: agent.id };
-        save(attempt, current);
-        if (!current()) return;
+        attempt = save(attempt, current);
+        if (!current() || attempt.phase === 'admitted') return;
+        uncertain ||=
+          attempt.phase === 'sending' || attempt.phase === undefined;
       }
       await workspaceApi.membership(attempt.roomId, attempt.agentId, true);
       if (!current()) return;
+      const observed = readSessionReceipt(key, validReceipt);
+      uncertain ||=
+        observed?.id === attempt.id &&
+        (observed.phase === 'sending' || observed.phase === undefined);
       const filename = `camp-first-task-${attempt.id.slice(0, 8)}.md`;
       attempt = {
         ...attempt,
         phase: 'sending',
+        dispatchId: crypto.randomUUID(),
         input: attempt.input ?? {
           requestId: attempt.id,
           recipientAgentIds: [attempt.agentId],
           content: `Create ${filename} with the heading "Camp is ready" and one sentence saying this file was created on the Runner. Read the file back using a tool and confirm its exact content. Do not change any other files.`,
         },
       };
-      save(attempt, current);
+      attempt = save(attempt, current);
+      if (attempt.phase === 'admitted') return;
       sending = true;
       const { runs } = await workspaceApi.send(attempt.roomId, attempt.input!);
       attempt = { ...attempt, phase: 'admitted', runId: runs[0]?.id };
-      save(attempt, current);
+      attempt = save(attempt, current);
       if (!current()) return;
       team.refresh();
       await team.navigate({
@@ -248,7 +285,9 @@ export function useFirstTask(
         request.current,
       );
       const next = fresh();
-      save(next, () => true);
+      writeSessionReceipt(key, next);
+      request.current = next;
+      setReceipt(next);
       epoch.current++;
       setFinished(false);
       setError('');

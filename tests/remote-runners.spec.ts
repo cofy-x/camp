@@ -1878,3 +1878,147 @@ test('Unavailable browser receipt storage blocks sample creation before any writ
   expect(scene.shares).toEqual([]);
   expect(scene.sends).toEqual([]);
 });
+
+test('An old preparation reply cannot regress a reopened admitted sample receipt', async ({
+  page,
+}, info) => {
+  const scene = await firstTaskScene(
+    page,
+    `sample-reopen-${info.project.name}`,
+  );
+  const arrived = deferred(),
+    release = deferred();
+  await page.route('**/api/agents', async (route) => {
+    if (route.request().method() === 'GET')
+      return route.fulfill({ json: { agents: scene.agents } });
+    const body = route.request().postDataJSON();
+    const agent = {
+      ...body,
+      id: 'reopened-agent',
+      ownerUserId: scene.machines[0].ownerUserId,
+      revision: 1,
+      createdAt: '',
+      updatedAt: '',
+    };
+    scene.agents.push(agent);
+    arrived.release();
+    await release.promise;
+    return route.fulfill({ json: { agent } });
+  });
+  let form = await scene.openSample();
+  await form
+    .getByRole('button', { name: 'Run First Task', exact: true })
+    .click();
+  await arrived.promise;
+  await selectRunner(page, scene.machines[1]);
+  await selectRunner(page, scene.machines[0]);
+  form = await scene.openSample();
+  await form
+    .getByRole('button', { name: 'Retry First Task', exact: true })
+    .click();
+  await expect.poll(() => scene.sends.length).toBe(1);
+  const reply = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/agents') &&
+      response.request().method() === 'POST',
+  );
+  release.release();
+  await reply;
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  const receipt = await page.evaluate(() =>
+    Object.keys(sessionStorage)
+      .filter((key) => key.endsWith(':mac-a'))
+      .map((key) => JSON.parse(sessionStorage.getItem(key)!).value),
+  );
+  expect(receipt).toHaveLength(1);
+  expect(receipt[0]).toMatchObject({
+    phase: 'admitted',
+    runId: 'sample-run',
+    input: scene.sends[0],
+  });
+  expect(scene.agents).toHaveLength(1);
+  expect(scene.sends).toHaveLength(1);
+});
+
+test('An old admitted reply cannot replace an explicitly started newer sample', async ({
+  page,
+}, info) => {
+  const scene = await firstTaskScene(page, `sample-newer-${info.project.name}`);
+  const arrived = deferred(),
+    release = deferred();
+  await page.route(`**/api/rooms/${scene.room.id}/messages`, async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    scene.sends.push(route.request().postDataJSON());
+    if (scene.sends.length === 1) {
+      arrived.release();
+      await release.promise;
+    }
+    return route.fulfill({
+      json: { runs: [{ id: 'replayed-run', roomId: scene.room.id }] },
+    });
+  });
+  let form = await scene.openSample();
+  await form
+    .getByRole('button', { name: 'Run First Task', exact: true })
+    .click();
+  await arrived.promise;
+  await selectRunner(page, scene.machines[1]);
+  await selectRunner(page, scene.machines[0]);
+  form = await scene.openSample();
+  await form
+    .getByRole('button', { name: 'Retry First Task', exact: true })
+    .click();
+  await expect.poll(() => scene.sends.length).toBe(2);
+  expect(scene.sends[1]).toEqual(scene.sends[0]);
+  await openApp(page, 'Runners');
+  await scene.openSample();
+  await page.route('**/api/runs/replayed-run', (r) =>
+    r.fulfill({
+      json: {
+        run: { id: 'replayed-run', roomId: scene.room.id, status: 'failed' },
+      },
+    }),
+  );
+  await runnerDetail(page)
+    .getByRole('button', { name: 'Check Task Status', exact: true })
+    .click();
+  await runnerDetail(page)
+    .getByRole('button', { name: 'Start Another Sample', exact: true })
+    .click();
+  const reply = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/rooms/${scene.room.id}/messages`) &&
+      response.request().method() === 'POST',
+  );
+  release.release();
+  await reply;
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  const receipt = await page.evaluate(() =>
+    Object.keys(sessionStorage)
+      .filter((key) => key.endsWith(':mac-a'))
+      .map((key) => JSON.parse(sessionStorage.getItem(key)!).value),
+  );
+  expect(receipt).toHaveLength(1);
+  expect(receipt[0].id).not.toBe(scene.sends[0].requestId);
+  expect(receipt[0].phase).toBe('preparing');
+  const earlier = await page.evaluate(() =>
+    Object.keys(sessionStorage)
+      .filter((key) => key.includes('runner-first-task-late-result'))
+      .map((key) => JSON.parse(sessionStorage.getItem(key)!).value),
+  );
+  expect(
+    earlier.some(
+      (value) => value.phase === 'admitted' && value.runId === 'replayed-run',
+    ),
+  ).toBe(true);
+});
