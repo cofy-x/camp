@@ -448,6 +448,9 @@ test('a long completed reply keeps its files and checks ahead of expandable, int
   await expect(
     source.getByRole('link', { name: 'Download brief.docx', exact: true }),
   ).toHaveAttribute('href', new RegExp(`commit=${reference.commit}`));
+  await expect(
+    source.getByText('Saved text · DOCX · 2 paragraphs', { exact: true }),
+  ).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('citation-preview.png') });
   await source
     .getByRole('button', { name: 'Close source', exact: true })

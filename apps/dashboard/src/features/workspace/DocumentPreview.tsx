@@ -55,7 +55,7 @@ export function DocumentPreview({
       {document?.status === 'ready' ? (
         <>
           <p className="workspace-document-note">
-            Extracted text · {document.format.toUpperCase()} ·{' '}
+            Saved text · {document.format.toUpperCase()} ·{' '}
             {document.sections.length}{' '}
             {document.format === 'pdf' ? 'page' : 'paragraph'}
             {document.sections.length === 1 ? '' : 's'}
@@ -120,32 +120,30 @@ export function DocumentPreview({
                 <p>{section.text}</p>
               ) : (
                 <p className="workspace-document-empty">
-                  No readable text was found here. Images and scanned text are
-                  not extracted; OCR is not available.
+                  No readable text was saved for this location.
                 </p>
               )}
             </div>
           ) : (
             <p role="status">
               {sectionId
-                ? 'The cited source location is not available in this extraction.'
-                : 'No readable text was found in this document.'}
+                ? 'The cited source location is not available in this saved text.'
+                : 'No readable text was saved for this document.'}
             </p>
           )}
           <details className="workspace-document-about">
-            <summary>About extracted text</summary>
+            <summary>About saved text</summary>
             <p>
               {document.format === 'pdf'
                 ? 'Page numbers follow the original PDF.'
                 : 'Paragraph numbers follow the document body, not printed pages.'}{' '}
-              Images and layout are not included. Scanned text is not read; OCR
-              is not available.
+              Images and layout are not included. Scanned text was not read with
+              OCR.
             </p>
           </details>
         </>
       ) : (
         <div className="workspace-document-unavailable" role="status">
-          <strong>Original only</strong>
           <p>Attach a Markdown or plain-text copy for Agents to read.</p>
         </div>
       )}

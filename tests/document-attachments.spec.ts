@@ -151,8 +151,17 @@ for (const format of ['pdf', 'docx'] as const) {
       path: testInfo.outputPath(`${format}-original-only.png`),
     });
     await expect(
-      card.getByText('Original only', { exact: true }).first(),
+      card.getByText('Original only', { exact: true }),
     ).toBeVisible();
+    await expect(card.getByText('Original only', { exact: true })).toHaveCount(
+      1,
+    );
+    await expect(
+      card.getByText('Uploaded attachment', { exact: false }),
+    ).toHaveCount(0);
+    await expect(
+      card.getByText('pinned version', { exact: false }),
+    ).toHaveCount(0);
     await expect(
       card.getByText(
         'Attach a Markdown or plain-text copy for Agents to read.',

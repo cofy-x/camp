@@ -56,8 +56,14 @@ func TestHistoricalDocumentsAreReadOnlyAndPreferReadyEvidence(t *testing.T) {
 			if !reflect.DeepEqual(got, ready) {
 				t.Fatal("changed immutable READY artifact")
 			}
-		} else if got.Error == nil || got.Error.Retryable || !got.Terminal() {
-			t.Fatalf("retired parser advertised active/retryable work: %+v", got)
+		} else {
+			wantStatus := strings.TrimPrefix(id, "legacy-")
+			if wantStatus == "queued" || wantStatus == "extracting" {
+				wantStatus = "unavailable"
+			}
+			if got.ID != id || got.Status != wantStatus || got.Error == nil || got.Error.Retryable {
+				t.Fatalf("retired parser changed identity or advertised active/retryable work: %+v", got)
+			}
 		}
 		var after string
 		if err := s.db.QueryRow(`SELECT snapshot FROM documents WHERE id=?`, id).Scan(&after); err != nil || after != body {

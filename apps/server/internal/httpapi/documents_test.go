@@ -104,7 +104,10 @@ func TestDocumentAPIPreservesOriginalsWithoutNewPreparation(t *testing.T) {
 		for _, retry := range []bool{false, true} {
 			body, _ := json.Marshal(map[string]any{"commit": ref.Commit, "path": ref.Path, "retry": retry})
 			w := roomRequest(t, h, "POST", "/api/resources/"+ref.ResourceID+"/document", string(body))
-			if w.Code != 410 || !strings.Contains(w.Body.String(), storage.DocumentPreparationDisabledCode) {
+			var rejected struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &rejected); err != nil || w.Code != http.StatusNotFound || rejected.Code != "not_found" {
 				t.Fatalf("retired operation %d %s", w.Code, w.Body)
 			}
 		}
@@ -144,7 +147,11 @@ func TestDocumentAPIKeepsReadyHistoryAndProjectsDisabledPendingViews(t *testing.
 	}
 	for _, status := range []string{"queued", "extracting", "failed"} {
 		d := loadDocumentResponse(t, roomRequest(t, h, "GET", "/api/documents/legacy-"+status, ""))
-		if !d.Terminal() || d.Error == nil || d.Error.Retryable {
+		wantStatus := "unavailable"
+		if status == "failed" {
+			wantStatus = "failed"
+		}
+		if d.ID != "legacy-"+status || d.Status != wantStatus || d.Error == nil || d.Error.Retryable {
 			t.Fatal("reader advertised active work or retry", d)
 		}
 	}
@@ -171,11 +178,6 @@ func TestDocumentAPIValidationAndLocalBoundary(t *testing.T) {
 	for _, path := range []string{base, base + "?commit=HEAD&path=brief.pdf", base + "?commit=" + strings.Repeat("a", 40) + "&path=../secret.pdf", base + "?commit=x&commit=y&path=a.pdf"} {
 		if w := roomRequest(t, h, "GET", path, ""); w.Code != 400 {
 			t.Fatalf("invalid selector %s: %d %s", path, w.Code, w.Body)
-		}
-	}
-	for _, body := range []string{`{"commit":"HEAD","path":"brief.pdf"}`, `{"commit":"` + strings.Repeat("a", 40) + `","path":"../brief.pdf"}`, `{"commit":"` + strings.Repeat("a", 40) + `","path":"brief.pdf","extra":true}`} {
-		if w := roomRequest(t, h, "POST", base, body); w.Code != 400 {
-			t.Fatalf("invalid disabled request %d %s", w.Code, w.Body)
 		}
 	}
 	req := httptest.NewRequest("GET", "http://localhost:3001/api/documents/missing", nil)

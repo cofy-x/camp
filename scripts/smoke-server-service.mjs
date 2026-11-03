@@ -249,7 +249,7 @@ try {
           method: 'POST',
           body: { commit: reference.commit, path: reference.path },
         },
-        410,
+        404,
       );
     }
   }

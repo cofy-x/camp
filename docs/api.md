@@ -193,7 +193,6 @@ An unconfigured environment is `{}`. Configured environments have `kind:"node"` 
 | POST | `/api/rooms/:id/uploads` | Multipart `requestId` and one `file` → `{reference}` |
 | GET | `/api/rooms/:id/uploads?before=...` | `{references,nextCursor}` originals |
 | GET | `/api/rooms/:id/uploads/:requestId` | Actor-scoped `{reference}` receipt |
-| POST | `/api/resources/:id/document` | Legacy operation; valid requests return 410 `document_preparation_disabled` without creating work |
 | GET | `/api/resources/:id/document?commit=...&path=...` | Saved ready `{document}`, otherwise latest historical read view (null if absent) |
 | GET | `/api/documents/:id` | Saved artifact by ID; incomplete attempts have disabled read views |
 
@@ -201,9 +200,9 @@ An unconfigured environment is `{}`. Configured environments have `kind:"node"` 
 
 Original Git storage precedes the Resource/receipt/event transaction. A failed registration compensates only its unregistered candidate, never a possibly committed original. Reload checks receipts, not a claim that browser File bytes survived. Removing a draft reference does not delete the saved original; late uploads stay with their original Room/Thread. No original-deletion or general retention UI is provided.
 
-Markdown and plain text are the primary document workflow. Camp does not parse new PDF/DOCX attachments. The legacy preparation endpoint returns 410 without enqueuing, retrying or rewriting history. Other file types remain immutable original attachments.
+Markdown and plain text are the primary document workflow. Camp does not parse new PDF/DOCX attachments. The document API only reads saved results; it does not enqueue or retry preparation. Other file types remain immutable original attachments.
 
-[Document storage](../apps/server/internal/storage/documents.go) retains saved results at their exact Resource/commit/path and artifact ID. Reads prefer an existing ready result over later incomplete attempts. Pending legacy attempts appear as unavailable and non-retryable without rewriting stored rows or restarting processes. Original-only attachments do not block Agent admission; absence of prepared text never implies that the Agent has read the binary contents.
+[Document storage](../apps/server/internal/storage/documents.go) retains saved results at their exact Resource/commit/path and artifact ID. Reads prefer an existing ready result over later incomplete attempts. Unfinished saved attempts appear as unavailable and non-retryable without rewriting stored rows or restarting processes. Original-only attachments do not block Agent admission; absence of prepared text never implies that the Agent has read the binary contents.
 
 Originals mount read-only at `/references/<index>/<path>`; existing ready text/manifests mount at `/references/.documents/<index>/`. Known locations in frozen ready artifacts retain interactive citations and their saved labels. Historical PDF locations are physical pages; DOCX locations are nonempty body/table-cell paragraphs, not printed pages. Citations help inspect a claim without proving it. Markdown exports do not turn Camp-specific source links into portable document hyperlinks. The [synthetic Markdown example](../examples/documents/README.md) supplies readable sources.
 
@@ -249,7 +248,7 @@ Draft kinds are conversation/document/review. Responses wrap `{draft}`. An absen
 
 Admin GET/PATCH `/api/settings/models` exposes safe fields, `apiKeyConfigured`, opaque revision and source/override metadata. PATCH accepts model/baseUrl/apiKey, clearApiKey and request limits; keys are write-only. External overrides are locked. Queued work retains its private revision; see [configuration](dsh.md#configuration-and-budgets). Admin GET `/api/settings/environments` and `/api/settings/storage` report execution policy, storage facts and the Server import allowlist.
 
-GET `/api/settings/readiness` refreshes model configuration, revision-specific prior provider observations, connected ready Runner reports and recorded native task success. The top-level `checkedAt` is the refresh time; component timestamps retain the actual observation/self-test time. A refresh performs no dependency/document probe, model request or admission pause. The former POST recheck endpoint is removed. Optional reader components report cached model-free startup probes, independently of the top-level execution-ready flag and plain-text work. A changed or unconfirmed reader process owner marks those reader observations unavailable without granting or interrupting Agent execution. See [readiness reporting](architecture.md#readiness-reporting). Host Terminal, executable previews and retired VFS endpoints remain absent.
+GET `/api/settings/readiness` refreshes model configuration, revision-specific prior provider observations, connected ready Runner reports and recorded native task success. The top-level `checkedAt` is the refresh time; component timestamps retain the actual observation/self-test time. A refresh performs no dependency probe, model request or admission pause. See [readiness reporting](architecture.md#readiness-reporting). Host Terminal, executable previews and retired VFS endpoints remain absent.
 
 ## Runners and source snapshots
 

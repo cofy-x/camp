@@ -29,5 +29,5 @@ export function documentSnapshot(
 export function documentStatusLabel(document: DocumentSnapshot) {
   if (document.status !== 'ready') return 'Original only';
   const unit = document.format === 'pdf' ? 'page' : 'paragraph';
-  return `${document.sectionCount} ${unit}${document.sectionCount === 1 ? '' : 's'} · Text ready`;
+  return `${document.sectionCount} ${unit}${document.sectionCount === 1 ? '' : 's'} · Saved text`;
 }

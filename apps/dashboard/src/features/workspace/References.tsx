@@ -79,19 +79,18 @@ function ReferenceCard({
           <div className="workspace-reference-evidence" ref={evidence}>
             {file ? (
               <>
-                <p>
-                  {reference.origin === 'upload'
-                    ? 'Uploaded attachment'
-                    : reference.sourceRunId
-                      ? reference.published
-                        ? 'Saved result file'
-                        : 'Retained result file'
-                      : 'Shared resource file'}{' '}
-                  · pinned version
-                  {current && current !== reference.commit && (
-                    <strong> · Shared files use a different version</strong>
-                  )}
-                </p>
+                {reference.sourceRunId && (
+                  <p>
+                    {reference.published
+                      ? 'Saved result file'
+                      : 'Retained result file'}
+                  </p>
+                )}
+                {current && current !== reference.commit && (
+                  <p>
+                    <strong>Shared files use a different version</strong>
+                  </p>
+                )}
                 <FilePreview
                   reference={reference}
                   onReady={reveal}

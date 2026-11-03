@@ -47,9 +47,6 @@ type Document struct {
 func (d Document) Summary() *DocumentSummary {
 	return &DocumentSummary{ID: d.ID, Format: d.Format, Status: d.Status, SectionCount: len(d.Sections), Warnings: d.Warnings, Error: d.Error}
 }
-func (d Document) Terminal() bool {
-	return d.Status == "ready" || d.Status == "unreadable" || d.Status == "failed" || d.Status == "unavailable"
-}
 func DocumentFormat(name string) string {
 	switch strings.ToLower(filepath.Ext(name)) {
 	case ".pdf":
@@ -97,8 +94,8 @@ func (s *Store) LatestDocument(ctx context.Context, resource, commit, path strin
 	return latestDocument(ctx, s.queries(), resource, commit, path)
 }
 
-const DocumentPreparationDisabledCode = "document_preparation_disabled"
-const DocumentPreparationDisabledMessage = "PDF and DOCX text preparation is disabled. Use Markdown or plain text; the original file is unchanged."
+const documentPreparationDisabledCode = "document_preparation_disabled"
+const documentPreparationDisabledMessage = "PDF and DOCX text preparation is disabled. Use Markdown or plain text; the original file is unchanged."
 
 // Historical rows remain untouched. Pending work is never restarted, and read
 // views must not advertise a retry operation that this Server no longer owns.
@@ -109,7 +106,7 @@ func documentReadView(d Document) Document {
 	if d.Status == "queued" || d.Status == "extracting" || d.Error == nil {
 		d.Status = "unavailable"
 		d.Sections = []DocumentSection{}
-		d.Error = &DocumentError{Code: DocumentPreparationDisabledCode, Message: DocumentPreparationDisabledMessage, Retryable: false}
+		d.Error = &DocumentError{Code: documentPreparationDisabledCode, Message: documentPreparationDisabledMessage, Retryable: false}
 	} else {
 		failure := *d.Error
 		failure.Retryable = false
@@ -118,7 +115,7 @@ func documentReadView(d Document) Document {
 	return d
 }
 
-func snapshotDocument(ctx context.Context, q *sqlgen.Queries, ref ReferenceInput, _ bool) (*DocumentSummary, error) {
+func snapshotDocument(ctx context.Context, q *sqlgen.Queries, ref ReferenceInput) (*DocumentSummary, error) {
 	var d *Document
 	if ref.DocumentID != "" {
 		data, err := q.GetDocument(ctx, ref.DocumentID)

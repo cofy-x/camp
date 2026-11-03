@@ -114,7 +114,7 @@ describe('document references', () => {
     expect(documentStatusLabel({ ...queued, status: 'unreadable' })).toBe(
       'Original only',
     );
-    expect(documentStatusLabel(ready)).toBe('2 pages · Text ready');
+    expect(documentStatusLabel(ready)).toBe('2 pages · Saved text');
   });
 
   it('keeps a Post only receipt retryable when extraction finishes in the background', () => {
@@ -340,7 +340,7 @@ describe('saved document preview', () => {
       expect(documentStatusLabel(documentSnapshot(document))).toBe(
         'Original only',
       );
-      expect(html).toContain('Original only');
+      expect(html).not.toContain('Original only');
       expect(html).toContain('Markdown or plain-text');
       expect(html).not.toContain('<button');
       expect(html).not.toContain('Previously saved exact text.');
@@ -349,16 +349,21 @@ describe('saved document preview', () => {
     },
   );
   it('shows a missing saved artifact as an original attachment', () => {
-    expect(preview(null)).toContain('Original only');
+    expect(preview(null)).toContain(
+      'Attach a Markdown or plain-text copy for Agents to read.',
+    );
   });
   it('keeps saved READY bytes, source locations and historical warnings', () => {
     const html = preview({
       ...artifact,
       warnings: ['Historical reader omitted an image.'],
     });
+    expect(html).toContain('Saved text · PDF');
+    expect(html).toContain('About saved text');
     expect(html).toContain('Previously saved exact text.');
     expect(html).toContain('Page 1');
     expect(html).toContain('Historical reader omitted an image.');
     expect(html).not.toContain('Original only');
+    expect(html).not.toContain('Extracted text');
   });
 });

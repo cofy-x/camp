@@ -99,7 +99,6 @@ func Run(ctx context.Context, config Config) error {
 		return fmt.Errorf("initialize agent runs: %w", err)
 	}
 	defer runManager.Shutdown(context.Background())
-	recoverLegacyDocumentJobs(ctx, config.DataDir, logger)
 	rooms, err := collaboration.New(ctx, store, runManager, config.DataDir)
 	if err != nil {
 		return fmt.Errorf("initialize rooms: %w", err)

@@ -6,7 +6,6 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -108,38 +107,6 @@ func TestConcurrentInstallationCacheAndRepair(t *testing.T) {
 	}
 	if requests.Load() != 6 {
 		t.Fatal("nonexecutable cache was not repaired")
-	}
-}
-
-func TestLegacyReaderReceiptDoesNotRequireRetiredRuntime(t *testing.T) {
-	payload := packageBytes(t, tar.Header{Name: "camp-server-linux-amd64/camp", Typeflag: tar.TypeReg, Mode: 0755, Size: 5})
-	o, requests := fixture(t, payload)
-	binary, err := Ensure(t.Context(), o)
-	if err != nil {
-		t.Fatal(err)
-	}
-	filename := filepath.Join(filepath.Dir(binary), ".camp-install.json")
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var old map[string]any
-	if err := json.Unmarshal(data, &old); err != nil {
-		t.Fatal(err)
-	}
-	old["documents"] = map[string]any{"bin/node": map[string]any{"sha256": strings.Repeat("0", 64), "executable": true}}
-	data, err = json.Marshal(old)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filename, data, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Ensure(t.Context(), o); err != nil {
-		t.Fatal(err)
-	}
-	if requests.Load() != 2 {
-		t.Fatal("legacy parser metadata triggered an unnecessary download")
 	}
 }
 

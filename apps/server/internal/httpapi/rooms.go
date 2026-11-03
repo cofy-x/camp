@@ -206,7 +206,6 @@ func (a *API) roomRoutes(mux *http.ServeMux) {
 		a.respond(w, r, map[string]any{"resource": v}, e)
 	})
 	register("PATCH /api/resources/{id}", a.updateResource)
-	register("POST /api/resources/{id}/document", a.prepareDocument)
 	register("GET /api/resources/{id}/document", a.latestDocument)
 	register("GET /api/documents/{id}", func(w http.ResponseWriter, r *http.Request) {
 		d, err := a.store.GetDocument(r.Context(), r.PathValue("id"))
