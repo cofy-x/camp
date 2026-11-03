@@ -9,7 +9,6 @@ import {
   type GitHubEventPage,
   type GitHubSource,
 } from './api';
-import { GitHubSources } from './GitHubSources';
 import { useGitHubOperation } from './useGitHubOperation';
 import './github.css';
 
@@ -199,12 +198,14 @@ export function GitHubEvents({
   onOpenTask,
   onClose,
   availability,
+  initialEventId = '',
 }: {
   room: Room;
   members: Agent[];
   onOpenTask: (id: string) => void;
   onClose: () => void;
   availability?: Pick<WorkspaceStatus, 'available' | 'reason'>;
+  initialEventId?: string;
 }) {
   const team = useTeam();
   const [sources, setSources] = useState<GitHubSource[]>([]);
@@ -212,7 +213,7 @@ export function GitHubEvents({
   const [sourcesError, setSourcesError] = useState('');
   const [page, setPage] = useState<GitHubEventPage | null>(null);
   const [state, setState] = useState('pending');
-  const [selected, setSelected] = useState('');
+  const [selected, setSelected] = useState(initialEventId);
   const [preparing, setPreparing] = useState<GitHubEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [moreLoading, setMoreLoading] = useState(false);
@@ -319,12 +320,12 @@ export function GitHubEvents({
     >
       {!selected && (
         <div className="workspace-panel-heading">
-          <h2>GitHub events</h2>
+          <h3>GitHub inbox</h3>
           <div className="app-actions">
             <Button onClick={() => setRetry((value) => value + 1)}>
               Refresh Events
             </Button>
-            <Button onClick={onClose}>Back to Chat</Button>
+            <Button onClick={onClose}>Back to Activity</Button>
           </div>
         </div>
       )}
@@ -362,9 +363,6 @@ export function GitHubEvents({
               <option value="dismissed">Dismissed</option>
               <option value="ignored">Ignored</option>
             </Select>
-            {sourcesReady && (
-              <GitHubSources roomId={room.id} sources={sources} />
-            )}
           </div>
           {error && (
             <p className="app-error" role="alert">

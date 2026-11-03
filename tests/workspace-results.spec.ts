@@ -6,7 +6,7 @@ import type {
   Reference,
   Run,
 } from '../apps/dashboard/src/features/workspace/api';
-import { createRoom, mutate, signIn, workspace } from './team-helpers';
+import { createRoom, mutate, openApp, signIn, workspace } from './team-helpers';
 import { watchPageErrors } from './page-errors';
 
 const errors = new WeakMap<Page, ReturnType<typeof watchPageErrors>>();
@@ -151,6 +151,134 @@ const longReply = [
   'The final recommendation remains part of the complete reply.',
   '[Read the source](camp-source:1:p2)',
 ].join('\n\n');
+
+test('a delayed source lookup cannot close a newer Automation view or replace its draft', async ({
+  page,
+}, testInfo) => {
+  const { origin, replies, room, runs } = await completedWork(
+    page,
+    `source-navigation-${testInfo.project.name}`,
+    [{ content: 'A saved proposal is ready for review.' }],
+  );
+  const created = await mutate(page, `/rooms/${room.id}/messages`, {
+    requestId: randomUUID(),
+    threadRootId: origin.id,
+    content: 'The original source remains in its Thread.',
+    postOnly: true,
+  });
+  expect(created.ok()).toBe(true);
+  const { message: source } = (await created.json()) as { message: Message };
+  runs[0].originMessageId = source.id;
+  const win = workspace(page);
+  await win
+    .locator(`[data-message-id="${replies[0].id}"]`)
+    .getByRole('button', { name: /^Details/ })
+    .click();
+  const inspector = win.getByRole('region', {
+    name: 'Work details',
+    exact: true,
+  });
+  await inspector.getByText('Original request', { exact: true }).click();
+  let requested = false;
+  let release = () => {};
+  let held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(
+    `**/api/rooms/${room.id}/messages/${source.id}`,
+    async (route) => {
+      requested = true;
+      await held;
+      await route.fulfill({ json: { message: source } });
+    },
+  );
+  try {
+    await inspector
+      .getByRole('button', { name: 'View request in chat', exact: true })
+      .click();
+    await expect.poll(() => requested).toBe(true);
+    await win.getByRole('button', { name: 'Automation', exact: true }).click();
+    const automation = win.getByRole('region', {
+      name: 'Room automation',
+      exact: true,
+    });
+    await automation
+      .getByRole('tab', { name: 'Settings', exact: true })
+      .click();
+    const rules = automation.getByLabel('Rules', { exact: true });
+    const draft =
+      'Keep my new policy draft open while the old source resolves.';
+    await expect(rules).toBeEnabled();
+    await rules.fill(draft);
+    const response = page.waitForResponse((value) =>
+      value.url().endsWith(`/messages/${source.id}`),
+    );
+    release();
+    await (await response).finished();
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    await expect(automation).toBeVisible();
+    await expect(rules).toHaveValue(draft);
+    await expect(
+      automation.getByRole('tab', { name: 'Settings', exact: true }),
+    ).toHaveAttribute('aria-selected', 'true');
+    await automation.getByRole('button', { name: 'Back to Chat' }).click();
+    await win
+      .locator(`[data-message-id="${replies[0].id}"]`)
+      .getByRole('button', { name: /^Details/ })
+      .click();
+    await inspector.getByText('Original request', { exact: true }).click();
+    held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    requested = false;
+    await inspector
+      .getByRole('button', { name: 'View request in chat', exact: true })
+      .click();
+    await expect.poll(() => requested).toBe(true);
+    const selection = () =>
+      page.evaluate(() =>
+        Object.fromEntries(
+          Object.entries(sessionStorage).filter(([key]) =>
+            /^camp:rooms:[^:]+:(room|thread)$/.test(key),
+          ),
+        ),
+      );
+    const beforeClose = await selection();
+    await win
+      .getByRole('button', {
+        name: `Close ${room.name} — Workspace`,
+        exact: true,
+      })
+      .click();
+    await expect(win).toHaveCount(0);
+    const late = page.waitForResponse((value) =>
+      value.url().endsWith(`/messages/${source.id}`),
+    );
+    release();
+    await (await late).finished();
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    expect(await selection()).toEqual(beforeClose);
+    await openApp(page, 'Workspace');
+    await expect(
+      win.getByRole('form', { name: 'Room composer', exact: true }),
+    ).toBeVisible();
+    await expect(
+      win.getByRole('form', { name: 'Thread composer', exact: true }),
+    ).toHaveCount(0);
+  } finally {
+    release();
+  }
+});
 
 test('a long completed reply keeps its files and checks ahead of expandable, intact Markdown and sources', async ({
   page,

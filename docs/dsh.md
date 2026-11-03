@@ -47,6 +47,16 @@ The Runner receives an expiring, revocable **Attempt-scoped** capability for the
 
 A complete SSE `message_stop` durably ends one request before forwarding its final frame, allowing the next step even if the provider keeps the connection open. Incomplete EOF interrupts the Attempt. WSS control loss and model HTTPS have separate lifetimes within the authorization lease. Server restart interrupts in-flight model streams; daemon restart can upload only fully retained results. Safe diagnostic classifications exclude raw credential-bearing provider errors.
 
+## Event assessment
+
+The [event worker](../apps/server/internal/eventflow/assessment.go) makes bounded, tool-free Server model calls for enabled Room/source policies. This assessment is separate from the DSH execution loop: it has no Runner, workspace, shell, file tools or model-selectable URL. Its frozen candidate contains the policy, immutable event batch, related task summaries and model revision. Source text and actor identities are untrusted quoted context; the response is advisory and cannot grant execution.
+
+An assessment uses the frozen private model configuration through the Messages API, at most 1024 output tokens and a 30-second timeout, further bounded by that configuration. Frozen candidates are limited to 128 KiB; an oversized history becomes unavailable without a provider call and remains available for explicit human admission. Responses are limited to 256 KiB and require a completed turn with one strict JSON accept/ignore result, a bounded reason and a task goal only when accepted. Incomplete, invalid, failed or unknown requests become unavailable and are never transparently retried. Storage reserves the daily assessment slot before transmission; it can retry only persistence of an already received result. Restart retains the charged slot and closes an interrupted assessment without replaying its provider request.
+
+The assessor explicitly sends `thinking: {type: "disabled"}` so provider-default reasoning cannot consume its short response allowance. Its configured Messages provider must support this non-thinking request; rejection remains unavailable without a fallback or a larger budget. DeepSeek documents both its enabled default and this explicit toggle in its [thinking guide](https://api-docs.deepseek.com/guides/thinking_mode/) and [Anthropic compatibility contract](https://api-docs.deepseek.com/guides/anthropic_api/). DSH execution keeps its existing independent model behavior.
+
+The [automation API](api.md#event-automation) owns daily limits and finite task allowances. Observation can spend assessment requests while starting no task. Auto acceptance delegates a normal CollaborationTask through the existing frozen Agent/Runner and publication checks. Reading/configuring policies and the event history make no model calls. Routine source/browser tests use keyless or local deterministic providers; a real assessment test still requires an explicit real-provider allowance.
+
 ## Source Runner setup
 
 This is a development workflow; members use the [packaged installer](install.md). Run from the Camp repository root on a host meeting its native prerequisites:
@@ -98,6 +108,16 @@ node scripts/verify-collaboration-real.mjs --allow-one-real-task \
 ```
 
 The first submits two Runs (create/revise), checks native resume and human review/resubmission/delivery through HTTP. The second submits the current bounded input protocol with summary responses, checks that every admitted Run retains protocol 1, and authorizes one bounded Writer → read-only Reviewer → Writer collaboration across distinct native Runners, then verifies exact publication and human delivery. Neither is browser acceptance.
+
+Event orchestration has a separate explicit allowance. With `gh` authenticated to an account that can read and comment in a fresh private example repository, run:
+
+```sh
+node scripts/verify-automation-real.mjs --allow-two-real-tasks \
+  https://camp.example.com /private/access.json NATIVE_RUNNER_ID \
+  owner/fresh-example-repository /private/new-automation-report
+```
+
+This permits at most four assessments and two tasks, each limited to three rounds and twelve model requests, with at most eight actual GitHub comments. It creates a real issue and comments, reads those objects back through GitHub's API, and forwards locally signed payloads into Camp. It checks Observe without execution, the Auto intake frontier, a native question and external answer, configured checks and exact file publication, actual comment receipts, duplicate ingress, own-output suppression and a separate task after completion. It does not establish externally delivered webhooks, DNS or public TLS reachability. The private permanent ledger is fsynced before each setup/work mutation and policy revocation; an existing report directory is refused. Before reporting success, the verifier disables the temporary policy and confirms it by reading back the saved state. Failure shares that one disable attempt and requests cancellation of active test tasks while retaining all evidence and identities. A lost disable response permits only readback; an unconfirmed disable leaves verification stopped without another mutation. The verifier never changes model settings or grants another continuation allowance.
 
 Append `--github-observation` to the collaboration command to first create a private test source and send a locally signed synthetic GitHub delivery. The same one-task allowance then confirms that event, freezes its source context and checks original-payload retention and one source-linked admission. It verifies the ingress protocol against the real Server, not GitHub's external delivery configuration, and does not increase the authorized task or model-request ceiling.
 

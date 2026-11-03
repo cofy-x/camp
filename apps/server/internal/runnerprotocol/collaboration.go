@@ -32,12 +32,17 @@ type TaskInputScope struct {
 	Through int64 `json:"through"`
 }
 type TaskInput struct {
-	Seq          int64  `json:"seq"`
-	ID           string `json:"id"`
-	AuthorUserID string `json:"authorUserId"`
-	AuthorName   string `json:"authorName"`
-	Content      string `json:"content"`
-	CreatedAt    string `json:"createdAt"`
+	Seq             int64  `json:"seq"`
+	ID              string `json:"id"`
+	MessageID       string `json:"messageId,omitempty"`
+	SourceEventID   string `json:"sourceEventId,omitempty"`
+	PartIndex       int    `json:"partIndex,omitempty"`
+	AuthorKind      string `json:"authorKind,omitempty"`
+	ExternalActorID string `json:"externalActorId,omitempty"`
+	AuthorUserID    string `json:"authorUserId"`
+	AuthorName      string `json:"authorName"`
+	Content         string `json:"content"`
+	CreatedAt       string `json:"createdAt"`
 }
 type TaskInputPage struct {
 	Items     []TaskInput `json:"items"`

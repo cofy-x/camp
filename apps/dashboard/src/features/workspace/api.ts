@@ -319,9 +319,10 @@ export const workspaceApi = {
       `/rooms/${id(roomId)}/messages?threadRootId=${id(threadRootId)}&after=${after}`,
       { signal },
     ),
-  message: (roomId: string, messageId: string) =>
+  message: (roomId: string, messageId: string, signal?: AbortSignal) =>
     request<{ message: Message }>(
       `/rooms/${id(roomId)}/messages/${id(messageId)}`,
+      { signal },
     ),
   send: (roomId: string, input: SendInput) =>
     request<{ message: Message; runs: Run[]; replayed: boolean }>(

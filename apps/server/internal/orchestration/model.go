@@ -4,6 +4,7 @@
 package orchestration
 
 const PolicyVersion = "camp-explicit-v1"
+const AutomationPolicyVersion = "camp-event-v1"
 const MaxRecipients = 16
 
 type Kind string
@@ -20,19 +21,29 @@ const (
 // Trigger identifies an immutable source event. Content remains with its owning
 // Message or task request; source metadata cannot widen an execution grant.
 type Trigger struct {
-	Source        string      `json:"source"`
-	EventID       string      `json:"eventId"`
-	Kind          Kind        `json:"kind"`
-	ActorKind     string      `json:"actorKind"`
-	ActorID       string      `json:"actorId"`
-	RoomID        string      `json:"roomId"`
-	ThreadRootID  string      `json:"threadRootId"`
-	MessageID     string      `json:"messageId,omitempty"`
-	TaskID        string      `json:"taskId,omitempty"`
-	SourceEventID string      `json:"sourceEventId,omitempty"`
-	Request       *RequestRef `json:"request,omitempty"`
-	InputRevision int64       `json:"inputRevision,omitempty"`
-	OccurredAt    string      `json:"occurredAt"`
+	Source        string         `json:"source"`
+	EventID       string         `json:"eventId"`
+	Kind          Kind           `json:"kind"`
+	ActorKind     string         `json:"actorKind"`
+	ActorID       string         `json:"actorId"`
+	RoomID        string         `json:"roomId"`
+	ThreadRootID  string         `json:"threadRootId"`
+	MessageID     string         `json:"messageId,omitempty"`
+	TaskID        string         `json:"taskId,omitempty"`
+	SourceEventID string         `json:"sourceEventId,omitempty"`
+	Request       *RequestRef    `json:"request,omitempty"`
+	Automation    *AutomationRef `json:"automation,omitempty"`
+	InputRevision int64          `json:"inputRevision,omitempty"`
+	OccurredAt    string         `json:"occurredAt"`
+}
+
+// AutomationRef locates the policy revision and frozen assessment that delegated
+// a system admission. Its source identities retain the original evidence.
+type AutomationRef struct {
+	PolicyID       string   `json:"policyId"`
+	PolicyRevision int64    `json:"policyRevision"`
+	EvaluationID   string   `json:"evaluationId"`
+	SourceEventIDs []string `json:"sourceEventIds"`
 }
 
 // RequestRef locates the original idempotency receipt without copying its body.

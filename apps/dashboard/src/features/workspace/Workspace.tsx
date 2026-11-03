@@ -26,12 +26,19 @@ import { useTasks } from '../collaboration/useTasks';
 import { TaskAttention, TaskList } from '../collaboration/TaskList';
 import { StartCollaboration } from '../collaboration/StartCollaboration';
 import { TaskDetail } from '../collaboration/TaskDetail';
-import { GitHubEvents } from '../github/GitHubEvents';
+import { Automation } from '../automation/Automation';
 
 export function Workspace({ window, desktop }: AppWindowProps) {
   const team = useTeam();
   const { user } = useAccount();
   const handledNavigation = useRef(0);
+  const navigationRequest = useRef(0);
+  useEffect(
+    () => () => {
+      navigationRequest.current++;
+    },
+    [],
+  );
   const [visible, setVisible] = useState(
     () => document.visibilityState === 'visible',
   );
@@ -41,7 +48,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
     return () => document.removeEventListener('visibilitychange', update);
   }, []);
   const [panel, setPanel] = useState<
-    'chat' | 'agents' | 'reviews' | 'tasks' | 'start-task' | 'github'
+    'chat' | 'agents' | 'reviews' | 'tasks' | 'start-task' | 'automation'
   >('chat');
   const [inspect, setInspect] = useState('');
   const [taskId, setTaskId] = useState('');
@@ -49,7 +56,6 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   const [sourceId, setSourceId] = useState('');
   const [sourceRequest, setSourceRequest] = useState(0);
   const [actionError, setActionError] = useState('');
-  const selected = useRef('');
   const focused =
     visible && desktop.activeWindowId === window.id && !window.shaded;
 
@@ -60,9 +66,6 @@ export function Workspace({ window, desktop }: AppWindowProps) {
     () => desktop.beforeClose(window.id, flushPrivateDrafts),
     [desktop, window.id],
   );
-  useEffect(() => {
-    selected.current = roomId;
-  }, [roomId, threadId]);
   useEffect(() => {
     desktop.setTitle(
       window.id,
@@ -81,13 +84,10 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   }, [focused, room, threadId, panel, workspace.conversationReady, team]);
   useEffect(() => {
     const intent = team.navigation;
-    if (
-      !intent ||
-      (intent.app && intent.app !== 'workspace') ||
-      handledNavigation.current === intent.revision
-    )
-      return;
+    if (!intent || handledNavigation.current === intent.revision) return;
     handledNavigation.current = intent.revision;
+    const request = ++navigationRequest.current;
+    if (intent.app && intent.app !== 'workspace') return;
     workspace.selectConversation(intent.roomId, intent.threadId);
     setPanel(intent.taskId ? 'tasks' : intent.reviewId ? 'reviews' : 'chat');
     setTaskId(intent.taskId ?? '');
@@ -120,27 +120,45 @@ export function Workspace({ window, desktop }: AppWindowProps) {
     )
       void workspaceApi
         .message(intent.roomId, intent.messageId)
-        .then(({ message }) => {
-          if (handledNavigation.current !== intent.revision) return;
+        .then(async ({ message }) => {
+          if (
+            navigationRequest.current !== request ||
+            !(await flushPrivateDrafts()) ||
+            navigationRequest.current !== request
+          )
+            return;
           workspace.selectConversation(intent.roomId, message.threadRootId);
           setSourceId(message.id);
           setSourceRequest((value) => value + 1);
         })
-        .catch((error: unknown) =>
+        .catch((error: unknown) => {
+          if (navigationRequest.current !== request) return;
           setActionError(
             error instanceof Error
               ? error.message
               : 'Could not open this message.',
-          ),
-        );
+          );
+        });
   }, [team.navigation, workspace, roomId, panel]);
 
-  async function showRoom(id: string) {
-    if (!(await flushPrivateDrafts())) return;
-    workspace.selectRoom(id);
-    setPanel('chat');
-    setInspect('');
-    setActionError('');
+  async function navigate(change: () => void) {
+    const request = ++navigationRequest.current;
+    const saved = await flushPrivateDrafts();
+    if (saved && navigationRequest.current === request) change();
+  }
+
+  function move(change: () => void) {
+    navigationRequest.current++;
+    change();
+  }
+
+  function showRoom(id: string) {
+    return navigate(() => {
+      workspace.selectRoom(id);
+      setPanel('chat');
+      setInspect('');
+      setActionError('');
+    });
   }
 
   async function newRoom() {
@@ -203,8 +221,10 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   }
 
   function back() {
-    setPanel('chat');
-    setInspect('');
+    move(() => {
+      setPanel('chat');
+      setInspect('');
+    });
   }
 
   function addReference(reference: Reference) {
@@ -226,7 +246,9 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   }
 
   async function askAgent(message: Message, run?: Run) {
-    if (!(await flushPrivateDrafts())) return;
+    const request = ++navigationRequest.current;
+    if (!(await flushPrivateDrafts()) || navigationRequest.current !== request)
+      return;
     if (!room) return;
     const thread = message.threadRootId;
     const key = conversationKey(room.id, thread);
@@ -288,10 +310,18 @@ export function Workspace({ window, desktop }: AppWindowProps) {
 
   async function openSource(messageId: string) {
     if (!room) return;
+    const request = ++navigationRequest.current;
+    if (!(await flushPrivateDrafts()) || navigationRequest.current !== request)
+      return;
     const selectedRoom = room.id;
     try {
       const { message } = await workspaceApi.message(selectedRoom, messageId);
-      if (selected.current !== selectedRoom) return;
+      if (
+        navigationRequest.current !== request ||
+        !(await flushPrivateDrafts()) ||
+        navigationRequest.current !== request
+      )
+        return;
       if (threadId !== message.threadRootId)
         workspace.selectThread(message.threadRootId);
       setSourceId(message.id);
@@ -299,6 +329,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
       setActionError('');
       back();
     } catch (error) {
+      if (navigationRequest.current !== request) return;
       setActionError(
         error instanceof Error
           ? error.message
@@ -376,12 +407,10 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 disabled={!room}
                 aria-pressed={panel === 'tasks' || panel === 'start-task'}
                 onClick={() =>
-                  void flushPrivateDrafts().then((saved) => {
-                    if (saved) {
-                      setPanel('tasks');
-                      setTaskId('');
-                      setInspect('');
-                    }
+                  void navigate(() => {
+                    setPanel('tasks');
+                    setTaskId('');
+                    setInspect('');
                   })
                 }
               >
@@ -389,17 +418,15 @@ export function Workspace({ window, desktop }: AppWindowProps) {
               </Button>
               <Button
                 disabled={!room}
-                aria-pressed={panel === 'github'}
+                aria-pressed={panel === 'automation'}
                 onClick={() =>
-                  void flushPrivateDrafts().then((saved) => {
-                    if (saved) {
-                      setPanel('github');
-                      setInspect('');
-                    }
+                  void navigate(() => {
+                    setPanel('automation');
+                    setInspect('');
                   })
                 }
               >
-                GitHub
+                Automation
               </Button>
               <Button
                 disabled={!room}
@@ -417,12 +444,10 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 disabled={!room}
                 aria-pressed={panel === 'reviews'}
                 onClick={() =>
-                  void flushPrivateDrafts().then((saved) => {
-                    if (saved) {
-                      setPanel(panel === 'reviews' ? 'chat' : 'reviews');
-                      setReviewId('');
-                      setInspect('');
-                    }
+                  void navigate(() => {
+                    setPanel(panel === 'reviews' ? 'chat' : 'reviews');
+                    setReviewId('');
+                    setInspect('');
                   })
                 }
               >
@@ -431,11 +456,9 @@ export function Workspace({ window, desktop }: AppWindowProps) {
               <Button
                 aria-pressed={panel === 'agents'}
                 onClick={() =>
-                  void flushPrivateDrafts().then((saved) => {
-                    if (saved) {
-                      setPanel(panel === 'agents' ? 'chat' : 'agents');
-                      setInspect('');
-                    }
+                  void navigate(() => {
+                    setPanel(panel === 'agents' ? 'chat' : 'agents');
+                    setInspect('');
                   })
                 }
                 disabled={!room}
@@ -461,14 +484,18 @@ export function Workspace({ window, desktop }: AppWindowProps) {
           {room && panel === 'chat' && !inspect && (
             <TaskAttention
               tasks={collaborations.tasks}
-              onOpen={(id) => {
-                setTaskId(id);
-                setPanel('tasks');
-              }}
-              onAll={() => {
-                setTaskId('');
-                setPanel('tasks');
-              }}
+              onOpen={(id) =>
+                void navigate(() => {
+                  setTaskId(id);
+                  setPanel('tasks');
+                })
+              }
+              onAll={() =>
+                void navigate(() => {
+                  setTaskId('');
+                  setPanel('tasks');
+                })
+              }
             />
           )}
           {room && panel === 'chat' && !inspect && (
@@ -523,7 +550,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
             </div>
           )}
           {panel !== 'reviews' &&
-            panel !== 'github' &&
+            panel !== 'automation' &&
             !inspect &&
             workspace.status &&
             !workspace.status.available && (
@@ -555,12 +582,12 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 <ReviewPanel
                   key={reviewId}
                   id={reviewId}
-                  onClose={() => setReviewId('')}
+                  onClose={() => move(() => setReviewId(''))}
                 />
               ) : (
                 <ReviewList
                   roomId={room.id}
-                  onOpen={(review) => setReviewId(review.id)}
+                  onOpen={(review) => move(() => setReviewId(review.id))}
                   onClose={back}
                 />
               )
@@ -571,7 +598,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 backLabel={
                   panel === 'tasks' ? 'Back to Collaboration' : 'Back to Chat'
                 }
-                onClose={() => setInspect('')}
+                onClose={() => move(() => setInspect(''))}
                 onReference={addReference}
                 onSource={(messageId) => void openSource(messageId)}
                 onAsk={(run) => {
@@ -581,33 +608,38 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                       message.authorKind === 'agent',
                   );
                   if (reply) void askAgent(reply, run);
-                  else
+                  else {
+                    const request = ++navigationRequest.current;
                     void findRunReply(run)
                       .then(async (reply) => {
-                        if (selected.current === run.roomId && reply)
+                        if (navigationRequest.current === request && reply)
                           await askAgent(reply, run);
                       })
-                      .catch((error: unknown) =>
+                      .catch((error: unknown) => {
+                        if (navigationRequest.current !== request) return;
                         setActionError(
                           error instanceof Error
                             ? error.message
                             : 'Could not load the result message.',
-                        ),
-                      );
+                        );
+                      });
+                  }
                 }}
               />
-            ) : panel === 'github' ? (
-              <GitHubEvents
+            ) : panel === 'automation' ? (
+              <Automation
                 key={room.id}
                 room={room}
                 members={members}
                 availability={workspace.status ?? undefined}
-                onOpenTask={(id) => {
-                  setTaskId(id);
-                  setPanel('tasks');
-                  setInspect('');
-                }}
-                onClose={back}
+                onOpenTask={(id) =>
+                  void navigate(() => {
+                    setTaskId(id);
+                    setPanel('tasks');
+                    setInspect('');
+                  })
+                }
+                onClose={() => void navigate(back)}
               />
             ) : panel === 'tasks' ? (
               taskId ? (
@@ -615,15 +647,15 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                   key={taskId}
                   id={taskId}
                   desktop={desktop}
-                  onClose={() => setTaskId('')}
-                  onInspect={setInspect}
+                  onClose={() => move(() => setTaskId(''))}
+                  onInspect={(id) => void navigate(() => setInspect(id))}
                 />
               ) : (
                 <TaskList
                   {...collaborations}
                   onRetry={collaborations.refresh}
-                  onOpen={setTaskId}
-                  onStart={() => setPanel('start-task')}
+                  onOpen={(id) => move(() => setTaskId(id))}
+                  onStart={() => move(() => setPanel('start-task'))}
                   onClose={back}
                 />
               )
@@ -633,11 +665,13 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 room={room}
                 members={members}
                 threadId={threadId}
-                onClose={() => setPanel('tasks')}
-                onStarted={(task) => {
-                  setTaskId(task.id);
-                  setPanel('tasks');
-                }}
+                onClose={() => move(() => setPanel('tasks'))}
+                onStarted={(task) =>
+                  move(() => {
+                    setTaskId(task.id);
+                    setPanel('tasks');
+                  })
+                }
               />
             ) : panel === 'agents' ? (
               <AgentsPanel
@@ -670,25 +704,17 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 sourceId={sourceId}
                 sourceRequest={sourceRequest}
                 onReview={(id) =>
-                  void flushPrivateDrafts().then((saved) => {
-                    if (saved) {
-                      setReviewId(id);
-                      setPanel('reviews');
-                    }
+                  void navigate(() => {
+                    setReviewId(id);
+                    setPanel('reviews');
                   })
                 }
                 onAsk={(message, run) => void askAgent(message, run)}
                 onSource={(messageId) => void openSource(messageId)}
                 onThread={(id) =>
-                  void flushPrivateDrafts().then((saved) => {
-                    if (saved) workspace.selectThread(id);
-                  })
+                  void navigate(() => workspace.selectThread(id))
                 }
-                onInspect={(id) =>
-                  void flushPrivateDrafts().then((saved) => {
-                    if (saved) setInspect(id);
-                  })
-                }
+                onInspect={(id) => void navigate(() => setInspect(id))}
                 onChange={workspace.refresh}
                 onReference={addReference}
                 onAgents={() => void team.navigate({ app: 'agents' })}

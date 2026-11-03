@@ -302,6 +302,13 @@ func (s *Store) ReceiveGitHubDelivery(ctx context.Context, id, credential, deliv
 			if e = event(ctx, q, "github.event.received", source.RoomID, eventID); e != nil {
 				return e
 			}
+			observed, e := githubEvent(ctx, q, eventID)
+			if e != nil {
+				return e
+			}
+			if e = recordAutomationGitHubEvent(ctx, tx, observed); e != nil {
+				return e
+			}
 		} else if e != nil {
 			return e
 		} else {
@@ -409,6 +416,9 @@ func (s *Store) DismissGitHubEvent(ctx context.Context, id string, in DismissGit
 			return problem("event_decided", "This event already has a decision. Refresh its recorded result.")
 		}
 		if e = q.DecideGitHubEvent(ctx, sqlgen.DecideGitHubEventParams{EventID: id, Outcome: "dismissed", ActorID: actorID(ctx), Reason: in.Reason, CreatedAt: now()}); e != nil {
+			return e
+		}
+		if e = markAutomationManualDecision(ctx, q, id, ""); e != nil {
 			return e
 		}
 		out, e = githubEvent(ctx, q, id)
