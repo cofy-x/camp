@@ -10,6 +10,7 @@ import {
   prepareDemoComposer,
   type DemoLedger,
 } from '../scripts/demo-remote-ui-driver.mjs';
+import { watchPageErrors } from './page-errors';
 import { remoteBrowserEnvironment } from './remote-browser-helpers';
 import { mutate, workspace } from './team-helpers';
 
@@ -36,9 +37,10 @@ for (const uncertain of [false, true])
   test(`paid UI demo uses explicit owned Agent setup without a model (uncertain send: ${uncertain})`, async ({
     page,
     remote,
+    browserName,
   }, info) => {
-    const errors: string[] = [];
-    page.on('pageerror', (error) => errors.push(error.message));
+    const pageErrors = watchPageErrors(page, browserName);
+    const { errors } = pageErrors;
     await remote.setup(page);
     const get = async (route: string) => {
       const response = await page.request.get(route);
@@ -130,7 +132,7 @@ for (const uncertain of [false, true])
         saved.push(structuredClone(ledger));
       },
     });
-    await page.reload();
+    await pageErrors.reload();
     const roomName = `UI demo ${randomUUID().slice(0, 8)}`;
     const snapshot = async () => {};
     const { room, imported } = await importDemoRoom({

@@ -1417,6 +1417,8 @@ acceptance: try {
     assertDurableJournalEqual(
       journal,
       await stoppedJournalEvidence(runnerData),
+      // Read-only cleanup inspection may materialize an empty SQLite WAL.
+      { allowEmptyWALLifecycle: true },
     );
     assert.equal(
       calls,

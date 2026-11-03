@@ -60,6 +60,81 @@ test('stopped journal proof detects changed or missing WAL even when the main fi
   assert.throws(() => assertDurableJournalEqual(before, missing), /main\/WAL/);
 });
 
+test('only an explicit read-only lifecycle accepts absent and empty WAL while preserving exact copy evidence', async (t) => {
+  const directory = await fixture(t);
+  const wal = path.join(directory, 'journal.sqlite-wal');
+  await rm(wal);
+  const missing = await stoppedJournalEvidence(directory);
+  await writeFile(wal, '', { mode: 0o600 });
+  const empty = await stoppedJournalEvidence(directory);
+  const options = { allowEmptyWALLifecycle: true };
+  assert.throws(() => assertDurableJournalEqual(missing, empty), /main\/WAL/);
+  assert.throws(() => assertDurableJournalEqual(empty, missing), /main\/WAL/);
+  assertDurableJournalEqual(missing, empty, options);
+  assertDurableJournalEqual(empty, missing, options);
+  assert.equal(missing.durableFiles['journal.sqlite-wal'], null);
+  assert.deepEqual(empty.durableFiles['journal.sqlite-wal'], {
+    bytes: 0,
+    mode: 0o600,
+    sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+  });
+  assert.throws(() => assertJournalCopy(missing, empty), /main\/WAL/);
+  assert.throws(() => assertJournalCopy(empty, missing), /main\/WAL/);
+});
+
+test('empty WAL compatibility cannot hide changed main data, durable frames or invalid empty evidence', async (t) => {
+  const directory = await fixture(t);
+  const wal = path.join(directory, 'journal.sqlite-wal');
+  const options = { allowEmptyWALLifecycle: true };
+  const original = await stoppedJournalEvidence(directory);
+  await writeFile(wal, 'changed durable WAL frames');
+  const changed = await stoppedJournalEvidence(directory);
+  assert.throws(
+    () => assertDurableJournalEqual(original, changed, options),
+    /main\/WAL/,
+  );
+  await rm(wal);
+  const missing = await stoppedJournalEvidence(directory);
+  assert.throws(
+    () => assertDurableJournalEqual(original, missing, options),
+    /main\/WAL/,
+  );
+  await writeFile(wal, '', { mode: 0o600 });
+  const empty = await stoppedJournalEvidence(directory);
+  assert.throws(
+    () => assertDurableJournalEqual(original, empty, options),
+    /main\/WAL/,
+  );
+  for (const change of [{ sha256: '0'.repeat(64) }, { mode: 0o644 }]) {
+    const invalid = {
+      ...empty,
+      durableFiles: {
+        ...empty.durableFiles,
+        'journal.sqlite-wal': {
+          ...empty.durableFiles['journal.sqlite-wal'],
+          ...change,
+        },
+      },
+    };
+    assert.throws(
+      () => assertDurableJournalEqual(missing, invalid, options),
+      /main\/WAL/,
+    );
+  }
+  await chmod(wal, 0o400);
+  const changedMode = await stoppedJournalEvidence(directory);
+  assert.throws(
+    () => assertDurableJournalEqual(empty, changedMode, options),
+    /main\/WAL/,
+  );
+  await writeFile(path.join(directory, 'journal.sqlite'), 'changed main');
+  const changedMain = await stoppedJournalEvidence(directory);
+  assert.throws(
+    () => assertDurableJournalEqual(missing, changedMain, options),
+    /main\/WAL/,
+  );
+});
+
 test('coordination-only changes are observed separately and exact stopped copies preserve every present file', async (t) => {
   const directory = await fixture(t);
   const before = await stoppedJournalEvidence(directory);

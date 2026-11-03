@@ -7,6 +7,7 @@ import process from 'node:process';
 
 const names = ['journal.sqlite', 'journal.sqlite-wal', 'journal.sqlite-shm'];
 const maximumBytes = 64 << 20;
+const emptySHA256 = createHash('sha256').digest('hex');
 
 async function inventory(directory) {
   const files = {};
@@ -99,12 +100,36 @@ export async function stoppedJournalEvidence(directory) {
   };
 }
 
-export function assertDurableJournalEqual(before, after) {
+export function assertDurableJournalEqual(
+  before,
+  after,
+  { allowEmptyWALLifecycle = false } = {},
+) {
   assert.equal(before.schema, 1);
   assert.equal(after.schema, 1);
+  const previous = before.durableFiles;
+  let current = after.durableFiles;
+  // Only a known read-only SQLite lifecycle may change empty WAL presence.
+  // Preserve the raw observations; exact backup copies never opt in.
+  if (allowEmptyWALLifecycle) {
+    const empty = (file) =>
+      file?.bytes === 0 &&
+      file.sha256 === emptySHA256 &&
+      Number.isInteger(file.mode) &&
+      file.mode >= 0 &&
+      file.mode <= 0o700 &&
+      !(file.mode & 0o077);
+    const priorWAL = previous['journal.sqlite-wal'];
+    const currentWAL = current['journal.sqlite-wal'];
+    if (
+      (priorWAL === null && empty(currentWAL)) ||
+      (currentWAL === null && empty(priorWAL))
+    )
+      current = { ...current, 'journal.sqlite-wal': priorWAL };
+  }
   assert.deepEqual(
-    after.durableFiles,
-    before.durableFiles,
+    current,
+    previous,
     'Stopped operation changed durable journal main/WAL bytes.',
   );
 }
