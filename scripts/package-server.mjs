@@ -2,6 +2,7 @@ import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { command, go, root } from './lib.mjs';
 import { collectLicenses } from './licenses.mjs';
+import { packageDocumentRuntime } from './document-runtime.mjs';
 import {
   archiveTree,
   installationNotes,
@@ -10,12 +11,31 @@ import {
   serverPlatforms,
 } from './release.mjs';
 
-if (process.platform !== 'linux' || process.arch !== 'x64')
-  throw new Error('Server release packaging currently targets Linux amd64.');
+const selected = process.argv.slice(2);
+if (
+  selected.length &&
+  (selected.length !== 2 ||
+    selected[0] !== '--platform' ||
+    !serverPlatforms.includes(selected[1]))
+)
+  throw new Error(
+    'Usage: node scripts/package-server.mjs [--platform PLATFORM]',
+  );
+if (process.platform !== 'linux' && process.platform !== 'darwin')
+  throw new Error('Build Server packages on Linux or Mac.');
+const platforms = selected.length
+  ? [selected[1]]
+  : process.platform === 'darwin'
+    ? [`darwin-${process.arch === 'x64' ? 'amd64' : process.arch}`]
+    : serverPlatforms;
+if (process.platform === 'darwin' && platforms.includes('linux-amd64'))
+  throw new Error(
+    'Build the Linux Server package on its native Linux builder.',
+  );
 const identity = await releaseIdentity();
 const flags = await serverBuildFlags(identity);
 const servers = {};
-for (const platform of serverPlatforms) {
+for (const platform of platforms) {
   const destination = join(root, `dist/camp-server-${platform}`);
   const staging = `${destination}.staging`;
   await rm(staging, { recursive: true, force: true });
@@ -26,6 +46,10 @@ for (const platform of serverPlatforms) {
       await cp(join(root, 'dist/camp'), join(staging, 'camp'));
     else {
       const [GOOS, GOARCH] = platform.split('-');
+      const documents = await packageDocumentRuntime(
+        join(staging, 'documents'),
+        platform,
+      );
       await command(
         go,
         [
@@ -34,7 +58,7 @@ for (const platform of serverPlatforms) {
           '-tags',
           'production',
           '-ldflags',
-          flags,
+          `${flags} -X github.com/cofy-x/camp/apps/server/internal/documenttext.packagedManifestSHA256=${documents}`,
           '-o',
           join(staging, 'camp'),
           './apps/server/cmd/server',

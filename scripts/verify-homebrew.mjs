@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { release } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { command, root, scratch } from './lib.mjs';
 import { verifyPublishedFormula } from './homebrew.mjs';
 import { hashFile, validVersion } from './release.mjs';
+import { assertDocumentServiceReceipt } from './document-service.mjs';
 
 assert.equal(process.platform, 'darwin');
 const execute = promisify(execFile);
@@ -115,6 +116,75 @@ try {
         },
       },
     );
+    let documentContract = false;
+    try {
+      await access(join(source, 'scripts/smoke-documents.mjs'));
+      documentContract = true;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    if (documentContract) {
+      let serviceContract = false;
+      let documentError;
+      try {
+        await access(join(source, 'scripts/document-service.mjs'));
+        serviceContract = true;
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+      try {
+        await command(
+          process.execPath,
+          [
+            join(source, 'scripts/smoke-documents.mjs'),
+            ...(serviceContract ? ['--service'] : []),
+          ],
+          {
+            cwd: source,
+            env: {
+              ...environment,
+              VERSION: version,
+              CAMP_SMOKE_BINARY: join(prefix.trim(), 'bin/camp'),
+            },
+          },
+        );
+      } catch (error) {
+        documentError = error;
+      }
+      try {
+        report.documents = JSON.parse(
+          await readFile(
+            join(
+              source,
+              `dist/document-verification-darwin-${process.arch}.json`,
+            ),
+            'utf8',
+          ),
+        );
+      } catch (error) {
+        if (error.code !== 'ENOENT') documentError ??= error;
+      }
+      if (documentError) throw documentError;
+      assert.equal(report.documents.status, 'passed');
+      assert.equal(report.documents.sourceCommit, descriptor.sourceCommit);
+      if (serviceContract) {
+        assertDocumentServiceReceipt(report.documents, {
+          version,
+          sourceCommit: descriptor.sourceCommit,
+          platform: `darwin/${process.arch}`,
+        });
+        report.checks.push(
+          'Server-launchd-bundled-readers-and-confirmed-cleanup',
+        );
+      } else
+        report.untested.push(
+          'Server service absent from the historical document contract',
+        );
+      report.checks.push('bundled-isolated-documents-and-local-import');
+    } else
+      report.untested.push(
+        'document readers absent from the historical release contract',
+      );
   } finally {
     await rm(source, { recursive: true, force: true });
   }

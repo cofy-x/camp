@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -16,14 +17,26 @@ const extractionTimeout = 30 * time.Second
 const maxResponseBytes = 8 << 20
 
 type Config struct {
-	ExecutablePath string
-	RuntimeDir     string
-	NodePath       string
+	ExecutablePath    string
+	RuntimeDir        string
+	NodePath          string
+	HelperPath        string
+	JobRoot           string
+	InstallationError error
 }
 
-type Engine struct{ config Config }
+type Engine struct {
+	config     Config
+	runMu      sync.Mutex
+	initialize sync.Once
+	suspended  error
+	stateMu    sync.RWMutex
+	checks     []Check
+}
 
-func New(config Config) *Engine { return &Engine{config: config} }
+func New(config Config) *Engine {
+	return &Engine{config: config, checks: []Check{{Format: "docx", Status: "unknown", Detail: "Document reader has not been checked."}, {Format: "pdf", Status: "unknown", Detail: "Document reader has not been checked."}}}
+}
 
 // Extract does not write the original to disk or expose service credentials to
 // the reader. A failed preparation never returns partially extracted content.
@@ -43,6 +56,25 @@ func (e *Engine) Extract(ctx context.Context, name string, content []byte) (Resu
 	}
 	ctx, cancel := context.WithTimeout(ctx, extractionTimeout)
 	defer cancel()
+	e.runMu.Lock()
+	defer e.runMu.Unlock()
+	e.initialize.Do(func() {
+		e.suspended = e.config.InstallationError
+		if e.suspended == nil {
+			e.suspended = initializeReader(ctx, e.config)
+		}
+	})
+	if e.suspended != nil {
+		e.markUnavailable()
+		if e.config.InstallationError != nil {
+			var problem *Failure
+			if errors.As(e.config.InstallationError, &problem) {
+				return Result{}, problem
+			}
+			return Result{}, failure("unavailable", "The fixed Server document runtime failed verification. Reinstall this complete Camp version; team data is unchanged.", true)
+		}
+		return Result{}, failure("unavailable", "Document reader process ownership needs attention. Restart the Server after resolving its retained reader jobs.", true)
+	}
 	config := e.config
 	if config.ExecutablePath == "" {
 		config.ExecutablePath, _ = os.Executable()
@@ -50,30 +82,12 @@ func (e *Engine) Extract(ctx context.Context, name string, content []byte) (Resu
 	if config.NodePath == "" {
 		config.NodePath, _ = exec.LookPath("node")
 	}
-	cmd, err := readerCommand(config, format)
-	if err != nil {
-		return Result{}, err
-	}
-	cmd.Stdin = bytes.NewReader(content)
 	stdout := &boundedOutput{limit: maxResponseBytes, cancel: cancel}
 	stderr := &boundedOutput{limit: 8192, discardOverflow: true}
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	// Closing the pipes has a deadline too; a broken reader must not keep the
-	// service waiting through a leaked descendant's inherited descriptor.
-	cmd.WaitDelay = time.Second
-	if err := cmd.Start(); err != nil {
-		return Result{}, failure("unavailable", "The isolated document reader could not start. Check Linux Bubblewrap and the document runtime.", true)
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case err = <-done:
-	case <-ctx.Done():
-		// Bubblewrap owns a private PID namespace. Killing its supervisor also
-		// removes detached descendants, not only the immediate child process.
-		_ = cmd.Process.Kill()
-		err = <-done
+	err := runReader(ctx, config, format, bytes.NewReader(content), stdout, stderr)
+	if errors.Is(err, errReaderOwnership) {
+		e.suspended = err
+		e.markUnavailable()
 	}
 	if stdout.overflow {
 		return Result{}, failure("limit_exceeded", "The document reader exceeded its output limit.", false)
@@ -82,6 +96,10 @@ func (e *Engine) Extract(ctx context.Context, name string, content []byte) (Resu
 		return Result{}, contextFailure(ctx.Err())
 	}
 	if err != nil {
+		var problem *Failure
+		if errors.As(err, &problem) {
+			return Result{}, problem
+		}
 		return Result{}, failure("reader_failed", "The document reader stopped before preparation completed. The original file is unchanged.", true)
 	}
 	var result response

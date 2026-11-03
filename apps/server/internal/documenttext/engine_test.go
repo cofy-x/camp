@@ -40,8 +40,15 @@ func integrationEngine(t *testing.T) *Engine {
 	if root == "" {
 		t.Skip("set CAMP_TEST_DOCUMENT_RUNTIME to test isolated native document readers")
 	}
+	if runtime.GOOS == "darwin" {
+		helper := os.Getenv("CAMP_MAC_HELPER")
+		if !filepath.IsAbs(helper) {
+			t.Fatal("CAMP_MAC_HELPER must identify the built trusted helper")
+		}
+		return New(Config{RuntimeDir: root, HelperPath: helper, JobRoot: filepath.Join(t.TempDir(), "private-jobs")})
+	}
 	if runtime.GOOS != "linux" {
-		t.Skip("Linux Bubblewrap is required")
+		t.Skip("A supported native reader host is required")
 	}
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Fatal(err)
@@ -155,7 +162,7 @@ func TestIntegrationCancellationReapsDetachedReaderChildren(t *testing.T) {
 	runtimeDir := t.TempDir()
 	marker := "camp-document-cleanup-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	script := fmt.Sprintf(`import { spawn } from 'node:child_process';
-spawn('/node',['-e','setInterval(()=>{},1000)',%q],{detached:true,stdio:'ignore'}).unref();
+spawn(process.execPath,['-e','setInterval(()=>{},1000)',%q],{detached:true,stdio:'ignore'}).unref();
 setInterval(()=>{},1000);`, marker)
 	if err := os.WriteFile(filepath.Join(runtimeDir, "extract.mjs"), []byte(script), 0600); err != nil {
 		t.Fatal(err)
@@ -176,7 +183,7 @@ setInterval(()=>{},1000);`, marker)
 	select {
 	case err := <-done:
 		requireFailure(t, err, "cancelled")
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cancellation did not finish")
 	}
 	deadline = time.Now().Add(3 * time.Second)
@@ -211,6 +218,8 @@ func TestIntegrationDeadlineAndProtocolFailures(t *testing.T) {
 	defer cancel()
 	_, err := engine.Extract(ctx, "fixture.pdf", []byte("%PDF-1.7"))
 	requireFailure(t, err, "timeout")
+	engine = integrationEngine(t)
+	engine.config.RuntimeDir = runtimeDir
 	for _, output := range []string{`{}`, `{"result":{"format":"pdf","sections":[{"id":"p9","label":"Page 9","text":"wrong location"}],"warnings":[]}}`, `{"error":{"code":"malformed","message":"failed","retryable":false}} {}`} {
 		script := "process.stdout.write(" + strconv.Quote(output) + ");"
 		if err := os.WriteFile(entry, []byte(script), 0600); err != nil {
@@ -222,6 +231,10 @@ func TestIntegrationDeadlineAndProtocolFailures(t *testing.T) {
 }
 
 func processMarkerExists(marker string) bool {
+	if runtime.GOOS == "darwin" {
+		data, _ := exec.Command("/bin/ps", "-axo", "command=").Output()
+		return bytes.Contains(data, []byte(marker))
+	}
 	entries, _ := os.ReadDir("/proc")
 	for _, entry := range entries {
 		if _, err := strconv.Atoi(entry.Name()); err != nil {
