@@ -633,13 +633,13 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 members={members}
                 availability={workspace.status ?? undefined}
                 onOpenTask={(id) =>
-                  move(() => {
+                  void navigate(() => {
                     setTaskId(id);
                     setPanel('tasks');
                     setInspect('');
                   })
                 }
-                onClose={back}
+                onClose={() => void navigate(back)}
               />
             ) : panel === 'tasks' ? (
               taskId ? (

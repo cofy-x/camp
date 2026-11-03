@@ -493,7 +493,7 @@ export function Automation({
     >
       <div className="workspace-panel-heading">
         <h2>Automation</h2>
-        <Button onClick={() => navigate(onClose)}>Back to Chat</Button>
+        <Button onClick={onClose}>Back to Chat</Button>
       </div>
       {error && (
         <p className="app-error" role="alert">
@@ -527,7 +527,7 @@ export function Automation({
               sources={sources}
               onSourceChange={setActivitySource}
               onOpenInbox={() => navigate(() => setGitHubSelection(''))}
-              onOpenTask={(id) => navigate(() => onOpenTask(id))}
+              onOpenTask={onOpenTask}
               onReviewGitHub={(id) => navigate(() => setGitHubSelection(id))}
             />
           </div>
@@ -538,7 +538,7 @@ export function Automation({
               members={members}
               initialEventId={githubSelection}
               availability={availability}
-              onOpenTask={(id) => navigate(() => onOpenTask(id))}
+              onOpenTask={onOpenTask}
               onClose={() => navigate(() => setGitHubSelection(null))}
             />
           )}

@@ -68,6 +68,7 @@ test('policy drafts survive navigation and uncertain saves recover the committed
   await panel(page)
     .getByRole('button', { name: 'Back to Chat', exact: true })
     .click();
+  await expect(panel(page)).toHaveCount(0);
   await openAutomation(page);
   await expect(panel(page).getByLabel('Rules', { exact: true })).toHaveValue(
     rules,
@@ -130,6 +131,129 @@ test('policy drafts survive navigation and uncertain saves recover the committed
     ).tasks,
   ).toEqual([]);
   expect(errors.errors).toEqual([]);
+});
+
+test('the latest Workspace navigation wins while Automation saves a private draft', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  await signIn(page);
+  const room = await createRoom(
+    page,
+    `Automation navigation ${randomUUID().slice(0, 8)}`,
+  );
+  const obsoleteTaskId = `obsolete-navigation-task-${randomUUID()}`;
+  let taskReads = 0;
+  await page.route(`**/api/tasks/${obsoleteTaskId}?*`, (route) => {
+    taskReads++;
+    return route.fulfill({
+      status: 404,
+      json: { error: 'No task was opened.' },
+    });
+  });
+  await page.route(`**/api/rooms/${room.id}/automation-events?*`, (route) => {
+    const event: SourceEvent = {
+      seq: 1,
+      id: 'fixture-navigation-event',
+      roomId: room.id,
+      sourceId: 'room',
+      threadKey: `${room.id}:room`,
+      kind: 'room.message',
+      actorId: 'fixture-member',
+      actorLogin: 'A teammate',
+      actorKind: 'user',
+      content: 'Context for the earlier collaboration.',
+      occurredAt: '2026-11-03T02:00:00Z',
+      status: 'context',
+      taskId: obsoleteTaskId,
+    };
+    return route.fulfill({
+      json: { items: [event], through: 1, nextBefore: null, hasMore: false },
+    });
+  });
+  await openAutomation(page);
+  let release = () => {};
+  let saving = false;
+  let held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const draftKey = `automation-policy:${room.id}:room`;
+  await page.route('**/api/me/drafts/conversation', async (route) => {
+    if (
+      route.request().method() !== 'PUT' ||
+      (route.request().postDataJSON() as { key: string }).key !== draftKey
+    )
+      return route.fallback();
+    saving = true;
+    await held;
+    await route.continue();
+  });
+
+  async function finishSaving() {
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'PUT' &&
+        response.url().endsWith('/api/me/drafts/conversation') &&
+        (response.request().postDataJSON() as { key: string }).key === draftKey,
+    );
+    release();
+    await (await saved).finished();
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+  }
+
+  try {
+    const rules = panel(page).getByLabel('Rules', { exact: true });
+    const draft = 'Preserve this private draft while navigation is pending.';
+    await rules.fill(draft);
+    await panel(page).getByRole('button', { name: 'Back to Chat' }).click();
+    await expect.poll(() => saving).toBe(true);
+    await workspace(page)
+      .getByRole('button', { name: 'Automation', exact: true })
+      .click();
+    await finishSaving();
+    await expect(panel(page)).toBeVisible();
+    await expect(
+      panel(page).getByRole('tab', { name: 'Settings', exact: true }),
+    ).toHaveAttribute('aria-selected', 'true');
+    await expect(rules).toHaveValue(draft);
+
+    saving = false;
+    held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await rules.fill(`${draft} Keep the second change too.`);
+    await panel(page)
+      .getByRole('tab', { name: 'Activity', exact: true })
+      .click();
+    const events = panel(page).getByRole('region', {
+      name: 'Automation events',
+    });
+    await events.getByText('Details', { exact: true }).click();
+    await events.getByRole('button', { name: 'Open Collaboration' }).click();
+    await expect.poll(() => saving).toBe(true);
+    await workspace(page)
+      .getByRole('button', { name: 'Automation', exact: true })
+      .click();
+    await finishSaving();
+    await expect(panel(page)).toBeVisible();
+    await expect(
+      panel(page).getByRole('tab', { name: 'Activity', exact: true }),
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(taskReads).toBe(0);
+    await panel(page)
+      .getByRole('tab', { name: 'Settings', exact: true })
+      .click();
+    await expect(rules).toHaveValue(`${draft} Keep the second change too.`);
+    expect(errors.errors).toEqual([]);
+  } finally {
+    release();
+  }
 });
 
 async function openAutomationForRecovery(page: Page) {
