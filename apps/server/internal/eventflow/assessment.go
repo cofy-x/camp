@@ -58,7 +58,9 @@ func (m *Manager) assess(ctx context.Context, candidate orchestration.Candidate)
 	request.Header.Set("X-Api-Key", model.APIKey)
 	request.Header.Set("Anthropic-Version", "2023-06-01")
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.ResponseHeaderTimeout = 15 * time.Second
+	// Non-streaming providers may send headers only after generation finishes.
+	// The request context bounds connection, headers and body with one deadline.
+	transport.ResponseHeaderTimeout = 0
 	transport.DisableKeepAlives = true
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
