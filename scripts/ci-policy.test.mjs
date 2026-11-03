@@ -10,6 +10,10 @@ import {
   validationStage,
 } from './change-policy.mjs';
 
+function workflowJob(text, id) {
+  return text.split(`\n  ${id}:\n`)[1].split(/\n {2}[a-z_]+:\n/)[0];
+}
+
 test('protected contexts always resolve, including documentation and failed classification', async () => {
   const text = await readFile(
     new URL('../.github/workflows/ci.yml', import.meta.url),
@@ -21,7 +25,7 @@ test('protected contexts always resolve, including documentation and failed clas
     ['browser', 'Browser'],
     ['fixture', 'Fixture'],
   ]) {
-    const block = text.split(`\n  ${id}:\n`)[1].split(/\n {2}[a-z_]+:\n/)[0];
+    const block = workflowJob(text, id);
     assert(block.includes(`name: ${name}\n`));
     assert(block.includes('if: ${{ always() }}'));
     assert(
@@ -83,44 +87,117 @@ test('native recovery retains failure evidence without masking the test exit', a
   );
 });
 
-test('the actual required Browser shell gate matches the fail-closed policy', async (t) => {
+test('required Source, Browser and Fixture shell gates reject failed, cancelled and uncertain execution', async (t) => {
   const text = await readFile(
     new URL('../.github/workflows/ci.yml', import.meta.url),
     'utf8',
   );
-  const script = text
-    .split('  browser:\n')[1]
-    .split('  fixture:\n')[0]
-    .split('        run: |\n')[1]
-    .split('\n')
-    .filter((line) => line.startsWith('          '))
-    .map((line) => line.slice(10))
-    .join('\n');
   const tmp = await mkdtemp(path.join(os.tmpdir(), 'camp-ci-gate-'));
   t.after(() => rm(tmp, { recursive: true }));
-  for (const required of ['true', 'false', ''])
-    for (const result of ['success', 'failure', 'cancelled', 'skipped', ''])
-      for (const classification of [
-        'success',
-        'failure',
-        'cancelled',
-        'skipped',
-      ]) {
-        const execution = spawnSync('bash', ['-e', '-c', script], {
-          env: {
-            ...process.env,
-            REQUIRED: required,
-            RESULT: result,
-            CLASSIFICATION_RESULT: classification,
-            GITHUB_STEP_SUMMARY: path.join(tmp, 'summary'),
-          },
-        });
-        assert.equal(
-          execution.status === 0,
-          gateDecision(required, result, classification).passed,
-          JSON.stringify({ required, result, classification }),
-        );
-      }
+  for (const id of ['source', 'browser', 'fixture']) {
+    const script = workflowJob(text, id)
+      .split('        run: |\n')[1]
+      .split('\n')
+      .filter((line) => line.startsWith('          '))
+      .map((line) => line.slice(10))
+      .join('\n');
+    for (const required of ['true', 'false', '', 'unknown'])
+      for (const result of ['success', 'failure', 'cancelled', 'skipped', ''])
+        for (const classification of [
+          'success',
+          'failure',
+          'cancelled',
+          'skipped',
+          '',
+        ]) {
+          const execution = spawnSync(
+            'bash',
+            ['--noprofile', '--norc', '-e', '-c', script],
+            {
+              env: {
+                PATH: '/usr/bin:/bin',
+                LANG: 'C.UTF-8',
+                DOCS_ONLY: required,
+                REQUIRED: required,
+                RESULT: result,
+                CLASSIFICATION_RESULT: classification,
+                GITHUB_STEP_SUMMARY: path.join(tmp, 'summary'),
+              },
+            },
+          );
+          const expected =
+            id === 'source'
+              ? ['true', 'false'].includes(required) &&
+                gateDecision('true', result, classification).passed
+              : gateDecision(required, result, classification).passed;
+          assert.equal(
+            execution.status === 0,
+            expected,
+            JSON.stringify({
+              id,
+              required,
+              result,
+              classification,
+              stderr: execution.stderr?.toString(),
+            }),
+          );
+        }
+  }
+});
+
+test('long source and fixture jobs are cancelable while protected gates remain short and command-free', async () => {
+  const workflow = await readFile(
+    new URL('../.github/workflows/ci.yml', import.meta.url),
+    'utf8',
+  );
+  for (const id of ['source_checks', 'fixture_checks']) {
+    const block = workflowJob(workflow, id);
+    const header = block.split('    steps:\n')[0];
+    assert.match(header, /!cancelled\(\)/);
+    assert.doesNotMatch(header, /always\(\)/);
+    assert.match(header, /needs.changes.result == 'success'/);
+  }
+  for (const [id, execution] of [
+    ['source', 'source_checks'],
+    ['fixture', 'fixture_checks'],
+  ]) {
+    const block = workflowJob(workflow, id);
+    assert.match(block, /timeout-minutes: 5/);
+    assert.ok(block.includes(`needs: [changes, ${execution}]`));
+    assert.ok(block.includes('RESULT: ${{ needs.' + execution + '.result }}'));
+    assert.doesNotMatch(block, /uses:|make |go |npx |docker /);
+    assert.equal((block.match(/- name:/g) || []).length, 1);
+  }
+  const source = workflowJob(workflow, 'source_checks');
+  for (const command of [
+    'make typecheck lint format-check',
+    'make test-go-race test-js',
+    'make build smoke-production',
+    'node scripts/smoke-upgrade.mjs',
+    'make check-docs',
+    "exec prettier --check '**/*.md'",
+    'go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12',
+    'git diff --exit-code',
+  ])
+    assert.ok(source.includes(command), command);
+  assert.ok(source.includes("needs.changes.outputs.docs == 'true'"));
+  assert.ok(source.includes("needs.changes.outputs.docs != 'true'"));
+  const fixture = workflowJob(workflow, 'fixture_checks');
+  assert.ok(
+    fixture
+      .split('    steps:\n')[0]
+      .includes("needs.changes.outputs.fixture == 'true'"),
+  );
+  assert.ok(fixture.includes('make test-remote'));
+  assert.ok(
+    fixture.includes(
+      'node scripts/remote.mjs down --project "$CAMP_REMOTE_PROJECT"',
+    ),
+  );
+  assert.match(
+    fixture,
+    /Remove this test project's containers and volumes\n[\s\S]+timeout-minutes: 5/,
+  );
 });
 test('release runs complete core regression even after documentation-only main CI', async () => {
   const plan = validationStage(
