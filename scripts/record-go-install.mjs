@@ -2,28 +2,31 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { release } from 'node:os';
 import { root } from './lib.mjs';
-import { assertDocumentServiceReceipt } from './document-service.mjs';
+import { assertServerServiceReceipt } from './server-service.mjs';
 
 const platform = `${process.platform}-${process.arch === 'x64' ? 'amd64' : process.arch}`;
 const macRunner = platform === 'darwin-arm64';
 let nativeRunner = null;
-let documents = null;
-let documentsPassed = process.platform !== 'darwin';
+let service = null;
+let servicePassed = process.platform !== 'darwin';
 if (process.platform === 'darwin') {
   try {
-    documents = JSON.parse(
+    service = JSON.parse(
       await readFile(
-        join(root, `dist/document-verification-darwin-${process.arch}.json`),
+        join(
+          root,
+          `dist/server-service-verification-darwin-${process.arch}.json`,
+        ),
         'utf8',
       ),
     );
     try {
-      assertDocumentServiceReceipt(documents, {
+      assertServerServiceReceipt(service, {
         version: process.env.VERSION,
         sourceCommit: process.env.GITHUB_SHA,
         platform: `darwin/${process.arch}`,
       });
-      documentsPassed = true;
+      servicePassed = true;
     } catch {
       /* Retain rejected evidence without converting it to success. */
     }
@@ -50,8 +53,7 @@ const report = {
     process.env.CAMP_GO_INSTALL_OUTCOME === 'success' &&
     process.env.CAMP_GO_SMOKE_OUTCOME === 'success' &&
     (process.platform !== 'darwin' ||
-      (process.env.CAMP_GO_DOCUMENT_OUTCOME === 'success' &&
-        documentsPassed)) &&
+      (process.env.CAMP_GO_SERVICE_OUTCOME === 'success' && servicePassed)) &&
     (!macRunner ||
       (process.env.CAMP_GO_RUNNER_OUTCOME === 'success' &&
         nativeRunner?.status === 'passed' &&
@@ -65,7 +67,7 @@ const report = {
   install: process.env.CAMP_GO_INSTALL_OUTCOME || 'not_completed',
   lifecycle: process.env.CAMP_GO_SMOKE_OUTCOME || 'not_completed',
   nativeRunner,
-  documents,
+  service,
   completedAt: new Date().toISOString(),
   workflow: `https://github.com/cofy-x/camp/actions/runs/${process.env.GITHUB_RUN_ID}`,
   untested: [

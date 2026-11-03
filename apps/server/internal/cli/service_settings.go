@@ -22,7 +22,7 @@ var serviceKeys = []string{
 	"CAMP_DSH_MAX_TOKENS", "CAMP_DSH_MAX_STEPS", "CAMP_DSH_TIMEOUT_SECONDS",
 }
 
-// serviceSettings separates model bootstrap from the optional document worker.
+// serviceSettings owns private model bootstrap configuration.
 type serviceSettings struct {
 	configuration.ModelInput
 }

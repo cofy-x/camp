@@ -3,6 +3,7 @@ package runs
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/cofy-x/camp/apps/server/internal/runinput"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
+	"github.com/cofy-x/camp/apps/server/internal/testfixture"
 )
 
 func documentReference(t *testing.T, m *Manager, s *storage.Store, room storage.Room) storage.Reference {
@@ -31,35 +33,26 @@ func documentReference(t *testing.T, m *Manager, s *storage.Store, room storage.
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := s.EnsureDocument(ctx, id, object.Commit, "brief.pdf", "test-reader", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.ChangeDocument(ctx, d.ID, "extracting", nil); err != nil {
-		t.Fatal(err)
-	}
-	d, err = s.ChangeDocument(ctx, d.ID, "ready", &storage.Document{Sections: []storage.DocumentSection{{ID: "p1", Label: "Page 1", Text: "Morgan owns a two-week pilot."}}, Warnings: []string{}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	d := seedHistoricalRunDocument(t, m, storage.Document{ID: "legacy-original", ResourceID: id, Commit: object.Commit, Path: "brief.pdf", Format: "pdf", Status: "ready", ExtractorVersion: "retired-reader", Sections: []storage.DocumentSection{{ID: "p1", Label: "Page 1", Text: "Morgan owns a two-week pilot."}}, Warnings: []string{}})
 	ref := receipt.Reference
 	ref.Document = d.Summary()
 	return ref
+}
+func seedHistoricalRunDocument(t *testing.T, m *Manager, d storage.Document) storage.Document {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(filepath.Dir(m.dir), "desktop.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	testfixture.Document(t, db, d)
+	return d
 }
 func TestPreparedTextMountAndPromptUseFrozenArtifact(t *testing.T) {
 	m, s, _, room := testManager(t)
 	ref := documentReference(t, m, s, room)
 	ctx := context.Background()
-	retry, err := s.EnsureDocument(ctx, ref.ResourceID, ref.Commit, ref.Path, "test-reader", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.ChangeDocument(ctx, retry.ID, "extracting", nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.ChangeDocument(ctx, retry.ID, "ready", &storage.Document{Sections: []storage.DocumentSection{{ID: "p1", Label: "Page 1", Text: "Different interpretation after retry."}}, Warnings: []string{}}); err != nil {
-		t.Fatal(err)
-	}
+	seedHistoricalRunDocument(t, m, storage.Document{ID: "legacy-newer", ResourceID: ref.ResourceID, Commit: ref.Commit, Path: ref.Path, Format: "pdf", Status: "ready", ExtractorVersion: "another-retired-reader", Sections: []storage.DocumentSection{{ID: "p1", Label: "Page 1", Text: "Different interpretation after retry."}}, Warnings: []string{}})
 	run := storage.Run{References: []storage.Reference{ref}}
 	dir, err := runinput.PrepareReferences(ctx, s, m.resources, run, t.TempDir())
 	if err != nil {
@@ -124,16 +117,7 @@ printf 'DOCUMENT_PROVENANCE_VERIFIED\n'`}}, "tool_use")
 	if err != nil || len(sent.Runs) != 1 {
 		t.Fatalf("send %+v %v", sent, err)
 	}
-	retry, err := s.EnsureDocument(ctx, ref.ResourceID, ref.Commit, ref.Path, "test-reader", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.ChangeDocument(ctx, retry.ID, "extracting", nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.ChangeDocument(ctx, retry.ID, "ready", &storage.Document{Sections: []storage.DocumentSection{{ID: "p1", Label: "Page 1", Text: "Changed after admission"}}, Warnings: []string{}}); err != nil {
-		t.Fatal(err)
-	}
+	seedHistoricalRunDocument(t, m, storage.Document{ID: "legacy-newer", ResourceID: ref.ResourceID, Commit: ref.Commit, Path: ref.Path, Format: "pdf", Status: "ready", ExtractorVersion: "another-retired-reader", Sections: []storage.DocumentSection{{ID: "p1", Label: "Page 1", Text: "Changed after admission"}}, Warnings: []string{}})
 	if _, err = m.Cancel(ctx, held.ID); err != nil {
 		t.Fatal(err)
 	}

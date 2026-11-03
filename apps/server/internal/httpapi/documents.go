@@ -1,15 +1,10 @@
 package httpapi
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
-
-type documentPreparer interface {
-	PrepareDocument(context.Context, string, string, string, bool) (storage.Document, error)
-}
 
 func (a *API) prepareDocument(w http.ResponseWriter, r *http.Request) {
 	var in struct {
@@ -20,13 +15,13 @@ func (a *API) prepareDocument(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in, 8192) {
 		return
 	}
-	service, ok := a.rooms.(documentPreparer)
-	if !ok {
-		writeError(w, 503, "execution_unavailable", "Document preparation is not configured.")
+	// Keep the old operation explicit for existing clients, without enqueuing
+	// work or changing any retained document snapshot.
+	if _, err := a.store.LatestDocument(r.Context(), r.PathValue("id"), in.Commit, in.Path); err != nil {
+		a.respond(w, r, nil, err)
 		return
 	}
-	d, err := service.PrepareDocument(r.Context(), r.PathValue("id"), in.Commit, in.Path, in.Retry)
-	a.respond(w, r, map[string]any{"document": d}, err)
+	writeError(w, http.StatusGone, storage.DocumentPreparationDisabledCode, storage.DocumentPreparationDisabledMessage)
 }
 func (a *API) latestDocument(w http.ResponseWriter, r *http.Request) {
 	if len(r.URL.Query()["commit"]) != 1 || len(r.URL.Query()["path"]) != 1 {

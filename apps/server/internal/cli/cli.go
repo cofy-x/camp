@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cofy-x/camp/apps/server/internal/documenttext"
 	"github.com/cofy-x/camp/apps/server/internal/server"
 )
 
@@ -43,10 +42,6 @@ func Run(ctx context.Context, args []string, output io.Writer, version string) e
 	}
 	if len(args) > 0 && args[0] == "runner" {
 		return runRunner(ctx, args[1:], output)
-	}
-	// The isolated parser must never load service configuration or credentials.
-	if len(args) == 1 && args[0] == "document-worker" {
-		return documenttext.Worker(ctx, os.Stdin, output)
 	}
 	cmd, err := parseCommand(args)
 	if err != nil {
@@ -117,10 +112,6 @@ func runServe(ctx context.Context, options serveOptions, output io.Writer, geten
 	if err != nil {
 		return fmt.Errorf("resolve working directory: %w", err)
 	}
-	program, _ := os.Executable()
-	documentConfig := resolveDocumentSettings(getenv, cwd, program)
-	config.DocumentRuntimeDir, config.DocumentNodePath = documentConfig.RuntimeDir, documentConfig.NodePath
-	config.DocumentHelperPath, config.DocumentError = documentConfig.HelperPath, documentConfig.InstallationError
 	settings, err := readServiceSettings(options, getenv, cwd)
 	if err != nil {
 		return err
@@ -139,17 +130,6 @@ func runServe(ctx context.Context, options serveOptions, output io.Writer, geten
 		}
 	}
 	return server.Run(ctx, config)
-}
-
-func documentRuntime(getenv func(string) string, cwd string) string {
-	runtime := getenv("CAMP_DOCUMENT_RUNTIME")
-	if runtime == "" {
-		return filepath.Join(cwd, "tools", "document-runtime")
-	}
-	if !filepath.IsAbs(runtime) {
-		return filepath.Join(cwd, runtime)
-	}
-	return runtime
 }
 
 func parseCommand(args []string) (command, error) {

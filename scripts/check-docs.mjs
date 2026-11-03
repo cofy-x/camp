@@ -138,12 +138,6 @@ export function checkDocs(directory) {
       ],
       owner: 'tools/dsh-runtime/package.json',
     },
-    'pdf.js': {
-      version: json('tools/document-runtime/package.json').dependencies[
-        'pdfjs-dist'
-      ],
-      owner: 'tools/document-runtime/package.json',
-    },
   };
   for (const [label, pin] of Object.entries(pins)) {
     if (!pin.version || !/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(pin.version)) {
@@ -163,7 +157,7 @@ export function checkDocs(directory) {
     if (file.startsWith('docs/decisions/')) continue;
     const { source } = document(file);
     for (const match of source.matchAll(
-      /\b(Go|Node|pnpm|DSH|PDF\.js)(?:[*`]*\s+[*`]*v?|@)(\d+\.\d+\.\d+(?:-[\w-]+(?:\.[\w-]+)*)?)/gi,
+      /\b(Go|Node|pnpm|DSH)(?:[*`]*\s+[*`]*v?|@)(\d+\.\d+\.\d+(?:-[\w-]+(?:\.[\w-]+)*)?)/gi,
     )) {
       compare(
         file,

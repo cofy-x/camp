@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { release as osRelease } from 'node:os';
 import { command, root, scratch } from './lib.mjs';
 import { hashFile, serverPlatforms } from './release.mjs';
-import { assertDocumentServiceReceipt } from './document-service.mjs';
+import { assertServerServiceReceipt } from './server-service.mjs';
 import {
   baselineLauncher,
   upgradeBaseline,
@@ -47,31 +47,31 @@ try {
       },
     );
   }
-  let documents;
+  let service;
   if (process.platform === 'darwin') {
-    const documentReport = join(
+    const serviceReport = join(
       directory,
-      `server-document-service-${platform}.json`,
+      `server-service-verification-${platform}.json`,
     );
     await command(
       process.execPath,
-      [join(root, 'scripts/smoke-documents.mjs'), '--service'],
+      [join(root, 'scripts/smoke-server-service.mjs'), '--service'],
       {
         env: {
           ...process.env,
           CAMP_SMOKE_BINARY: join(temporary, `camp-server-${platform}/camp`),
-          CAMP_DOCUMENT_REPORT: documentReport,
+          CAMP_SERVER_SERVICE_REPORT: serviceReport,
           CAMP_SERVER_ARCHIVE: filename,
         },
       },
     );
-    documents = JSON.parse(await readFile(documentReport, 'utf8'));
-    assertDocumentServiceReceipt(documents, {
+    service = JSON.parse(await readFile(serviceReport, 'utf8'));
+    assertServerServiceReceipt(service, {
       version: descriptor.version,
       sourceCommit: descriptor.sourceCommit,
       platform: `darwin/${process.arch}`,
     });
-    assert.equal(documents.archiveSHA256, artifact.sha256);
+    assert.equal(service.archiveSHA256, artifact.sha256);
   }
   const report = {
     schema: 1,
@@ -81,7 +81,7 @@ try {
     platform,
     host: { os: osRelease(), architecture: process.arch },
     archiveSHA256: artifact.sha256,
-    documents,
+    service,
     upgrade: { fromVersion: upgradeBaseline },
     previousUpgrade: { fromVersion: previousRelease },
     completedAt: new Date().toISOString(),
@@ -98,9 +98,9 @@ try {
       'upgrade retains authentication, exact files, private drafts and history',
       ...(process.platform === 'darwin'
         ? [
-            'bundled isolated PDF/DOCX readers without host Node or Runner',
-            'allowlisted Mac directory import and immutable document restart',
-            'Server launchd lifecycle with bundled readers and confirmed cleanup',
+            'Markdown, plain text and preserved original-only attachments',
+            'allowlisted Mac directory import and immutable file restart',
+            'Server launchd lifecycle without parser runtime and with confirmed cleanup',
           ]
         : []),
     ],

@@ -12,12 +12,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"strings"
 	"time"
@@ -46,15 +44,9 @@ type Options struct {
 }
 
 type receipt struct {
-	Version   string                `json:"version"`
-	Archive   string                `json:"archive"`
-	SHA256    string                `json:"binarySHA256"`
-	Documents map[string]cachedFile `json:"documents,omitempty"`
-}
-
-type cachedFile struct {
-	SHA256     string `json:"sha256"`
-	Executable bool   `json:"executable"`
+	Version string `json:"version"`
+	Archive string `json:"archive"`
+	SHA256  string `json:"binarySHA256"`
 }
 
 func (o Options) archive() (string, error) {
@@ -154,44 +146,7 @@ func verifyCached(directory, version, archive string) error {
 	if err != nil || digest != saved.SHA256 {
 		return errors.New("cached executable digest differs")
 	}
-	documents, err := documentCache(filepath.Join(directory, "documents"))
-	if err != nil || !reflect.DeepEqual(documents, saved.Documents) {
-		return errors.New("cached document runtime differs")
-	}
 	return nil
-}
-
-func documentCache(root string) (map[string]cachedFile, error) {
-	if _, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	files := map[string]cachedFile{}
-	err := filepath.WalkDir(root, func(name string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		info, err := entry.Info()
-		if err != nil || info.Mode().Perm()&0022 != 0 {
-			return errors.New("unsafe cached document runtime")
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		if !info.Mode().IsRegular() || len(files) >= 10000 {
-			return errors.New("unsupported cached document runtime")
-		}
-		relative, err := filepath.Rel(root, name)
-		if err != nil {
-			return err
-		}
-		digest, err := hashFile(name)
-		if err != nil {
-			return err
-		}
-		files[relative] = cachedFile{SHA256: digest, Executable: info.Mode().Perm()&0111 != 0}
-		return nil
-	})
-	return files, err
 }
 
 func install(ctx context.Context, o Options, directory, destination, archive string) error {
@@ -248,11 +203,7 @@ func install(ctx context.Context, o Options, directory, destination, archive str
 	if err := os.Chmod(binary, 0700); err != nil {
 		return err
 	}
-	documents, err := documentCache(filepath.Join(payload, "documents"))
-	if err != nil {
-		return err
-	}
-	data, _ := json.Marshal(receipt{Version: o.Version, Archive: archive, SHA256: binaryDigest, Documents: documents})
+	data, _ := json.Marshal(receipt{Version: o.Version, Archive: archive, SHA256: binaryDigest})
 	if err := os.WriteFile(filepath.Join(payload, ".camp-install.json"), data, 0600); err != nil {
 		return err
 	}

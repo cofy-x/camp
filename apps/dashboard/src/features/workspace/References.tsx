@@ -33,13 +33,13 @@ function ReferenceCard({
       ?.scrollIntoView({ block: 'nearest' });
   }, []);
   const file = reference.kind === 'file';
-  const prepareDocument = Boolean(
+  const loadDocument = Boolean(
     onDocumentChange && file && documentFormat(reference.path),
   );
   const documentState = useDocumentPreview(
     reference,
     (document) => onDocumentChange?.(reference, document),
-    prepareDocument,
+    loadDocument,
   );
   const document = documentState.document
     ? documentSnapshot(documentState.document)
@@ -69,9 +69,9 @@ function ReferenceCard({
           {status && <small>{status}</small>}
           {document ? (
             <small>{documentStatusLabel(document)}</small>
-          ) : prepareDocument ? (
+          ) : file && documentFormat(reference.path) ? (
             <small>
-              {documentState.error ? 'Preview unavailable' : 'Preparing text'}
+              {documentState.loading ? 'Loading saved text…' : 'Original only'}
             </small>
           ) : null}
         </summary>
@@ -95,7 +95,7 @@ function ReferenceCard({
                 <FilePreview
                   reference={reference}
                   onReady={reveal}
-                  documentState={prepareDocument ? documentState : undefined}
+                  documentState={loadDocument ? documentState : undefined}
                   onDocumentChange={
                     onDocumentChange
                       ? (document) => onDocumentChange(reference, document)

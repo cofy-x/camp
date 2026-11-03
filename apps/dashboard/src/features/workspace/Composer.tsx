@@ -27,7 +27,6 @@ import {
 import { References } from './References';
 import { UploadAttachments, useDraftUploads } from './UploadAttachments';
 import { uploadDrafts } from './uploadState';
-import { documentFormat, documentPending } from './documents';
 import { useTeam } from '../../team/TeamContext';
 import { useConversationDraft } from './useConversationDraft';
 import { APIError } from '../../shared/api/http';
@@ -85,12 +84,6 @@ export function Composer({
     () => '',
   );
   const references = savedReferences ? draftReferences(key) : [];
-  const preparingDocuments = references.some(
-    (reference) =>
-      reference.kind === 'file' &&
-      documentFormat(reference.path) &&
-      (!reference.document || documentPending(reference.document.status)),
-  );
   const uploads = useDraftUploads(key);
   const handoff = useSyncExternalStore(
     useCallback(
@@ -208,7 +201,6 @@ export function Composer({
       !privateDraft.loaded ||
       pending ||
       uploads.length > 0 ||
-      (preparingDocuments && hasAgentWork && !retry) ||
       needsRecipient ||
       !content.trim() ||
       (!available && hasAgentWork && !retry)
@@ -572,9 +564,7 @@ export function Composer({
               ? 'Retry or remove unfinished attachments'
               : uploads.length
                 ? 'Waiting for attachments…'
-                : preparingDocuments && hasAgentWork && !retry
-                  ? 'Preparing attachment text…'
-                  : 'Ctrl / ⌘ + Return to send'}
+                : 'Ctrl / ⌘ + Return to send'}
         </span>
         <Button
           type="submit"
@@ -582,7 +572,6 @@ export function Composer({
             !privateDraft.loaded ||
             pending ||
             uploads.length > 0 ||
-            (preparingDocuments && hasAgentWork && !retry) ||
             needsRecipient ||
             !content.trim() ||
             (!available && hasAgentWork && !retry)
@@ -594,7 +583,7 @@ export function Composer({
       {references.some(
         (reference) =>
           reference.kind === 'file' &&
-          /\.(pdf|docx?|png|jpe?g|gif|webp|svg|bmp|tiff?|avif|heic)$/i.test(
+          /\.(png|jpe?g|gif|webp|svg|bmp|tiff?|avif|heic)$/i.test(
             reference.path ?? '',
           ),
       ) && (

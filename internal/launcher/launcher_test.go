@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -110,33 +111,35 @@ func TestConcurrentInstallationCacheAndRepair(t *testing.T) {
 	}
 }
 
-func TestBundledReaderExecutablesAndCacheRepair(t *testing.T) {
-	payload := packageBytes(t,
-		tar.Header{Name: "camp-server-linux-amd64/camp", Typeflag: tar.TypeReg, Mode: 0755, Size: 5},
-		tar.Header{Name: "camp-server-linux-amd64/documents/bin/node", Typeflag: tar.TypeReg, Mode: 0755, Size: 10},
-		tar.Header{Name: "camp-server-linux-amd64/documents/runtime/extract.mjs", Typeflag: tar.TypeReg, Mode: 0644, Size: 12},
-	)
+func TestLegacyReaderReceiptDoesNotRequireRetiredRuntime(t *testing.T) {
+	payload := packageBytes(t, tar.Header{Name: "camp-server-linux-amd64/camp", Typeflag: tar.TypeReg, Mode: 0755, Size: 5})
 	o, requests := fixture(t, payload)
 	binary, err := Ensure(t.Context(), o)
 	if err != nil {
 		t.Fatal(err)
 	}
-	node := filepath.Join(filepath.Dir(binary), "documents/bin/node")
-	info, err := os.Stat(node)
-	if err != nil || info.Mode().Perm() != 0700 {
-		t.Fatal("private runtime executable mode was lost", err)
+	filename := filepath.Join(filepath.Dir(binary), ".camp-install.json")
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := os.WriteFile(node, []byte("corrupt runtime"), 0700); err != nil {
+	var old map[string]any
+	if err := json.Unmarshal(data, &old); err != nil {
+		t.Fatal(err)
+	}
+	old["documents"] = map[string]any{"bin/node": map[string]any{"sha256": strings.Repeat("0", 64), "executable": true}}
+	data, err = json.Marshal(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filename, data, 0600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Ensure(t.Context(), o); err != nil {
 		t.Fatal(err)
 	}
-	if requests.Load() != 4 {
-		t.Fatal("corrupt reader runtime did not repair from the same fixed archive")
-	}
-	if data, err := os.ReadFile(node); err != nil || string(data) != strings.Repeat("x", 10) {
-		t.Fatal("repaired runtime differs", err)
+	if requests.Load() != 2 {
+		t.Fatal("legacy parser metadata triggered an unnecessary download")
 	}
 }
 

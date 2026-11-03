@@ -56,7 +56,7 @@ export function homebrewFormula(descriptor) {
 
   def install
     if OS.mac?
-      libexec.install "camp", "documents"
+      libexec.install "camp"
       bin.install_symlink libexec/"camp"
     else
       bin.install "camp"

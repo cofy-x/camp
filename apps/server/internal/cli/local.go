@@ -106,9 +106,9 @@ func runLocal(ctx context.Context, args []string, output io.Writer) error {
 func localRunnerGuidance(goos, goarch string) string {
 	if goos == "darwin" {
 		if goarch == "arm64" {
-			return "Mac Server: on macOS 15+ Apple Silicon, connect this Mac with camp runner setup using a browser connection code. A supported Linux Runner is also available. Document reader availability is reported separately in Settings; complete Mac packages include isolated readers."
+			return "Mac Server: on macOS 15+ Apple Silicon, connect this Mac with camp runner setup using a browser connection code. A supported Linux Runner is also available."
 		}
-		return "Intel Mac Server: connect a supported Apple Silicon Mac (macOS 15+) or Linux Runner for Agent work. Intel Mac native Runner execution is not supported. Document reader availability is reported separately in Settings; complete Mac packages include isolated readers."
+		return "Intel Mac Server: connect a supported Apple Silicon Mac (macOS 15+) or Linux Runner for Agent work. Intel Mac native Runner execution is not supported."
 	}
 	if goos == "linux" {
 		return "Linux Server: connect a supported Linux (Ubuntu 24.04 amd64) or Apple Silicon Mac (macOS 15+) Runner for Agent work. Runner setup reports the host requirements separately."

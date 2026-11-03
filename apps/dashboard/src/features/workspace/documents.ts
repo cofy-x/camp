@@ -27,7 +27,6 @@ export function documentSnapshot(
 }
 
 export function documentStatusLabel(document: DocumentSnapshot) {
-  if (documentPending(document.status)) return 'Preparing text';
   if (document.status !== 'ready') return 'Original only';
   const unit = document.format === 'pdf' ? 'page' : 'paragraph';
   return `${document.sectionCount} ${unit}${document.sectionCount === 1 ? '' : 's'} · Text ready`;

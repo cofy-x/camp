@@ -1,6 +1,6 @@
 # Team workflow
 
-[Install Camp](install.md) to create a team, or join an existing Server with a browser address and invitation. Discussion and plain-text editing work without a model or Runner. Configure a model and connect a supported Runner when you want Agents to execute work.
+[Install Camp](install.md) to create a team, or join an existing Server with a browser address and invitation. Discussion, Markdown and plain-text editing work without a model or Runner. Configure a model and connect a supported Runner when you want Agents to execute work.
 
 ## Find your way around
 
@@ -17,7 +17,7 @@ Camp's browser desktop has five applications:
 ## From discussion to delivery
 
 1. **Discuss in a Room.** Ordinary messages start no Agent work. Select an Agent or mention its handle for one execution; **Post only** suppresses Agent execution.
-2. **Collect sources.** Attach files or select Library sources. Uploads retain the original. **Add to Message** prepares an unsent reference to an exact version. PDF/DOCX preparation uses no model call; when text preparation is unavailable, the original remains downloadable. Reader availability depends on the [Server platform](install.md#supported-deployment).
+2. **Collect sources.** Attach files or select Library sources. Uploads retain the original. **Add to Message** prepares an unsent reference to an exact version. Use Markdown or plain text for readable evidence. Other attachments remain downloadable; Camp does not prepare new PDF/DOCX text. Existing saved text and citations remain available.
 3. **Send work explicitly.** Read the result and exact saved files in the conversation. Check status describes configured commands, not business acceptance. **Ask agent…** prepares a cited follow-up that still needs a recipient and Send.
 4. **Edit and review.** Library edits autosave privately; **Publish Changes** creates a shared version. Open a shared file and use **Request Review…** to ask a person. Requested changes, resubmission and approval use the same review Thread.
 5. **Deliver a version.** Deliver the approved current version explicitly. Delivered bytes remain pinned after later edits. History and restore preserve earlier versions.

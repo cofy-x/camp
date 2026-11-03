@@ -301,6 +301,9 @@ test('a long completed reply keeps its files and checks ahead of expandable, int
     point!.y + point!.height / 2,
   );
   await page.mouse.down();
+  // Safari follows the OS mouse-down focus preference. Establish focus before
+  // checking that the desktop update preserves it in every browser.
+  await citation.focus();
   // A desktop update between pointer down and up must preserve the link node,
   // its focus and its pending click, including in Firefox.
   const viewport = page.viewportSize()!;

@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { command, root, scratch } from './lib.mjs';
 import { verifyPublishedFormula } from './homebrew.mjs';
 import { hashFile, validVersion } from './release.mjs';
-import { assertDocumentServiceReceipt } from './document-service.mjs';
+import { assertServerServiceReceipt } from './server-service.mjs';
 
 assert.equal(process.platform, 'darwin');
 const execute = promisify(execFile);
@@ -85,6 +85,7 @@ try {
   // Verify the installed release with its own lifecycle contract. Future API
   // changes must not make CI require an older tap release to implement them.
   const source = await scratch();
+  let lifecyclePassed = false;
   try {
     await command('git', [
       '-c',
@@ -116,29 +117,19 @@ try {
         },
       },
     );
-    let documentContract = false;
+    let serviceContract = false;
     try {
-      await access(join(source, 'scripts/smoke-documents.mjs'));
-      documentContract = true;
+      await access(join(source, 'scripts/smoke-server-service.mjs'));
+      serviceContract = true;
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
-    if (documentContract) {
-      let serviceContract = false;
-      let documentError;
-      try {
-        await access(join(source, 'scripts/document-service.mjs'));
-        serviceContract = true;
-      } catch (error) {
-        if (error.code !== 'ENOENT') throw error;
-      }
+    if (serviceContract) {
+      let serviceError;
       try {
         await command(
           process.execPath,
-          [
-            join(source, 'scripts/smoke-documents.mjs'),
-            ...(serviceContract ? ['--service'] : []),
-          ],
+          [join(source, 'scripts/smoke-server-service.mjs'), '--service'],
           {
             cwd: source,
             env: {
@@ -149,44 +140,41 @@ try {
           },
         );
       } catch (error) {
-        documentError = error;
+        serviceError = error;
       }
       try {
-        report.documents = JSON.parse(
+        report.service = JSON.parse(
           await readFile(
             join(
               source,
-              `dist/document-verification-darwin-${process.arch}.json`,
+              `dist/server-service-verification-darwin-${process.arch}.json`,
             ),
             'utf8',
           ),
         );
       } catch (error) {
-        if (error.code !== 'ENOENT') documentError ??= error;
+        serviceError ??= error;
       }
-      if (documentError) throw documentError;
-      assert.equal(report.documents.status, 'passed');
-      assert.equal(report.documents.sourceCommit, descriptor.sourceCommit);
-      if (serviceContract) {
-        assertDocumentServiceReceipt(report.documents, {
-          version,
-          sourceCommit: descriptor.sourceCommit,
-          platform: `darwin/${process.arch}`,
-        });
-        report.checks.push(
-          'Server-launchd-bundled-readers-and-confirmed-cleanup',
-        );
-      } else
-        report.untested.push(
-          'Server service absent from the historical document contract',
-        );
-      report.checks.push('bundled-isolated-documents-and-local-import');
+      if (serviceError) throw serviceError;
+      assertServerServiceReceipt(report.service, {
+        version,
+        sourceCommit: descriptor.sourceCommit,
+        platform: `darwin/${process.arch}`,
+      });
+      report.checks.push(
+        'Server-launchd-text-attachments-and-confirmed-cleanup',
+      );
     } else
       report.untested.push(
-        'document readers absent from the historical release contract',
+        'Server service absent from the historical release contract',
       );
+    lifecyclePassed = true;
   } finally {
-    await rm(source, { recursive: true, force: true });
+    if (lifecyclePassed) await rm(source, { recursive: true, force: true });
+    else {
+      report.retainedLifecycleSource = source;
+      console.error(`Retained failed Homebrew lifecycle evidence: ${source}`);
+    }
   }
   report.checks.push(
     'complete-embedded-ui',

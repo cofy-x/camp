@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/configuration"
-	"github.com/cofy-x/camp/apps/server/internal/documenttext"
 	"github.com/cofy-x/camp/apps/server/internal/projectenv"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
@@ -78,8 +77,6 @@ func (m *Manager) CheckReadiness(ctx context.Context, recheck bool) (Readiness, 
 		{"layerfs", "LayerFS and Docker", "layerfs", "Recheck to verify the private execution runtime."},
 		{"isolation", "Model process isolation", "isolation", "Recheck to exercise Bubblewrap isolation."},
 		{"storage", "SQLite", "storage", "Recheck to verify database availability."},
-		{"document-pdf", "PDF text preparation", "document-pdf", "Recheck to exercise the isolated PDF reader. Original documents can still be downloaded."},
-		{"document-docx", "DOCX text preparation", "document-docx", "Recheck to exercise the isolated DOCX reader. Original documents can still be downloaded."},
 		{"execution", "Last agent execution", "execution", "No agent execution has completed yet."},
 	} {
 		diagnostic := m.diagnostics.Get(component.key)
@@ -167,14 +164,6 @@ func (m *Manager) refreshReadiness(ctx context.Context) error {
 	}
 	record("isolation", "Bubblewrap isolation probe passed.", probeErr)
 	record("storage", "SQLite database responded.", m.store.Ping(ctx))
-	program, _ := os.Executable()
-	reader := documenttext.New(documenttext.Config{ExecutablePath: program, RuntimeDir: m.config.DocumentRuntimeDir, NodePath: m.config.NodePath})
-	for _, format := range []string{"pdf", "docx"} {
-		probe, cancel := context.WithTimeout(ctx, 5*time.Second)
-		err := reader.Probe(probe, format)
-		cancel()
-		record("document-"+format, "The isolated reader extracted the expected text from a generated fixture.", err)
-	}
 	return persistenceErr
 }
 

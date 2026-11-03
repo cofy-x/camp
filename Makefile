@@ -7,13 +7,13 @@ E2E_INSTALL_ARGS ?= chromium
 .PHONY: help install dev build build-dashboard build-go test test-go test-go-race test-js check-docs typecheck format format-go format-check format-check-go lint lint-go lint-fix lint-fix-format generate generate-check test-e2e smoke-production clean
 
 help:
-	@echo "make install | install-dsh | install-project-runtime | install-document-runtime | install-layerfs | package-runner | package-linux | dev | build | test | test-dsh | test-layerfs | test-project-env | test-go-race | check-docs | typecheck | format | format-check | lint | lint-fix | lint-fix-format | generate | generate-check | test-e2e | smoke-production"
+	@echo "make install | install-dsh | install-project-runtime | install-layerfs | package-runner | package-linux | dev | build | test | test-dsh | test-layerfs | test-project-env | test-go-race | check-docs | typecheck | format | format-check | lint | lint-fix | lint-fix-format | generate | generate-check | test-e2e | smoke-production"
 
 install:
 	$(PNPM) install --frozen-lockfile
 	$(GO) mod download
 
-.PHONY: install-dsh install-project-runtime install-document-runtime install-layerfs build-sandbox test-layerfs test-dsh test-project-env
+.PHONY: install-dsh install-project-runtime install-layerfs build-sandbox test-layerfs test-dsh test-project-env
 .PHONY: package-linux package-runner smoke-bundle
 package-linux: package-daemon
 
@@ -28,9 +28,6 @@ install-dsh:
 
 install-project-runtime:
 	$(PNPM) --dir tools/project-runtime install --frozen-lockfile --ignore-scripts
-
-install-document-runtime:
-	node tools/document-runtime/install.mjs
 
 install-layerfs:
 	node tools/layerfs-runtime/install.mjs

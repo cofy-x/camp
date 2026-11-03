@@ -1,23 +1,20 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, Select } from '@cofy-x/camp-platinum';
 import type { Reference } from './api';
-import { documentPending } from './documents';
 import type { DocumentPreviewState } from './useDocumentPreview';
 
 export function DocumentPreview({
   reference,
   initialSection,
-  canRetry,
   state,
   onReady,
 }: {
   reference: Reference;
   initialSection?: string;
-  canRetry: boolean;
   state: DocumentPreviewState;
   onReady?: () => void;
 }) {
-  const { document, error, pollingStopped, refresh, retry } = state;
+  const { document, error, loading, refresh } = state;
   const [sectionId, setSectionId] = useState(initialSection ?? '');
   const content = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -35,8 +32,8 @@ export function DocumentPreview({
     }
   }, [section?.id]);
   useLayoutEffect(() => {
-    if (error || (document && !documentPending(document.status))) onReady?.();
-  }, [document, error, onReady]);
+    if (!loading) onReady?.();
+  }, [loading, onReady]);
 
   if (error)
     return (
@@ -47,22 +44,15 @@ export function DocumentPreview({
         </Button>
       </p>
     );
-  if (!document || documentPending(document.status))
+  if (loading)
     return (
       <p role="status" className="workspace-document-status">
-        {pollingStopped
-          ? 'Text preparation is taking longer than expected.'
-          : 'Preparing text…'}
-        {pollingStopped && (
-          <Button type="button" onClick={refresh}>
-            Check again
-          </Button>
-        )}
+        Loading saved text…
       </p>
     );
   return (
     <div className="workspace-document-preview">
-      {document.status === 'ready' ? (
+      {document?.status === 'ready' ? (
         <>
           <p className="workspace-document-note">
             Extracted text · {document.format.toUpperCase()} ·{' '}
@@ -155,29 +145,11 @@ export function DocumentPreview({
         </>
       ) : (
         <div className="workspace-document-unavailable" role="status">
-          <strong>No extracted text</strong>
-          <p>
-            {document.error?.message ||
-              'Readable text could not be extracted from this document.'}
-          </p>
-          <p>
-            The original is saved and can be downloaded. Agents receive the
-            original and this limitation, without extracted text.
-          </p>
-          {canRetry && document.error?.retryable && (
-            <Button
-              type="button"
-              onClick={() => {
-                setSectionId('');
-                retry();
-              }}
-            >
-              Prepare text again
-            </Button>
-          )}
+          <strong>Original only</strong>
+          <p>Attach a Markdown or plain-text copy for Agents to read.</p>
         </div>
       )}
-      {document.warnings.length > 0 && (
+      {document?.status === 'ready' && document.warnings.length > 0 && (
         <ul
           className="workspace-document-warnings"
           aria-label="Text limitations"
