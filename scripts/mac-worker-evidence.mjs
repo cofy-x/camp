@@ -35,6 +35,62 @@ export const qualificationDrivers = [
 export const digestJSON = (value) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
+export function macWorkerServiceCleanupAction(status) {
+  const service = status?.service;
+  if (
+    status?.schema !== 1 ||
+    status.platform !== 'darwin/arm64' ||
+    typeof status.runnerId !== 'string' ||
+    status.runnerId.length === 0 ||
+    service?.supported !== true ||
+    ['installed', 'loaded', 'running', 'loginEnabled'].some(
+      (field) => typeof service[field] !== 'boolean',
+    )
+  )
+    return 'uncertain';
+  if (
+    service.state === 'absent' &&
+    !service.installed &&
+    !service.loaded &&
+    !service.running &&
+    !service.loginEnabled
+  )
+    return 'absent';
+  if (
+    service.installed &&
+    ((service.state === 'stopped' && !service.running) ||
+      (service.state === 'running' && service.loaded && service.running))
+  )
+    return 'remove';
+  return 'uncertain';
+}
+
+export function macWorkerStorageSummary(storage) {
+  return {
+    complete: storage?.complete,
+    retention: {
+      previewAllowed: storage?.retention?.previewAllowed,
+      deletionSupported: storage?.retention?.deletionSupported,
+    },
+    lifecycle: Object.fromEntries(
+      [
+        'liveOverview',
+        'policyConfigured',
+        'advisoryWarning',
+        'protectedHistoryPreserved',
+        'quarantinePreservesBytes',
+        'restoredExactly',
+        'permanentlyPurged',
+        'recoveryGuardPreserved',
+        'cleanupPlanBlocked',
+        'cleanupPlanError',
+      ]
+        .filter((field) => storage?.lifecycle?.[field] !== undefined)
+        .map((field) => [field, storage.lifecycle[field]]),
+    ),
+  };
+}
+
 export async function driverFiles(root) {
   return Object.fromEntries(
     await Promise.all(
@@ -285,6 +341,36 @@ export function validateMacWorkerReport(report, expected) {
       'complete-capture-native-and-worker-restore',
     ])
       assert.ok(item.checks?.includes(check));
+    const storage = item.checkpointStorage;
+    assert.equal(storage?.complete, true);
+    assert.equal(storage.retention?.deletionSupported, false);
+    for (const field of [
+      'liveOverview',
+      'policyConfigured',
+      'advisoryWarning',
+      'protectedHistoryPreserved',
+    ])
+      assert.equal(storage.lifecycle?.[field], true);
+    const guarded =
+      name === 'workerUpgrade' &&
+      item.workerUpgrade?.reconstructionRequired === true;
+    const fullCleanup = 'explicit-checkpoint-budget-quarantine-restore-purge';
+    const recoveryGuard = 'checkpoint-reconstruction-history-blocks-cleanup';
+    assert.equal(storage.retention.previewAllowed, !guarded);
+    assert.ok(item.checks.includes(guarded ? recoveryGuard : fullCleanup));
+    assert.ok(!item.checks.includes(guarded ? fullCleanup : recoveryGuard));
+    for (const field of [
+      'quarantinePreservesBytes',
+      'restoredExactly',
+      'permanentlyPurged',
+    ])
+      assert.equal(storage.lifecycle[field], guarded ? undefined : true);
+    for (const field of ['recoveryGuardPreserved', 'cleanupPlanBlocked'])
+      assert.equal(storage.lifecycle[field], guarded ? true : undefined);
+    assert.equal(
+      storage.lifecycle.cleanupPlanError,
+      guarded ? 'RecoveryRequired' : undefined,
+    );
     if (backend) {
       assert.equal(item.fromVersion, report.baseline);
       assert.equal(item.baselineWorkspaceBackend, backend);

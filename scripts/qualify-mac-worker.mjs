@@ -27,6 +27,8 @@ import {
   macWorkerArtifacts,
   macWorkerRecoverySummary,
   macWorkerScope,
+  macWorkerServiceCleanupAction,
+  macWorkerStorageSummary,
   readMacWorkerIdentity,
   validateMacWorkerReport,
 } from './mac-worker-evidence.mjs';
@@ -297,32 +299,44 @@ async function scenario(name, mode, extra = {}) {
         "relocated Runner's installation/camp",
       );
       const data = path.join(fixture, "Runner's private data");
-      if (
-        await lstat(path.join(data, 'daemon.json'))
-          .then((info) => info.isFile())
-          .catch((error) => {
-            if (error.code === 'ENOENT') return false;
-            throw error;
-          })
-      ) {
-        try {
-          await execute(
-            executable,
-            ['runner', 'service', 'remove', '--data-dir', data],
-            {
-              cwd: fixture,
-              env: { PATH: '/usr/bin:/bin', HOME: fixture, LANG: env.LANG },
-              maxBuffer: 1 << 20,
-              timeout: 90_000,
-            },
+      const runnerCommand = (args) =>
+        execute(executable, ['runner', ...args, '--data-dir', data], {
+          cwd: fixture,
+          env: { PATH: '/usr/bin:/bin', HOME: fixture, LANG: env.LANG },
+          maxBuffer: 1 << 20,
+          timeout: 90_000,
+          killSignal: 'SIGKILL',
+        });
+      const serviceAction = async () =>
+        macWorkerServiceCleanupAction(
+          JSON.parse((await runnerCommand(['status', '--json'])).stdout),
+        );
+      try {
+        const action = await serviceAction();
+        assert.notEqual(
+          action,
+          'uncertain',
+          'Runner service ownership was not established by status --json.',
+        );
+        if (action === 'remove') {
+          await runnerCommand(['service', 'remove']);
+          assert.equal(
+            await serviceAction(),
+            'absent',
+            'Runner service removal was not confirmed by status --json.',
           );
-        } catch (error) {
-          report.cleanup = {
-            status: 'uncertain',
-            scenario: name,
-            reason: error.message,
-          };
         }
+        report.cleanup = {
+          status: 'confirmed',
+          scenario: name,
+          service: action === 'remove' ? 'removed' : 'not-installed',
+        };
+      } catch (error) {
+        report.cleanup = {
+          status: 'uncertain',
+          scenario: name,
+          reason: error.message,
+        };
       }
     }
   }
@@ -356,6 +370,7 @@ async function scenario(name, mode, extra = {}) {
         .filter((key) => value[key] !== undefined)
         .map((key) => [key, value[key]]),
     ),
+    checkpointStorage: macWorkerStorageSummary(value.checkpointStorage),
     reportSHA256: await hashFile(file),
   };
   return value;

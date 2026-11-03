@@ -36,6 +36,8 @@ The campaign covers online/offline native execution, stopped backup and backend 
 
 Reports bind the Camp version/source, runtime/installer/Server/image digests, SDK pin, shipped controller files, qualification driver and observed engine profile. Linux image proof remains a separate scope. Exact-package Mac evidence is optional for native-local release acceptance; without a matching passing report, the release records Mac worker qualification as pending. For candidate assembly, supply the completed report as `dist/mac-worker-qualification.json`; the collector rejects wrong-source, partial, failed or mismatched reports. Other engines, baselines, paid providers, physical sleep/login, crash durability and VM provisioning remain separate guarantees. The campaign never changes the global Docker context or starts/restarts an existing VM.
 
+Reconstructed fixtures verify that cleanup refuses retained reconstruction history without changing data. Fresh fixtures separately exercise quarantine, restore and permanent purge; a refusal never counts as successful deletion.
+
 The Runner fixtures use the exact archived Server executable as their private harness. Complete Server archive, text/original import and background-service acceptance remain separate gates.
 
 ### Packaged runtime cost comparison

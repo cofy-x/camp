@@ -189,32 +189,37 @@ const setupOnlyReport = setupOnly
     }
   : undefined;
 
-async function retainedWorkerFiles(home) {
+async function retainedWorkerFiles(home, includeRecovery = false) {
   const files = {};
   let bytes = 0;
+
+  async function record(file) {
+    const info = await lstat(file);
+    assert.ok(
+      info.isFile(),
+      'Retained checkpoint evidence must contain only owned files.',
+    );
+    bytes += info.size;
+    assert.ok(Object.keys(files).length < 100_000 && bytes <= 16 * 2 ** 30);
+    files[path.relative(home, file)] = {
+      sha256: await hashFile(file),
+      mode: info.mode & 0o777,
+    };
+  }
 
   async function walk(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const file = path.join(directory, entry.name);
       if (entry.isDirectory()) await walk(file);
-      else {
-        assert.ok(
-          entry.isFile(),
-          'Retained checkpoint evidence must contain only owned files.',
-        );
-        const info = await lstat(file);
-        bytes += info.size;
-        assert.ok(Object.keys(files).length < 100_000 && bytes <= 16 * 2 ** 30);
-        files[path.relative(home, file)] = {
-          sha256: await hashFile(file),
-          mode: info.mode & 0o777,
-        };
-      }
+      else await record(file);
     }
   }
 
-  for (const name of ['captures', 'operations'])
-    await walk(path.join(home, 'checkpoints', name));
+  for (const name of includeRecovery
+    ? ['checkpoints', 'epochs', 'recoveries']
+    : ['checkpoints/captures', 'checkpoints/operations'])
+    await walk(path.join(home, name));
+  if (includeRecovery) await record(path.join(home, 'current.json'));
   return files;
 }
 
@@ -1250,7 +1255,7 @@ acceptance: try {
     action: 'deliver',
   }));
   assert.equal(review.status, 'delivered');
-  const checkpointAt = async (dataRoot, action, extra = []) => {
+  const checkpointCommandAt = async (dataRoot, action, extra = []) => {
     const child = spawn(
       runnerBinary,
       [
@@ -1275,8 +1280,12 @@ acceptance: try {
       child.once('error', reject);
       child.once('close', resolve);
     });
-    assert.equal(exit, 0, diagnostic);
-    return JSON.parse(output);
+    return { exit, output, diagnostic };
+  };
+  const checkpointAt = async (dataRoot, action, extra = []) => {
+    const result = await checkpointCommandAt(dataRoot, action, extra);
+    assert.equal(result.exit, 0, result.diagnostic);
+    return JSON.parse(result.output);
   };
   let liveStorage;
   if (mac) {
@@ -1342,58 +1351,144 @@ acceptance: try {
     assert.equal(beforeCleanup.budget.observation.level, 'warning');
     const cleanup = (verb, flags) =>
       checkpointAt(runnerData, ['cleanup', verb], [...flags, '--json']);
-    const q = await cleanup('plan', []);
-    assert.equal(q.action, 'quarantine');
-    assert.equal(
-      (await cleanup('apply', ['--plan', q.planId])).state,
-      'complete',
-    );
-    assert.equal(
-      (await cleanup('status', ['--plan', q.planId])).state,
-      'complete',
-    );
-    const quarantined = await checkpointAt(runnerData, 'storage', ['--json']);
-    assert.equal(
-      quarantined.totals.logicalBytes,
-      beforeCleanup.totals.logicalBytes,
-    );
-    const restore = await cleanup('plan', [
-      '--action',
-      'restore',
-      '--batch',
-      q.batchId,
-    ]);
-    assert.equal(
-      (await cleanup('apply', ['--plan', restore.planId])).state,
-      'complete',
-    );
-    assert.deepEqual(
-      await readFile(path.join(orphan.root, 'manifest.json')),
-      manifest,
-    );
-    assert.deepEqual(
-      await readFile(path.join(orphan.root, 'receipt.json')),
-      receipt,
-    );
-    const again = await cleanup('plan', []);
-    await cleanup('apply', ['--plan', again.planId]);
-    const purge = await cleanup('plan', [
-      '--action',
-      'purge',
-      '--batch',
-      again.batchId,
-    ]);
-    assert.equal(
-      (await cleanup('apply', ['--plan', purge.planId, '--confirm-permanent']))
-        .state,
-      'complete',
-    );
-    const purged = await checkpointAt(runnerData, 'storage', ['--json']);
-    assert.equal(purged.quarantined.logicalBytes, 0);
-    assert.equal(
-      purged.retention.protected,
-      checkpointStorage.retention.protected,
-    );
+    if (workerUpgrade?.reconstructionRequired) {
+      // Reconstruction lineage remains retained even after a successful new
+      // epoch selection. Its cleanup guard must not be bypassed for acceptance.
+      assert.equal(beforeCleanup.complete, true);
+      assert.equal(checkpointStorage.retention.previewAllowed, false);
+      assert.equal(beforeCleanup.retention.previewAllowed, false);
+      assert.ok(beforeCleanup.recoveryIntents > 0);
+      assert.equal(
+        beforeCleanup.selectedEpoch,
+        workerUpgrade.reconstruction.newEpoch,
+      );
+      assert.equal(
+        beforeCleanup.captures.find(
+          (item) => item.path === path.relative(runnerData, orphan.root),
+        )?.disposition,
+        'blocked',
+      );
+      const workerHome = path.join(runnerData, 'layerfs-worker');
+      const retained = await retainedWorkerFiles(workerHome, true);
+      const guardedJournal = await stoppedJournalEvidence(runnerData);
+      const modelCounts = { calls, compatibilityRequests };
+      const blocked = await checkpointCommandAt(
+        runnerData,
+        ['cleanup', 'plan'],
+        ['--json'],
+      );
+      assert.equal(blocked.exit, 1, blocked.diagnostic);
+      assert.match(
+        blocked.diagnostic,
+        /^error: Storage administration RecoveryRequired: Incomplete metadata or reconstruction history blocks cleanup\.\s*$/,
+      );
+      assert.equal(blocked.output.trim(), '');
+      const after = await checkpointAt(runnerData, 'storage', ['--json']);
+      assert.equal(after.complete, true);
+      assert.equal(after.retention.previewAllowed, false);
+      assert.equal(after.recoveryIntents, beforeCleanup.recoveryIntents);
+      assert.equal(after.selectedEpoch, beforeCleanup.selectedEpoch);
+      assert.equal(
+        after.retention.protected,
+        checkpointStorage.retention.protected,
+      );
+      assert.deepEqual(await retainedWorkerFiles(workerHome, true), retained);
+      assert.deepEqual(
+        await readFile(path.join(runnerData, 'daemon.json')),
+        config,
+      );
+      assertDurableJournalEqual(
+        guardedJournal,
+        await stoppedJournalEvidence(runnerData),
+        // The refused plan still opens the journal through read-only inspection.
+        { allowEmptyWALLifecycle: true },
+      );
+      assert.deepEqual({ calls, compatibilityRequests }, modelCounts);
+      assert.deepEqual(
+        await readFile(path.join(orphan.root, 'manifest.json')),
+        manifest,
+      );
+      assert.deepEqual(
+        await readFile(path.join(orphan.root, 'receipt.json')),
+        receipt,
+      );
+      checkpointStorage.lifecycle = {
+        liveOverview: liveStorage.quiescent === false,
+        policyConfigured: true,
+        advisoryWarning: true,
+        recoveryGuardPreserved: true,
+        cleanupPlanBlocked: true,
+        cleanupPlanError: 'RecoveryRequired',
+        protectedHistoryPreserved: true,
+      };
+    } else {
+      const q = await cleanup('plan', []);
+      assert.equal(q.action, 'quarantine');
+      assert.equal(
+        (await cleanup('apply', ['--plan', q.planId])).state,
+        'complete',
+      );
+      assert.equal(
+        (await cleanup('status', ['--plan', q.planId])).state,
+        'complete',
+      );
+      const quarantined = await checkpointAt(runnerData, 'storage', ['--json']);
+      assert.equal(
+        quarantined.totals.logicalBytes,
+        beforeCleanup.totals.logicalBytes,
+      );
+      const restore = await cleanup('plan', [
+        '--action',
+        'restore',
+        '--batch',
+        q.batchId,
+      ]);
+      assert.equal(
+        (await cleanup('apply', ['--plan', restore.planId])).state,
+        'complete',
+      );
+      assert.deepEqual(
+        await readFile(path.join(orphan.root, 'manifest.json')),
+        manifest,
+      );
+      assert.deepEqual(
+        await readFile(path.join(orphan.root, 'receipt.json')),
+        receipt,
+      );
+      const again = await cleanup('plan', []);
+      await cleanup('apply', ['--plan', again.planId]);
+      const purge = await cleanup('plan', [
+        '--action',
+        'purge',
+        '--batch',
+        again.batchId,
+      ]);
+      assert.equal(
+        (
+          await cleanup('apply', [
+            '--plan',
+            purge.planId,
+            '--confirm-permanent',
+          ])
+        ).state,
+        'complete',
+      );
+      const purged = await checkpointAt(runnerData, 'storage', ['--json']);
+      assert.equal(purged.quarantined.logicalBytes, 0);
+      assert.equal(
+        purged.retention.protected,
+        checkpointStorage.retention.protected,
+      );
+      checkpointStorage.lifecycle = {
+        liveOverview: liveStorage.quiescent === false,
+        policyConfigured: true,
+        advisoryWarning: true,
+        quarantinePreservesBytes: true,
+        restoredExactly: true,
+        permanentlyPurged: true,
+        protectedHistoryPreserved: true,
+      };
+    }
     await checkpointAt(runnerData, 'budget', [
       '--retained-budget',
       '10GiB',
@@ -1401,15 +1496,6 @@ acceptance: try {
       '2GiB',
       '--json',
     ]);
-    checkpointStorage.lifecycle = {
-      liveOverview: liveStorage.quiescent === false,
-      policyConfigured: true,
-      advisoryWarning: true,
-      quarantinePreservesBytes: true,
-      restoredExactly: true,
-      permanentlyPurged: true,
-      protectedHistoryPreserved: true,
-    };
     assert.deepEqual(
       await readFile(path.join(runnerData, 'daemon.json')),
       config,
@@ -1770,7 +1856,9 @@ acceptance: try {
                 'launchd-background-lifecycle',
                 'offline-checkpoint-storage-without-model-replay',
                 'live-advisory-storage-heartbeat',
-                'explicit-checkpoint-budget-quarantine-restore-purge',
+                workerUpgrade?.reconstructionRequired
+                  ? 'checkpoint-reconstruction-history-blocks-cleanup'
+                  : 'explicit-checkpoint-budget-quarantine-restore-purge',
               ]
             : []),
           ...(checkpointWorker

@@ -12,6 +12,8 @@ import {
   macWorkerIdentity,
   macWorkerRecoverySummary,
   macWorkerScope,
+  macWorkerServiceCleanupAction,
+  macWorkerStorageSummary,
   optionalMacWorkerEvidence,
   qualificationDrivers,
   readMacWorkerIdentity,
@@ -39,6 +41,98 @@ test('the package campaign requires an explicit baseline before host or engine a
       assert.match(error.stderr, /Select an explicit fixed public --baseline/);
       return true;
     },
+  );
+});
+
+test('failed campaign cleanup uses complete structured service ownership and never guesses from installation alone', () => {
+  const status = {
+    schema: 1,
+    platform: 'darwin/arm64',
+    runnerId: 'fixture-runner',
+    service: {
+      supported: true,
+      installed: false,
+      loaded: false,
+      running: false,
+      loginEnabled: false,
+      state: 'absent',
+    },
+  };
+  assert.equal(macWorkerServiceCleanupAction(status), 'absent');
+  for (const service of [
+    { installed: true, state: 'stopped' },
+    { installed: true, loaded: true, state: 'stopped' },
+    { installed: true, loaded: true, running: true, state: 'running' },
+  ])
+    assert.equal(
+      macWorkerServiceCleanupAction({
+        ...status,
+        service: { ...status.service, ...service },
+      }),
+      'remove',
+    );
+  for (const value of [
+    undefined,
+    {},
+    { ...status, schema: 2 },
+    { ...status, platform: 'linux/arm64' },
+    { ...status, runnerId: '' },
+    ...[
+      { supported: false },
+      { installed: undefined },
+      { loaded: undefined },
+      { loginEnabled: undefined },
+      { state: 'unknown', installed: true },
+      { state: 'ambiguous', installed: true, loaded: true },
+      { installed: true },
+      { state: 'stopped', loaded: true },
+      { state: 'running', loaded: true, running: true },
+      { state: 'running', installed: true, loaded: false, running: true },
+      { state: 'stopped', installed: true, running: true },
+      { loginEnabled: true },
+    ].map((service) => ({
+      ...status,
+      service: { ...status.service, ...service },
+    })),
+  ])
+    assert.equal(macWorkerServiceCleanupAction(value), 'uncertain');
+});
+
+function storageFixture(guarded = false) {
+  return {
+    complete: true,
+    retention: { previewAllowed: !guarded, deletionSupported: false },
+    lifecycle: {
+      liveOverview: true,
+      policyConfigured: true,
+      advisoryWarning: true,
+      protectedHistoryPreserved: true,
+      ...(guarded
+        ? {
+            recoveryGuardPreserved: true,
+            cleanupPlanBlocked: true,
+            cleanupPlanError: 'RecoveryRequired',
+          }
+        : {
+            quarantinePreservesBytes: true,
+            restoredExactly: true,
+            permanentlyPurged: true,
+          }),
+    },
+  };
+}
+
+test('storage qualification summary retains outcome proof without private capture paths', () => {
+  const storage = storageFixture();
+  assert.deepEqual(
+    macWorkerStorageSummary({
+      ...storage,
+      captures: [{ path: '/private/fixture/capture' }],
+      recoveryIntent: '/private/fixture/recovery',
+      retention: { ...storage.retention, privatePath: '/private/fixture' },
+      lifecycle: { ...storage.lifecycle, path: '/private/fixture' },
+    }),
+    storage,
   );
 });
 
@@ -133,11 +227,13 @@ function fixture() {
           kind: 'deterministic-local-provider',
           requests: backend ? 5 : 2,
         },
+        checkpointStorage: storageFixture(),
         checks: [
           'native-task',
           'single-publication',
           'stopped-runner-backup-relocation',
           'complete-capture-native-and-worker-restore',
+          'explicit-checkpoint-budget-quarantine-restore-purge',
         ],
         ...(backend
           ? {
@@ -426,9 +522,88 @@ test('a changed worker image requires retained explicit reconstruction evidence'
     oldEpoch: 'initial',
     newEpoch: 'replacement',
   };
+  const scenario = f.report.scenarios.workerUpgrade;
+  scenario.checkpointStorage = storageFixture(true);
+  scenario.checks = scenario.checks
+    .filter(
+      (check) =>
+        check !== 'explicit-checkpoint-budget-quarantine-restore-purge',
+    )
+    .concat('checkpoint-reconstruction-history-blocks-cleanup');
   validateMacWorkerReport(f.report, f.identity);
   u.reconstruction.resultDigest = 'e'.repeat(64);
   assert.throws(() => validateMacWorkerReport(f.report, f.identity));
+});
+
+test('reconstructed history requires a guarded cleanup proof while fresh scenarios require the full lifecycle', () => {
+  const f = fixture();
+  const scenario = f.report.scenarios.workerUpgrade;
+  Object.assign(scenario.workerUpgrade, {
+    baselineImage: `sha256:${'d'.repeat(64)}`,
+    reconstructionRequired: true,
+    reconstruction: {
+      sourceDigest: 'a'.repeat(64),
+      resultDigest: 'a'.repeat(64),
+      oldStore: 'old',
+      newStore: 'new',
+      oldEpoch: 'initial',
+      newEpoch: 'replacement',
+    },
+  });
+  scenario.checkpointStorage = storageFixture(true);
+  scenario.checks = scenario.checks
+    .filter(
+      (check) =>
+        check !== 'explicit-checkpoint-budget-quarantine-restore-purge',
+    )
+    .concat('checkpoint-reconstruction-history-blocks-cleanup');
+  validateMacWorkerReport(f.report, f.identity);
+  for (const change of [
+    (r) => {
+      r.scenarios.workerUpgrade.checkpointStorage.complete = false;
+    },
+    (r) => {
+      r.scenarios.workerUpgrade.checkpointStorage.retention.previewAllowed = true;
+    },
+    (r) => {
+      delete r.scenarios.workerUpgrade.checkpointStorage.lifecycle
+        .cleanupPlanBlocked;
+    },
+    (r) => {
+      delete r.scenarios.workerUpgrade.checkpointStorage.lifecycle
+        .recoveryGuardPreserved;
+    },
+    (r) => {
+      r.scenarios.workerUpgrade.checkpointStorage.lifecycle.cleanupPlanError =
+        'AnotherError';
+    },
+    (r) => {
+      r.scenarios.workerUpgrade.checkpointStorage.lifecycle.permanentlyPurged = true;
+    },
+    (r) => {
+      r.scenarios.workerUpgrade.checks.push(
+        'explicit-checkpoint-budget-quarantine-restore-purge',
+      );
+    },
+    (r) => {
+      r.scenarios.online.checkpointStorage = storageFixture(true);
+    },
+    (r) => {
+      delete r.scenarios.offline.checkpointStorage.lifecycle
+        .quarantinePreservesBytes;
+    },
+    (r) => {
+      r.scenarios.defaultUpgrade.checks =
+        r.scenarios.defaultUpgrade.checks.filter(
+          (check) =>
+            check !== 'explicit-checkpoint-budget-quarantine-restore-purge',
+        );
+    },
+  ]) {
+    const changed = structuredClone(f.report);
+    change(changed);
+    assert.throws(() => validateMacWorkerReport(changed, f.identity));
+  }
 });
 
 test('runtime identity reads only the exact packaged manifest and rejects a mismatched manifest hash', async () => {
