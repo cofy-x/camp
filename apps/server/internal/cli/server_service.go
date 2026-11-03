@@ -79,7 +79,18 @@ func serverServiceSettings(options serveOptions, getenv func(string) string, cwd
 	}
 	for name := range serverServiceEnvironment {
 		if value := getenv(name); value != "" {
-			if (name == "CAMP_DOCUMENT_NODE" || name == "CAMP_DOCUMENT_RUNTIME") && !filepath.IsAbs(value) {
+			if name == "CAMP_DOCUMENT_NODE" && !filepath.IsAbs(value) && !strings.ContainsRune(value, filepath.Separator) {
+				// Freeze the installer's explicit command selection before launchd
+				// replaces PATH. An unresolved name must never select another Node.
+				selected, err := exec.LookPath(value)
+				if err != nil {
+					return config, errors.New("CAMP_DOCUMENT_NODE does not identify an executable; choose an explicit Node before installing the service")
+				}
+				value, err = filepath.Abs(selected)
+				if err != nil {
+					return config, fmt.Errorf("resolve CAMP_DOCUMENT_NODE: %w", err)
+				}
+			} else if (name == "CAMP_DOCUMENT_NODE" || name == "CAMP_DOCUMENT_RUNTIME") && !filepath.IsAbs(value) {
 				value = filepath.Join(cwd, value)
 			}
 			config.Environment[name] = value

@@ -3,10 +3,36 @@
 package documenttext
 
 import (
+	"context"
+	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"time"
 )
+
+func initializeReader(context.Context, Config) error { return nil }
+
+func runReader(ctx context.Context, config Config, format string, input io.Reader, stdout, stderr io.Writer) error {
+	cmd, err := readerCommand(config, format)
+	if err != nil {
+		return err
+	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = input, stdout, stderr
+	cmd.WaitDelay = time.Second
+	if err := cmd.Start(); err != nil {
+		return failure("unavailable", "The isolated reader could not start. Check Bubblewrap and the document runtime.", true)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err = <-done:
+	case <-ctx.Done():
+		// Killing the Bubblewrap supervisor removes its private PID namespace.
+		_ = cmd.Process.Kill()
+		err = <-done
+	}
+	return err
+}
 
 func readerCommand(config Config, format string) (*exec.Cmd, error) {
 	bwrap, err := exec.LookPath("bwrap")
@@ -25,15 +51,9 @@ func readerCommand(config Config, format string) (*exec.Cmd, error) {
 		if err != nil {
 			return nil, err
 		}
-		root, err := filepath.Abs(config.RuntimeDir)
-		if err == nil {
-			root, err = filepath.EvalSymlinks(root)
-		}
-		if err != nil || config.RuntimeDir == "" {
-			return nil, failure("unavailable", "The PDF text runtime is not installed. Run make install-document-runtime.", true)
-		}
-		if info, err := os.Stat(filepath.Join(root, "extract.mjs")); err != nil || !info.Mode().IsRegular() {
-			return nil, failure("unavailable", "The PDF text runtime is not installed. Run make install-document-runtime.", true)
+		root, err := readerRuntimeDirectory(config)
+		if err != nil {
+			return nil, err
 		}
 		args = append(args, "--ro-bind", node, "/node", "--ro-bind", root, "/runtime", "--", "/node", "--max-old-space-size=128", "--max-semi-space-size=8", "/runtime/extract.mjs")
 	} else {

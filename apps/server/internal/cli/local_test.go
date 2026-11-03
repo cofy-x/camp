@@ -78,8 +78,8 @@ func TestDoctorRecommendsOnlySupportedNativePlatforms(t *testing.T) {
 		os, arch            string
 		required, forbidden []string
 	}{
-		{"darwin", "arm64", []string{"macOS 15+ Apple Silicon", "camp runner setup", "Linux Runner is also available", "PDF/DOCX preparation and controlled Server directory import require Linux"}, []string{"Mac Server: connect a Linux Runner", "ready", "verified"}},
-		{"darwin", "amd64", []string{"Intel Mac Server", "Apple Silicon Mac", "Intel Mac native Runner execution is not supported", "PDF/DOCX preparation and controlled Server directory import require Linux"}, []string{"connect this Mac", "camp runner setup"}},
+		{"darwin", "arm64", []string{"macOS 15+ Apple Silicon", "camp runner setup", "Linux Runner is also available", "Document reader availability is reported separately in Settings"}, []string{"Mac Server: connect a Linux Runner", "ready", "verified"}},
+		{"darwin", "amd64", []string{"Intel Mac Server", "Apple Silicon Mac", "Intel Mac native Runner execution is not supported", "Document reader availability is reported separately in Settings"}, []string{"connect this Mac", "camp runner setup"}},
 		{"linux", "amd64", []string{"Ubuntu 24.04 amd64", "Apple Silicon Mac", "setup reports the host requirements separately"}, []string{"Mac Server:", "require Linux", "ready", "verified"}},
 	} {
 		t.Run(tt.os+"/"+tt.arch, func(t *testing.T) {

@@ -1,9 +1,13 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package documenttext
 
-import "os/exec"
+import (
+	"context"
+	"io"
+)
 
-func readerCommand(Config, string) (*exec.Cmd, error) {
-	return nil, failure("unavailable", "Document preparation requires Linux Bubblewrap. The original remains available to download.", true)
+func initializeReader(context.Context, Config) error { return nil }
+func runReader(context.Context, Config, string, io.Reader, io.Writer, io.Writer) error {
+	return failure("unavailable", "Isolated document preparation is unsupported on this host. Originals remain downloadable.", true)
 }

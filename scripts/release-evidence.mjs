@@ -8,6 +8,7 @@ import {
   verifyPreviousRunnerUpgrade,
 } from './upgrade.mjs';
 import { verifyWorkerArtifact } from './worker-release.mjs';
+import { assertDocumentServiceReceipt } from './document-service.mjs';
 
 export async function collectReleaseEvidence(
   directory,
@@ -50,12 +51,32 @@ export async function collectReleaseEvidence(
     assert.equal(report.archiveSHA256, server.servers[platform].sha256);
     assert.equal(report.upgrade?.fromVersion, upgradeBaseline);
     assert.equal(report.previousUpgrade?.fromVersion, previousRelease);
+    assertDocumentServiceReceipt(report.documents, {
+      version: identity.version,
+      sourceCommit: identity.sourceCommit,
+      platform: platform === 'darwin-arm64' ? 'darwin/arm64' : 'darwin/x64',
+    });
+    assert.equal(report.documents.archiveSHA256, report.archiveSHA256);
     macReports.push(report);
   }
   acceptance.macServers = macReports;
   acceptance.macRunners = [];
   acceptance.macQualification = [];
+  acceptance.macServerServices = [];
   for (const host of ['macos-15', 'macos-26']) {
+    const service = JSON.parse(
+      await readFile(
+        join(directory, `server-service-verification-${host}.json`),
+        'utf8',
+      ),
+    );
+    assertDocumentServiceReceipt(service, {
+      version: identity.version,
+      sourceCommit: identity.sourceCommit,
+      platform: 'darwin/arm64',
+    });
+    assert.equal(service.archiveSHA256, server.servers['darwin-arm64'].sha256);
+    acceptance.macServerServices.push({ host, ...service });
     const boundary = JSON.parse(
       await readFile(join(directory, `runner-boundary-${host}.json`), 'utf8'),
     );
