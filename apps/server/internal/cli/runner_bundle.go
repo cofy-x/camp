@@ -41,7 +41,13 @@ func verifyRunnerBundle(directory string) (bundleManifest, error) {
 }
 
 func verifyRunnerBundleContext(ctx context.Context, directory string, progress *installPhase) (bundleManifest, error) {
-	var manifest bundleManifest
+	return verifyRunnerBundleIO(ctx, directory, progress, runtimeIOConcurrency)
+}
+
+func verifyRunnerBundleIO(ctx context.Context, directory string, progress *installPhase, concurrency int) (manifest bundleManifest, err error) {
+	group := newRuntimeIO(ctx, concurrency)
+	ctx = group.ctx
+	defer group.finish(&err)
 	if err := ctx.Err(); err != nil {
 		return manifest, err
 	}
@@ -109,35 +115,44 @@ func verifyRunnerBundleContext(ctx context.Context, directory string, progress *
 		return name, nil
 	}
 	for relative, entry := range manifest.Files {
-		if err := ctx.Err(); err != nil {
+		if err := group.run(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			name, err := inside(relative)
+			if err != nil {
+				return err
+			}
+			info, err := os.Lstat(name)
+			if err != nil {
+				return err
+			}
+			if !info.Mode().IsRegular() || info.Size() != entry.Bytes || !digestPattern.MatchString(entry.SHA256) {
+				return fmt.Errorf("Invalid bundle file: %s", relative)
+			}
+			file, err := os.Open(name)
+			if err != nil {
+				return err
+			}
+			hash := sha256.New()
+			_, err = io.Copy(hash, installReader{ctx: ctx, input: file, phase: progress})
+			err = errors.Join(err, file.Close())
+			if err != nil {
+				return err
+			}
+			if hex.EncodeToString(hash.Sum(nil)) != entry.SHA256 {
+				return fmt.Errorf("Bundle checksum failed: %s", relative)
+			}
+			progress.advance(0, 1)
+			return nil
+		}); err != nil {
 			return manifest, err
 		}
-		name, err := inside(relative)
-		if err != nil {
-			return manifest, err
-		}
-		info, err := os.Lstat(name)
-		if err != nil {
-			return manifest, err
-		}
-		if !info.Mode().IsRegular() || info.Size() != entry.Bytes || !digestPattern.MatchString(entry.SHA256) {
-			return manifest, fmt.Errorf("Invalid bundle file: %s", relative)
-		}
-		file, err := os.Open(name)
-		if err != nil {
-			return manifest, err
-		}
-		hash := sha256.New()
-		_, err = io.Copy(hash, installReader{ctx: ctx, input: file, phase: progress})
-		err = errors.Join(err, file.Close())
-		if err != nil {
-			return manifest, err
-		}
-		if hex.EncodeToString(hash.Sum(nil)) != entry.SHA256 {
-			return manifest, fmt.Errorf("Bundle checksum failed: %s", relative)
-		}
-		progress.advance(0, 1)
 	}
+	if err := group.wait(); err != nil {
+		return manifest, err
+	}
+
 	for relative, target := range manifest.Symlinks {
 		if err := ctx.Err(); err != nil {
 			return manifest, err

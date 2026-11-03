@@ -344,6 +344,13 @@ func extractRuntime(ctx context.Context, input io.Reader, directory string, expe
 }
 
 func extractRuntimeProgress(ctx context.Context, input io.Reader, directory string, expectedBytes int64, platform string, progress *installPhase) error {
+	return extractRuntimeIO(ctx, input, directory, expectedBytes, platform, progress, runtimeIOConcurrency)
+}
+
+func extractRuntimeIO(ctx context.Context, input io.Reader, directory string, expectedBytes int64, platform string, progress *installPhase, concurrency int) (err error) {
+	group := newRuntimeIO(ctx, concurrency)
+	ctx = group.ctx
+	defer group.finish(&err)
 	if _, supported := releaseinfo.PlatformFor(platform); !supported {
 		return errors.New("Unsupported runtime archive platform")
 	}
@@ -391,15 +398,20 @@ func extractRuntimeProgress(ctx context.Context, input io.Reader, directory stri
 			if header.Size < 0 || header.Size > expectedBytes-unpacked {
 				return errors.New("The runtime archive exceeds its pinned expanded size")
 			}
+			if err := group.reserve(); err != nil {
+				return err
+			}
 			file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, os.FileMode(header.Mode)&0755)
 			if err != nil {
+				group.release()
 				return err
 			}
 			n, copyErr := io.CopyN(file, installReader{ctx: ctx, input: archive, phase: progress}, header.Size)
-			err = errors.Join(copyErr, file.Sync(), file.Close())
-			if err != nil {
-				return err
+			if copyErr != nil {
+				group.release()
+				return errors.Join(copyErr, file.Close())
 			}
+			group.start(func() error { return errors.Join(file.Sync(), file.Close()) })
 			unpacked += n
 		case tar.TypeSymlink:
 			resolved := path.Clean(path.Join(path.Dir(name), header.Linkname))
@@ -413,6 +425,9 @@ func extractRuntimeProgress(ctx context.Context, input io.Reader, directory stri
 	}
 	if unpacked != expectedBytes {
 		return errors.New("The runtime archive does not match its pinned expanded size")
+	}
+	if err := group.wait(); err != nil {
+		return err
 	}
 	// Links are created last: archive writes can never traverse a symlink.
 	for name, target := range links {
@@ -433,10 +448,12 @@ func extractRuntimeProgress(ctx context.Context, input io.Reader, directory stri
 		if !entry.IsDir() {
 			return nil
 		}
-		file, err := os.Open(name)
-		if err != nil {
-			return err
-		}
-		return errors.Join(file.Sync(), file.Close())
+		return group.run(func() error {
+			file, err := os.Open(name)
+			if err != nil {
+				return err
+			}
+			return errors.Join(file.Sync(), file.Close())
+		})
 	})
 }
