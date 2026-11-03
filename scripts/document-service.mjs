@@ -122,6 +122,7 @@ export function assertDocumentServiceReceipt(
   report,
   { version, sourceCommit, platform } = {},
 ) {
+  assert.equal(report?.schema, 1);
   assert.equal(report?.status, 'passed');
   assert.equal(report.mode, 'service');
   assert.equal(report.cleanupConfirmed, true);
@@ -136,9 +137,43 @@ export function assertDocumentServiceReceipt(
   }))
     if (value !== undefined) assert.equal(report[key], value);
   assert.match(report.binarySHA256, /^[a-f0-9]{64}$/);
-  assert.ok(
-    report.service?.some(
-      (item) => item.action === 'remove' && item.state === 'absent',
-    ),
+  assert.ok(Array.isArray(report.checks));
+  for (const check of [
+    'model-free-reader-self-tests',
+    'readiness-get-reuses-observations',
+    'real-pdf-and-docx-preparation',
+    'stable-page-and-paragraph-citations',
+    'immutable-original-downloads',
+    'no-runner-or-model-required',
+    'allowlisted-server-directory-import-preserves-source',
+    'restart-preserves-prepared-text-and-citations',
+    'packaged-server-launchd-reader-lifecycle',
+    'service-removal-preserves-private-data',
+    'reader-jobs-clean-and-owned-service-absent',
+  ])
+    assert.ok(
+      report.checks.includes(check),
+      `Missing document acceptance: ${check}`,
+    );
+  assert.ok(Array.isArray(report.service));
+  assert.deepEqual(
+    report.service.map((item) => item.action),
+    ['install', 'start', 'stop', 'start', 'stop', 'remove'],
   );
+  for (const observation of report.service) {
+    const running = observation.action === 'start';
+    assert.equal(observation.supported, true);
+    assert.equal(observation.installed, observation.action !== 'remove');
+    assert.equal(observation.loaded, running);
+    assert.equal(observation.running, running);
+    assert.equal(observation.loginEnabled, false);
+    assert.equal(
+      observation.state,
+      observation.action === 'remove'
+        ? 'absent'
+        : running
+          ? 'running'
+          : 'stopped',
+    );
+  }
 }

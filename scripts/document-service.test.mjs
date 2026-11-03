@@ -16,6 +16,52 @@ async function fixture(t) {
   return { root, data };
 }
 
+function receiptFixture() {
+  return {
+    schema: 1,
+    version: 'v0.1.0-alpha.10',
+    sourceCommit: 'a'.repeat(40),
+    platform: 'darwin/arm64',
+    status: 'passed',
+    mode: 'service',
+    cleanupConfirmed: true,
+    retainedDataPreserved: true,
+    readerJobsRemaining: 0,
+    modelRequests: 0,
+    sourceModified: false,
+    binarySHA256: 'b'.repeat(64),
+    checks: [
+      'model-free-reader-self-tests',
+      'readiness-get-reuses-observations',
+      'real-pdf-and-docx-preparation',
+      'stable-page-and-paragraph-citations',
+      'immutable-original-downloads',
+      'no-runner-or-model-required',
+      'allowlisted-server-directory-import-preserves-source',
+      'restart-preserves-prepared-text-and-citations',
+      'packaged-server-launchd-reader-lifecycle',
+      'service-removal-preserves-private-data',
+      'reader-jobs-clean-and-owned-service-absent',
+    ],
+    service: ['install', 'start', 'stop', 'start', 'stop', 'remove'].map(
+      (action) => ({
+        action,
+        supported: true,
+        installed: action !== 'remove',
+        loaded: action === 'start',
+        running: action === 'start',
+        loginEnabled: false,
+        state:
+          action === 'remove'
+            ? 'absent'
+            : action === 'start'
+              ? 'running'
+              : 'stopped',
+      }),
+    ),
+  };
+}
+
 test('document transport uses explicit service actions and confirms stop/removal without enabling login', async (t) => {
   const { root, data } = await fixture(t);
   const calls = [];
@@ -110,18 +156,7 @@ test('document release evidence rejects foreground, unknown cleanup, changed sou
     sourceCommit: 'a'.repeat(40),
     platform: 'darwin/arm64',
   };
-  const report = {
-    ...identity,
-    status: 'passed',
-    mode: 'service',
-    cleanupConfirmed: true,
-    retainedDataPreserved: true,
-    readerJobsRemaining: 0,
-    modelRequests: 0,
-    sourceModified: false,
-    binarySHA256: 'b'.repeat(64),
-    service: [{ action: 'remove', state: 'absent' }],
-  };
+  const report = receiptFixture();
   assertDocumentServiceReceipt(report, identity);
   for (const [key, value] of Object.entries({
     mode: 'foreground',
@@ -138,6 +173,57 @@ test('document release evidence rejects foreground, unknown cleanup, changed sou
       () => assertDocumentServiceReceipt({ ...report, [key]: value }, identity),
       key,
     );
+});
+
+test('document acceptance rejects missing schema/checks and every incomplete restart lifecycle', () => {
+  const report = receiptFixture();
+  assertDocumentServiceReceipt(report);
+  for (const schema of [undefined, 0, 2])
+    assert.throws(() => assertDocumentServiceReceipt({ ...report, schema }));
+  assert.throws(() =>
+    assertDocumentServiceReceipt({ ...report, checks: undefined }),
+  );
+  for (const check of report.checks)
+    assert.throws(
+      () =>
+        assertDocumentServiceReceipt({
+          ...report,
+          checks: report.checks.filter((value) => value !== check),
+        }),
+      check,
+    );
+  for (let index = 0; index < report.service.length; index++) {
+    assert.throws(
+      () =>
+        assertDocumentServiceReceipt({
+          ...report,
+          service: report.service.filter(
+            (_value, position) => position !== index,
+          ),
+        }),
+      `missing observation ${index}`,
+    );
+    for (const key of [
+      'supported',
+      'installed',
+      'loaded',
+      'running',
+      'loginEnabled',
+      'state',
+    ]) {
+      const service = structuredClone(report.service);
+      delete service[index][key];
+      assert.throws(
+        () => assertDocumentServiceReceipt({ ...report, service }),
+        `missing ${key} in observation ${index}`,
+      );
+    }
+  }
+  const reordered = structuredClone(report.service);
+  [reordered[1], reordered[2]] = [reordered[2], reordered[1]];
+  assert.throws(() =>
+    assertDocumentServiceReceipt({ ...report, service: reordered }),
+  );
 });
 
 test('operator qualification excludes both source launchd fixtures while preserving native command tests', async () => {
