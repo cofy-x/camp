@@ -51,8 +51,7 @@ export function GettingReady({
       : runtime?.status !== 'ready' || !readiness?.ready
         ? {
             title: 'Connect a Runner',
-            detail:
-              'Use an Ubuntu 24.04 amd64 machine for Agent work. Mac can run the Server.',
+            detail: 'Connect a supported Mac or Linux machine for Agent work.',
             action: 'Connect Runner…',
             run: () => onRunners(true),
           }

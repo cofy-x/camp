@@ -15,7 +15,10 @@ export function ConnectRunner({
 }) {
   const { revision, refresh } = useTeam();
   const [name, setName] = useState('');
-  const [platform, setPlatform] = useState('linux-amd64');
+  const [platform, setPlatform] = useState('');
+  const [platforms, setPlatforms] = useState<{ id: string; name: string }[]>(
+    [],
+  );
   const [observedInstallation, setInstallation] = useState<Awaited<
     ReturnType<typeof runnersApi.installation>
   > | null>(null);
@@ -29,14 +32,22 @@ export function ConnectRunner({
   useEffect(() => {
     const controller = new AbortController();
     void runnersApi
-      .installation(controller.signal, platform)
+      .installation(controller.signal, platform || undefined)
       .then((value) => {
         if (!controller.signal.aborted) {
-          if (value.target !== platform)
+          if (platform && value.target !== platform)
             throw new Error(
               'The download does not match the selected platform. Retry the download.',
             );
-          setInstallation(value);
+          const catalog = value.platforms?.length
+            ? value.platforms
+            : [{ id: value.target, name: value.platform }];
+          setPlatforms(catalog);
+          if (platform && !catalog.some((item) => item.id === platform))
+            throw new Error(
+              'This platform is no longer available. Choose another platform.',
+            );
+          setInstallation(platform ? value : null);
           setInstallationError('');
         }
       })
@@ -71,6 +82,9 @@ export function ConnectRunner({
     return () => controller.abort();
   }, [revision]);
   const mac = platform === 'darwin-arm64';
+  const linux = platform === 'linux-amd64';
+  const platformName =
+    platforms.find((item) => item.id === platform)?.name ?? platform;
   const installation =
     observedInstallation?.target === platform ? observedInstallation : null;
   const latest =
@@ -143,29 +157,43 @@ export function ConnectRunner({
           <Select
             aria-label="Runner platform"
             value={platform}
+            disabled={!platforms.length}
             onChange={(event) => {
               setPlatform(event.target.value);
               setInstallation(null);
               setInstallationError('');
             }}
           >
-            <option value="linux-amd64">Ubuntu 24.04 amd64</option>
-            <option value="darwin-arm64">
-              Mac · Apple Silicon · macOS 15+
+            <option value="" disabled>
+              Choose a platform
             </option>
+            {platform && !platforms.some((item) => item.id === platform) && (
+              <option value={platform} disabled>
+                Selected platform unavailable
+              </option>
+            )}
+            {platforms.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
           </Select>
         </label>
-        <p>
-          {mac
-            ? 'Run setup and the Runner as your regular Mac account, without sudo.'
-            : 'Ubuntu 24.04 amd64. Run setup and the Runner as root, using the same private data directory.'}
-        </p>
+        {platform && (
+          <p>
+            {mac
+              ? 'Run setup and the Runner as your regular Mac account, without sudo.'
+              : linux
+                ? 'Ubuntu 24.04 amd64. Run setup and the Runner as root, using the same private data directory.'
+                : 'Follow the installation guide for this platform.'}
+          </p>
+        )}
         {installationError ? (
           <p className="app-error" role="alert">
             {installationError}{' '}
             <Button onClick={refresh}>Retry Download</Button>
           </p>
-        ) : !installation ? (
+        ) : !platform ? null : !installation ? (
           <p role="status">Checking download…</p>
         ) : (
           <>
@@ -177,7 +205,7 @@ export function ConnectRunner({
                     href={installation.downloadUrl}
                     download={installation.filename}
                   >
-                    Download for {mac ? 'Mac' : 'Linux'}
+                    Download for {mac ? 'Mac' : linux ? 'Linux' : platformName}
                     {installation.bytes ? ` (${size(installation.bytes)})` : ''}
                   </a>
                   {installation.checksumUrl && (
@@ -212,7 +240,9 @@ export function ConnectRunner({
                 <p>
                   {mac
                     ? 'Requires Git. Executes Mac tools in a private local workspace with Seatbelt. Docker, Linux and FUSE are not required.'
-                    : 'Requires Docker Engine, FUSE, Bubblewrap, Git and Bash.'}
+                    : linux
+                      ? 'Requires Docker Engine, FUSE, Bubblewrap, Git and Bash.'
+                      : installation.platform}
                 </p>
                 {installation.source === 'server' && installation.version && (
                   <p>
@@ -392,7 +422,9 @@ export function ConnectRunner({
                   placeholder={
                     mac
                       ? 'For example, Studio Mac'
-                      : 'For example, Studio Linux'
+                      : platform === 'linux-amd64'
+                        ? 'For example, Studio Linux'
+                        : 'For example, Studio'
                   }
                 />
               </label>

@@ -30,6 +30,11 @@ export interface Runner {
   slots?: number;
   runtime: 'native' | 'fixture' | '';
   capabilities: {
+    installation?: {
+      version?: string;
+      sourceCommit?: string;
+      runtimeSHA256?: string;
+    };
     storage?: RunnerStorageHealth;
     platform?: string;
     workspace?: string;
