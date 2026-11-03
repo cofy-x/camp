@@ -404,16 +404,5 @@ export const workspaceApi = {
       `/resources/${id(resourceId)}/document?path=${id(path)}&commit=${id(commit)}`,
       { signal },
     ),
-  prepareDocument: (
-    resourceId: string,
-    path: string,
-    commit: string,
-    retry = false,
-    signal?: AbortSignal,
-  ) =>
-    request<{ document: ExtractedDocument }>(
-      `/resources/${id(resourceId)}/document`,
-      { ...json('POST', { path, commit, retry }), signal },
-    ),
   patchURL: (runId: string) => `/api/runs/${id(runId)}/patch`,
 };

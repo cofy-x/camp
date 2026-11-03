@@ -19,7 +19,7 @@ Open `http://127.0.0.1:5173`. Vite proxies `/api` to Go on `127.0.0.1:3001`; res
 
 First startup writes `team-setup.token` inside that data directory. Enter it privately in the setup screen, create the administrator and configure Settings. Keep private model values in the ignored root `.env` with mode 600, using [.env.example](.env.example) as the key reference. See [configuration and budgets](docs/dsh.md#configuration-and-budgets).
 
-The Server requires Git for file storage. Discussion and plain-text file work need no model or native execution runtime. Optional PDF/DOCX preparation uses the [document runtime](tools/document-runtime/README.md). Agent execution requires a registered Runner; follow [source Runner setup](docs/dsh.md#source-runner-setup) or the [packaged installer](docs/install.md). [Installation](docs/install.md#supported-deployment) owns platform support and host prerequisites. No service starts automatically.
+The Server requires Git for file storage. Discussion, Markdown and plain-text file work need no model or native execution runtime. Other attachments retain their original bytes; new PDF/DOCX text preparation is disabled. Agent execution requires a registered Runner; follow [source Runner setup](docs/dsh.md#source-runner-setup) or the [packaged installer](docs/install.md). [Installation](docs/install.md#supported-deployment) owns platform support and host prerequisites. No service starts automatically.
 
 ## Build
 
@@ -76,7 +76,7 @@ Keep each rule or procedure in its owning contract/tool README and link to it el
 
 Current guides describe implemented behavior and repeatable procedures. Record unresolved mismatches with an owner and completion condition in [implementation limits](docs/architecture.md#current-implementation-limits). Remove completed plans and superseded instructions; retain dated outcomes through [release evidence](docs/releasing.md#release-evidence).
 
-`make check-docs` checks new/unignored Markdown, local links/anchors and documented Go/Node/pnpm/DSH/PDF.js versions against their pins. Historical `docs/decisions/` receive link checks only. External URLs, behavior and unlabelled versions need source comparison. Run the pinned formatter on changed Markdown; documentation-only work needs no new native or paid-provider campaign.
+`make check-docs` checks new/unignored Markdown, local links/anchors and documented Go/Node/pnpm/DSH versions against their pins. Historical `docs/decisions/` receive link checks only. External URLs, behavior and unlabelled versions need source comparison. Run the pinned formatter on changed Markdown; documentation-only work needs no new native or paid-provider campaign.
 
 ## Pull requests
 

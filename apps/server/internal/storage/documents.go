@@ -5,10 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
@@ -49,9 +47,6 @@ type Document struct {
 func (d Document) Summary() *DocumentSummary {
 	return &DocumentSummary{ID: d.ID, Format: d.Format, Status: d.Status, SectionCount: len(d.Sections), Warnings: d.Warnings, Error: d.Error}
 }
-func (d Document) Terminal() bool {
-	return d.Status == "ready" || d.Status == "unreadable" || d.Status == "failed" || d.Status == "unavailable"
-}
 func DocumentFormat(name string) string {
 	switch strings.ToLower(filepath.Ext(name)) {
 	case ".pdf":
@@ -71,10 +66,14 @@ func (s *Store) GetDocument(ctx context.Context, id string) (Document, error) {
 	if err != nil {
 		return Document{}, missing(err, "The prepared document")
 	}
-	return documentRow(data)
+	d, err := documentRow(data)
+	return documentReadView(d), err
 }
 func latestDocument(ctx context.Context, q *sqlgen.Queries, resource, commit, path string) (*Document, error) {
-	data, err := q.LatestDocument(ctx, sqlgen.LatestDocumentParams{ResourceID: resource, CommitID: commit, Path: path})
+	data, err := q.LatestReadyDocument(ctx, sqlgen.LatestReadyDocumentParams{ResourceID: resource, CommitID: commit, Path: path})
+	if errors.Is(err, sql.ErrNoRows) {
+		data, err = q.LatestDocument(ctx, sqlgen.LatestDocumentParams{ResourceID: resource, CommitID: commit, Path: path})
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -82,6 +81,7 @@ func latestDocument(ctx context.Context, q *sqlgen.Queries, resource, commit, pa
 		return nil, err
 	}
 	d, err := documentRow(data)
+	d = documentReadView(d)
 	return &d, err
 }
 func (s *Store) LatestDocument(ctx context.Context, resource, commit, path string) (*Document, error) {
@@ -93,172 +93,29 @@ func (s *Store) LatestDocument(ctx context.Context, resource, commit, path strin
 	}
 	return latestDocument(ctx, s.queries(), resource, commit, path)
 }
-func documentEvent(ctx context.Context, q *sqlgen.Queries, d Document) error {
-	rooms, err := q.DocumentRooms(ctx, d.ResourceID)
-	if err != nil {
-		return err
+
+const documentPreparationDisabledCode = "document_preparation_disabled"
+const documentPreparationDisabledMessage = "PDF and DOCX text preparation is disabled. Use Markdown or plain text; the original file is unchanged."
+
+// Historical rows remain untouched. Pending work is never restarted, and read
+// views must not advertise a retry operation that this Server no longer owns.
+func documentReadView(d Document) Document {
+	if d.Status == "ready" {
+		return d
 	}
-	for _, room := range rooms {
-		if err := event(ctx, q, "document.updated", room, d.ID); err != nil {
-			return err
-		}
+	if d.Status == "queued" || d.Status == "extracting" || d.Error == nil {
+		d.Status = "unavailable"
+		d.Sections = []DocumentSection{}
+		d.Error = &DocumentError{Code: documentPreparationDisabledCode, Message: documentPreparationDisabledMessage, Retryable: false}
+	} else {
+		failure := *d.Error
+		failure.Retryable = false
+		d.Error = &failure
 	}
-	return nil
+	return d
 }
 
-// EnsureDocument converges concurrent preparation requests on one versioned job.
-// Retry appends a new artifact; existing message snapshots keep their old IDs.
-func (s *Store) EnsureDocument(ctx context.Context, resource, commit, path, version string, retry bool) (Document, error) {
-	var saved Document
-	if !validReferencePath(path) || len(commit) != 40 || !commitValid(commit) || DocumentFormat(path) == "" || !validText(version, 128, false) {
-		return saved, problem("invalid_document", "Choose a PDF or DOCX file at an exact version.")
-	}
-	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		q := sqlgen.New(tx)
-		if err := requireActor(ctx, q, false); err != nil {
-			return err
-		}
-		if _, err := validateResourceRevision(ctx, q, resource, commit); err != nil {
-			return err
-		}
-		data, err := q.LatestDocumentVersion(ctx, sqlgen.LatestDocumentVersionParams{ResourceID: resource, CommitID: commit, Path: path, ExtractorVersion: version})
-		if err == nil {
-			saved, err = documentRow(data)
-			if err != nil {
-				return err
-			}
-			if !retry || !saved.Terminal() {
-				return nil
-			}
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		stamp := now()
-		saved = Document{ID: newID(), ResourceID: resource, Commit: commit, Path: path, Format: DocumentFormat(path), Status: "queued", ExtractorVersion: version, Sections: []DocumentSection{}, Warnings: []string{}, CreatedAt: stamp, UpdatedAt: stamp}
-		encoded, err := json.Marshal(saved)
-		if err != nil {
-			return err
-		}
-		if err = q.CreateDocument(ctx, sqlgen.CreateDocumentParams{ID: saved.ID, ResourceID: resource, CommitID: commit, Path: path, ExtractorVersion: version, Status: saved.Status, Snapshot: string(encoded), CreatedAt: stamp, UpdatedAt: stamp}); err != nil {
-			return err
-		}
-		return documentEvent(ctx, q, saved)
-	})
-	return saved, err
-}
-func (s *Store) PendingDocuments(ctx context.Context) ([]Document, error) {
-	rows, err := s.queries().PendingDocuments(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Document, 0, len(rows))
-	for _, row := range rows {
-		d, err := documentRow(row)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, d)
-	}
-	return out, nil
-}
-func validateDocumentResult(d Document) error {
-	if !d.Terminal() {
-		return problem("invalid_document", "A document result must have a terminal status.")
-	}
-	if d.Status != "ready" {
-		if len(d.Sections) > 0 || d.Error == nil {
-			return problem("invalid_document", "An unreadable document cannot contain prepared text.")
-		}
-	} else if len(d.Sections) == 0 || len(d.Sections) > 2000 || d.Error != nil {
-		return problem("invalid_document", "The prepared text result is invalid.")
-	}
-	total := 0
-	for i, section := range d.Sections {
-		label := "Paragraph"
-		if d.Format == "pdf" {
-			label = "Page"
-		}
-		if section.ID != fmt.Sprintf("p%d", i+1) || section.Label != fmt.Sprintf("%s %d", label, i+1) || !utf8.ValidString(section.Text) {
-			return problem("invalid_document", "The source locations are invalid.")
-		}
-		total += len(section.Text)
-	}
-	if d.Status == "ready" && total == 0 || total > 1<<20 || d.Format == "pdf" && len(d.Sections) > 200 || len(d.Warnings) > 32 {
-		return problem("invalid_document", "The prepared text exceeds its limit.")
-	}
-	for _, warning := range d.Warnings {
-		if !validText(warning, 2048, false) {
-			return problem("invalid_document", "A document warning is invalid.")
-		}
-	}
-	if d.Error != nil && (!validText(d.Error.Code, 64, false) || !validText(d.Error.Message, 2048, false)) {
-		return problem("invalid_document", "The document error is invalid.")
-	}
-	return nil
-}
-
-// ChangeDocument owns the queue state machine. Terminal snapshots are immutable.
-func (s *Store) ChangeDocument(ctx context.Context, id, status string, result *Document) (Document, error) {
-	var saved Document
-	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		q := sqlgen.New(tx)
-		data, err := q.GetDocument(ctx, id)
-		if err != nil {
-			return missing(err, "The prepared document")
-		}
-		saved, err = documentRow(data)
-		if err != nil {
-			return err
-		}
-		previous := saved.Status
-		if saved.Terminal() {
-			return problem("document_finished", "This prepared document is immutable. Retry to create a new attempt.")
-		}
-		switch status {
-		case "extracting":
-			if previous != "queued" {
-				return problem("document_busy", "The document is already being prepared.")
-			}
-		case "queued":
-			if previous != "extracting" {
-				return nil
-			}
-		default:
-			if result == nil || previous != "extracting" {
-				return problem("invalid_document", "Only active preparation can publish a result.")
-			}
-			saved.Status = status
-			saved.Sections = result.Sections
-			saved.Warnings = result.Warnings
-			if saved.Sections == nil {
-				saved.Sections = []DocumentSection{}
-			}
-			if saved.Warnings == nil {
-				saved.Warnings = []string{}
-			}
-			saved.Error = result.Error
-			if err := validateDocumentResult(saved); err != nil {
-				return err
-			}
-		}
-		saved.Status = status
-		saved.UpdatedAt = now()
-		encoded, err := json.Marshal(saved)
-		if err != nil {
-			return err
-		}
-		count, err := q.UpdateDocument(ctx, sqlgen.UpdateDocumentParams{ID: id, Status: status, Snapshot: string(encoded), UpdatedAt: saved.UpdatedAt, PreviousStatus: previous})
-		if err != nil {
-			return err
-		}
-		if count != 1 {
-			return problem("document_busy", "The document preparation state changed.")
-		}
-		return documentEvent(ctx, q, saved)
-	})
-	return saved, err
-}
-func snapshotDocument(ctx context.Context, q *sqlgen.Queries, ref ReferenceInput, needsAgent bool) (*DocumentSummary, error) {
+func snapshotDocument(ctx context.Context, q *sqlgen.Queries, ref ReferenceInput) (*DocumentSummary, error) {
 	var d *Document
 	if ref.DocumentID != "" {
 		data, err := q.GetDocument(ctx, ref.DocumentID)
@@ -275,9 +132,6 @@ func snapshotDocument(ctx context.Context, q *sqlgen.Queries, ref ReferenceInput
 		if d.ResourceID != ref.ResourceID || d.Commit != ref.Commit || d.Path != ref.Path {
 			return nil, problem("invalid_reference", "The prepared document belongs to a different file version.")
 		}
-		if !d.Terminal() {
-			return nil, problem("document_preparing", "The document is still being prepared. Wait, then send again.")
-		}
 	} else {
 		var err error
 		d, err = latestDocument(ctx, q, ref.ResourceID, ref.Commit, ref.Path)
@@ -285,11 +139,9 @@ func snapshotDocument(ctx context.Context, q *sqlgen.Queries, ref ReferenceInput
 			return nil, err
 		}
 	}
-	if d == nil || !d.Terminal() {
-		if needsAgent && DocumentFormat(ref.Path) != "" {
-			return nil, problem("document_preparing", "The document is being prepared for reading. Wait, then send again.")
-		}
+	if d == nil {
 		return nil, nil
 	}
-	return d.Summary(), nil
+	view := documentReadView(*d)
+	return view.Summary(), nil
 }

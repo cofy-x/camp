@@ -27,7 +27,13 @@ type serverServiceConfig struct {
 	Environment map[string]string `json:"environment"`
 }
 
-var serverServiceEnvironment = map[string]bool{"CAMP_PUBLIC_ORIGIN": true, "CAMP_IMPORT_ROOTS": true, "CAMP_DOCUMENT_NODE": true, "CAMP_DOCUMENT_RUNTIME": true}
+var serverServiceEnvironment = map[string]bool{"CAMP_PUBLIC_ORIGIN": true, "CAMP_IMPORT_ROOTS": true}
+
+// Older installations recorded reader paths. They remain valid metadata so
+// status, stop and reinstall can work, but no longer configure executable work.
+func legacyDocumentEnvironment(key string) bool {
+	return key == "CAMP_DOCUMENT_NODE" || key == "CAMP_DOCUMENT_RUNTIME"
+}
 
 func serverServiceSettings(options serveOptions, getenv func(string) string, cwd string) (serverServiceConfig, error) {
 	c, err := resolveConfig(options, getenv, os.UserConfigDir)
@@ -79,20 +85,6 @@ func serverServiceSettings(options serveOptions, getenv func(string) string, cwd
 	}
 	for name := range serverServiceEnvironment {
 		if value := getenv(name); value != "" {
-			if name == "CAMP_DOCUMENT_NODE" && !filepath.IsAbs(value) && !strings.ContainsRune(value, filepath.Separator) {
-				// Freeze the installer's explicit command selection before launchd
-				// replaces PATH. An unresolved name must never select another Node.
-				selected, err := exec.LookPath(value)
-				if err != nil {
-					return config, errors.New("CAMP_DOCUMENT_NODE does not identify an executable; choose an explicit Node before installing the service")
-				}
-				value, err = filepath.Abs(selected)
-				if err != nil {
-					return config, fmt.Errorf("resolve CAMP_DOCUMENT_NODE: %w", err)
-				}
-			} else if (name == "CAMP_DOCUMENT_NODE" || name == "CAMP_DOCUMENT_RUNTIME") && !filepath.IsAbs(value) {
-				value = filepath.Join(cwd, value)
-			}
 			config.Environment[name] = value
 		}
 	}
@@ -130,6 +122,11 @@ func readServerServiceConfig(directory string) (serverServiceConfig, error) {
 	if err := validateServerServiceConfig(config, directory); err != nil {
 		return config, err
 	}
+	for key := range config.Environment {
+		if legacyDocumentEnvironment(key) {
+			delete(config.Environment, key)
+		}
+	}
 	return config, nil
 }
 
@@ -153,7 +150,7 @@ func validateServerServiceConfig(config serverServiceConfig, directory string) e
 		return errors.New("Invalid Server service arguments")
 	}
 	for key, value := range config.Environment {
-		if !serverServiceEnvironment[key] || !utf8.ValidString(value) || strings.ContainsAny(value, "\x00\r\n") {
+		if (!serverServiceEnvironment[key] && !legacyDocumentEnvironment(key)) || !utf8.ValidString(value) || strings.ContainsAny(value, "\x00\r\n") {
 			return errors.New("Invalid Server service environment")
 		}
 	}

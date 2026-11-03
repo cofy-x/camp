@@ -312,18 +312,22 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - name: Install pinned source and document dependencies
-        run: make install install-document-runtime build-sandbox
-      - name: Check isolated Mac document readers without a model or Runner
-        env:
-          CAMP_TEST_DOCUMENT_RUNTIME: ${{ github.workspace }}/tools/document-runtime
-          CAMP_MAC_HELPER: ${{ github.workspace }}/dist/camp-sandbox
-        run: go test -race -count=1 -timeout=180s ./apps/server/internal/documenttext ./apps/server/internal/documents
+      - name: Install pinned source dependencies
+        run: make install
       - name: Check launcher and complete Server lifecycle on Mac
         run: |
-          go test -race ./internal/launcher
+          go test -race ./internal/launcher ./apps/server/internal/server
           make build smoke-production
           node scripts/smoke-upgrade.mjs
+      - name: Check owned Mac Server service and original attachments
+        run: node scripts/smoke-server-service.mjs --service
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: server-service-verification-${{ matrix.platform }}
+          path: dist/server-service-verification-*.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Check authentication, discussion and versioned files in Mac WebKit
         run: >-
           make test-e2e E2E_INSTALL_ARGS=webkit

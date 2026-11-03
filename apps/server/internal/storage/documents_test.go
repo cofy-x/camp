@@ -1,160 +1,136 @@
 package storage
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
+
+	"github.com/cofy-x/camp/apps/server/internal/testfixture"
 )
 
-func readyDocument(t *testing.T, s *Store, d Document, text string) Document {
+func historicalDocument(t *testing.T, s *Store, resource, commit, id, status, text string) Document {
 	t.Helper()
-	if _, err := s.ChangeDocument(ctx, d.ID, "extracting", nil); err != nil {
-		t.Fatal(err)
+	d := Document{ID: id, ResourceID: resource, Commit: commit, Path: "brief.pdf", Format: "pdf", Status: status, ExtractorVersion: "retired-reader", Sections: []DocumentSection{}, Warnings: []string{}, CreatedAt: "2020-01-01T00:00:00Z", UpdatedAt: "2020-01-01T00:00:00Z"}
+	if status == "ready" {
+		d.Sections = []DocumentSection{{ID: "p1", Label: "Page 1", Text: text}}
+	} else if status != "queued" && status != "extracting" {
+		d.Error = &DocumentError{Code: "reader_failed", Message: "Previous reader failed.", Retryable: true}
 	}
-	d, err := s.ChangeDocument(ctx, d.ID, "ready", &Document{Sections: []DocumentSection{{ID: "p1", Label: "Page 1", Text: text}}, Warnings: []string{}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testfixture.Document(t, s.db, d)
 	return d
 }
-func TestDocumentsConvergeAndTerminalArtifactsAreImmutable(t *testing.T) {
-	s, room, _ := roomFixture(t)
-	var wg sync.WaitGroup
-	ids := make(chan string, 8)
-	for range 8 {
-		wg.Go(func() {
-			d, err := s.EnsureDocument(ctx, room.ResourceID, strings.Repeat("a", 40), "brief.pdf", "test-v1", false)
-			if err != nil {
-				t.Error(err)
-				return
-			}
-			ids <- d.ID
-		})
-	}
-	wg.Wait()
-	close(ids)
-	var first string
-	for id := range ids {
-		if first != "" && first != id {
-			t.Fatal("concurrent preparation duplicated")
-		}
-		first = id
-	}
-	d, err := s.GetDocument(ctx, first)
-	if err != nil {
-		t.Fatal(err)
-	}
-	d = readyDocument(t, s, d, "Original extracted evidence")
-	_, err = s.ChangeDocument(ctx, d.ID, "queued", nil)
-	requireCode(t, err, "document_finished")
-	next, err := s.EnsureDocument(ctx, d.ResourceID, d.Commit, d.Path, "test-v1", true)
-	if err != nil || next.ID == d.ID {
-		t.Fatalf("retry did not append: %+v %v", next, err)
-	}
-	pending, err := s.EnsureDocument(ctx, d.ResourceID, d.Commit, d.Path, "test-v1", true)
-	if err != nil || pending.ID != next.ID {
-		t.Fatal("concurrent retry duplicated queued attempt")
-	}
-	previous, err := s.GetDocument(ctx, d.ID)
-	if err != nil || !reflect.DeepEqual(previous, d) {
-		t.Fatal("retry mutated terminal artifact")
-	}
-	upgraded, err := s.EnsureDocument(ctx, d.ResourceID, d.Commit, d.Path, "test-v2", false)
-	if err != nil || upgraded.ID == next.ID {
-		t.Fatal("parser upgrade did not create artifact")
-	}
-	events, err := s.ListWorkspaceEvents(ctx, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	count := 0
-	for _, event := range events {
-		if event.Type == "document.updated" {
-			count++
-			if event.RoomID != room.ID {
-				t.Fatal("event has wrong room")
-			}
-		}
-	}
-	if count != 5 {
-		t.Fatalf("events %d", count)
-	}
-}
-func TestDocumentAdmissionFreezesTerminalArtifactAndRetryIdentity(t *testing.T) {
+
+func TestHistoricalDocumentsAreReadOnlyAndPreferReadyEvidence(t *testing.T) {
 	s, room, _ := roomFixture(t)
 	commit := strings.Repeat("a", 40)
-	d, err := s.EnsureDocument(ctx, room.ResourceID, commit, "brief.pdf", "v1", false)
+	ready := historicalDocument(t, s, room.ResourceID, commit, "legacy-ready", "ready", "Retained source text")
+	for _, status := range []string{"queued", "extracting", "failed", "unavailable"} {
+		historicalDocument(t, s, room.ResourceID, commit, "legacy-"+status, status, "")
+	}
+	before := map[string]string{}
+	rows, err := s.db.Query(`SELECT id,snapshot FROM documents`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := SendMessageInput{RequestID: "review", Content: "Review this document", References: []ReferenceInput{{Kind: "file", ResourceID: room.ResourceID, Commit: commit, Path: "brief.pdf"}}}
-	_, err = sendToAssistant(s, ctx, room.ID, input, roomBudget)
-	requireCode(t, err, "document_preparing")
-	assertScalar(t, s, "SELECT count(*) FROM messages", 0)
-	post := input
-	post.RequestID = "discussion"
-	post.PostOnly = true
-	posted, err := sendToAssistant(s, ctx, room.ID, post, roomBudget)
-	if err != nil || len(posted.Runs) != 0 || posted.Message.References[0].Document != nil {
-		t.Fatalf("post while pending %+v %v", posted, err)
+	for rows.Next() {
+		var id, body string
+		if err := rows.Scan(&id, &body); err != nil {
+			t.Fatal(err)
+		}
+		before[id] = body
 	}
-	d = readyDocument(t, s, d, "First version")
-	accepted, err := sendToAssistant(s, ctx, room.ID, input, roomBudget)
-	if err != nil || accepted.Runs[0].References[0].Document.ID != d.ID {
-		t.Fatalf("freeze %+v %v", accepted, err)
-	}
-	next, err := s.EnsureDocument(ctx, d.ResourceID, d.Commit, d.Path, "v1", true)
-	if err != nil {
+	if err := rows.Close(); err != nil {
 		t.Fatal(err)
 	}
-	replay, err := sendToAssistant(s, ctx, room.ID, input, roomBudget)
-	if err != nil || !replay.Replayed || replay.Runs[0].References[0].Document.ID != d.ID {
-		t.Fatalf("replay %+v %v", replay, err)
+	latest, err := s.LatestDocument(ctx, room.ResourceID, commit, "brief.pdf")
+	if err != nil || latest == nil || !reflect.DeepEqual(*latest, ready) {
+		t.Fatalf("lost saved text behind newer pending/failed attempts: %+v %v", latest, err)
 	}
-	input.RequestID = "new-during-retry"
-	_, err = sendToAssistant(s, ctx, room.ID, input, roomBudget)
-	requireCode(t, err, "document_preparing")
-	input.References[0].DocumentID = d.ID
+	for id, body := range before {
+		got, err := s.GetDocument(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id == ready.ID {
+			if !reflect.DeepEqual(got, ready) {
+				t.Fatal("changed immutable READY artifact")
+			}
+		} else {
+			wantStatus := strings.TrimPrefix(id, "legacy-")
+			if wantStatus == "queued" || wantStatus == "extracting" {
+				wantStatus = "unavailable"
+			}
+			if got.ID != id || got.Status != wantStatus || got.Error == nil || got.Error.Retryable {
+				t.Fatalf("retired parser changed identity or advertised active/retryable work: %+v", got)
+			}
+		}
+		var after string
+		if err := s.db.QueryRow(`SELECT snapshot FROM documents WHERE id=?`, id).Scan(&after); err != nil || after != body {
+			t.Fatal("reading changed historical row", id, err)
+		}
+	}
+	assertScalar(t, s, "SELECT count(*) FROM documents", 5)
+}
+
+func TestOriginalOnlyDocumentsDoNotBlockAgentAdmission(t *testing.T) {
+	s, room, _ := roomFixture(t)
+	commit := strings.Repeat("a", 40)
+	queued := historicalDocument(t, s, room.ResourceID, commit, "legacy-queued", "queued", "")
+	input := SendMessageInput{RequestID: "original-only", Content: "Discuss this original honestly", References: []ReferenceInput{{Kind: "file", ResourceID: room.ResourceID, Commit: commit, Path: "brief.pdf"}}}
+	sent, err := sendToAssistant(s, ctx, room.ID, input, roomBudget)
+	if err != nil || len(sent.Runs) != 1 {
+		t.Fatalf("original-only submission blocked: %+v %v", sent, err)
+	}
+	view := sent.Runs[0].References[0].Document
+	if view == nil || view.ID != queued.ID || view.Status != "unavailable" || view.Error == nil || view.Error.Retryable {
+		t.Fatalf("dishonest pending snapshot: %+v", view)
+	}
+	input.RequestID = "explicit-pending"
+	input.References[0].DocumentID = queued.ID
 	explicit, err := sendToAssistant(s, ctx, room.ID, input, roomBudget)
-	if err != nil || explicit.Runs[0].References[0].Document.ID != d.ID {
-		t.Fatal("explicit old immutable artifact rejected", err)
+	if err != nil || explicit.Runs[0].References[0].Document.ID != queued.ID {
+		t.Fatal("lost explicit retained ID", err)
 	}
-	next = readyDocument(t, s, next, "New version")
-	input.References[0].DocumentID = next.ID
+	input.RequestID = "unparsed-docx"
+	input.References[0].Path = "new.docx"
+	input.References[0].DocumentID = ""
+	original, err := sendToAssistant(s, ctx, room.ID, input, roomBudget)
+	if err != nil || original.Runs[0].References[0].Document != nil {
+		t.Fatalf("unparsed DOCX blocked or invented text: %+v %v", original, err)
+	}
+	var status string
+	if err := s.db.QueryRow(`SELECT status FROM documents WHERE id=?`, queued.ID).Scan(&status); err != nil || status != "queued" {
+		t.Fatal("replayed/rewrote pending parser work", status, err)
+	}
+	assertScalar(t, s, "SELECT count(*) FROM documents", 1)
+}
+
+func TestDocumentAdmissionPreservesFrozenIDsAndVersionBoundaries(t *testing.T) {
+	s, room, _ := roomFixture(t)
+	commit := strings.Repeat("a", 40)
+	first := historicalDocument(t, s, room.ResourceID, commit, "legacy-first", "ready", "Original evidence")
+	input := SendMessageInput{RequestID: "review", Content: "Read saved evidence", References: []ReferenceInput{{Kind: "file", ResourceID: room.ResourceID, Commit: commit, Path: first.Path, DocumentID: first.ID}}}
+	accepted, err := sendToAssistant(s, ctx, room.ID, input, roomBudget)
+	if err != nil || accepted.Runs[0].References[0].Document.ID != first.ID {
+		t.Fatal("lost exact artifact", err)
+	}
+	newer := historicalDocument(t, s, room.ResourceID, commit, "legacy-newer", "ready", "Different saved evidence")
+	replay, err := sendToAssistant(s, ctx, room.ID, input, roomBudget)
+	if err != nil || !replay.Replayed || replay.Runs[0].References[0].Document.ID != first.ID {
+		t.Fatal("replay substituted a newer artifact", err)
+	}
+	input.References[0].DocumentID = newer.ID
 	_, err = sendToAssistant(s, ctx, room.ID, input, roomBudget)
 	requireCode(t, err, "request_conflict")
-	input.RequestID = "mismatch"
+	input.RequestID = "wrong-file"
 	input.References[0].Path = "other.pdf"
 	_, err = sendToAssistant(s, ctx, room.ID, input, roomBudget)
 	requireCode(t, err, "invalid_reference")
-	input.References[0].Path = d.Path
-	input.References = append(input.References, ReferenceInput{Kind: "file", ResourceID: d.ResourceID, Commit: d.Commit, Path: d.Path, DocumentID: d.ID})
-	_, err = sendToAssistant(s, ctx, room.ID, input, roomBudget)
-	requireCode(t, err, "invalid_reference")
-}
-func TestDocumentFailuresAreHonestAndResultsAtomic(t *testing.T) {
-	s, room, _ := roomFixture(t)
-	d, err := s.EnsureDocument(ctx, room.ResourceID, strings.Repeat("a", 40), "scan.pdf", "v1", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.ChangeDocument(ctx, d.ID, "extracting", nil); err != nil {
-		t.Fatal(err)
-	}
-	_, err = s.ChangeDocument(ctx, d.ID, "ready", &Document{Sections: []DocumentSection{{ID: "p20", Label: "Page 20", Text: "invalid location"}}})
-	requireCode(t, err, "invalid_document")
-	current, _ := s.GetDocument(ctx, d.ID)
-	if current.Status != "extracting" {
-		t.Fatal("failed result partially saved")
-	}
-	failure := &DocumentError{Code: "no_text", Message: "No selectable text was found. OCR is not available.", Retryable: false}
-	failed, err := s.ChangeDocument(ctx, d.ID, "unreadable", &Document{Error: failure, Sections: []DocumentSection{}, Warnings: []string{}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sent, err := sendToAssistant(s, ctx, room.ID, SendMessageInput{RequestID: "original-only", Content: "Discuss this limitation", References: []ReferenceInput{{Kind: "file", ResourceID: d.ResourceID, Commit: d.Commit, Path: d.Path}}}, roomBudget)
-	if err != nil || sent.Runs[0].References[0].Document.Error.Code != "no_text" || failed.Status != "unreadable" {
-		t.Fatal("failure snapshot missing", err)
+	stored, err := s.GetDocument(ctx, first.ID)
+	a, _ := json.Marshal(stored)
+	b, _ := json.Marshal(first)
+	if err != nil || string(a) != string(b) {
+		t.Fatal("frozen READY artifact changed", err)
 	}
 }

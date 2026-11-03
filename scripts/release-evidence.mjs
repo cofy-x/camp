@@ -8,7 +8,7 @@ import {
   verifyPreviousRunnerUpgrade,
 } from './upgrade.mjs';
 import { verifyWorkerArtifact } from './worker-release.mjs';
-import { assertDocumentServiceReceipt } from './document-service.mjs';
+import { assertServerServiceReceipt } from './server-service.mjs';
 
 export async function collectReleaseEvidence(
   directory,
@@ -51,12 +51,12 @@ export async function collectReleaseEvidence(
     assert.equal(report.archiveSHA256, server.servers[platform].sha256);
     assert.equal(report.upgrade?.fromVersion, upgradeBaseline);
     assert.equal(report.previousUpgrade?.fromVersion, previousRelease);
-    assertDocumentServiceReceipt(report.documents, {
+    assertServerServiceReceipt(report.service, {
       version: identity.version,
       sourceCommit: identity.sourceCommit,
       platform: platform === 'darwin-arm64' ? 'darwin/arm64' : 'darwin/x64',
     });
-    assert.equal(report.documents.archiveSHA256, report.archiveSHA256);
+    assert.equal(report.service.archiveSHA256, report.archiveSHA256);
     macReports.push(report);
   }
   acceptance.macServers = macReports;
@@ -70,7 +70,7 @@ export async function collectReleaseEvidence(
         'utf8',
       ),
     );
-    assertDocumentServiceReceipt(service, {
+    assertServerServiceReceipt(service, {
       version: identity.version,
       sourceCommit: identity.sourceCommit,
       platform: 'darwin/arm64',

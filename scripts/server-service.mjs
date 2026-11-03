@@ -20,9 +20,9 @@ function known(status) {
   return status;
 }
 
-// Only the document smoke's transport adapter. Production Camp commands own
+// Shared Server acceptance transport adapter. Production Camp commands own
 // launchd state, authenticated shutdown and file ownership; never signal a PID.
-export function documentService({
+export function serverService({
   binary,
   data,
   cwd,
@@ -118,7 +118,7 @@ export function documentService({
   };
 }
 
-export function assertDocumentServiceReceipt(
+export function assertServerServiceReceipt(
   report,
   { version, sourceCommit, platform } = {},
 ) {
@@ -127,7 +127,7 @@ export function assertDocumentServiceReceipt(
   assert.equal(report.mode, 'service');
   assert.equal(report.cleanupConfirmed, true);
   assert.equal(report.retainedDataPreserved, true);
-  assert.equal(report.readerJobsRemaining, 0);
+  assert.equal(report.parserJobsCreated, false);
   assert.equal(report.modelRequests, 0);
   assert.equal(report.sourceModified, false);
   for (const [key, value] of Object.entries({
@@ -139,21 +139,18 @@ export function assertDocumentServiceReceipt(
   assert.match(report.binarySHA256, /^[a-f0-9]{64}$/);
   assert.ok(Array.isArray(report.checks));
   for (const check of [
-    'model-free-reader-self-tests',
-    'readiness-get-reuses-observations',
-    'real-pdf-and-docx-preparation',
-    'stable-page-and-paragraph-citations',
-    'immutable-original-downloads',
-    'no-runner-or-model-required',
+    'markdown-and-plaintext',
+    'original-only-attachments-preserved',
+    'no-parser-readiness-or-jobs',
     'allowlisted-server-directory-import-preserves-source',
-    'restart-preserves-prepared-text-and-citations',
-    'packaged-server-launchd-reader-lifecycle',
+    'restart-preserves-files',
+    'packaged-server-launchd-lifecycle',
     'service-removal-preserves-private-data',
-    'reader-jobs-clean-and-owned-service-absent',
+    'owned-service-absent',
   ])
     assert.ok(
       report.checks.includes(check),
-      `Missing document acceptance: ${check}`,
+      `Missing Server acceptance: ${check}`,
     );
   assert.ok(Array.isArray(report.service));
   assert.deepEqual(

@@ -32,7 +32,7 @@ func (s *Service) Upload(ctx context.Context, room, requestID, name string, cont
 		if previous.SHA256 != digest || previous.Reference.Path != name || previous.Reference.Size == nil || *previous.Reference.Size != len(content) {
 			return storage.Reference{}, &storage.Error{Code: "request_conflict", Message: "This upload request ID already belongs to a different file. Choose a new request ID."}
 		}
-		return s.prepareUpload(ctx, previous.Reference)
+		return previous.Reference, nil
 	}
 	var failure *storage.Error
 	if !errors.As(err, &failure) || failure.Code != "not_found" {
@@ -62,19 +62,5 @@ func (s *Service) Upload(ctx context.Context, room, requestID, name string, cont
 	if err != nil {
 		return storage.Reference{}, err
 	}
-	return s.prepareUpload(ctx, saved.Reference)
-}
-
-// Saving the receipt precedes preparation. A retry can repair a lost enqueue
-// without creating another attachment or changing its immutable original.
-func (s *Service) prepareUpload(ctx context.Context, ref storage.Reference) (storage.Reference, error) {
-	if s.documents == nil || storage.DocumentFormat(ref.Path) == "" {
-		return ref, nil
-	}
-	d, err := s.documents.Prepare(ctx, ref.ResourceID, ref.Commit, ref.Path, false)
-	if err != nil {
-		return ref, err
-	}
-	ref.Document = d.Summary()
-	return ref, nil
+	return saved.Reference, nil
 }

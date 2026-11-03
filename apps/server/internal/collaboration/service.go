@@ -14,18 +14,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cofy-x/camp/apps/server/internal/documents"
 	"github.com/cofy-x/camp/apps/server/internal/projectenv"
 	"github.com/cofy-x/camp/apps/server/internal/resources"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
 type Service struct {
-	documents *documents.Service
-	store     *storage.Store
-	runs      RunManager
-	files     *resources.Manager
-	mu        sync.Mutex
+	store *storage.Store
+	runs  RunManager
+	files *resources.Manager
+	mu    sync.Mutex
 }
 
 type RunManager interface {
@@ -37,11 +35,8 @@ type RunManager interface {
 	CancelMatching(context.Context, string, string) error
 }
 
-func New(ctx context.Context, store *storage.Store, manager RunManager, dataDir string, preparers ...*documents.Service) (*Service, error) {
+func New(ctx context.Context, store *storage.Store, manager RunManager, dataDir string) (*Service, error) {
 	s := &Service{store: store, runs: manager, files: resources.New(filepath.Join(dataDir, "resources"))}
-	if len(preparers) > 0 {
-		s.documents = preparers[0]
-	}
 	rooms, err := store.ListRooms(ctx)
 	if err != nil {
 		return nil, err
@@ -146,24 +141,6 @@ func (s *Service) UpdateResource(ctx context.Context, resource storage.Resource)
 }
 
 func (s *Service) Send(ctx context.Context, room string, input storage.SendMessageInput) (storage.SendResult, error) {
-	if _, found, err := s.store.FindSendMessage(ctx, room, input); err != nil {
-		return storage.SendResult{}, err
-	} else if found {
-		return s.runs.Send(ctx, room, input)
-	}
-	if s.documents != nil {
-		for _, ref := range input.References {
-			if ref.Kind != "file" || ref.DocumentID != "" || storage.DocumentFormat(ref.Path) == "" {
-				continue
-			}
-			if _, err := s.store.ValidateFileReference(ctx, room, ref); err != nil {
-				return storage.SendResult{}, err
-			}
-			if _, err := s.documents.Prepare(ctx, ref.ResourceID, ref.Commit, ref.Path, false); err != nil {
-				return storage.SendResult{}, err
-			}
-		}
-	}
 	return s.runs.Send(ctx, room, input)
 }
 func (s *Service) Get(ctx context.Context, id string) (storage.Run, error) {

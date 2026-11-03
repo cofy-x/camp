@@ -2,30 +2,23 @@ package httpapi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/collaboration"
-	"github.com/cofy-x/camp/apps/server/internal/documents"
-	"github.com/cofy-x/camp/apps/server/internal/documenttext"
-	"github.com/cofy-x/camp/apps/server/internal/resources"
 	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
+	"github.com/cofy-x/camp/apps/server/internal/testfixture"
 )
 
-type documentReader struct{ calls atomic.Int32 }
-
-func (d *documentReader) Extract(context.Context, string, []byte) (documenttext.Result, error) {
-	d.calls.Add(1)
-	return documenttext.Result{Format: "pdf", Sections: []documenttext.Section{{ID: "p1", Label: "Page 1", Text: "Customer brief source evidence"}}}, nil
-}
-func preparedAPI(t *testing.T) (http.Handler, *storage.Store, storage.Room, *documentReader) {
+func historicalDocumentAPI(t *testing.T) (http.Handler, *storage.Store, storage.Room, *sql.DB) {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -39,13 +32,7 @@ func preparedAPI(t *testing.T) (http.Handler, *storage.Store, storage.Room, *doc
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { manager.Shutdown(ctx) })
-	reader := &documentReader{}
-	preparer, err := documents.New(ctx, store, resources.New(filepath.Join(dir, "resources")), reader, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { preparer.Shutdown(ctx) })
-	service, err := collaboration.New(ctx, store, manager, dir, preparer)
+	service, err := collaboration.New(ctx, store, manager, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,103 +40,150 @@ func preparedAPI(t *testing.T) (http.Handler, *storage.Store, storage.Room, *doc
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(store, nil, service), store, rooms[0], reader
+	db, err := sql.Open("sqlite", filepath.Join(dir, "desktop.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return New(store, nil, service), store, rooms[0], db
 }
 func loadDocumentResponse(t *testing.T, w *httptest.ResponseRecorder) storage.Document {
 	t.Helper()
-	var result struct {
+	var value struct {
 		Document storage.Document `json:"document"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || w.Code != 200 {
+	if err := json.Unmarshal(w.Body.Bytes(), &value); err != nil || w.Code != 200 {
 		t.Fatalf("document response %d %s %v", w.Code, w.Body, err)
 	}
-	return result.Document
+	return value.Document
 }
-func TestDocumentAPIAutomaticPreparationPinnedHistoryAndDownload(t *testing.T) {
-	h, store, room, reader := preparedAPI(t)
-	uploadPath := "/api/rooms/" + room.ID + "/uploads"
-	content := []byte("original PDF file bytes")
-	response := performUpload(t, h, multipartUpload(t, uploadPath, "pdf", "Customer brief.pdf", content, nil), 200)
+func historicalUpload(t *testing.T, h http.Handler, room storage.Room, requestID, name string, content []byte) storage.Reference {
+	t.Helper()
+	w := performUpload(t, h, multipartUpload(t, "/api/rooms/"+room.ID+"/uploads", requestID, name, content, nil), 200)
 	var result struct {
 		Reference storage.Reference `json:"reference"`
 	}
-	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.Reference.Document == nil {
-		t.Fatalf("upload preparation missing %s %v", response.Body, err)
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
 	}
-	ref := result.Reference
-	deadline := time.Now().Add(3 * time.Second)
-	var original storage.Document
-	for time.Now().Before(deadline) {
-		original = loadDocumentResponse(t, roomRequest(t, h, "GET", "/api/documents/"+ref.Document.ID, ""))
-		if original.Status == "ready" {
-			break
+	return result.Reference
+}
+func documentRows(t *testing.T, db *sql.DB) map[string]string {
+	t.Helper()
+	rows, err := db.Query(`SELECT id,snapshot FROM documents ORDER BY seq`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	result := map[string]string{}
+	for rows.Next() {
+		var id, body string
+		if err := rows.Scan(&id, &body); err != nil {
+			t.Fatal(err)
 		}
-		time.Sleep(5 * time.Millisecond)
+		result[id] = body
 	}
-	if original.Status != "ready" || original.Sections[0].Label != "Page 1" || reader.calls.Load() != 1 {
-		t.Fatalf("preparation %+v calls=%d", original, reader.calls.Load())
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
-	latestPath := "/api/resources/" + ref.ResourceID + "/document?commit=" + ref.Commit + "&path=Customer+brief.pdf"
-	latest := loadDocumentResponse(t, roomRequest(t, h, "GET", latestPath, ""))
-	if latest.ID != original.ID {
-		t.Fatal("latest points elsewhere")
+	return result
+}
+func TestDocumentAPIPreservesOriginalsWithoutNewPreparation(t *testing.T) {
+	h, _, room, db := historicalDocumentAPI(t)
+	for _, name := range []string{"Customer brief.pdf", "Customer brief.docx"} {
+		original := []byte("immutable original " + name)
+		requestID := strings.TrimPrefix(filepath.Ext(name), ".")
+		ref := historicalUpload(t, h, room, requestID, name, original)
+		if ref.Document != nil {
+			t.Fatal("new upload invented a parser result", ref.Document)
+		}
+		download := roomRequest(t, h, "GET", "/api/resources/"+ref.ResourceID+"/file?commit="+ref.Commit+"&path="+strings.ReplaceAll(name, " ", "+"), "")
+		if download.Code != 200 || download.Body.String() != string(original) {
+			t.Fatal("original bytes changed", download.Body)
+		}
+		for _, retry := range []bool{false, true} {
+			body, _ := json.Marshal(map[string]any{"commit": ref.Commit, "path": ref.Path, "retry": retry})
+			w := roomRequest(t, h, "POST", "/api/resources/"+ref.ResourceID+"/document", string(body))
+			var rejected struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &rejected); err != nil || w.Code != http.StatusNotFound || rejected.Code != "not_found" {
+				t.Fatalf("retired operation %d %s", w.Code, w.Body)
+			}
+		}
+		receipt := roomRequest(t, h, "GET", "/api/rooms/"+room.ID+"/uploads/"+requestID, "")
+		if receipt.Code != 200 {
+			t.Fatal(receipt.Body)
+		}
 	}
-	preparePath := "/api/resources/" + ref.ResourceID + "/document"
-	body := `{"commit":"` + ref.Commit + `","path":"Customer brief.pdf"}`
-	same := loadDocumentResponse(t, roomRequest(t, h, "POST", preparePath, body))
-	if same.ID != original.ID || reader.calls.Load() != 1 {
-		t.Fatal("prepare repeated terminal job")
+	if len(documentRows(t, db)) != 0 {
+		t.Fatal("upload or prepare created parser jobs")
 	}
-	retry := loadDocumentResponse(t, roomRequest(t, h, "POST", preparePath, strings.TrimSuffix(body, "}")+`,"retry":true}`))
-	if retry.ID == original.ID {
-		t.Fatal("retry did not append")
+}
+func TestDocumentAPIKeepsReadyHistoryAndProjectsDisabledPendingViews(t *testing.T) {
+	h, store, room, db := historicalDocumentAPI(t)
+	ref := historicalUpload(t, h, room, "legacy-pdf", "Customer brief.pdf", []byte("original PDF file bytes"))
+	ready := storage.Document{ID: "legacy-ready", ResourceID: ref.ResourceID, Commit: ref.Commit, Path: ref.Path, Format: "pdf", Status: "ready", ExtractorVersion: "retired-reader-version", Sections: []storage.DocumentSection{{ID: "p1", Label: "Page 1", Text: "Customer brief source evidence"}}, Warnings: []string{"Historical extraction note"}, CreatedAt: "legacy-created", UpdatedAt: "legacy-finished"}
+	testfixture.Document(t, db, ready)
+	for _, status := range []string{"queued", "extracting", "failed"} {
+		d := ready
+		d.ID = "legacy-" + status
+		d.Status = status
+		d.Sections = []storage.DocumentSection{}
+		d.ExtractorVersion = "different-retired-reader"
+		if status == "failed" {
+			d.Error = &storage.DocumentError{Code: "reader_failed", Message: "Original reader failure", Retryable: true}
+		}
+		testfixture.Document(t, db, d)
 	}
-	previous := loadDocumentResponse(t, roomRequest(t, h, "GET", "/api/documents/"+original.ID, ""))
-	if previous.Status != "ready" || previous.Sections[0].Text != original.Sections[0].Text {
-		t.Fatal("retry changed earlier artifact")
+	before := documentRows(t, db)
+	exact := loadDocumentResponse(t, roomRequest(t, h, "GET", "/api/documents/"+ready.ID, ""))
+	if !reflect.DeepEqual(exact, ready) {
+		t.Fatal("READY text, warning, version or source locations changed", exact)
 	}
-	download := roomRequest(t, h, "GET", "/api/resources/"+ref.ResourceID+"/file?commit="+ref.Commit+"&path=Customer+brief.pdf", "")
-	if download.Code != 200 || download.Body.String() != string(content) {
-		t.Fatal("original download changed", download.Body)
+	latest := loadDocumentResponse(t, roomRequest(t, h, "GET", "/api/resources/"+ref.ResourceID+"/document?commit="+ref.Commit+"&path=Customer+brief.pdf", ""))
+	if latest.ID != ready.ID {
+		t.Fatal("newer pending/failed attempt hid stored READY text", latest)
 	}
-	input := storage.SendMessageInput{RequestID: "post-with-source", Content: "Discuss this original", PostOnly: true, References: []storage.ReferenceInput{{Kind: "file", ResourceID: ref.ResourceID, Commit: ref.Commit, Path: ref.Path, DocumentID: original.ID}}}
-	encoded, _ := json.Marshal(input)
-	post := roomRequest(t, h, "POST", "/api/rooms/"+room.ID+"/messages", string(encoded))
-	if post.Code != 200 || !strings.Contains(post.Body.String(), `"document":{"id":"`+original.ID+`"`) {
-		t.Fatalf("canonical snapshot %d %s", post.Code, post.Body)
+	for _, status := range []string{"queued", "extracting", "failed"} {
+		d := loadDocumentResponse(t, roomRequest(t, h, "GET", "/api/documents/legacy-"+status, ""))
+		wantStatus := "unavailable"
+		if status == "failed" {
+			wantStatus = "failed"
+		}
+		if d.ID != "legacy-"+status || d.Status != wantStatus || d.Error == nil || d.Error.Retryable {
+			t.Fatal("reader advertised active work or retry", d)
+		}
 	}
-	receipt := roomRequest(t, h, "GET", uploadPath+"/pdf", "")
-	if receipt.Code != 200 || !strings.Contains(receipt.Body.String(), `"document":`) {
-		t.Fatal("receipt lost preparation", receipt.Body)
-	}
-	library := roomRequest(t, h, "GET", uploadPath, "")
-	if library.Code != 200 || !strings.Contains(library.Body.String(), `"document":`) {
-		t.Fatal("library lost preparation", library.Body)
+	body, _ := json.Marshal(storage.SendMessageInput{RequestID: "historical-reference", Content: "Discuss stored evidence", PostOnly: true, References: []storage.ReferenceInput{{Kind: "file", ResourceID: ref.ResourceID, Commit: ref.Commit, Path: ref.Path, DocumentID: ready.ID}}})
+	posted := roomRequest(t, h, "POST", "/api/rooms/"+room.ID+"/messages", string(body))
+	if posted.Code != 200 || !strings.Contains(posted.Body.String(), `"document":{"id":"legacy-ready"`) {
+		t.Fatalf("frozen artifact ID lost: %d %s", posted.Code, posted.Body)
 	}
 	messages, err := store.ListMessages(context.Background(), room.ID, "", 0)
-	if err != nil || len(messages) != 1 {
-		t.Fatal("preparation started conversation", messages, err)
+	if err != nil || len(messages) != 1 || messages[0].References[0].Document.ID != ready.ID {
+		t.Fatal("history reference changed", messages, err)
+	}
+	if !reflect.DeepEqual(before, documentRows(t, db)) {
+		t.Fatal("GET, upload receipt or message admission replayed/rewrote legacy parser rows")
+	}
+	receipt := roomRequest(t, h, "GET", "/api/rooms/"+room.ID+"/uploads/legacy-pdf", "")
+	if receipt.Code != 200 || !strings.Contains(receipt.Body.String(), `"id":"legacy-ready"`) {
+		t.Fatal("upload receipt hid saved text", receipt.Body)
 	}
 }
 func TestDocumentAPIValidationAndLocalBoundary(t *testing.T) {
-	h, _, room, _ := preparedAPI(t)
+	h, _, room, _ := historicalDocumentAPI(t)
 	base := "/api/resources/" + room.ResourceID + "/document"
 	for _, path := range []string{base, base + "?commit=HEAD&path=brief.pdf", base + "?commit=" + strings.Repeat("a", 40) + "&path=../secret.pdf", base + "?commit=x&commit=y&path=a.pdf"} {
-		w := roomRequest(t, h, "GET", path, "")
-		if w.Code != 400 {
+		if w := roomRequest(t, h, "GET", path, ""); w.Code != 400 {
 			t.Fatalf("invalid selector %s: %d %s", path, w.Code, w.Body)
 		}
 	}
-	for _, body := range []string{`{"commit":"HEAD","path":"brief.pdf"}`, `{"commit":"` + strings.Repeat("a", 40) + `","path":"../brief.pdf"}`, `{"commit":"` + strings.Repeat("a", 40) + `","path":"brief.pdf","extra":true}`} {
-		w := roomRequest(t, h, "POST", base, body)
-		if w.Code != 400 {
-			t.Fatalf("bad preparation %d %s", w.Code, w.Body)
-		}
-	}
-	request := httptest.NewRequest("GET", "http://localhost:3001/api/documents/missing", nil)
-	request.RemoteAddr = "198.51.100.4:4000"
+	req := httptest.NewRequest("GET", "http://localhost:3001/api/documents/missing", nil)
+	req.RemoteAddr = "198.51.100.4:4000"
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, request)
+	h.ServeHTTP(w, req)
 	if w.Code != 403 {
 		t.Fatal("document exposed outside local boundary")
 	}

@@ -171,7 +171,7 @@ func (s *Store) SendMessage(ctx context.Context, room string, input SendMessageI
 				agents = append(agents, agentRow(a))
 			}
 		}
-		references, e := snapshotReferences(ctx, q, room, in.References, len(agents) > 0)
+		references, e := snapshotReferences(ctx, q, room, in.References)
 		if e != nil {
 			return e
 		}

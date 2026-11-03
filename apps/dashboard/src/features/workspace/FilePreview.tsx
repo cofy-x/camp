@@ -4,7 +4,7 @@ import type { DocumentSnapshot, Reference } from './api';
 import { workspaceApi } from './api';
 import { AssistantContent } from './AssistantContent';
 import { DocumentPreview } from './DocumentPreview';
-import { documentFormat, documentPending, documentSnapshot } from './documents';
+import { documentFormat, documentSnapshot } from './documents';
 import { useDocumentPreview } from './useDocumentPreview';
 import type { DocumentPreviewState } from './useDocumentPreview';
 
@@ -72,7 +72,7 @@ function DocumentFilePreview({
   const state = documentState ?? localState;
   const document = state.document
     ? documentSnapshot(state.document)
-    : undefined;
+    : reference.document;
   return (
     <section
       className="workspace-file-preview"
@@ -92,7 +92,6 @@ function DocumentFilePreview({
         {onReference && (
           <Button
             type="button"
-            disabled={!document || documentPending(document.status)}
             onClick={() => onReference({ ...reference, document })}
           >
             Use as reference
@@ -102,9 +101,6 @@ function DocumentFilePreview({
       <DocumentPreview
         reference={reference}
         initialSection={initialSection}
-        canRetry={Boolean(
-          onReference || onDocumentChange || !reference.document,
-        )}
         state={state}
         onReady={onReady}
       />
@@ -200,10 +196,8 @@ function TextFilePreview({
         </p>
       ) : binary ? (
         <p>
-          {/\.doc$/i.test(reference.path ?? '')
-            ? 'Legacy Word files (.doc) have no text extraction. Save a DOCX copy and attach it to make the text readable.'
-            : 'This file has no text preview. Download it to open in a suitable application.'}{' '}
-          Agents receive the original file without extracted text.
+          This file has no text preview. Download the original, or attach a
+          Markdown or plain-text copy for Agents to read.
         </p>
       ) : content === null ? (
         <p role="status">Loading file…</p>

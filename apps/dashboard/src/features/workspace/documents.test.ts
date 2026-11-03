@@ -1,5 +1,7 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { DocumentSnapshot, Reference } from './api';
+import type { DocumentSnapshot, ExtractedDocument, Reference } from './api';
 import {
   addDraftReferences,
   acknowledgeDraft,
@@ -14,9 +16,11 @@ import {
   updateDraftDocument,
   writeStored,
 } from './conversationState';
+import { DocumentPreview } from './DocumentPreview';
 import {
   documentFormat,
   documentPending,
+  documentSnapshot,
   documentStatusLabel,
 } from './documents';
 
@@ -110,7 +114,7 @@ describe('document references', () => {
     expect(documentStatusLabel({ ...queued, status: 'unreadable' })).toBe(
       'Original only',
     );
-    expect(documentStatusLabel(ready)).toBe('2 pages · Text ready');
+    expect(documentStatusLabel(ready)).toBe('2 pages · Saved text');
   });
 
   it('keeps a Post only receipt retryable when extraction finishes in the background', () => {
@@ -147,6 +151,35 @@ describe('document references', () => {
     expect(readStored(`draft:${key}`)).toBe('');
     expect(draftReferences(key)).toEqual([]);
     expect(readStored(`reference-intent:${key}`)).toBe('');
+  });
+
+  it('keeps an uncertain Agent send of an original unchanged when a saved-text read later finishes', () => {
+    const key = 'original-only-agent-receipt';
+    const originalOnly = { ...reference, document: undefined };
+    const request = {
+      requestId: 'agent-with-original-only',
+      content: 'Keep this original source.',
+      threadRootId: '',
+      recipientAgentIds: ['reviewer'],
+      references: referenceInputs([originalOnly]),
+    };
+    addDraftReferences(key, [originalOnly]);
+    rememberReferenceIntent(key, request.requestId, [originalOnly]);
+    updateDraftDocument(key, originalOnly, ready);
+    const current = draftReferences(key);
+    expect(referenceInputs(current)[0]).toHaveProperty('documentId', ready.id);
+    const retry = retryForIntent(
+      JSON.stringify(request),
+      request.content,
+      '',
+      '["reviewer"]',
+      '["reviewer"]',
+      referenceInputs(current),
+      current,
+      readStored(`reference-intent:${key}`),
+    );
+    expect(retry).toEqual(request);
+    expect(retry?.references?.[0]).not.toHaveProperty('documentId');
   });
 
   it('replaces an explicitly selected extraction while batch handoffs preserve draft choices', () => {
@@ -259,5 +292,78 @@ describe('document references', () => {
         readStored(`reference-intent:${key}`),
       ),
     ).toEqual(agentRequest);
+  });
+});
+
+describe('saved document preview', () => {
+  const artifact: ExtractedDocument = {
+    ...ready,
+    resourceId: reference.resourceId!,
+    commit: reference.commit!,
+    path: reference.path!,
+    extractorVersion: 'historical-reader',
+    sections: [
+      { id: 'p1', label: 'Page 1', text: 'Previously saved exact text.' },
+    ],
+    createdAt: '2026-10-30T00:00:00Z',
+    updatedAt: '2026-10-30T00:00:00Z',
+  };
+
+  function preview(document: ExtractedDocument | null) {
+    return renderToStaticMarkup(
+      createElement(DocumentPreview, {
+        reference,
+        state: { document, loading: false, error: '', refresh: () => {} },
+      }),
+    );
+  }
+
+  it.each([
+    'queued',
+    'extracting',
+    'unreadable',
+    'failed',
+    'unavailable',
+  ] as const)(
+    'treats legacy %s text as original-only without preparation or retry controls',
+    (status) => {
+      const document = {
+        ...artifact,
+        status,
+        error: {
+          code: 'old-reader-error',
+          message: 'Historical failure.',
+          retryable: true,
+        },
+      };
+      const html = preview(document);
+      expect(documentStatusLabel(documentSnapshot(document))).toBe(
+        'Original only',
+      );
+      expect(html).not.toContain('Original only');
+      expect(html).toContain('Markdown or plain-text');
+      expect(html).not.toContain('<button');
+      expect(html).not.toContain('Previously saved exact text.');
+      expect(html).not.toContain('Historical failure.');
+      expect(html).not.toContain('Preparing');
+    },
+  );
+  it('shows a missing saved artifact as an original attachment', () => {
+    expect(preview(null)).toContain(
+      'Attach a Markdown or plain-text copy for Agents to read.',
+    );
+  });
+  it('keeps saved READY bytes, source locations and historical warnings', () => {
+    const html = preview({
+      ...artifact,
+      warnings: ['Historical reader omitted an image.'],
+    });
+    expect(html).toContain('Saved text · PDF');
+    expect(html).toContain('About saved text');
+    expect(html).toContain('Previously saved exact text.');
+    expect(html).toContain('Page 1');
+    expect(html).toContain('Historical reader omitted an image.');
+    expect(html).not.toContain('Original only');
+    expect(html).not.toContain('Extracted text');
   });
 });

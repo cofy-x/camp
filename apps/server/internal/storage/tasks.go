@@ -256,7 +256,7 @@ func createTaskTx(ctx context.Context, q *sqlgen.Queries, roomID string, in Crea
 	if e != nil {
 		return out, e
 	}
-	refs, e := snapshotReferences(ctx, q, roomID, in.References, true)
+	refs, e := snapshotReferences(ctx, q, roomID, in.References)
 	if e != nil {
 		return out, e
 	}
