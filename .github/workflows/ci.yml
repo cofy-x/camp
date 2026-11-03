@@ -50,10 +50,10 @@ jobs:
           path: validation-plan.json
           retention-days: 14
 
-  source:
-    name: Source
+  source_checks:
+    name: Source checks
     needs: changes
-    if: ${{ always() }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -105,6 +105,24 @@ jobs:
         run: echo 'Instruction/process behavior requires PR review; passing documentation checks is not approval.' >> "$GITHUB_STEP_SUMMARY"
       - name: Check tracked files remain unchanged
         run: git diff --exit-code
+
+  source:
+    name: Source
+    needs: [changes, source_checks]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require applicable source or documentation checks to pass
+        env:
+          DOCS_ONLY: ${{ needs.changes.outputs.docs }}
+          RESULT: ${{ needs.source_checks.result }}
+          CLASSIFICATION_RESULT: ${{ needs.changes.result }}
+        run: |
+          test "$CLASSIFICATION_RESULT" = success
+          test "$DOCS_ONLY" = true || test "$DOCS_ONLY" = false
+          test "$RESULT" = success
+          echo "Source documentation-only=$DOCS_ONLY, result=$RESULT" >> "$GITHUB_STEP_SUMMARY"
 
   browser_project:
     needs: changes
@@ -191,10 +209,10 @@ jobs:
           else exit 1; fi
           echo "Browser required=$REQUIRED, result=$RESULT" >> "$GITHUB_STEP_SUMMARY"
 
-  fixture:
-    name: Fixture
+  fixture_checks:
+    name: Fixture checks
     needs: changes
-    if: ${{ always() }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.fixture == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -207,9 +225,6 @@ jobs:
         run: |
           test "$CLASSIFICATION_RESULT" = success
           test "$REQUIRED" = true || test "$REQUIRED" = false
-      - name: Record fixture scope
-        if: ${{ needs.changes.outputs.fixture == 'false' }}
-        run: echo 'Fixture not applicable to this documentation-only change.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ needs.changes.outputs.fixture == 'true' }}
         with:
@@ -227,7 +242,27 @@ jobs:
         run: make test-remote
       - name: Remove this test project's containers and volumes
         if: ${{ always() && needs.changes.outputs.fixture == 'true' }}
+        timeout-minutes: 5
         run: node scripts/remote.mjs down --project "$CAMP_REMOTE_PROJECT"
+
+  fixture:
+    name: Fixture
+    needs: [changes, fixture_checks]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require applicable fixture checks to pass
+        env:
+          REQUIRED: ${{ needs.changes.outputs.fixture }}
+          RESULT: ${{ needs.fixture_checks.result }}
+          CLASSIFICATION_RESULT: ${{ needs.changes.result }}
+        run: |
+          test "$CLASSIFICATION_RESULT" = success
+          if [ "$REQUIRED" = true ]; then test "$RESULT" = success;
+          elif [ "$REQUIRED" = false ]; then test "$RESULT" = skipped;
+          else exit 1; fi
+          echo "Fixture required=$REQUIRED, result=$RESULT" >> "$GITHUB_STEP_SUMMARY"
 
   mac_source:
     name: Mac release source
