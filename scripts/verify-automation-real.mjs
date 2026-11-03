@@ -7,7 +7,11 @@ import path from 'node:path';
 import process from 'node:process';
 import { setTimeout as pause } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { createPublicWebhook } from './automation-public-webhook.mjs';
+import {
+  createPublicWebhook,
+  parseGitHubJSON,
+  PublicWebhookVerificationError,
+} from './automation-public-webhook.mjs';
 import {
   client,
   normalizeOrigin,
@@ -449,7 +453,7 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
     );
     if (allowEmpty && output.trim() === '') return null;
     try {
-      return JSON.parse(output);
+      return parseGitHubJSON(output);
     } catch {
       throw new VerificationError(
         'GitHub returned an unreadable response; no request was retried.',
@@ -1185,7 +1189,8 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
     report.status = ledger.value.state = 'stopped';
     report.finishedAt = ledger.value.finishedAt = new Date().toISOString();
     report.reason =
-      error instanceof VerificationError
+      error instanceof VerificationError ||
+      error instanceof PublicWebhookVerificationError
         ? error.message
         : 'Verification stopped after an unexpected local error. No operation was retried.';
     report.cleanup ??= { policyDisabled: false, cancellationRequested: [] };

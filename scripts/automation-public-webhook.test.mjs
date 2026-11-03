@@ -4,7 +4,11 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { createPublicWebhook } from './automation-public-webhook.mjs';
+import {
+  createPublicWebhook,
+  parseGitHubJSON,
+  PublicWebhookVerificationError,
+} from './automation-public-webhook.mjs';
 import { AcceptanceLedger } from './verify-automation-real.mjs';
 
 const secret = 'private-webhook-secret-that-must-never-be-recorded';
@@ -49,11 +53,14 @@ async function fixture(t, options = {}) {
   let firstRead = true;
   let detailReads = 0;
   let polls = 0;
-  let nextDelivery = 1;
+  let nextDelivery = BigInt(options.firstDeliveryId ?? '1');
   let nextEvent = 1;
 
   function add(kind, object, original) {
-    const deliveryId = nextDelivery++;
+    const exactDeliveryId = (nextDelivery++).toString();
+    const deliveryId = options.firstDeliveryId
+      ? exactDeliveryId
+      : Number(exactDeliveryId);
     const eventId = original?.eventId ?? `event-${nextEvent++}`;
     const payload =
       kind === 'ping'
@@ -69,12 +76,19 @@ async function fixture(t, options = {}) {
             issue: kind === 'issues' ? object : issue,
             ...(kind === 'issue_comment' ? { comment: object } : {}),
           };
+    if (options.largePayloadID)
+      payload.additional_object = { id: '3851953999095791617' };
     // Real transport bytes deliberately differ from JSON.stringify(payload).
-    const bytes = original?.bytes ?? JSON.stringify(payload, null, 2) + '\n';
+    const bytes =
+      original?.bytes ??
+      JSON.stringify(payload, null, 2).replace(
+        '"3851953999095791617"',
+        '3851953999095791617',
+      ) + '\n';
     const fingerprint = createHash('sha256').update(bytes).digest('hex');
     const guid =
       original?.guid ??
-      `11111111-1111-1111-1111-${String(deliveryId).padStart(12, '0')}`;
+      `11111111-1111-1111-1111-${exactDeliveryId.slice(-12).padStart(12, '0')}`;
     const event = events.get(eventId) ?? {
       id: eventId,
       sourceId: 'source',
@@ -103,7 +117,7 @@ async function fixture(t, options = {}) {
           'X-GitHub-Hook-ID': '91',
           'X-Hub-Signature-256': `sha256=${createHmac('sha256', secret).update(bytes).digest('hex')}`,
         },
-        payload: JSON.parse(bytes),
+        payload: parseGitHubJSON(bytes),
       },
       response: {
         payload: JSON.stringify({
@@ -113,7 +127,7 @@ async function fixture(t, options = {}) {
         }),
       },
     };
-    objects.set(deliveryId, delivery);
+    objects.set(String(deliveryId), delivery);
     return {
       delivery,
       event,
@@ -153,7 +167,7 @@ async function fixture(t, options = {}) {
       assert.equal(body, undefined);
       if (options.unknownRedelivery)
         throw new Error('private token redelivery error');
-      const originalId = Number(route.split('/').at(-2));
+      const originalId = route.split('/').at(-2);
       const original = objects.get(originalId);
       const response = JSON.parse(original.response.payload);
       const replay = add(original.event, original.request.payload.comment, {
@@ -210,7 +224,7 @@ async function fixture(t, options = {}) {
     );
     if (delivery) {
       detailReads++;
-      const value = structuredClone(objects.get(Number(delivery[1])));
+      const value = structuredClone(objects.get(delivery[1]));
       options.editDelivery?.(value);
       return value;
     }
@@ -283,6 +297,87 @@ async function fixture(t, options = {}) {
   };
 }
 
+test('GitHub JSON preserves adjacent 64-bit ID tokens without changing ordinary numeric fields', () => {
+  const text =
+    '[{"id":3851953999095791616,"status_code":200,"duration":0.27,"count":3851953999095791616,"repository_id":42,"request":{"payload":{"id":3851953999095791617,"sender":{"id":7}}}},{"id":3851953999095791617}]';
+  const parsed = parseGitHubJSON(text);
+  assert.equal(parsed[0].id, '3851953999095791616');
+  assert.equal(parsed[1].id, '3851953999095791617');
+  assert.notEqual(parsed[0].id, parsed[1].id);
+  assert.equal(parsed[0].request.payload.id, parsed[1].id);
+  assert.equal(parsed[0].repository_id, 42);
+  assert.equal(parsed[0].request.payload.sender.id, 7);
+  assert.equal(parsed[0].status_code, 200);
+  assert.equal(parsed[0].duration, 0.27);
+  assert.equal(typeof parsed[0].count, 'number');
+  assert.equal(
+    JSON.parse(text)[0].id,
+    JSON.parse(text)[1].id,
+    'ordinary JSON.parse loses the distinction',
+  );
+});
+
+test('adjacent real-sized delivery IDs remain exact in lookup paths, caches, redelivery and durable evidence', async (t) => {
+  const f = await fixture(t, {
+    firstDeliveryId: '3851953999095791616',
+    largePayloadID: true,
+  });
+  const ping = await f.helper.connect();
+  assert.equal(ping.githubDeliveryId, '3851953999095791616');
+  f.add('issues', issue);
+  const observed = await f.helper.receive('issues', issue);
+  assert.equal(observed.githubDeliveryId, '3851953999095791617');
+  f.add('issue_comment', comment);
+  const admitted = await f.helper.receive('issue_comment', comment);
+  assert.equal(admitted.githubDeliveryId, '3851953999095791618');
+  const replay = await f.helper.receive('issue_comment', comment, admitted);
+  assert.equal(replay.githubDeliveryId, '3851953999095791619');
+  assert.equal(replay.eventId, admitted.eventId);
+  assert.equal(replay.duplicate, true);
+  assert.equal(
+    f.requests.some((entry) =>
+      entry.route.endsWith('/3851953999095791618/attempts'),
+    ),
+    true,
+  );
+  assert.deepEqual(
+    f.report.webhook.deliveries.map((entry) => entry.githubDeliveryId),
+    [
+      '3851953999095791616',
+      '3851953999095791617',
+      '3851953999095791618',
+      '3851953999095791619',
+    ],
+  );
+  assert.equal(
+    new Set(f.report.webhook.deliveries.map((entry) => entry.githubDeliveryId))
+      .size,
+    4,
+  );
+  const saved = JSON.parse(await readFile(f.ledger.filename, 'utf8'));
+  assert.equal(
+    saved.requests.find((entry) => entry.kind === 'redeliver-public-webhook')
+      .githubDeliveryId,
+    '3851953999095791618',
+  );
+  assert.equal((await f.helper.close()).disabled, true);
+});
+
+test('unsafe already-rounded delivery numbers fail with a fixed public-safe diagnostic', async (t) => {
+  const f = await fixture(t, {
+    editDelivery: (delivery) => {
+      delivery.id = Number('3851953999095791616');
+    },
+  });
+  await assert.rejects(f.helper.connect(), (error) => {
+    assert.equal(error instanceof PublicWebhookVerificationError, true);
+    assert.equal(error.message.includes(secret), false);
+    assert.equal(error.message.includes('3851953999095791616'), false);
+    return true;
+  });
+  assert.equal((await f.helper.close()).disabled, true);
+});
+
 test('public acceptance observes an early signed ping, exact real-object bytes and one GitHub redelivery without Camp writes', async (t) => {
   const f = await fixture(t);
   const ping = await f.helper.connect();
@@ -297,7 +392,7 @@ test('public acceptance observes an early signed ping, exact real-object bytes a
   unrelated.delivery.request.payload.issue.id = 9999;
   const actual = f.add('issue_comment', comment);
   const admitted = await f.helper.receive('issue_comment', comment);
-  assert.equal(admitted.githubDeliveryId, actual.githubDeliveryId);
+  assert.equal(admitted.githubDeliveryId, String(actual.githubDeliveryId));
   const replay = await f.helper.receive('issue_comment', comment, admitted);
   assert.equal(replay.duplicate, true);
   assert.equal(replay.eventId, admitted.eventId);

@@ -8,12 +8,45 @@ const maxPayloadBytes = 1 << 20;
 const identifier = /^[a-zA-Z0-9_-]{1,128}$/u;
 const guidPattern = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/iu;
 
+export class PublicWebhookVerificationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'PublicWebhookVerificationError';
+  }
+}
+
+// GitHub delivery IDs exceed Number.MAX_SAFE_INTEGER. Reviver source preserves
+// their original decimal token before JSON's Number conversion can lose bits.
+// Other numeric fields retain ordinary JSON semantics.
+export function parseGitHubJSON(text) {
+  return JSON.parse(text, (key, value, context) => {
+    if (
+      (key === 'id' || key.endsWith('_id')) &&
+      typeof value === 'number' &&
+      Number.isInteger(value) &&
+      !Number.isSafeInteger(value) &&
+      /^-?\d+$/u.test(context?.source ?? '')
+    )
+      return context.source;
+    return value;
+  });
+}
+
 function check(value, message) {
-  if (!value) throw new Error(message);
+  if (!value) throw new PublicWebhookVerificationError(message);
 }
 
 function positive(value) {
   return Number.isSafeInteger(value) && value > 0;
+}
+
+function deliveryIdentifier(value) {
+  if (positive(value)) return String(value);
+  check(
+    typeof value === 'string' && /^[1-9]\d{0,127}$/u.test(value),
+    'GitHub delivery identifiers must retain their exact positive decimal bytes.',
+  );
+  return value;
 }
 
 function header(headers, name) {
@@ -89,17 +122,16 @@ export function createPublicWebhook({
     check(positive(state.id), 'The owned webhook identity is unavailable.');
     const values = await github(`${route}/${state.id}/deliveries?per_page=100`);
     check(
-      Array.isArray(values) &&
-        values.length <= maxDeliveries &&
-        values.every((item) => positive(item.id)),
+      Array.isArray(values) && values.length <= maxDeliveries,
       'The webhook delivery history exceeded its bounded acceptance scope.',
     );
-    return values;
+    return values.map((item) => ({ ...item, id: deliveryIdentifier(item.id) }));
   }
 
   async function detail(item) {
     if (details.has(item.id)) return details.get(item.id);
     const value = await github(`${route}/${state.id}/deliveries/${item.id}`);
+    value.id = deliveryIdentifier(value.id);
     check(
       value.id === item.id &&
         guidPattern.test(value.guid) &&
@@ -158,7 +190,7 @@ export function createPublicWebhook({
       );
       after = result.nextAfter;
     }
-    throw new Error(
+    throw new PublicWebhookVerificationError(
       'The canonical event history exceeded its acceptance bound.',
     );
   }
@@ -194,7 +226,9 @@ export function createPublicWebhook({
         try {
           response = JSON.parse(delivery.response.payload);
         } catch {
-          throw new Error('The public callback receipt is unreadable.');
+          throw new PublicWebhookVerificationError(
+            'The public callback receipt is unreadable.',
+          );
         }
         check(
           identifier.test(response?.eventId) &&
@@ -238,9 +272,9 @@ export function createPublicWebhook({
         );
         let payload;
         try {
-          payload = JSON.parse(bytes);
+          payload = parseGitHubJSON(bytes);
         } catch {
-          throw new Error(
+          throw new PublicWebhookVerificationError(
             'The retained original is not a valid GitHub payload.',
           );
         }
@@ -373,16 +407,17 @@ export function createPublicWebhook({
     }
     let excluded;
     if (original) {
+      const originalDeliveryId = deliveryIdentifier(original.githubDeliveryId);
       check(
         !intent.redeliveryAttempted &&
-          positive(original.githubDeliveryId) &&
           state.deliveries.some(
             (entry) =>
-              entry.githubDeliveryId === original.githubDeliveryId &&
+              entry.githubDeliveryId === originalDeliveryId &&
               entry.eventId === original.eventId,
           ),
         'Only one confirmed original delivery may be explicitly redelivered.',
       );
+      original = { ...original, githubDeliveryId: originalDeliveryId };
       await preflight();
       excluded = new Set((await deliveries()).map((item) => item.id));
       intent.redeliveryAttempted = true;
