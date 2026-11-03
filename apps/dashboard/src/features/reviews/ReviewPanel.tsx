@@ -44,7 +44,9 @@ function ReviewActions({
     comment: string;
     receipt: { key: string; requestId: string } | null;
   }>('review', `decision:${review.id}`, { comment: '', receipt: null });
+  const flushDraft = draft.flush;
   const [pending, setPending] = useState(false);
+  const operation = useRef<Promise<void> | null>(null);
   const [error, setError] = useState('');
   const [reassigning, setReassigning] = useState(false);
   const [reviewerId, setReviewerId] = useState(review.reviewerUserId);
@@ -57,15 +59,29 @@ function ReviewActions({
   const ended = review.status === 'delivered' || review.status === 'cancelled';
   useEffect(
     () =>
-      registerDraftWriter(`review-action:${review.id}`, () =>
-        Promise.resolve(!pending),
-      ),
-    [review.id, pending],
+      registerDraftWriter(`review-action:${review.id}`, async () => {
+        await operation.current;
+        // Another draft writer can finish before the action clears its receipt.
+        // Recheck that final write before allowing the view to unmount.
+        return flushDraft();
+      }),
+    [review.id, flushDraft],
   );
 
   async function act(action: ReviewAction) {
-    if (changed) return;
+    if (changed || operation.current) return;
     setPending(true);
+    const current = performAction(action);
+    operation.current = current;
+    try {
+      await current;
+    } finally {
+      operation.current = null;
+      setPending(false);
+    }
+  }
+
+  async function performAction(action: ReviewAction) {
     setError('');
     try {
       const value = draft.getValue();
@@ -97,8 +113,6 @@ function ReviewActions({
           ? error.message
           : 'This action could not be saved. Your comment is preserved.',
       );
-    } finally {
-      setPending(false);
     }
   }
 

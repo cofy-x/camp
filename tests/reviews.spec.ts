@@ -783,15 +783,62 @@ test('a disabled reviewer can be reassigned and a cancelled version can be revie
   await expect
     .poll(async () => (await readReview(page, review.id)).reviewerUserId)
     .toBe(owner.id);
-  await detail(page)
-    .getByRole('button', { name: 'Cancel Review', exact: true })
-    .click();
-  await expect
-    .poll(async () => (await readReview(page, review.id)).status)
-    .toBe('cancelled');
-  await detail(page)
-    .getByRole('button', { name: 'Open Document', exact: true })
-    .click();
+  const cancelReview = detail(page).getByRole('button', {
+    name: 'Cancel Review',
+    exact: true,
+  });
+  // Complete reassignment's own receipt cleanup before intercepting the next
+  // action's clear. Server state alone does not establish UI completion.
+  await expect(cancelReview).toBeEnabled();
+  let releaseClear = () => {};
+  const clearedReceipt = new Promise<void>((resolve) => {
+    releaseClear = resolve;
+  });
+  let clearing = false;
+  await page.route('**/api/me/drafts/review', async (route) => {
+    if (route.request().method() !== 'PUT') return route.continue();
+    const body = route.request().postDataJSON() as {
+      key: string;
+      value: { receipt: unknown };
+    };
+    if (body.key !== `decision:${review.id}` || body.value.receipt !== null)
+      return route.continue();
+    const response = await route.fetch();
+    expect(response.ok()).toBeTruthy();
+    clearing = true;
+    await clearedReceipt;
+    await route.fulfill({ response });
+  });
+  const navigationError = page.getByText(
+    'A private draft could not be saved. Resolve its error before switching documents.',
+    { exact: true },
+  );
+  try {
+    await cancelReview.click();
+    await expect.poll(() => clearing).toBe(true);
+    await expect
+      .poll(async () => (await readReview(page, review.id)).status)
+      .toBe('cancelled');
+    await detail(page)
+      .getByRole('button', { name: 'Open Document', exact: true })
+      .click();
+    await expect(navigationError).not.toBeVisible();
+    releaseClear();
+    await expect(library(page)).toContainText('Saved version · read only');
+    await expect(navigationError).not.toBeVisible();
+    await expect(
+      library(page).getByRole('button', {
+        name: 'Return to Latest',
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath('review-navigation-after-cancel.png'),
+    });
+  } finally {
+    releaseClear();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
   await library(page)
     .getByRole('button', { name: 'Return to Latest', exact: true })
     .click();
@@ -832,6 +879,146 @@ test('a disabled reviewer can be reassigned and a cancelled version can be revie
     review.submittedCommit,
     review.submittedCommit,
   ]);
+});
+
+test('review navigation waits for the action and preserves a failed receipt clear for explicit recovery', async ({
+  page,
+}, testInfo) => {
+  await signIn(page);
+  const owner = (await (await page.request.get('/api/auth/status')).json())
+    .user as { id: string };
+  const room = await createRoom(page, `review-clear-${testInfo.project.name}`);
+  await workspace(page)
+    .getByRole('button', { name: 'Library', exact: true })
+    .click();
+  await newDocument(
+    page,
+    'cleanup.md',
+    'Keep the completed review recoverable.',
+  );
+  await publish(page);
+  const files = await (
+    await page.request.get(`/api/resources/${room.resourceId}/files`)
+  ).json();
+  const title = `Review receipt recovery ${testInfo.project.name}`;
+  const requested = await mutate(page, `/rooms/${room.id}/reviews`, {
+    requestId: randomUUID(),
+    title,
+    resourceId: room.resourceId,
+    path: 'cleanup.md',
+    commit: files.commit,
+    reviewerUserId: owner.id,
+  });
+  expect(requested.ok()).toBeTruthy();
+  const review = (await requested.json()).review as Review;
+  await openReview(page, title);
+  await detail(page).getByText('Manage Review', { exact: true }).click();
+  const cancelReview = detail(page).getByRole('button', {
+    name: 'Cancel Review',
+    exact: true,
+  });
+  await expect(cancelReview).toBeEnabled();
+  let releaseAction = () => {};
+  const actionReceipt = new Promise<void>((resolve) => {
+    releaseAction = resolve;
+  });
+  let committed = false;
+  let clearFailed = false;
+  await page.route(`**/api/reviews/${review.id}/actions`, async (route) => {
+    if (
+      route.request().method() !== 'POST' ||
+      route.request().postDataJSON().action !== 'cancel'
+    )
+      return route.continue();
+    const response = await route.fetch();
+    expect(response.ok()).toBeTruthy();
+    committed = true;
+    await actionReceipt;
+    await route.fulfill({ response });
+  });
+  await page.route('**/api/me/drafts/review', async (route) => {
+    if (route.request().method() !== 'PUT') return route.continue();
+    const body = route.request().postDataJSON() as {
+      key: string;
+      value: { receipt: unknown };
+    };
+    if (body.key !== `decision:${review.id}` || body.value.receipt !== null)
+      return route.continue();
+    clearFailed = true;
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          code: 'storage_error',
+          message: 'The completed review receipt could not be cleared.',
+        },
+      }),
+    });
+  });
+  const navigationError = page.getByText(
+    'A private draft could not be saved. Resolve its error before switching documents.',
+    { exact: true },
+  );
+  try {
+    await cancelReview.click();
+    await expect.poll(() => committed).toBe(true);
+    await expect
+      .poll(async () => (await readReview(page, review.id)).status)
+      .toBe('cancelled');
+    // At this point the ordinary draft writer has no unsaved work. Only the
+    // action owner can wait for and recheck its later receipt-clear write.
+    await detail(page)
+      .getByRole('button', { name: 'Open Document', exact: true })
+      .click();
+    await expect(navigationError).not.toBeVisible();
+    releaseAction();
+    await expect.poll(() => clearFailed).toBe(true);
+    await expect(detail(page).locator('.camp-review-state')).toHaveText(
+      'Cancelled',
+    );
+    await expect(navigationError).toBeVisible();
+    await expect(workspace(page)).toHaveClass(/is-active/);
+    await expect(
+      library(page).getByRole('button', {
+        name: 'Return to Latest',
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    const retained = await (
+      await page.request.get(
+        `/api/me/drafts/review?key=${encodeURIComponent(`decision:${review.id}`)}`,
+      )
+    ).json();
+    expect(retained.draft.value.receipt).not.toBeNull();
+    await page.unrouteAll({ behavior: 'wait' });
+    await detail(page)
+      .getByRole('button', { name: 'Compare Private Drafts', exact: true })
+      .click();
+    await detail(page)
+      .getByRole('button', { name: 'Save My Draft', exact: true })
+      .click();
+    await expect(detail(page).getByRole('alert')).toHaveCount(0);
+    await detail(page)
+      .getByRole('button', { name: 'Open Document', exact: true })
+      .click();
+    await expect(library(page)).toContainText('Saved version · read only');
+    await expect(navigationError).not.toBeVisible();
+    const result = await (
+      await page.request.get(`/api/reviews/${review.id}`)
+    ).json();
+    expect(
+      result.events.filter(
+        (event: { action: string }) => event.action === 'cancel',
+      ),
+    ).toHaveLength(1);
+    await page.screenshot({
+      path: testInfo.outputPath('review-navigation-after-receipt-recovery.png'),
+    });
+  } finally {
+    releaseAction();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
 });
 
 test('a review form retains its draft and waits for an explicit newer version', async ({
