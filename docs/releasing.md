@@ -56,6 +56,8 @@ Archives normalize file order/metadata/ownership, and the helper omits Git build
 
 After public verification, update the maintained [tap formula](../Formula/camp.rb) from the generated `camp.rb` asset and update the fixed-version examples in [README](../README.md#get-started) and [installation](install.md#go-installation) together in a reviewed PR. Mac CI checks the fixed public tap with its matching release-source driver, independently of later API changes. Homebrew installs Server/Git without enabling a service.
 
+Exact-package [Mac worker qualification](../tools/layerfs-worker/README.md#exact-package-qualification) records the selected engine, package/runtime/image identities, named upgrade baseline and recovery scenarios. A supplied `mac-worker-qualification.json` must match those inputs and the qualification driver before collection; failed, partial or mismatched evidence is rejected. Without a matching report, Mac worker qualification remains pending while native-local acceptance stays independent. Linux ARM64 image proof does not establish actual Mac hybrid support.
+
 ## Upgrade qualification
 
 The [fixed baselines](../scripts/upgrade.mjs) are `v0.1.0-alpha.2` and the previous public release `v0.1.0-alpha.8`. `scripts/smoke-upgrade.mjs` installs both actual Server packages and verifies authentication, discussion, exact file versions, private drafts, history and replay of original write receipts after upgrade on Linux and both Mac Server architectures. It needs Git/Go/public downloads and no model call.

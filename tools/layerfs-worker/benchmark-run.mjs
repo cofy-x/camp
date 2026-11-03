@@ -15,12 +15,42 @@ import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import process from 'node:process';
-import { MacCheckpoints } from './checkpoint.mjs';
-import { WorkerClient } from './client.mjs';
-import { CaptureBlobs, captureTree, restoreTree } from './tree.mjs';
-import { receiveCapture } from './transfer.mjs';
-import { openUpstream, measureCodec } from './upstream-comparison.mjs';
+import { clearTimeout, setTimeout } from 'node:timers';
+import { pathToFileURL } from 'node:url';
 import { saveState } from './state.mjs';
+import { stop } from '../../scripts/lib.mjs';
+import {
+  boundedJSON,
+  excludedPackageArms,
+  packageArms,
+  sampleBenchmarkDiagnostic,
+  verifyBenchmarkRuntime,
+  verifyBenchmarkEnvelope,
+  verifyPackageWorker,
+} from './benchmark-inputs.mjs';
+
+let inputs;
+if (process.env.CAMP_MAC_BENCHMARK_PACKAGE_INPUTS) {
+  const input = await boundedJSON(
+    process.env.CAMP_MAC_BENCHMARK_PACKAGE_INPUTS,
+  );
+  assert.equal(
+    input.sha256,
+    process.env.CAMP_MAC_BENCHMARK_PACKAGE_INPUTS_SHA256,
+  );
+  inputs = await verifyBenchmarkEnvelope(input.value, process.argv[3]);
+}
+const controller = inputs ? inputs.controller : import.meta.dirname;
+const loadController = (name) =>
+  import(pathToFileURL(path.join(controller, name)));
+const { MacCheckpoints } = await loadController('checkpoint.mjs');
+const { WorkerClient } = await loadController('client.mjs');
+const { CaptureBlobs, captureTree, restoreTree } =
+  await loadController('tree.mjs');
+const { receiveCapture } = await loadController('transfer.mjs');
+const { openUpstream, measureCodec } = inputs
+  ? {}
+  : await import('./upstream-comparison.mjs');
 
 const [base, engineSocket, number] = process.argv.slice(2),
   iteration = Number(number);
@@ -32,6 +62,9 @@ const report = {
   observations: [],
   nativeFixtures: [],
   passed: false,
+  ...(inputs
+    ? { packageIdentity: inputs.identity, excludedArms: excludedPackageArms }
+    : {}),
   host: {
     platform: process.platform,
     architecture: process.arch,
@@ -52,20 +85,34 @@ const report = {
       'OS and engine caches not flushed; each repetition has a fresh owned Store, reused across arms and phases in that repetition; first full is a new Branch from main; VM already running',
   },
 };
-const proxy = spawn(
-  process.execPath,
-  [path.join(import.meta.dirname, 'wire-proxy.mjs'), engineSocket],
-  {
-    env: { PATH: process.env.PATH, HOME: root },
-    stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
-  },
-);
-const ready = await new Promise((resolve) => proxy.once('message', resolve));
-const wireStats = () =>
-  new Promise((resolve) => {
-    proxy.once('message', resolve);
-    proxy.send({ action: 'stats' });
+let proxy;
+const proxyMessage = (action) =>
+  new Promise((resolve, reject) => {
+    const finish = (error, value) => {
+      clearTimeout(timer);
+      proxy.removeListener('error', failed);
+      proxy.removeListener('close', closed);
+      proxy.removeListener('message', received);
+      if (error) reject(error);
+      else resolve(value);
+    };
+    const failed = () => finish(new Error('Owned wire counter failed.'));
+    const closed = () =>
+      finish(new Error('Owned wire counter closed before its reply.'));
+    const received = (value) => finish(null, value);
+    const timer = setTimeout(
+      () => finish(new Error('Owned wire counter timed out.')),
+      10000,
+    );
+    proxy.once('error', failed);
+    proxy.once('close', closed);
+    proxy.once('message', received);
+    if (action)
+      proxy.send({ action }, (error) => {
+        if (error) failed();
+      });
   });
+const wireStats = () => proxyMessage('stats');
 const difference = (before, after) =>
   Object.fromEntries(
     Object.keys(after).map((key) => [key, after[key] - before[key]]),
@@ -109,7 +156,7 @@ async function measured(meta, action) {
     beforeResource = await resources();
     beforeWire = await wireStats();
     beforeCpu = process.resourceUsage();
-    beforeUpstream = { ...upstream.wire };
+    if (upstream) beforeUpstream = { ...upstream.wire };
     meta.samplingBeforeMs = performance.now() - start;
     value = await action();
     return value;
@@ -126,13 +173,11 @@ async function measured(meta, action) {
     if (beforeUpstream)
       meta.upstreamWire = difference(beforeUpstream, upstream.wire);
     if (beforeWire)
-      meta.dockerSocketWire = difference(beforeWire, await wireStats());
+      await sampleBenchmarkDiagnostic(meta, 'dockerSocketWire', async () =>
+        difference(beforeWire, await wireStats()),
+      );
     meta.beforeResources = beforeResource;
-    try {
-      meta.afterResources = await resources();
-    } catch (error) {
-      meta.samplingError = { code: error.code, message: error.message };
-    }
+    await sampleBenchmarkDiagnostic(meta, 'afterResources', resources);
     if (value) meta.result = value;
     report.observations.push(meta);
     await saveState(path.join(root, 'report.json'), report);
@@ -324,19 +369,34 @@ async function upstreamRestore(branch, capture) {
 }
 
 try {
+  proxy = spawn(
+    process.execPath,
+    [path.join(import.meta.dirname, 'wire-proxy.mjs'), engineSocket],
+    {
+      env: { PATH: process.env.PATH, HOME: root },
+      stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
+    },
+  );
+  const ready = await proxyMessage();
   const opening = performance.now();
   worker = await WorkerClient.open({
     home: path.join(root, 'worker'),
     socket: ready.socket,
     qualification: true,
+    ...(inputs
+      ? { installation: inputs.installation, dockerBinary: inputs.dockerBinary }
+      : {}),
   });
+  if (inputs) verifyPackageWorker(worker, inputs);
   report.worker = worker.status;
   report.engine = worker.engine;
   report.coldWorkerProcessMs = performance.now() - opening;
   report.sdkWorkerStartupMs = worker.startupMs;
-  upstream = await openUpstream(worker, root);
-  report.upstreamStartupMs = upstream.startupMs;
-  report.upstreamTransport = upstream.transport;
+  if (!inputs) {
+    upstream = await openUpstream(worker, root);
+    report.upstreamStartupMs = upstream.startupMs;
+    report.upstreamTransport = upstream.transport;
+  }
   const checkpoints = new MacCheckpoints({
     root: path.join(root, 'checkpoints'),
     worker,
@@ -410,7 +470,7 @@ try {
         digest: frozen.digest,
         inputCaptureMetrics: frozen.metrics,
       });
-      const arms = ['native-local-full-tree', 'streamed', 'upstream'];
+      const arms = inputs ? packageArms : [...packageArms, 'upstream'];
       const offset = (iteration - 1) % arms.length;
       const order = [...arms.slice(offset), ...arms.slice(0, offset)];
       for (const arm of order) {
@@ -504,36 +564,52 @@ try {
       }
     }
     if (lastStream) {
-      await measured({ workload, arm: 'streamed', phase: 'restore' }, () =>
-        checkpoints.restore(
-          lastStream.binding.operationId,
-          path.join(root, 'restores'),
-        ),
+      const expectedDigest = lastStream.binding.digest;
+      await measured(
+        { workload, arm: 'streamed', phase: 'restore', expectedDigest },
+        () =>
+          checkpoints.restore(
+            lastStream.binding.operationId,
+            path.join(root, 'restores'),
+          ),
       ).catch(() => {});
-      await measured({ workload, arm: 'streamed', phase: 'fork' }, () =>
-        checkpoints.fork(
-          lastStream.binding.operationId,
-          createHash('sha256').update(`fork:${namespace}`).digest('hex'),
-          'benchmark-fork',
-        ),
+      await measured(
+        { workload, arm: 'streamed', phase: 'fork', expectedDigest },
+        () =>
+          checkpoints.fork(
+            lastStream.binding.operationId,
+            createHash('sha256').update(`fork:${namespace}`).digest('hex'),
+            'benchmark-fork',
+          ),
       ).catch(() => {});
       const retained = await checkpoints.retained(
         lastStream.binding.operationId,
       );
       await measured(
-        { workload, arm: 'native-local-full-tree', phase: 'restore' },
+        {
+          workload,
+          arm: 'native-local-full-tree',
+          phase: 'restore',
+          expectedDigest,
+        },
         () => restoreTree(retained, path.join(root, 'restores')),
       ).catch(() => {});
       await measured(
-        { workload, arm: 'native-local-full-tree', phase: 'fork' },
+        {
+          workload,
+          arm: 'native-local-full-tree',
+          phase: 'fork',
+          expectedDigest,
+        },
         () => restoreTree(retained, path.join(root, 'restores')),
       ).catch(() => {});
       if (previous) {
-        await measured({ workload, arm: 'upstream', phase: 'restore' }, () =>
-          upstreamRestore(branch, retained),
+        await measured(
+          { workload, arm: 'upstream', phase: 'restore', expectedDigest },
+          () => upstreamRestore(branch, retained),
         ).catch(() => {});
         await measured(
-          { workload, arm: 'upstream', phase: 'fork' },
+          { workload, arm: 'upstream', phase: 'fork', expectedDigest },
           async () => {
             const fork = await upstream.fork(branch),
               readback = await upstreamScan(fork);
@@ -541,17 +617,21 @@ try {
             return { branch: fork, readback };
           },
         ).catch(() => {});
-      } else {
+      } else if (!inputs) {
         for (const phase of ['restore', 'fork'])
-          await measured({ workload, arm: 'upstream', phase }, async () => ({
-            status: 'unsupported',
-            reason:
-              'No complete dependency/link checkpoint is representable through public fs.apply.',
-          }));
+          await measured(
+            { workload, arm: 'upstream', phase, expectedDigest },
+            async () => ({
+              status: 'unsupported',
+              reason:
+                'No complete dependency/link checkpoint is representable through public fs.apply.',
+            }),
+          );
       }
     }
   }
-  const expected = process.argv.includes('smoke') ? 23 : 92;
+  const expected =
+    (process.argv.includes('smoke') ? 1 : 4) * (inputs ? 17 : 23);
   report.expectedObservations = expected;
   report.passed =
     report.observations.length === expected &&
@@ -563,20 +643,77 @@ try {
 } catch (error) {
   report.error = { code: error.code, message: error.message };
 } finally {
-  try {
-    await upstream?.close();
-    await worker?.close();
-  } catch (error) {
-    report.closeError = { code: error.code, message: error.message };
-    report.passed = false;
+  for (const [owner, close] of [
+    ['upstream', () => upstream?.close()],
+    ['worker', () => worker?.close()],
+  ]) {
+    try {
+      await close();
+    } catch (error) {
+      report.closeError = { owner, code: error.code, message: error.message };
+      (report.closeErrors ??= []).push(report.closeError);
+      report.passed = false;
+    }
   }
-  report.totalDockerSocketWire = await wireStats();
-  proxy.send({ action: 'close' });
+  if (proxy) {
+    try {
+      report.totalDockerSocketWire = await wireStats();
+    } catch (error) {
+      report.closeError = { owner: 'counter', message: error.message };
+      report.passed = false;
+    }
+    try {
+      if (proxy.exitCode === null && proxy.signalCode === null) {
+        const end = new Promise((resolve, reject) => {
+          const timer = setTimeout(() => {
+            proxy.kill('SIGTERM');
+            reject(new Error('Owned counter did not close.'));
+          }, 10000);
+          proxy.once('close', () => {
+            clearTimeout(timer);
+            resolve();
+          });
+          proxy.once('error', () => {
+            clearTimeout(timer);
+            reject(new Error('Owned counter failed to close.'));
+          });
+        });
+        proxy.send({ action: 'close' }, (error) => {
+          if (error) proxy.kill('SIGTERM');
+        });
+        await end;
+      }
+    } catch (error) {
+      report.closeError = { owner: 'counter', message: error.message };
+      report.passed = false;
+      await stop(proxy);
+    }
+  }
+  if (inputs) {
+    try {
+      await verifyBenchmarkRuntime(
+        inputs.runtime,
+        inputs.identity,
+        inputs.nodeVersion,
+      );
+    } catch (error) {
+      report.closeError = { owner: 'package-inputs', message: error.message };
+      report.passed = false;
+    }
+  }
   report.host.loadAtEnd = os.loadavg();
   report.host.freeMemoryAtEnd = os.freemem();
-  report.sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
-    encoding: 'utf8',
-  }).trim();
+  try {
+    report.sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+  } catch {
+    report.closeError = {
+      owner: 'driver',
+      message: 'Qualification source identity became unavailable.',
+    };
+    report.passed = false;
+  }
   await saveState(path.join(root, 'report.json'), report);
   if (!report.passed) process.exitCode = 1;
 }

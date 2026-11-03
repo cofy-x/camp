@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict';
-import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { root } from './lib.mjs';
 import { hashFile, releaseIdentity, verifyRelease } from './release.mjs';
@@ -106,6 +113,21 @@ for (const filename of [
   `${checkpointWorker.artifact.filename}.sha256`,
 ])
   await copyFile(join(directory, filename), join(staging, filename));
+let macWorkerReport = false;
+try {
+  assert.ok(
+    (await lstat(join(directory, 'mac-worker-qualification.json'))).isFile(),
+    'Supplied Mac qualification must be a regular report file.',
+  );
+  macWorkerReport = true;
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+}
+if (macWorkerReport)
+  await copyFile(
+    join(directory, 'mac-worker-qualification.json'),
+    join(staging, 'mac-worker-qualification.json'),
+  );
 const evidence = {
   schema: 1,
   version: identity.version,

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmod,
@@ -12,10 +11,16 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
-import { administer } from './administration.mjs';
-import { openHome, selectedEpoch } from './home.mjs';
-import { readState, saveState } from './state.mjs';
-import { scanTree } from './tree.mjs';
+import { pathToFileURL } from 'node:url';
+
+const runtime = process.env.CAMP_TEST_LAYERFS_WORKER_RUNTIME
+  ? path.resolve(process.env.CAMP_TEST_LAYERFS_WORKER_RUNTIME)
+  : import.meta.dirname;
+const load = (name) => import(pathToFileURL(path.join(runtime, name)).href);
+const { administer } = await load('administration.mjs');
+const { openHome, selectedEpoch } = await load('home.mjs');
+const { readState, saveState } = await load('state.mjs');
+const { scanTree } = await load('tree.mjs');
 
 assert.equal(process.platform, 'darwin');
 assert.equal(process.arch, 'arm64');
@@ -36,16 +41,22 @@ await symlink('retained.txt', path.join(source, 'link'));
 const parent = path.join(root, 'restores');
 await mkdir(parent, { mode: 0o700 });
 await writeFile(path.join(parent, 'existing-marker'), 'never overwritten');
-const endpoint = execFileSync(
-  'docker',
-  ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'],
-  { encoding: 'utf8' },
-).trim();
-assert.ok(endpoint.startsWith('unix://'));
+const socket = process.env.CAMP_TEST_DOCKER_SOCKET;
+assert.ok(
+  socket && path.isAbsolute(socket),
+  'Select an explicit local Docker socket.',
+);
+const dockerBinary = process.env.CAMP_TEST_DOCKER_BINARY;
+assert.ok(
+  dockerBinary && path.isAbsolute(dockerBinary),
+  'Select an explicit Docker executable.',
+);
 const config = {
   dataRoot: root,
   home,
-  docker: endpoint.slice(7),
+  docker: socket,
+  dockerBinary,
+  installation: path.join(runtime, 'installed.json'),
   runnerId: 'controlled-recovery-runner',
   storageId: 'controlled-recovery-storage',
 };
@@ -181,6 +192,8 @@ try {
     process.exitCode = 1;
   }
   await saveState(path.join(root, 'report.json'), report);
+  if (process.env.CAMP_TEST_WORKER_REPORT)
+    await saveState(path.resolve(process.env.CAMP_TEST_WORKER_REPORT), report);
   process.stdout.write(
     `Actual Mac recovery ${report.passed ? 'passed' : 'failed'}: ${path.join(root, 'report.json')}\n`,
   );

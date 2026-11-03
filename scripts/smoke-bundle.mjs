@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { promisify } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { runnerReplyProxy } from './upgrade-proxy.mjs';
+import {
+  assertDurableJournalEqual,
+  assertJournalCopy,
+  stoppedJournalEvidence,
+} from './journal-evidence.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   chmod,
+  lstat,
   copyFile,
   cp,
   readFile,
@@ -23,13 +30,21 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { command, root, stop, waitFor } from './lib.mjs';
 import {
   baselineLauncher,
+  httpProxyEnvironment,
   upgradeBaseline,
   previousRelease,
 } from './upgrade.mjs';
-import { setupPhases } from './setup-progress.mjs';
-import { captureTree } from '../tools/layerfs-worker/tree.mjs';
+import { hashFile, validVersion } from './release.mjs';
+import {
+  completeOfflineSetupReport,
+  offlineSetupChecks,
+  offlineSetupOnly,
+  retainSetupAttempt,
+} from './setup-progress.mjs';
+import { captureTree, scanTree } from '../tools/layerfs-worker/tree.mjs';
 
 const mode = process.argv[2];
+const setupOnly = offlineSetupOnly(mode, process.env.CAMP_SMOKE_SETUP_ONLY);
 if (!mode) {
   for (const variant of ['online', 'offline'])
     await command(process.execPath, [
@@ -54,8 +69,28 @@ const offline = mode.endsWith('offline');
 const previousUpgrade = mode === 'previous-upgrade';
 const upgrading =
   previousUpgrade || mode === 'upgrade' || mode === 'github-upgrade';
-const baseline = previousUpgrade ? previousRelease : upgradeBaseline;
+const baseline = previousUpgrade
+  ? process.env.CAMP_TEST_PREVIOUS_RELEASE || previousRelease
+  : upgradeBaseline;
+assert.ok(validVersion(baseline), 'Select an exact public upgrade baseline.');
+const baselineBackend = process.env.CAMP_TEST_BASELINE_BACKEND;
+assert.ok(
+  !baselineBackend ||
+    (previousUpgrade &&
+      ['native-local', 'layerfs-worker'].includes(baselineBackend)),
+);
+const packageDirectory = path.resolve(
+  process.env.CAMP_SMOKE_PACKAGE_DIRECTORY || path.join(root, 'dist'),
+);
+const serverBinary = path.resolve(
+  process.env.CAMP_SMOKE_SERVER_BINARY || path.join(packageDirectory, 'camp'),
+);
+const execute = promisify(execFile);
 const mac = process.platform === 'darwin' && process.arch === 'arm64';
+assert.ok(
+  !setupOnly || mac,
+  'Offline setup-only measurements require an ARM64 Mac.',
+);
 const target = mac ? 'darwin-arm64' : 'linux-amd64';
 const checkpointWorker =
   process.env.CAMP_TEST_WORKSPACE_BACKEND === 'layerfs-worker';
@@ -65,20 +100,31 @@ assert.ok(
 );
 if (upgrading && mac && !previousUpgrade)
   throw new Error('The public upgrade baseline has no Mac Runner.');
-const reportFile = path.join(
-  root,
-  `dist/smoke-${checkpointWorker ? 'layerfs-worker-' : ''}${mode}.json`,
-);
-await rm(reportFile, { force: true });
+const reportFile = process.env.CAMP_SMOKE_REPORT
+  ? path.resolve(process.env.CAMP_SMOKE_REPORT)
+  : path.join(
+      root,
+      `dist/smoke-${checkpointWorker ? 'layerfs-worker-' : ''}${mode}.json`,
+    );
+if (setupOnly)
+  await writeFile(
+    reportFile,
+    '{"schema":1,"status":"running","mode":"offline-setup-only"}\n',
+    { flag: 'wx', mode: 0o600 },
+  );
+else await rm(reportFile, { force: true });
 const release = JSON.parse(
-  await readFile(path.join(root, 'dist/runner-release.json'), 'utf8'),
+  await readFile(path.join(packageDirectory, 'runner-release.json'), 'utf8'),
 );
 const artifact = offline
   ? release.runners[target].offline
   : release.runners[target].installer;
 
 // A real native Run, with deterministic local provider responses and no key.
-const dir = await mkdtemp(path.join(tmpdir(), 'camp-release-'));
+const dir = process.env.CAMP_SMOKE_FIXTURE_DIRECTORY
+  ? path.resolve(process.env.CAMP_SMOKE_FIXTURE_DIRECTORY)
+  : await mkdtemp(path.join(tmpdir(), 'camp-release-'));
+if (process.env.CAMP_SMOKE_FIXTURE_DIRECTORY) await mkdir(dir, { mode: 0o700 });
 const bundle = path.join(dir, "relocated Runner's installation");
 const runnerBinary = process.env.CAMP_SMOKE_RUNNER_BINARY
   ? path.resolve(process.env.CAMP_SMOKE_RUNNER_BINARY)
@@ -93,10 +139,13 @@ let child;
 let runner;
 let macServiceInstalled = false;
 let serviceCleanupError;
+let cleanupFailure;
 let calls = 0;
 let previousConfig;
 let previousImport;
 let previousJournal;
+let upgradedJournal;
+let backupJournalEvidence;
 let previousImportRequest;
 let replyProxy;
 let legacyOperation;
@@ -105,7 +154,74 @@ let protocolTask;
 let firstNativeRunId = '';
 let compatibilityRequests = 0;
 let passed = false;
+let legacyInputProtocolGate = true;
+let workerUpgrade;
+let previousWorkerOperation;
+let previousWorkerFiles;
+
 const timings = {};
+const setupAttempts = [];
+const setupOnlyReport = setupOnly
+  ? {
+      schema: 1,
+      status: 'failed',
+      mode: 'offline-setup-only',
+      scope:
+        'Fresh offline private runtime/cache installation and repeat setup; excludes network acquisition, cold VM startup and Agent work.',
+      version: release.version,
+      sourceCommit: release.sourceCommit,
+      archiveSHA256: artifact.sha256,
+      runtimeSHA256: release.runners[target].runtime.sha256,
+      runtimeManifestSHA256: release.runners[target].runtime.manifestSHA256,
+      workspaceBackend: checkpointWorker ? 'layerfs-worker' : 'native-local',
+      retainedFixtureDirectory: dir,
+      timings,
+      setupVerified: false,
+      cleanupConfirmed: false,
+      model: { paid: false, requests: 0 },
+      untested: [
+        'Agent execution and business acceptance',
+        'public network download',
+        'cold VM or physical boot',
+        'cross-version upgrade',
+        'background/login service',
+      ],
+    }
+  : undefined;
+
+async function retainedWorkerFiles(home, includeRecovery = false) {
+  const files = {};
+  let bytes = 0;
+
+  async function record(file) {
+    const info = await lstat(file);
+    assert.ok(
+      info.isFile(),
+      'Retained checkpoint evidence must contain only owned files.',
+    );
+    bytes += info.size;
+    assert.ok(Object.keys(files).length < 100_000 && bytes <= 16 * 2 ** 30);
+    files[path.relative(home, file)] = {
+      sha256: await hashFile(file),
+      mode: info.mode & 0o777,
+    };
+  }
+
+  async function walk(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const file = path.join(directory, entry.name);
+      if (entry.isDirectory()) await walk(file);
+      else await record(file);
+    }
+  }
+
+  for (const name of includeRecovery
+    ? ['checkpoints', 'epochs', 'recoveries']
+    : ['checkpoints/captures', 'checkpoints/operations'])
+    await walk(path.join(home, name));
+  if (includeRecovery) await record(path.join(home, 'current.json'));
+  return files;
+}
 
 async function until(label, read, accept) {
   const deadline = Date.now() + 180000;
@@ -203,7 +319,7 @@ node --test`,
     response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
   response.end();
 });
-try {
+acceptance: try {
   await command(
     mac ? 'shasum' : 'sha256sum',
     [
@@ -212,12 +328,12 @@ try {
       '--quiet',
       `${artifact.filename}.sha256`,
     ],
-    { cwd: path.join(root, 'dist') },
+    { cwd: packageDirectory },
   );
   await mkdir(bundle);
   await command('tar', [
     '-xzf',
-    path.join(root, 'dist', artifact.filename),
+    path.join(packageDirectory, artifact.filename),
     '--strip-components=1',
     '-C',
     bundle,
@@ -233,11 +349,11 @@ try {
       release.runners[target].offline,
     ].flatMap((item) => [item.filename, `${item.filename}.sha256`]))
       await copyFile(
-        path.join(root, 'dist', name),
+        path.join(packageDirectory, name),
         path.join(data, 'packages', name),
       );
     await copyFile(
-      path.join(root, 'dist/runner-release.json'),
+      path.join(packageDirectory, 'runner-release.json'),
       path.join(data, 'packages/runner-release.json'),
     );
   }
@@ -249,7 +365,7 @@ try {
   const origin = `http://127.0.0.1:${port}`;
   if (previousUpgrade) replyProxy = await runnerReplyProxy(port);
   child = spawn(
-    path.join(root, 'dist/camp'),
+    serverBinary,
     ['serve', '--addr', `127.0.0.1:${port}`, '--data-dir', data],
     {
       cwd,
@@ -302,7 +418,7 @@ try {
   });
   const installation = await api(`/api/runner-installation?platform=${target}`);
   const checksumText = await readFile(
-    path.join(root, 'dist', `${archiveName}.sha256`),
+    path.join(packageDirectory, `${archiveName}.sha256`),
     'utf8',
   );
   assert.equal(installation.available, true);
@@ -407,11 +523,26 @@ try {
       : !publicDownload
         ? ['--runtime-source', 'server']
         : [];
-    const setup = spawn(executable, [...setupArgs, ...source, ...extra], {
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: runnerEnv,
-    });
+    const baselineSelection =
+      legacy && checkpointWorker && baselineBackend
+        ? [
+            '--workspace-backend',
+            baselineBackend,
+            '--worker-image',
+            baselineBackend === 'layerfs-worker'
+              ? process.env.CAMP_TEST_BASELINE_WORKER_IMAGE || ''
+              : '',
+          ]
+        : [];
+    const setup = spawn(
+      executable,
+      [...setupArgs, ...source, ...baselineSelection, ...extra],
+      {
+        cwd,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...runnerEnv, ...httpProxyEnvironment() },
+      },
+    );
     let output = '';
     for (const stream of [setup.stdout, setup.stderr])
       stream.on('data', (chunk) => {
@@ -420,9 +551,18 @@ try {
     setup.stdin.end(code);
     const exit = await new Promise((resolve, reject) => {
       setup.once('error', reject);
-      setup.once('exit', resolve);
+      setup.once('close', resolve);
     });
     return { output, exit, elapsedMs: performance.now() - started };
+  }
+
+  async function workerCheckpoint(action, extra = []) {
+    const { stdout } = await execute(
+      runnerBinary,
+      ['runner', 'checkpoint', action, '--data-dir', runnerData, ...extra],
+      { cwd, env: runnerEnv, maxBuffer: 16 << 20 },
+    );
+    return JSON.parse(stdout);
   }
 
   if (upgrading) {
@@ -444,16 +584,7 @@ try {
     const previous = await baselineLauncher(dir, 'runner', baseline);
     runnerEnv.XDG_CACHE_HOME = previous.cache;
     const setup = await setupWith(previous.binary, token, true);
-    // Do not publish legacy transport diagnostics or private configuration.
-    if (setup.exit !== 0) {
-      const privateLogs = path.join(root, '.data/upgrade-private');
-      await mkdir(privateLogs, { recursive: true, mode: 0o700 });
-      await writeFile(
-        path.join(privateLogs, 'baseline-setup.log'),
-        setup.output,
-        { mode: 0o600 },
-      );
-    }
+    setupAttempts.push(await retainSetupAttempt(dir, 'baseline', setup));
     assert.equal(setup.exit, 0, 'The fixed baseline Runner setup failed');
     previousConfig = JSON.parse(
       await readFile(path.join(runnerData, 'daemon.json'), 'utf8'),
@@ -513,7 +644,7 @@ try {
       const oldRunner = (await api('/api/runners')).runners.find(
         (item) => item.id === previousConfig.runnerId,
       );
-      assert.notEqual(recordedInputProtocol(oldRunner.id), 1);
+      legacyInputProtocolGate = recordedInputProtocol(oldRunner.id) !== 1;
       let compatRoom = (await api('/api/rooms')).rooms.find(
         (room) => room.id === previousImport.roomId,
       );
@@ -558,6 +689,18 @@ try {
       assert.equal(legacyResult.runs[0].status, 'succeeded');
       firstNativeRunId = legacyResult.runs[0].id;
       legacyOperation = legacyResult.runs[0].attemptId;
+      if (!legacyInputProtocolGate) {
+        await stop(runner);
+        runner = undefined;
+        await until(
+          'Stopped previous package Runner observed offline',
+          () => api('/api/runners'),
+          (value) =>
+            value.runners.some(
+              (item) => item.id === oldRunner.id && !item.online,
+            ),
+        );
+      }
       ({ task: protocolTask } = await api(
         `/api/rooms/${compatRoom.id}/tasks?view=summary`,
         'POST',
@@ -574,16 +717,17 @@ try {
         requestId: randomUUID(),
         content: 'previous-package-original-input',
       });
-      await until(
-        'Previous package scheduling heartbeat',
-        () => api('/api/runners'),
-        (value) =>
-          value.runners.some(
-            (item) =>
-              item.id === oldRunner.id &&
-              item.lastSeenAt !== oldRunner.lastSeenAt,
-          ),
-      );
+      if (legacyInputProtocolGate)
+        await until(
+          'Previous package scheduling heartbeat',
+          () => api('/api/runners'),
+          (value) =>
+            value.runners.some(
+              (item) =>
+                item.id === oldRunner.id &&
+                item.lastSeenAt !== oldRunner.lastSeenAt,
+            ),
+        );
       const queued = await api(`/api/tasks/${protocolTask.id}`);
       assert.equal(queued.task.status, 'queued');
       assert.equal(queued.task.turnsUsed, 0);
@@ -595,7 +739,7 @@ try {
       );
       assert.equal(compatibilityRequests, 1);
     }
-    await stop(runner);
+    if (runner) await stop(runner);
     runner = undefined;
     if (previousUpgrade) {
       const journal = new DatabaseSync(
@@ -616,18 +760,153 @@ try {
       }
       replyProxy.releaseReplies();
     }
-    previousJournal = createHash('sha256')
-      .update(await readFile(path.join(runnerData, 'journal.sqlite')))
-      .digest('hex');
+    previousJournal = await stoppedJournalEvidence(runnerData);
+    if (checkpointWorker && baselineBackend === 'layerfs-worker') {
+      assert.ok(process.env.CAMP_TEST_BASELINE_WORKER_IMAGE);
+      const backup = path.join(dir, 'stopped previous worker backup');
+      await mkdir(backup, { mode: 0o700 });
+      await command('/bin/cp', ['-cRp', `${runnerData}/.`, backup]);
+      assertJournalCopy(previousJournal, await stoppedJournalEvidence(backup));
+      assertJournalCopy(
+        previousJournal,
+        await stoppedJournalEvidence(runnerData),
+      );
+      const previousManifest = JSON.parse(
+        await readFile(
+          path.join(previousConfig.bundleDir, 'manifest.json'),
+          'utf8',
+        ),
+      );
+      const currentManifest = JSON.parse(
+        (
+          await execute(
+            'tar',
+            [
+              '-xOf',
+              path.join(
+                packageDirectory,
+                release.runners[target].runtime.filename,
+              ),
+              'camp-runtime-darwin-arm64/manifest.json',
+            ],
+            { maxBuffer: 32 << 20 },
+          )
+        ).stdout,
+      );
+      const { stdout } = await execute(
+        previous.binary,
+        ['runner', 'checkpoint', 'status', '--data-dir', runnerData],
+        { cwd, env: runnerEnv, maxBuffer: 16 << 20 },
+      );
+      const status = JSON.parse(stdout);
+      previousWorkerOperation = status.operations.find(
+        (operation) =>
+          operation.state === 'confirmed' && operation.selectedEpoch,
+      );
+      assert.ok(
+        previousWorkerOperation,
+        'The prior worker must retain a confirmed checkpoint.',
+      );
+      previousWorkerFiles = await retainedWorkerFiles(
+        path.join(runnerData, 'layerfs-worker'),
+      );
+      workerUpgrade = {
+        fromVersion: baseline,
+        baselineBackend,
+        baselineImage: previousManifest.checkpointWorker.image,
+        currentImage: currentManifest.checkpointWorker.image,
+        stoppedBackupPreserved: true,
+        reconstructionRequired: false,
+      };
+    }
   }
-  const {
-    output: setupOutput,
-    exit: setupCode,
-    elapsedMs: setupMs,
-  } = await setupWith(runnerBinary, token);
-  timings.setupMs = setupMs;
-  timings.setupPhases = setupPhases(setupOutput);
-  assert.equal(setupCode, 0, setupOutput);
+  let setup = await setupWith(runnerBinary, token);
+  setupAttempts.push(await retainSetupAttempt(dir, 'initial', setup));
+  let { output: setupOutput, exit: setupCode } = setup;
+  if (workerUpgrade && setupCode !== 0) {
+    assert.notEqual(
+      workerUpgrade.baselineImage,
+      workerUpgrade.currentImage,
+      'A setup failure without an image change is not evidence authorizing Store reconstruction.',
+    );
+    const current = JSON.parse(
+      await readFile(path.join(runnerData, 'daemon.json'), 'utf8'),
+    );
+    assert.equal(
+      path.basename(current.bundleDir),
+      release.runners[target].runtime.sha256,
+    );
+    const rebuilding = performance.now();
+    const rebuilt = await workerCheckpoint('reconstruct', [
+      '--operation',
+      previousWorkerOperation.operationId,
+    ]);
+    assert.equal(rebuilt.kind, 'new-store-reconstruction');
+    assert.equal(rebuilt.result.digest, previousWorkerOperation.digest);
+    assert.notEqual(rebuilt.result.storeId, previousWorkerOperation.storeId);
+    assert.equal(rebuilt.modelRequests, 0);
+    previousWorkerOperation = rebuilt.result;
+    workerUpgrade.reconstructionRequired = true;
+    workerUpgrade.reconstruction = {
+      elapsedMs: performance.now() - rebuilding,
+      sourceDigest: rebuilt.source.digest,
+      resultDigest: rebuilt.result.digest,
+      oldStore: rebuilt.source.storeId,
+      newStore: rebuilt.result.storeId,
+      oldEpoch: rebuilt.previousEpoch,
+      newEpoch: rebuilt.selectedEpoch,
+    };
+    setup = await setupWith(runnerBinary, '');
+    setupAttempts.push(
+      await retainSetupAttempt(dir, 'post-reconstruction', setup),
+    );
+    ({ output: setupOutput, exit: setupCode } = setup);
+  }
+  if (workerUpgrade && setupCode === 0) {
+    const observed = await workerCheckpoint('observe', [
+      '--operation',
+      previousWorkerOperation.operationId,
+    ]);
+    assert.equal(observed.state, 'confirmed');
+    assert.equal(observed.digest, previousWorkerOperation.digest);
+    const parent = path.join(dir, 'prior worker checkpoint restore');
+    await mkdir(parent, { mode: 0o700 });
+    const restored = await workerCheckpoint('restore', [
+      '--operation',
+      previousWorkerOperation.operationId,
+      '--parent',
+      parent,
+    ]);
+    assert.equal(restored.kind, 'verified-layerfs-restoration');
+    assert.equal(
+      (await scanTree(restored.root)).digest,
+      previousWorkerOperation.digest,
+    );
+    assert.equal(restored.modelRequests, 0);
+    const remaining = await retainedWorkerFiles(
+      path.join(runnerData, 'layerfs-worker'),
+    );
+    for (const [file, binding] of Object.entries(previousWorkerFiles))
+      assert.deepEqual(remaining[file], binding);
+    workerUpgrade.retainedCaptureFiles =
+      Object.keys(previousWorkerFiles).length;
+    workerUpgrade.previousCapturesAndReceiptsPreserved = true;
+    workerUpgrade.checkpointReadbackVerified = true;
+  }
+  timings.setupAttempts = setupAttempts;
+  timings.setupMs = setupAttempts
+    .filter(({ stage }) => stage !== 'baseline')
+    .reduce((sum, attempt) => sum + attempt.elapsedMs, 0);
+  timings.setupPhases = setupAttempts
+    .filter(({ stage }) => stage !== 'baseline')
+    .flatMap(({ stage, phases }) =>
+      phases.map((phase) => ({ ...phase, attempt: stage })),
+    );
+  assert.equal(
+    setupCode,
+    0,
+    'Runner setup failed; inspect this retained campaign’s private setup attempt logs.',
+  );
   assert.ok(
     timings.setupPhases.some(
       ({ phase, status }) =>
@@ -654,13 +933,8 @@ try {
         savedConfig[field] === previousConfig[field],
         `Runner upgrade replaced ${field}`,
       );
-    assert.equal(
-      createHash('sha256')
-        .update(await readFile(path.join(runnerData, 'journal.sqlite')))
-        .digest('hex'),
-      previousJournal,
-      'Setup changed the existing durable Runner journal',
-    );
+    upgradedJournal = await stoppedJournalEvidence(runnerData);
+    assertDurableJournalEqual(previousJournal, upgradedJournal);
     assert.equal(
       (await api('/api/runners')).runners.length,
       1,
@@ -720,11 +994,18 @@ try {
   const repeatedConfig = JSON.parse(
     await readFile(path.join(runnerData, 'daemon.json'), 'utf8'),
   );
-  assert.equal(repeatedConfig.runnerId, savedConfig.runnerId);
-  assert.ok(
-    repeatedConfig.credential === savedConfig.credential,
-    'Repeat setup replaced the Runner credential',
-  );
+  for (const key of [
+    'runnerId',
+    'storageId',
+    'registrationId',
+    'credential',
+    'workspaceBackend',
+  ])
+    assert.equal(
+      repeatedConfig[key],
+      savedConfig[key],
+      `Repeat setup changed ${key}.`,
+    );
   if (!publicDownload) await rename(`${stagedRuntime}.held`, stagedRuntime);
   const readiness = JSON.parse(
     await readFile(path.join(runnerData, 'readiness.json'), 'utf8'),
@@ -745,6 +1026,17 @@ try {
     0,
     'Installation or native self-test made a model request',
   );
+  if (setupOnly) {
+    assert.equal(compatibilityRequests, 0);
+    assert.equal(
+      await hashFile(path.join(runtime, 'manifest.json')),
+      setupOnlyReport.runtimeManifestSHA256,
+    );
+    setupOnlyReport.entrypointBinarySHA256 = await hashFile(runnerBinary);
+    setupOnlyReport.checks = offlineSetupChecks;
+    setupOnlyReport.setupVerified = true;
+    break acceptance;
+  }
   const foregroundCommand = setupOutput
     .split('\n')
     .find((line) => line.startsWith('Run in foreground: '))
@@ -963,7 +1255,7 @@ try {
     action: 'deliver',
   }));
   assert.equal(review.status, 'delivered');
-  const checkpointAt = async (dataRoot, action, extra = []) => {
+  const checkpointCommandAt = async (dataRoot, action, extra = []) => {
     const child = spawn(
       runnerBinary,
       [
@@ -988,8 +1280,12 @@ try {
       child.once('error', reject);
       child.once('close', resolve);
     });
-    assert.equal(exit, 0, diagnostic);
-    return JSON.parse(output);
+    return { exit, output, diagnostic };
+  };
+  const checkpointAt = async (dataRoot, action, extra = []) => {
+    const result = await checkpointCommandAt(dataRoot, action, extra);
+    assert.equal(result.exit, 0, result.diagnostic);
+    return JSON.parse(result.output);
   };
   let liveStorage;
   if (mac) {
@@ -1023,7 +1319,7 @@ try {
   let checkpointStorage;
   if (mac) {
     const config = await readFile(path.join(runnerData, 'daemon.json'));
-    const journal = await readFile(path.join(runnerData, 'journal.sqlite'));
+    const journal = await stoppedJournalEvidence(runnerData);
     checkpointStorage = await checkpointAt(runnerData, 'storage', ['--json']);
     assert.equal(checkpointStorage.complete, true);
     assert.equal(checkpointStorage.retention.deletionSupported, false);
@@ -1055,58 +1351,144 @@ try {
     assert.equal(beforeCleanup.budget.observation.level, 'warning');
     const cleanup = (verb, flags) =>
       checkpointAt(runnerData, ['cleanup', verb], [...flags, '--json']);
-    const q = await cleanup('plan', []);
-    assert.equal(q.action, 'quarantine');
-    assert.equal(
-      (await cleanup('apply', ['--plan', q.planId])).state,
-      'complete',
-    );
-    assert.equal(
-      (await cleanup('status', ['--plan', q.planId])).state,
-      'complete',
-    );
-    const quarantined = await checkpointAt(runnerData, 'storage', ['--json']);
-    assert.equal(
-      quarantined.totals.logicalBytes,
-      beforeCleanup.totals.logicalBytes,
-    );
-    const restore = await cleanup('plan', [
-      '--action',
-      'restore',
-      '--batch',
-      q.batchId,
-    ]);
-    assert.equal(
-      (await cleanup('apply', ['--plan', restore.planId])).state,
-      'complete',
-    );
-    assert.deepEqual(
-      await readFile(path.join(orphan.root, 'manifest.json')),
-      manifest,
-    );
-    assert.deepEqual(
-      await readFile(path.join(orphan.root, 'receipt.json')),
-      receipt,
-    );
-    const again = await cleanup('plan', []);
-    await cleanup('apply', ['--plan', again.planId]);
-    const purge = await cleanup('plan', [
-      '--action',
-      'purge',
-      '--batch',
-      again.batchId,
-    ]);
-    assert.equal(
-      (await cleanup('apply', ['--plan', purge.planId, '--confirm-permanent']))
-        .state,
-      'complete',
-    );
-    const purged = await checkpointAt(runnerData, 'storage', ['--json']);
-    assert.equal(purged.quarantined.logicalBytes, 0);
-    assert.equal(
-      purged.retention.protected,
-      checkpointStorage.retention.protected,
-    );
+    if (workerUpgrade?.reconstructionRequired) {
+      // Reconstruction lineage remains retained even after a successful new
+      // epoch selection. Its cleanup guard must not be bypassed for acceptance.
+      assert.equal(beforeCleanup.complete, true);
+      assert.equal(checkpointStorage.retention.previewAllowed, false);
+      assert.equal(beforeCleanup.retention.previewAllowed, false);
+      assert.ok(beforeCleanup.recoveryIntents > 0);
+      assert.equal(
+        beforeCleanup.selectedEpoch,
+        workerUpgrade.reconstruction.newEpoch,
+      );
+      assert.equal(
+        beforeCleanup.captures.find(
+          (item) => item.path === path.relative(runnerData, orphan.root),
+        )?.disposition,
+        'blocked',
+      );
+      const workerHome = path.join(runnerData, 'layerfs-worker');
+      const retained = await retainedWorkerFiles(workerHome, true);
+      const guardedJournal = await stoppedJournalEvidence(runnerData);
+      const modelCounts = { calls, compatibilityRequests };
+      const blocked = await checkpointCommandAt(
+        runnerData,
+        ['cleanup', 'plan'],
+        ['--json'],
+      );
+      assert.equal(blocked.exit, 1, blocked.diagnostic);
+      assert.match(
+        blocked.diagnostic,
+        /^error: Storage administration RecoveryRequired: Incomplete metadata or reconstruction history blocks cleanup\.\s*$/,
+      );
+      assert.equal(blocked.output.trim(), '');
+      const after = await checkpointAt(runnerData, 'storage', ['--json']);
+      assert.equal(after.complete, true);
+      assert.equal(after.retention.previewAllowed, false);
+      assert.equal(after.recoveryIntents, beforeCleanup.recoveryIntents);
+      assert.equal(after.selectedEpoch, beforeCleanup.selectedEpoch);
+      assert.equal(
+        after.retention.protected,
+        checkpointStorage.retention.protected,
+      );
+      assert.deepEqual(await retainedWorkerFiles(workerHome, true), retained);
+      assert.deepEqual(
+        await readFile(path.join(runnerData, 'daemon.json')),
+        config,
+      );
+      assertDurableJournalEqual(
+        guardedJournal,
+        await stoppedJournalEvidence(runnerData),
+        // The refused plan still opens the journal through read-only inspection.
+        { allowEmptyWALLifecycle: true },
+      );
+      assert.deepEqual({ calls, compatibilityRequests }, modelCounts);
+      assert.deepEqual(
+        await readFile(path.join(orphan.root, 'manifest.json')),
+        manifest,
+      );
+      assert.deepEqual(
+        await readFile(path.join(orphan.root, 'receipt.json')),
+        receipt,
+      );
+      checkpointStorage.lifecycle = {
+        liveOverview: liveStorage.quiescent === false,
+        policyConfigured: true,
+        advisoryWarning: true,
+        recoveryGuardPreserved: true,
+        cleanupPlanBlocked: true,
+        cleanupPlanError: 'RecoveryRequired',
+        protectedHistoryPreserved: true,
+      };
+    } else {
+      const q = await cleanup('plan', []);
+      assert.equal(q.action, 'quarantine');
+      assert.equal(
+        (await cleanup('apply', ['--plan', q.planId])).state,
+        'complete',
+      );
+      assert.equal(
+        (await cleanup('status', ['--plan', q.planId])).state,
+        'complete',
+      );
+      const quarantined = await checkpointAt(runnerData, 'storage', ['--json']);
+      assert.equal(
+        quarantined.totals.logicalBytes,
+        beforeCleanup.totals.logicalBytes,
+      );
+      const restore = await cleanup('plan', [
+        '--action',
+        'restore',
+        '--batch',
+        q.batchId,
+      ]);
+      assert.equal(
+        (await cleanup('apply', ['--plan', restore.planId])).state,
+        'complete',
+      );
+      assert.deepEqual(
+        await readFile(path.join(orphan.root, 'manifest.json')),
+        manifest,
+      );
+      assert.deepEqual(
+        await readFile(path.join(orphan.root, 'receipt.json')),
+        receipt,
+      );
+      const again = await cleanup('plan', []);
+      await cleanup('apply', ['--plan', again.planId]);
+      const purge = await cleanup('plan', [
+        '--action',
+        'purge',
+        '--batch',
+        again.batchId,
+      ]);
+      assert.equal(
+        (
+          await cleanup('apply', [
+            '--plan',
+            purge.planId,
+            '--confirm-permanent',
+          ])
+        ).state,
+        'complete',
+      );
+      const purged = await checkpointAt(runnerData, 'storage', ['--json']);
+      assert.equal(purged.quarantined.logicalBytes, 0);
+      assert.equal(
+        purged.retention.protected,
+        checkpointStorage.retention.protected,
+      );
+      checkpointStorage.lifecycle = {
+        liveOverview: liveStorage.quiescent === false,
+        policyConfigured: true,
+        advisoryWarning: true,
+        quarantinePreservesBytes: true,
+        restoredExactly: true,
+        permanentlyPurged: true,
+        protectedHistoryPreserved: true,
+      };
+    }
     await checkpointAt(runnerData, 'budget', [
       '--retained-budget',
       '10GiB',
@@ -1114,22 +1496,15 @@ try {
       '2GiB',
       '--json',
     ]);
-    checkpointStorage.lifecycle = {
-      liveOverview: liveStorage.quiescent === false,
-      policyConfigured: true,
-      advisoryWarning: true,
-      quarantinePreservesBytes: true,
-      restoredExactly: true,
-      permanentlyPurged: true,
-      protectedHistoryPreserved: true,
-    };
     assert.deepEqual(
       await readFile(path.join(runnerData, 'daemon.json')),
       config,
     );
-    assert.deepEqual(
-      await readFile(path.join(runnerData, 'journal.sqlite')),
+    assertDurableJournalEqual(
       journal,
+      await stoppedJournalEvidence(runnerData),
+      // Read-only cleanup inspection may materialize an empty SQLite WAL.
+      { allowEmptyWALLifecycle: true },
     );
     assert.equal(
       calls,
@@ -1138,7 +1513,7 @@ try {
     );
   }
   if (checkpointWorker) {
-    const journal = await readFile(path.join(runnerData, 'journal.sqlite'));
+    const journal = await stoppedJournalEvidence(runnerData);
     for (const backend of ['native-local', 'layerfs-worker']) {
       const switched = await setupWith(runnerBinary, '', false, [
         '--workspace-backend',
@@ -1156,10 +1531,9 @@ try {
         'credential',
       ])
         assert.equal(current[field], savedConfig[field]);
-      assert.deepEqual(
-        await readFile(path.join(runnerData, 'journal.sqlite')),
+      assertDurableJournalEqual(
         journal,
-        'Stopped backend selection changed the durable journal',
+        await stoppedJournalEvidence(runnerData),
       );
     }
     assert.equal(
@@ -1253,9 +1627,10 @@ try {
       await readFile(path.join(restoredRunner, 'daemon.json')),
       await readFile(path.join(runnerData, 'daemon.json')),
     );
-    assert.deepEqual(
-      await readFile(path.join(restoredRunner, 'journal.sqlite')),
-      await readFile(path.join(runnerData, 'journal.sqlite')),
+    backupJournalEvidence = await stoppedJournalEvidence(runnerData);
+    assertJournalCopy(
+      backupJournalEvidence,
+      await stoppedJournalEvidence(restoredRunner),
     );
     const checkpoint = (action, extra = []) =>
       checkpointAt(restoredRunner, action, extra);
@@ -1341,7 +1716,7 @@ try {
   const restored = path.join(dir, 'restored-data');
   await cp(data, restored, { recursive: true, verbatimSymlinks: true });
   child = spawn(
-    path.join(root, 'dist/camp'),
+    serverBinary,
     ['serve', '--addr', `127.0.0.1:${port}`, '--data-dir', restored],
     {
       cwd,
@@ -1423,13 +1798,20 @@ try {
               runnerIdentityPreserved: true,
               durableSourceReceiptPreserved: true,
               journalPreserved: true,
+              journalEvidence: {
+                schema: 1,
+                before: previousJournal.durableFiles,
+                after: upgradedJournal.durableFiles,
+                scope:
+                  'Stopped main database and present WAL bytes; SHM is volatile coordination and excluded from durable equality.',
+              },
               ...(previousUpgrade
                 ? {
                     baselineRuntimeCacheProvided: Boolean(
                       process.env.CAMP_TEST_UPGRADE_RUNTIME_CACHE,
                     ),
                     legacyProtocolAccepted: true,
-                    unsupportedInputProtocolQueued: true,
+                    unsupportedInputProtocolQueued: legacyInputProtocolGate,
                     upgradedInputHistoryVerified: true,
                     sourceReceiptRetryPreserved: true,
                     lostCompletionReplyRecovered: true,
@@ -1442,6 +1824,15 @@ try {
         architecture: process.arch,
         timings,
         ...(checkpointStorage ? { checkpointStorage } : {}),
+        ...(workerUpgrade ? { workerUpgrade } : {}),
+        ...(backupJournalEvidence ? { backupJournalEvidence } : {}),
+        ...(previousUpgrade
+          ? {
+              baselineWorkspaceBackend:
+                baselineBackend || (mac ? 'native-local' : 'layerfs'),
+              baselineInputProtocol: legacyInputProtocolGate ? 0 : 1,
+            }
+          : {}),
         model: {
           kind: 'deterministic-local-provider',
           requests: calls + compatibilityRequests,
@@ -1465,7 +1856,9 @@ try {
                 'launchd-background-lifecycle',
                 'offline-checkpoint-storage-without-model-replay',
                 'live-advisory-storage-heartbeat',
-                'explicit-checkpoint-budget-quarantine-restore-purge',
+                workerUpgrade?.reconstructionRequired
+                  ? 'checkpoint-reconstruction-history-blocks-cleanup'
+                  : 'explicit-checkpoint-budget-quarantine-restore-purge',
               ]
             : []),
           ...(checkpointWorker
@@ -1499,6 +1892,7 @@ try {
   );
   passed = true;
 } finally {
+  const cleanupErrors = [];
   if (macServiceInstalled) {
     try {
       await command(
@@ -1514,21 +1908,88 @@ try {
       );
     } catch (error) {
       serviceCleanupError = error;
+      cleanupErrors.push({ owner: 'service', error });
     }
   }
-  if (runner) await stop(runner);
-  if (replyProxy) await replyProxy.close();
-  if (child) await stop(child);
-  provider.closeAllConnections();
-  await new Promise((resolve) => provider.close(resolve));
+  for (const [owner, action] of [
+    [
+      'runner',
+      async () => {
+        if (runner) await stop(runner);
+      },
+    ],
+    [
+      'reply-proxy',
+      async () => {
+        if (replyProxy) await replyProxy.close();
+      },
+    ],
+    [
+      'server',
+      async () => {
+        if (child) await stop(child);
+      },
+    ],
+    [
+      'provider',
+      async () => {
+        provider.closeAllConnections();
+        if (provider.listening)
+          await new Promise((resolve, reject) =>
+            provider.close((error) => (error ? reject(error) : resolve())),
+          );
+      },
+    ],
+  ]) {
+    try {
+      await action();
+    } catch (error) {
+      cleanupErrors.push({ owner, error });
+    }
+  }
+  if (setupOnly) {
+    const completed = completeOfflineSetupReport(setupOnlyReport, {
+      cleanupConfirmed: cleanupErrors.length === 0,
+      modelRequests: calls + compatibilityRequests,
+    });
+    passed = completed.status === 'passed';
+    if (cleanupErrors.length)
+      completed.cleanupErrors = cleanupErrors.map(({ owner }) => ({
+        owner,
+        code: 'CleanupUnconfirmed',
+      }));
+    await writeFile(reportFile, `${JSON.stringify(completed, null, 2)}\n`, {
+      mode: 0o600,
+    });
+    if (!passed) process.exitCode = 1;
+  }
+  if (cleanupErrors.length) {
+    passed = false;
+    if (!setupOnly) {
+      const saved = await readFile(reportFile, 'utf8')
+        .then(JSON.parse)
+        .catch(() => null);
+      if (saved)
+        await writeFile(
+          reportFile,
+          `${JSON.stringify({ ...saved, status: 'failed', cleanupConfirmed: false }, null, 2)}\n`,
+        );
+    }
+  }
   if (serviceCleanupError)
     console.error(
       `Service cleanup failed; retained installation and Runner data at ${dir}`,
     );
-  else if (checkpointWorker || !passed)
-    console.log(`Retained private hybrid installation fixture: ${dir}`);
+  else if (setupOnly || checkpointWorker || !passed)
+    console.log(`Retained private installation fixture: ${dir}`);
   else await rm(dir, { recursive: true, force: true });
+  if (cleanupErrors.length)
+    cleanupFailure = new AggregateError(
+      cleanupErrors.map(({ error }) => error),
+      'Owned package fixture cleanup was not confirmed; original data retained.',
+    );
 }
+if (cleanupFailure) throw cleanupFailure;
 if (serviceCleanupError)
   throw new Error(
     'The Mac service could not be removed after package verification',

@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -107,6 +108,43 @@ func TestConcurrentInstallationCacheAndRepair(t *testing.T) {
 	}
 	if requests.Load() != 6 {
 		t.Fatal("nonexecutable cache was not repaired")
+	}
+}
+
+func TestInstallationReceiptRetainsVerifiedArchiveAndOldCacheCompatibility(t *testing.T) {
+	payload := validPackage(t)
+	o, requests := fixture(t, payload)
+	binary, err := Ensure(t.Context(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Join(filepath.Dir(binary), ".camp-install.json")
+	data, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved map[string]any
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved["archiveSHA256"] != fmt.Sprintf("%x", sha256.Sum256(payload)) {
+		t.Fatal("receipt did not retain the verified downloaded archive")
+	}
+	delete(saved, "archiveSHA256")
+	data, _ = json.Marshal(saved)
+	if err := os.WriteFile(name, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Ensure(t.Context(), o); err != nil || requests.Load() != 2 {
+		t.Fatal("an older receipt must reuse its valid cache", err, requests.Load())
+	}
+	saved["archiveSHA256"] = "malformed"
+	data, _ = json.Marshal(saved)
+	if err := os.WriteFile(name, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Ensure(t.Context(), o); err != nil || requests.Load() != 4 {
+		t.Fatal("a malformed present digest must repair only its package cache", err, requests.Load())
 	}
 }
 

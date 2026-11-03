@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:net';
 import { promisify } from 'node:util';
@@ -469,4 +478,148 @@ test('previous package evidence binds both artifact provenance and recovery chec
       'linux-amd64',
     ),
   );
+});
+
+test('baseline acquisition retains supported proxy settings while isolating model keys and fixture state', async () => {
+  const { baselineAcquisitionEnvironment, httpProxyEnvironment } =
+    await import('./upgrade.mjs');
+  const proxies = Object.fromEntries(
+    [
+      'HTTP_PROXY',
+      'HTTPS_PROXY',
+      'NO_PROXY',
+      'http_proxy',
+      'https_proxy',
+      'no_proxy',
+    ].map((key) => [key, `synthetic-${key}`]),
+  );
+  const input = Object.freeze({
+    ...proxies,
+    PATH: '/fixed/toolchain/bin',
+    HOME: '/operator/home',
+    LANG: 'operator-language',
+    XDG_CACHE_HOME: '/operator/cache',
+    DEEPSEEK_API_KEY: 'synthetic-model-key',
+    GITHUB_TOKEN: 'synthetic-github-token',
+    CAMP_ENV_FILE: '/operator/private.env',
+    NODE_OPTIONS: 'synthetic-node-override',
+    NODE_TLS_REJECT_UNAUTHORIZED: '0',
+    SSL_CERT_FILE: '/operator/certificate-override',
+    ALL_PROXY: 'unsupported-route',
+    all_proxy: 'unsupported-lower-route',
+    BASH_ENV: '/operator/shell-startup',
+  });
+  assert.deepEqual(
+    baselineAcquisitionEnvironment('/fixture/home', '/fixture/cache', input),
+    {
+      PATH: input.PATH,
+      HOME: '/fixture/home',
+      LANG: 'C.UTF-8',
+      XDG_CACHE_HOME: '/fixture/cache',
+      ...proxies,
+    },
+  );
+  assert.deepEqual(httpProxyEnvironment(input), proxies);
+  assert.equal(input.HOME, '/operator/home');
+});
+
+test('baseline proxy projection preserves explicit empties and lowercase precedence inputs', async () => {
+  const { baselineAcquisitionEnvironment } = await import('./upgrade.mjs');
+  const base = {
+    PATH: '/fixed/bin',
+    HOME: '/fixture/home',
+    LANG: 'C.UTF-8',
+    XDG_CACHE_HOME: '/fixture/cache',
+  };
+  assert.deepEqual(
+    baselineAcquisitionEnvironment(base.HOME, base.XDG_CACHE_HOME, {
+      PATH: base.PATH,
+      HTTPS_PROXY: '',
+      https_proxy: 'synthetic-lower-route',
+      NO_PROXY: 'synthetic-bypass',
+      HTTP_PROXY: undefined,
+    }),
+    {
+      ...base,
+      HTTPS_PROXY: '',
+      https_proxy: 'synthetic-lower-route',
+      NO_PROXY: 'synthetic-bypass',
+    },
+  );
+  assert.deepEqual(
+    baselineAcquisitionEnvironment(base.HOME, base.XDG_CACHE_HOME, {
+      PATH: base.PATH,
+    }),
+    base,
+  );
+});
+
+test('baseline packages resolve to fixture caches on both Mac architectures and Linux', async (t) => {
+  const { readBaselineInstallation } = await import('./upgrade.mjs');
+  const directory = await realpath(
+    await mkdtemp(join(tmpdir(), 'camp-baseline-evidence-')),
+  );
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const launcher = join(directory, 'launcher');
+  await writeFile(launcher, 'fresh driver launcher', { mode: 0o700 });
+  const version = 'v0.1.0-alpha.10';
+  for (const target of serverPlatforms) {
+    const [platform, arch] = target.split('-');
+    for (const role of target === 'darwin-amd64'
+      ? ['server']
+      : ['server', 'runner']) {
+      const cache =
+        platform === 'darwin'
+          ? join(directory, 'Library/Caches')
+          : join(directory, 'baseline-cache');
+      const installed = join(
+        cache,
+        'camp/releases',
+        version,
+        `camp-${role}-${target}`,
+      );
+      await mkdir(installed, { recursive: true, mode: 0o700 });
+      const binary = join(installed, 'camp');
+      await writeFile(binary, 'actual fixed public executable', {
+        mode: 0o700,
+      });
+      const receipt = join(installed, '.camp-install.json');
+      const saved = {
+        version,
+        archive: `camp-${role}-${target}.tar.gz`,
+        archiveSHA256: 'b'.repeat(64),
+        binarySHA256: await hashFile(binary),
+      };
+      await writeFile(receipt, JSON.stringify(saved), { mode: 0o600 });
+      const read = () =>
+        readBaselineInstallation(
+          directory,
+          role,
+          version,
+          launcher,
+          platform,
+          arch === 'amd64' ? 'x64' : arch,
+        );
+      const result = await read();
+      assert.equal(result.binary, binary);
+      assert.equal(result.cache, cache);
+      assert.equal(result.identity.launcherSHA256, await hashFile(launcher));
+      for (const invalid of [
+        { ...saved, version: 'v0.1.0-alpha.9' },
+        { ...saved, archive: 'wrong.tar.gz' },
+        { ...saved, archiveSHA256: undefined },
+        { ...saved, binarySHA256: 'c'.repeat(64) },
+      ]) {
+        await writeFile(receipt, JSON.stringify(invalid));
+        await assert.rejects(read());
+      }
+      await writeFile(receipt, JSON.stringify(saved));
+      await chmod(binary, 0o600);
+      await assert.rejects(read());
+      await chmod(binary, 0o700);
+      await rm(binary);
+      await symlink(launcher, binary);
+      await assert.rejects(read());
+    }
+  }
 });

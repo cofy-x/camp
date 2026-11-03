@@ -9,6 +9,12 @@ import {
 } from './upgrade.mjs';
 import { verifyWorkerArtifact } from './worker-release.mjs';
 import { assertServerServiceReceipt } from './server-service.mjs';
+import { root } from './lib.mjs';
+import {
+  driverFiles,
+  optionalMacWorkerEvidence,
+  readMacWorkerIdentity,
+} from './mac-worker-evidence.mjs';
 
 export async function collectReleaseEvidence(
   directory,
@@ -121,5 +127,14 @@ export async function collectReleaseEvidence(
     acceptance.macRunners.push({ host, ...previous });
   }
 
+  const actualMac = await optionalMacWorkerEvidence(
+    directory,
+    () => readMacWorkerIdentity(directory),
+    () => driverFiles(root),
+  );
+  acceptance.optionalCheckpointWorker = {
+    ...acceptance.optionalCheckpointWorker,
+    macQualification: actualMac,
+  };
   return { runner, server, artifacts, checkpointWorker, acceptance };
 }
