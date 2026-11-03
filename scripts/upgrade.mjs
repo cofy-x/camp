@@ -1,11 +1,111 @@
 import assert from 'node:assert/strict';
-import { join } from 'node:path';
+import { lstat, readFile, realpath } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
 import { command, go } from './lib.mjs';
+import {
+  hashFile,
+  runnerPlatforms,
+  serverPlatforms,
+  validVersion,
+} from './release.mjs';
 
 // Fixed public packages; retain the oldest supported baseline separately from
 // the immediately previous release. The launcher verifies immutable archives.
 export const upgradeBaseline = 'v0.1.0-alpha.2';
 export const previousRelease = 'v0.1.0-alpha.8';
+
+export async function readBaselineInstallation(
+  directory,
+  role,
+  version,
+  launcher,
+  platform = process.platform,
+  architecture = process.arch,
+) {
+  assert.ok(isAbsolute(directory));
+  directory = await realpath(directory);
+  assert.ok(validVersion(version));
+  assert.ok(['server', 'runner'].includes(role));
+  const target = `${platform}-${architecture === 'x64' ? 'amd64' : architecture}`;
+  assert.ok(
+    (role === 'runner' ? runnerPlatforms : serverPlatforms).includes(target),
+  );
+  const cache =
+    platform === 'darwin'
+      ? join(directory, 'Library/Caches')
+      : join(directory, 'baseline-cache');
+  const archive = `camp-${role}-${target}.tar.gz`;
+  const installed = join(cache, 'camp/releases', version, archive.slice(0, -7));
+  assert.equal(
+    await realpath(installed),
+    installed,
+    'Baseline installation must not redirect through symlinks.',
+  );
+  const binary = join(installed, 'camp');
+  const receipt = join(installed, '.camp-install.json');
+  for (const file of [binary, receipt]) {
+    const info = await lstat(file);
+    assert.ok(
+      info.isFile() && !(info.mode & 0o022),
+      'Baseline files must be regular and private.',
+    );
+    if (file === receipt) assert.ok(info.size > 0 && info.size <= 4 << 20);
+    else assert.ok(info.mode & 0o100);
+  }
+  const saved = JSON.parse(await readFile(receipt, 'utf8'));
+  assert.equal(saved.version, version);
+  assert.equal(saved.archive, archive);
+  assert.match(
+    saved.archiveSHA256 ?? '',
+    /^[a-f0-9]{64}$/,
+    'Fresh baseline receipts require verified archive provenance.',
+  );
+  const binarySHA256 = await hashFile(binary);
+  assert.equal(saved.binarySHA256, binarySHA256);
+  return {
+    binary,
+    cache,
+    identity: {
+      version,
+      platform: target,
+      archive,
+      archiveSHA256: saved.archiveSHA256,
+      binarySHA256,
+      launcherSHA256: await hashFile(launcher),
+    },
+  };
+}
+
+// Match Go's HTTP ProxyFromEnvironment support without inheriting model keys,
+// private Server configuration or environment that could weaken TLS validation.
+export function httpProxyEnvironment(environment = process.env) {
+  return Object.fromEntries(
+    [
+      'HTTP_PROXY',
+      'HTTPS_PROXY',
+      'NO_PROXY',
+      'http_proxy',
+      'https_proxy',
+      'no_proxy',
+    ]
+      .filter((key) => typeof environment[key] === 'string')
+      .map((key) => [key, environment[key]]),
+  );
+}
+
+export function baselineAcquisitionEnvironment(
+  directory,
+  cache,
+  environment = process.env,
+) {
+  return {
+    PATH: environment.PATH,
+    HOME: directory,
+    LANG: 'C.UTF-8',
+    XDG_CACHE_HOME: cache,
+    ...httpProxyEnvironment(environment),
+  };
+}
 
 export async function baselineLauncher(
   directory,
@@ -25,14 +125,11 @@ export async function baselineLauncher(
   ]);
   await command(binary, [role === 'runner' ? 'runner' : 'serve', '--help'], {
     cwd: directory,
-    env: {
-      PATH: process.env.PATH,
-      HOME: directory,
-      LANG: 'C.UTF-8',
-      XDG_CACHE_HOME: cache,
-    },
+    env: baselineAcquisitionEnvironment(directory, cache),
   });
-  return { binary, cache };
+  // Invoke the verified package directly afterward. macOS ignores XDG_CACHE_HOME;
+  // a second launcher invocation with the operator's HOME could use their cache.
+  return readBaselineInstallation(directory, role, version, binary);
 }
 
 export function verifyPreviousRunnerUpgrade(report, descriptor, platform) {

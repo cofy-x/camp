@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   copyFile,
   cp,
@@ -10,33 +11,55 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import {
+  requireSourceEngine,
+  saveSourceEngineProof,
+  selectSourceEngine,
+  sourceDocker,
+  sourceEngineArguments,
+} from './source-engine.mjs';
 
 const root = import.meta.dirname;
 const layerfs = JSON.parse(
   await readFile(path.join(root, '../layerfs-runtime/pin.json'), 'utf8'),
 );
 const pin = JSON.parse(await readFile(path.join(root, 'pin.json'), 'utf8'));
-const args = process.argv.slice(2);
-if (args.length !== 0 && (args.length !== 2 || args[0] !== '--source'))
-  throw new Error(
-    'Usage: node install.mjs [--source /path/to/read-only/layerfs]',
-  );
+const options = sourceEngineArguments(process.argv.slice(2), { source: true });
 if (process.arch !== 'arm64' || process.version !== `v${layerfs.node}`)
   throw new Error(`An ARM64 host and Node ${layerfs.node} are required.`);
-const engine = spawnSync('docker', ['info', '--format', '{{.Architecture}}'], {
-  encoding: 'utf8',
-});
-if (engine.status !== 0 || !['aarch64', 'arm64'].includes(engine.stdout.trim()))
+const selectedEngine = await selectSourceEngine(options);
+const engineInfo = requireSourceEngine(selectedEngine);
+if (!['aarch64', 'arm64'].includes(engineInfo.Architecture))
   throw new Error(
     'Build on an actual native ARM64 Linux engine; emulation is unsupported.',
   );
+await saveSourceEngineProof(selectedEngine, {
+  operation: 'build-native-arm64-worker',
+  phase: 'preparing',
+  engineID: engineInfo.ID,
+  engine: {
+    architecture: engineInfo.Architecture,
+    kernel: engineInfo.KernelVersion,
+    storageDriver: engineInfo.Driver,
+  },
+  sourceInputs: {
+    'install.mjs': createHash('sha256')
+      .update(await readFile(import.meta.filename))
+      .digest('hex'),
+    'source-engine.mjs': createHash('sha256')
+      .update(await readFile(path.join(root, 'source-engine.mjs')))
+      .digest('hex'),
+  },
+  sdk: layerfs,
+  pins: pin,
+});
 const cache = path.join(root, 'node_modules/.camp-worker');
 await mkdir(cache, { recursive: true, mode: 0o700 });
 const context = await mkdtemp(path.join(cache, 'build-'));
 const source = path.join(context, 'source');
 await mkdir(source);
 let checkout;
-if (args.length) checkout = path.resolve(args[1]);
+if (options.source) checkout = path.resolve(options.source);
 else {
   checkout = path.join(context, 'checkout');
   await mkdir(checkout, { mode: 0o700 });
@@ -178,9 +201,14 @@ await writeFile(
   'source/node_modules\nsource/target\n',
 );
 const iid = path.join(context, 'image.id');
+await saveSourceEngineProof(selectedEngine, {
+  phase: 'build-dispatched',
+  buildContext: context,
+});
 const build = spawn(
-  'docker',
+  selectedEngine.binary,
   [
+    ...selectedEngine.args,
     'build',
     '--platform',
     pin.platform,
@@ -196,17 +224,25 @@ const build = spawn(
     iid,
     context,
   ],
-  { stdio: 'inherit' },
+  { stdio: 'inherit', env: selectedEngine.environment },
 );
 await wait(build);
 const image = (await readFile(iid, 'utf8')).trim();
-const inspected = spawnSync('docker', ['image', 'inspect', image], {
-  encoding: 'utf8',
-});
-if (inspected.status !== 0) throw new Error('Built image inspection failed.');
-const metadata = JSON.parse(inspected.stdout)[0];
-if (metadata.Architecture !== 'arm64' || metadata.Os !== 'linux')
+requireSourceEngine(selectedEngine, engineInfo.ID);
+const metadata = sourceDocker(selectedEngine, ['image', 'inspect', image], {
+  json: true,
+})[0];
+if (
+  metadata.Id !== image ||
+  metadata.Architecture !== 'arm64' ||
+  metadata.Os !== 'linux'
+)
   throw new Error('The worker image is not native Linux ARM64.');
+await saveSourceEngineProof(selectedEngine, {
+  phase: 'passed',
+  image,
+  buildContext: context,
+});
 const installed = {
   schema: 1,
   commit: layerfs.commit,

@@ -1,90 +1,157 @@
-import { spawn, spawnSync } from 'node:child_process';
-import { Buffer } from 'node:buffer';
-import { randomBytes } from 'node:crypto';
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
+import { chmod, mkdir, open, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import {
+  inspectSourceContainer,
+  inspectSourceVolume,
+  removeSourceVolume,
+  requireSourceEngine,
+  saveSourceEngineProof,
+  selectSourceEngine,
+  sourceDocker,
+  sourceEngineArguments,
+  stopSourceContainer,
+  waitForSourceProbe,
+} from './source-engine.mjs';
 
 const root = import.meta.dirname;
+const options = sourceEngineArguments(process.argv.slice(2), { output: true });
 const destination = path.resolve(
-  process.argv[2] ?? '.data/worker-arm64-qualification.json',
+  options.output ?? '.data/worker-arm64-qualification.json',
 );
-await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
 const installed = JSON.parse(
   await readFile(
     path.join(root, 'node_modules/.camp-worker/installed.json'),
     'utf8',
   ),
 );
-const environment = Object.fromEntries(
-  ['PATH', 'HOME', 'LANG']
-    .filter((key) => process.env[key])
-    .map((key) => [key, process.env[key]]),
+const selected = await selectSourceEngine(options);
+const info = requireSourceEngine(selected);
+assert.ok(
+  ['aarch64', 'arm64'].includes(info.Architecture),
+  'The selected engine is not native ARM64.',
 );
-
-function docker(args, json = false) {
-  const answer = spawnSync('docker', args, {
-    encoding: 'utf8',
-    env: environment,
-  });
-  if (answer.error || answer.status !== 0)
-    throw new Error(answer.error?.message ?? answer.stderr);
-  return json ? JSON.parse(answer.stdout) : answer.stdout.trim();
-}
-
-function removeOwnedHome(homeVolume, name) {
-  const owned = docker(['volume', 'inspect', homeVolume], true)[0];
-  if (
-    owned.Labels?.['cofy.camp.operation'] !== name ||
-    owned.Labels?.['cofy.camp.scope'] !== 'arm64-qualification'
-  )
-    return 'Volume ownership changed; cleanup stopped.';
-  docker(['volume', 'rm', homeVolume]);
-  return null;
-}
-
-const endpoint = docker([
-  'context',
-  'inspect',
-  '--format',
-  '{{.Endpoints.docker.Host}}',
+assert.ok(
+  path.posix.isAbsolute(info.DockerRootDir) &&
+    !['\0', '\r', '\n', ','].some((character) =>
+      info.DockerRootDir.includes(character),
+    ),
+  'The selected engine has an invalid local volume directory.',
+);
+const volumes = path.posix.join(info.DockerRootDir, 'volumes');
+const docker = (args, json = false) => sourceDocker(selected, args, { json });
+const image = docker(['image', 'inspect', installed.image], true)[0];
+assert.equal(image.Id, installed.image);
+assert.equal(image.Architecture, 'arm64');
+assert.equal(image.Os, 'linux');
+const nonce = randomBytes(16).toString('hex');
+const name = 'camp44-' + nonce;
+const owner = {
+  engineID: info.ID,
+  container: name,
+  volume: name + '-home',
+  image: installed.image,
+  labels: {
+    'cofy.camp.scope': 'arm64-qualification',
+    'cofy.camp.operation': name,
+    'cofy.camp.nonce': nonce,
+    'cofy.camp.image': installed.image,
+  },
+};
+const labelArgs = Object.entries(owner.labels).flatMap(([key, value]) => [
+  '--label',
+  key + '=' + value,
 ]);
-if (!endpoint.startsWith('unix://'))
-  throw new Error(
-    'Qualification requires an explicitly selected local Docker socket.',
+const sourceInputs = async () =>
+  Object.fromEntries(
+    await Promise.all(
+      [
+        'source-engine.mjs',
+        'qualify.mjs',
+        'qualify-linux.mjs',
+        'pin.json',
+        '../layerfs-runtime/pin.json',
+      ].map(async (file) => [
+        file,
+        createHash('sha256')
+          .update(await readFile(path.join(root, file)))
+          .digest('hex'),
+      ]),
+    ),
   );
-environment.DOCKER_HOST = endpoint;
-const info = docker(['info', '--format', '{{json .}}'], true);
-if (!['aarch64', 'arm64'].includes(info.Architecture))
-  throw new Error('The selected engine is not native ARM64.');
-const volumes = `${info.DockerRootDir}/volumes`;
-const suffix = randomBytes(8).toString('hex');
-const name = `camp44-${suffix}`,
-  homeVolume = `${name}-home`;
-const label = 'cofy.camp.scope=arm64-qualification';
-docker([
-  'volume',
-  'create',
-  '--label',
-  label,
-  '--label',
-  `cofy.camp.operation=${name}`,
-  homeVolume,
-]);
-let report;
+const inputs = await sourceInputs();
+await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+const output = await open(destination, 'wx', 0o600);
+await saveSourceEngineProof(selected, {
+  operation: 'native-linux-arm64-image-qualification',
+  phase: 'intent',
+  owner,
+  report: destination,
+  sourceInputs: inputs,
+  interruptionLimit:
+    'SIGKILL cannot run cleanup; retain this intent for operator inspection. No automatic replay is performed.',
+});
+const interrupted = new globalThis.AbortController();
+const interrupt = (signal) =>
+  interrupted.abort(
+    new Error('Source qualification interrupted by ' + signal + '.'),
+  );
+const int = () => interrupt('SIGINT');
+const term = () => interrupt('SIGTERM');
+process.on('SIGINT', int);
+process.on('SIGTERM', term);
+let report = { passed: false },
+  raw,
+  successful = false,
+  cleanupConfirmed = false;
+let failure,
+  cleanupFailure,
+  volumeDispatched = false,
+  containerDispatched = false;
 try {
+  assert.equal(
+    inspectSourceContainer(selected, owner.container),
+    null,
+    'The source container name is already occupied.',
+  );
+  assert.equal(
+    inspectSourceVolume(selected, owner.volume),
+    null,
+    'The source volume name is already occupied.',
+  );
+  interrupted.signal.throwIfAborted();
+  await saveSourceEngineProof(selected, { phase: 'volume-create-dispatched' });
+  volumeDispatched = true;
+  assert.equal(
+    docker(['volume', 'create', ...labelArgs, owner.volume]),
+    owner.volume,
+  );
+  const volume = inspectSourceVolume(selected, owner.volume);
+  assert.equal(volume?.Name, owner.volume);
+  assert.equal(volume.Driver, 'local');
+  for (const [key, value] of Object.entries(owner.labels))
+    assert.equal(
+      volume.Labels?.[key],
+      value,
+      'Source volume ownership changed.',
+    );
+  requireSourceEngine(selected, owner.engineID);
+  interrupted.signal.throwIfAborted();
+  await saveSourceEngineProof(selected, { phase: 'probe-dispatched' });
+  containerDispatched = true;
   const child = spawn(
-    'docker',
+    selected.binary,
     [
+      ...selected.args,
       'run',
       '--rm',
       '-i',
       '--name',
       name,
-      '--label',
-      label,
-      '--label',
-      `cofy.camp.operation=${name}`,
+      ...labelArgs,
       '--platform',
       'linux/arm64',
       '--pull=never',
@@ -95,40 +162,72 @@ try {
       '--mount',
       'type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock',
       '--mount',
-      `type=bind,source=${volumes},target=/var/lib/docker/volumes`,
+      'type=bind,source=' + volumes + ',target=/var/lib/docker/volumes',
       '--mount',
-      `type=bind,source=${root},target=/camp,readonly`,
+      'type=bind,source=' + root + ',target=/camp,readonly',
       installed.image,
       '/camp/qualify-linux.mjs',
     ],
-    { env: environment, stdio: ['pipe', 'pipe', 'pipe'] },
+    { env: selected.environment, stdio: ['pipe', 'pipe', 'pipe'] },
   );
-  const output = [],
-    errors = [];
-  child.stdout.on('data', (chunk) => output.push(chunk));
-  child.stderr.on('data', (chunk) => errors.push(chunk));
+  const result = waitForSourceProbe(child, { signal: interrupted.signal });
   child.stdin.end(
     JSON.stringify({
-      home: `/var/lib/docker/volumes/${homeVolume}/_data`,
+      home: path.posix.join(volumes, owner.volume, '_data'),
       image: installed.image,
       project: name,
-      prefix: `${name}-`,
+      prefix: name + '-',
     }),
   );
-  const code = await new Promise((resolve, reject) => {
-    child.once('error', reject);
-    child.once('close', resolve);
-  });
-  const stdout = Buffer.concat(output).toString('utf8');
+  raw = await result;
+  const observed = JSON.parse(raw.stdout);
+  assert.equal(raw.code, 0, 'The ARM64 probe did not exit successfully.');
+  assert.equal(raw.signal, null, 'The ARM64 probe was interrupted.');
+  assert.equal(observed.passed, true, 'The ARM64 probe did not pass.');
+  assert.deepEqual(
+    await sourceInputs(),
+    inputs,
+    'Qualification source changed during the probe.',
+  );
+  // Keep resource names and detailed failures in the private intent only.
+  report = {
+    ...observed,
+    store: observed.store
+      ? {
+          filesystemMagic: observed.store.filesystemMagic,
+          profile: observed.store.profile,
+          crashDurable: observed.store.crashDurable,
+        }
+      : undefined,
+  };
+  delete report.error;
+  delete report.cleanupErrors;
+  successful = true;
+} catch (error) {
+  failure = error.message;
+  raw ??= error.probeOutput;
+  report.passed = false;
+  report.error = {
+    code: 'QualificationFailed',
+    message:
+      'The ARM64 probe failed; inspect the retained private source-engine proof.',
+  };
+} finally {
   try {
-    report = JSON.parse(stdout);
-  } catch {
-    report = {
-      passed: false,
-      output: stdout,
-      diagnostic: Buffer.concat(errors).toString('utf8'),
-    };
+    await saveSourceEngineProof(selected, {
+      phase: 'cleanup',
+      probe: raw,
+      failure,
+    });
+    if (containerDispatched) stopSourceContainer(selected, owner);
+    if (volumeDispatched) removeSourceVolume(selected, owner);
+    cleanupConfirmed = true;
+  } catch (error) {
+    cleanupFailure = error.message;
+    report.homeCleanupError =
+      'Owned source resources could not be confirmed absent; inspect the retained private intent.';
   }
+  report.passed = successful && cleanupConfirmed && !interrupted.signal.aborted;
   Object.assign(report, {
     sourceCommit: installed.commit,
     images: {
@@ -136,33 +235,41 @@ try {
       node: installed.nodeImage,
       docker: installed.dockerImage,
     },
-    hostPlatform: `${process.platform}/${process.arch}`,
+    hostPlatform: process.platform + '/' + process.arch,
     engine: {
       kernel: info.KernelVersion,
       architecture: info.Architecture,
       storageDriver: info.Driver,
     },
-    exitCode: code,
+    sourceInputs: inputs,
+    cleanupConfirmed,
   });
-  if (code !== 0 || !report.passed) process.exitCode = 1;
-} finally {
   try {
-    const error = removeOwnedHome(homeVolume, name);
-    if (error) {
-      report ??= { passed: false };
-      report.homeCleanupError = error;
-      process.exitCode = 1;
-    }
-  } catch (error) {
-    report ??= { passed: false };
-    report.homeCleanupError = error.message;
-    process.exitCode = 1;
+    await saveSourceEngineProof(selected, {
+      phase: report.passed
+        ? 'passed'
+        : cleanupConfirmed
+          ? 'failed'
+          : 'cleanup-unknown',
+      probe: raw,
+      failure,
+      cleanupFailure,
+      reportPassed: report.passed,
+    });
+    await output.writeFile(JSON.stringify(report, null, 2) + '\n');
+    await output.sync();
+  } finally {
+    await output.close();
+    await chmod(destination, 0o600);
+    process.removeListener('SIGINT', int);
+    process.removeListener('SIGTERM', term);
   }
-  await writeFile(destination, `${JSON.stringify(report, null, 2)}\n`, {
-    mode: 0o600,
-  });
-  await chmod(destination, 0o600);
 }
+if (!report.passed) process.exitCode = 1;
 process.stdout.write(
-  `ARM64 qualification ${report.passed ? 'passed' : 'failed'}: ${destination}\n`,
+  'ARM64 qualification ' +
+    (report.passed ? 'passed' : 'failed') +
+    ': ' +
+    destination +
+    '\n',
 );

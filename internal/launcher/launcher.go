@@ -44,9 +44,10 @@ type Options struct {
 }
 
 type receipt struct {
-	Version string `json:"version"`
-	Archive string `json:"archive"`
-	SHA256  string `json:"binarySHA256"`
+	Version       string `json:"version"`
+	Archive       string `json:"archive"`
+	ArchiveSHA256 string `json:"archiveSHA256,omitempty"`
+	SHA256        string `json:"binarySHA256"`
 }
 
 func (o Options) archive() (string, error) {
@@ -142,6 +143,14 @@ func verifyCached(directory, version, archive string) error {
 	if json.Unmarshal(data, &saved) != nil || saved.Version != version || saved.Archive != archive {
 		return errors.New("installation receipt identity differs")
 	}
+	// Existing caches may predate archive provenance. A present digest must
+	// remain valid; a missing one does not invalidate verified executable bytes.
+	if saved.ArchiveSHA256 != "" {
+		decoded, err := hex.DecodeString(saved.ArchiveSHA256)
+		if err != nil || len(decoded) != sha256.Size {
+			return errors.New("installation archive digest is invalid")
+		}
+	}
 	digest, err := hashFile(filepath.Join(directory, "camp"))
 	if err != nil || digest != saved.SHA256 {
 		return errors.New("cached executable digest differs")
@@ -203,7 +212,7 @@ func install(ctx context.Context, o Options, directory, destination, archive str
 	if err := os.Chmod(binary, 0700); err != nil {
 		return err
 	}
-	data, _ := json.Marshal(receipt{Version: o.Version, Archive: archive, SHA256: binaryDigest})
+	data, _ := json.Marshal(receipt{Version: o.Version, Archive: archive, ArchiveSHA256: hex.EncodeToString(digest.Sum(nil)), SHA256: binaryDigest})
 	if err := os.WriteFile(filepath.Join(payload, ".camp-install.json"), data, 0600); err != nil {
 		return err
 	}

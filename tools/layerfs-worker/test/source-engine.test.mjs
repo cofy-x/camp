@@ -1,0 +1,459 @@
+import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
+import process from 'node:process';
+import { EventEmitter } from 'node:events';
+import { execFile } from 'node:child_process';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
+import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { PassThrough } from 'node:stream';
+import { test } from 'node:test';
+import { promisify } from 'node:util';
+import { fileURLToPath, URL } from 'node:url';
+import {
+  removeSourceVolume,
+  selectSourceEngine,
+  sourceDocker,
+  sourceEngineArguments,
+  stopSourceContainer,
+  waitForSourceProbe,
+} from '../source-engine.mjs';
+
+async function fixture(t) {
+  const root = await realpath(
+    await mkdtemp(path.join(tmpdir(), 'camp-source-engine-test-')),
+  );
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const binary = path.join(root, 'binary');
+  await writeFile(binary, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+  const bin = path.join(root, 'alias directory');
+  await mkdir(bin);
+  const alias = path.join(bin, 'docker');
+  await symlink(binary, alias);
+  const socket = path.join(root, 'engine.sock');
+  const server = createServer();
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(socket, resolve);
+  });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  return { root, binary, alias, socket, bin };
+}
+
+const ok = (value) => ({
+  status: 0,
+  stdout: typeof value === 'string' ? value : JSON.stringify(value),
+  stderr: '',
+});
+const missing = (name) => ({
+  status: 1,
+  stdout: '',
+  stderr: 'Error: No such object: ' + name + '\n',
+});
+
+test('source CLI arguments preserve source/output forms and require one explicit engine pair', () => {
+  assert.deepEqual(
+    sourceEngineArguments(['--source', '/sdk'], { source: true }),
+    { source: '/sdk' },
+  );
+  assert.deepEqual(
+    sourceEngineArguments(
+      [
+        'report.json',
+        '--docker-binary',
+        '/bin/docker',
+        '--docker-socket',
+        '/engine.sock',
+      ],
+      { output: true },
+    ),
+    {
+      output: 'report.json',
+      dockerBinary: '/bin/docker',
+      dockerSocket: '/engine.sock',
+    },
+  );
+  for (const args of [
+    ['--docker-binary', '/docker'],
+    ['--docker-socket', '/socket'],
+    ['--unknown', 'value'],
+    ['toString', 'x'],
+    ['--docker-binary', '/a', '--docker-binary', '/b'],
+    ['a.json', 'b.json'],
+  ])
+    assert.throws(() => sourceEngineArguments(args, { output: true }));
+});
+
+test('explicit selection preserves executable alias and never reads global context or sensitive environment', async (t) => {
+  const f = await fixture(t),
+    calls = [];
+  const engine = await selectSourceEngine(
+    { dockerBinary: f.alias, dockerSocket: f.socket },
+    {
+      temporaryParent: f.root,
+      environment: {
+        PATH: f.bin,
+        HOME: f.root,
+        LANG: 'C',
+        DOCKER_HOST: 'tcp://foreign:2376',
+        DOCKER_CONTEXT: 'foreign',
+        DOCKER_CONFIG: '/must-not-open',
+        DOCKER_TLS_VERIFY: '0',
+        DOCKER_CERT_PATH: '/credentials',
+        DEEPSEEK_API_KEY: 'must-not-forward',
+        GITHUB_TOKEN: 'must-not-forward',
+        NODE_OPTIONS: '--require /must-not-load',
+        HTTP_PROXY: 'http://proxy.invalid',
+      },
+      run: (binary, args, options) => {
+        calls.push({ binary, args, options });
+        return ok({ ID: 'engine' });
+      },
+    },
+  );
+  assert.equal(calls.length, 0);
+  assert.equal(engine.binary, f.alias);
+  assert.equal(engine.proof.resolvedBinary, f.binary);
+  assert.equal(engine.environment.DOCKER_HOST, 'unix://' + f.socket);
+  assert.equal(engine.environment.HTTP_PROXY, 'http://proxy.invalid');
+  assert.notEqual(engine.environment.DOCKER_CONFIG, '/must-not-open');
+  assert.deepEqual(
+    JSON.parse(
+      await readFile(
+        path.join(engine.environment.DOCKER_CONFIG, 'config.json'),
+        'utf8',
+      ),
+    ),
+    { auths: {} },
+  );
+  for (const key of [
+    'DOCKER_CONTEXT',
+    'DOCKER_TLS_VERIFY',
+    'DOCKER_CERT_PATH',
+    'DEEPSEEK_API_KEY',
+    'GITHUB_TOKEN',
+    'NODE_OPTIONS',
+  ])
+    assert.equal(engine.environment[key], undefined);
+  sourceDocker(engine, ['info'], { json: true });
+  assert.deepEqual(calls[0].args, ['--host', 'unix://' + f.socket, 'info']);
+  assert.equal(calls[0].binary, f.alias);
+  assert.ok(
+    !(
+      await readFile(path.join(engine.directory, 'engine.json'), 'utf8')
+    ).includes('must-not-'),
+  );
+});
+
+test('an adjacent Docker buildx executable is retained without reading global client state', async (t) => {
+  const f = await fixture(t);
+  const buildx = path.join(f.root, 'docker-buildx');
+  await symlink(f.binary, buildx);
+  const engine = await selectSourceEngine(
+    { dockerBinary: f.alias, dockerSocket: f.socket },
+    {
+      temporaryParent: f.root,
+      environment: {
+        PATH: f.bin,
+        HOME: '/must-not-open',
+        DOCKER_CONFIG: '/must-not-open',
+      },
+      run: () =>
+        assert.fail('Explicit selection must not inspect any context.'),
+    },
+  );
+  const config = JSON.parse(
+    await readFile(
+      path.join(engine.environment.DOCKER_CONFIG, 'config.json'),
+      'utf8',
+    ),
+  );
+  assert.deepEqual(config, { auths: {}, cliPluginsExtraDirs: [f.root] });
+  assert.equal(engine.proof.buildx.invocation, buildx);
+  assert.equal(engine.proof.buildx.sha256, engine.proof.binarySHA256);
+});
+
+test('invalid explicit endpoints and executables fail without context fallback or a private engine operation', async (t) => {
+  const f = await fixture(t);
+  for (const options of [
+    { dockerBinary: 'docker', dockerSocket: f.socket },
+    { dockerBinary: f.alias, dockerSocket: 'tcp://foreign' },
+    { dockerBinary: path.join(f.root, 'missing'), dockerSocket: f.socket },
+    { dockerBinary: f.alias, dockerSocket: f.root },
+  ])
+    await assert.rejects(
+      selectSourceEngine(options, {
+        temporaryParent: f.root,
+        environment: { PATH: f.bin },
+        run: () =>
+          assert.fail('Invalid explicit selection cannot inspect a context.'),
+      }),
+    );
+  assert.equal(
+    (await readdir(f.root)).some((name) =>
+      name.startsWith('camp-worker-source-'),
+    ),
+    false,
+  );
+});
+
+test('default callers honor a local environment endpoint or resolve their existing context once', async (t) => {
+  const f = await fixture(t),
+    calls = [];
+  const run = (binary, args, options) => {
+    calls.push({ args, options });
+    return ok('unix://' + f.socket);
+  };
+  const direct = await selectSourceEngine(
+    {},
+    {
+      temporaryParent: f.root,
+      environment: {
+        PATH: f.bin,
+        HOME: f.root,
+        DOCKER_HOST: 'unix://' + f.socket,
+      },
+      run,
+    },
+  );
+  assert.equal(calls.length, 0);
+  assert.equal(direct.binary, f.alias);
+  const selected = await selectSourceEngine(
+    {},
+    {
+      temporaryParent: f.root,
+      environment: {
+        PATH: f.bin,
+        HOME: f.root,
+        DOCKER_CONTEXT: 'selected',
+        DEEPSEEK_API_KEY: 'must-not-forward',
+      },
+      run,
+    },
+  );
+  assert.deepEqual(calls[0].args, [
+    'context',
+    'inspect',
+    '--format',
+    '{{.Endpoints.docker.Host}}',
+  ]);
+  assert.equal(calls[0].options.env.DOCKER_CONTEXT, 'selected');
+  assert.equal(calls[0].options.env.DEEPSEEK_API_KEY, undefined);
+  assert.equal(selected.environment.DOCKER_CONTEXT, undefined);
+  assert.deepEqual(selected.args, ['--host', 'unix://' + f.socket]);
+  await assert.rejects(
+    selectSourceEngine(
+      {},
+      {
+        temporaryParent: f.root,
+        environment: { PATH: f.bin, DOCKER_HOST: 'tcp://foreign:2376' },
+        run: () => assert.fail('Remote hosts cannot fall back to a context.'),
+      },
+    ),
+  );
+});
+
+function resources({
+  foreignLabels = false,
+  foreignImage = false,
+  foreignEngine = false,
+  inUse = false,
+  replacedVolume = false,
+} = {}) {
+  const labels = { 'cofy.camp.scope': 'test', 'cofy.camp.nonce': 'nonce' };
+  const owner = {
+    engineID: 'engine',
+    container: 'probe',
+    volume: 'probe-home',
+    image: 'sha256:' + 'c'.repeat(64),
+    labels,
+  };
+  let container = {
+    Id: 'a'.repeat(64),
+    Name: '/probe',
+    Image: foreignImage ? 'sha256:' + 'd'.repeat(64) : owner.image,
+    Config: { Labels: foreignLabels ? {} : labels },
+    State: { Running: true },
+  };
+  let volume = {
+      Name: owner.volume,
+      Driver: 'local',
+      CreatedAt: 'original',
+      Labels: foreignLabels ? {} : labels,
+    },
+    volumeReads = 0;
+  const mutations = [];
+  const engine = {
+    binary: '/fixed/docker',
+    args: ['--host', 'unix:///fixed.sock'],
+    environment: {},
+    run: (_binary, all) => {
+      const args = all.slice(2);
+      if (args[0] === 'info')
+        return ok({ ID: foreignEngine ? 'foreign' : 'engine' });
+      if (args[0] === 'container' && args[1] === 'inspect')
+        return container ? ok([container]) : missing(args[2]);
+      if (args[0] === 'volume' && args[1] === 'inspect') {
+        volumeReads++;
+        return volume
+          ? ok([
+              {
+                ...volume,
+                CreatedAt:
+                  replacedVolume && volumeReads > 1
+                    ? 'replacement'
+                    : volume.CreatedAt,
+              },
+            ])
+          : missing(args[2]);
+      }
+      if (args[0] === 'container' && args[1] === 'ls')
+        return ok(inUse ? 'foreign-container' : '');
+      mutations.push(args);
+      if (args[0] === 'container' && args[1] === 'stop') {
+        assert.equal(args.at(-1), container.Id);
+        container.State.Running = false;
+        return ok(container.Id);
+      }
+      if (args[0] === 'container' && args[1] === 'rm') {
+        assert.equal(args.at(-1), container.Id);
+        container = null;
+        return ok('removed');
+      }
+      if (args[0] === 'volume' && args[1] === 'rm') {
+        volume = null;
+        return ok('removed');
+      }
+      assert.fail('Unexpected source engine command: ' + args.join(' '));
+    },
+  };
+  return { engine, owner, mutations };
+}
+
+test('source cleanup binds exact container ID, labels, image and engine, and never force removes', () => {
+  const f = resources();
+  stopSourceContainer(f.engine, f.owner);
+  removeSourceVolume(f.engine, f.owner);
+  assert.deepEqual(
+    f.mutations.map((args) => args.slice(0, 2)),
+    [
+      ['container', 'stop'],
+      ['container', 'rm'],
+      ['volume', 'rm'],
+    ],
+  );
+  assert.ok(
+    f.mutations.every(
+      (args) => !args.includes('--force') && !args.includes('-f'),
+    ),
+  );
+  for (const change of [
+    { foreignLabels: true },
+    { foreignImage: true },
+    { foreignEngine: true },
+  ]) {
+    const bad = resources(change);
+    assert.throws(() => stopSourceContainer(bad.engine, bad.owner));
+    assert.equal(bad.mutations.length, 0);
+  }
+  for (const change of [
+    { foreignLabels: true },
+    { foreignEngine: true },
+    { inUse: true },
+    { replacedVolume: true },
+  ]) {
+    const bad = resources(change);
+    assert.throws(() => removeSourceVolume(bad.engine, bad.owner));
+    assert.equal(bad.mutations.length, 0);
+  }
+});
+
+function child({ ignoreTerm = false } = {}) {
+  const c = new EventEmitter();
+  Object.assign(c, {
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    stdin: new PassThrough(),
+    signals: [],
+  });
+  c.kill = (signal) => {
+    c.signals.push(signal);
+    if (signal === 'SIGKILL' || !ignoreTerm)
+      globalThis.queueMicrotask(() => c.emit('close', null, signal));
+    return true;
+  };
+  return c;
+}
+
+test('bounded source probe preserves a successful response and cleans deadline/signal listeners', async () => {
+  const c = child();
+  const completed = waitForSourceProbe(c, { timeout: 1000 });
+  c.stdout.write('{"passed":true}');
+  c.emit('close', 0, null);
+  assert.deepEqual(await completed, {
+    code: 0,
+    signal: null,
+    stdout: '{"passed":true}',
+    stderr: '',
+  });
+  assert.deepEqual(c.signals, []);
+  const timeout = child({ ignoreTerm: true });
+  await assert.rejects(
+    waitForSourceProbe(timeout, { timeout: 1, stopGrace: 1 }),
+    /deadline exceeded/,
+  );
+  assert.deepEqual(timeout.signals, ['SIGTERM', 'SIGKILL']);
+  const canceled = child(),
+    controller = new globalThis.AbortController();
+  const pending = waitForSourceProbe(canceled, { signal: controller.signal });
+  controller.abort(new Error('operator interrupted'));
+  await assert.rejects(pending, /operator interrupted/);
+  assert.deepEqual(canceled.signals, ['SIGTERM']);
+});
+
+test('source probe output bounds and lost child spawns cannot become success', async () => {
+  for (const stream of ['stdout', 'stderr']) {
+    const c = child();
+    const pending = waitForSourceProbe(c);
+    c[stream].write(
+      Buffer.alloc((stream === 'stdout' ? 8 : 1) * (1 << 20) + 1),
+    );
+    await assert.rejects(pending, /exceeded/);
+    assert.deepEqual(c.signals, ['SIGTERM']);
+  }
+  const failed = child();
+  const pending = waitForSourceProbe(failed);
+  failed.emit('error', new Error('spawn failed'));
+  await assert.rejects(pending, /spawn failed/);
+});
+
+test('all three source commands reject incomplete explicit selection before any engine work', async () => {
+  for (const filename of [
+    '../install.mjs',
+    '../qualify.mjs',
+    '../../../scripts/package-worker.mjs',
+  ])
+    await assert.rejects(
+      promisify(execFile)(
+        process.execPath,
+        [
+          fileURLToPath(new URL(filename, import.meta.url)),
+          '--docker-binary',
+          '/unused/docker',
+        ],
+        { env: {}, timeout: 5000 },
+      ),
+      (error) =>
+        /Use --docker-binary and --docker-socket together/.test(error.stderr),
+    );
+});

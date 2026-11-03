@@ -7,14 +7,18 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { createServer as createListener } from 'node:net';
 import {
+  chmod,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   stat,
   writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import process from 'node:process';
 import { setTimeout as pause } from 'node:timers/promises';
 import { promisify } from 'node:util';
@@ -42,10 +46,24 @@ assert.equal(
     .digest('hex'),
   baseline.entrypointBinarySHA256,
 );
-await mkdir(path.join(root, '.data'), { recursive: true, mode: 0o700 });
-const directory = await mkdtemp(
-  path.join(root, '.data/packaged-worker-restart-'),
+const directory = await realpath(
+  await mkdtemp(path.join(tmpdir(), 'camp-packaged-worker-restart-')),
 );
+await chmod(directory, 0o700);
+for (let parent = path.dirname(directory); ; parent = path.dirname(parent)) {
+  const scope = await lstat(path.join(parent, 'package.json')).catch(
+    (error) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    },
+  );
+  assert.equal(
+    scope,
+    null,
+    'Select a temporary directory outside npm package ancestry for private DSH restart fixtures.',
+  );
+  if (path.dirname(parent) === parent) break;
+}
 const runnerData = path.join(directory, 'runner');
 const serverData = path.join(directory, 'server');
 await mkdir(runnerData, { mode: 0o700 });
@@ -206,7 +224,7 @@ try {
   assert.ok(originalCommands.length > 0);
   await new Promise((resolve) => provider.listen(0, '127.0.0.1', resolve));
   server = spawn(
-    path.join(root, 'dist/camp'),
+    process.env.CAMP_SMOKE_SERVER_BINARY || path.join(root, 'dist/camp'),
     ['serve', '--addr', `127.0.0.1:${port}`, '--data-dir', serverData],
     { cwd: directory, env: environment, stdio: ['ignore', 'ignore', 'pipe'] },
   );
@@ -422,6 +440,8 @@ try {
     await new Promise((resolve) => provider.close(resolve));
   report.modelRequests = calls;
   await saveState(path.join(directory, 'report.json'), report);
+  if (process.env.CAMP_TEST_WORKER_REPORT)
+    await saveState(path.resolve(process.env.CAMP_TEST_WORKER_REPORT), report);
   process.stdout.write(
     `Packaged in-flight Runner restart ${report.passed ? 'passed' : 'failed'}: ${path.join(directory, 'report.json')}\n`,
   );
