@@ -1,11 +1,11 @@
 {
   "before": "aa0e4221b7511a3d25f39c28af53eae87ff110f2",
-  "after": "36e26352f911e39f15150dc3c24bbb90c26ff882",
-  "scope": "Synthetic original-only attachments and saved citations. Before is the task-start baseline. After includes the Automation toolbar inherited from upstream PR #103. No customer data or model calls.",
+  "after": "f7c8a53abe02ede3cbe9bfdddbfeb8975404a8a2",
+  "scope": "Synthetic original-only attachments, saved citations and read-error recovery. Before is the task-start baseline; the Automation toolbar in after comes from upstream PR #103. No customer data/model calls.",
   "images": [
     {
       "file": "chromium-docx-original-after.png",
-      "sha256": "d5eb16bf88bf43a4c984407bd68b3c51886613b74146af3f3ba837df4e373c5c"
+      "sha256": "183b0d2be5fb39fb7b1c076d91852e97dbac39243d883af38e0a73940ed67086"
     },
     {
       "file": "chromium-docx-original-before.png",
@@ -13,7 +13,7 @@
     },
     {
       "file": "chromium-pdf-original-after.png",
-      "sha256": "5bf16ecbdbdcd07f4b3fa58079680bc39dd6adb8d6439f9956b442e24fec47a4"
+      "sha256": "8739644f6a24b4fb6010041e4c989461fe241f2ca9d080186abce080657843dc"
     },
     {
       "file": "chromium-pdf-original-before.png",
@@ -21,15 +21,19 @@
     },
     {
       "file": "chromium-saved-citation-after.png",
-      "sha256": "c8e132f76cba345d0144bf01011cc49b5dbe81af117dd51784fd5ffc5b68cac0"
+      "sha256": "43ceaa84edb38e4e44a0b39f970f2a30dd834d18e63fac8ddf7d65ae6d18a9b8"
     },
     {
       "file": "chromium-saved-citation-before.png",
       "sha256": "6e972ca10a65f77a18240c7b26f31315e3664d486505a320d4b883ad6b6e95a2"
     },
     {
+      "file": "chromium-saved-read-error-after.png",
+      "sha256": "fff75b9aa51d277aaa58692cb99024475ae51d6f4d1a08fecb7cb08105b971c9"
+    },
+    {
       "file": "touch-docx-original-after.png",
-      "sha256": "6c3c3debc09cec1a0f3f6479eb9f11b032cdd0e050215a3632bc5cf780c74e47"
+      "sha256": "5576fc7df8146ce0b338d2785eff77b56055de9e9fd9e6feb19507923b063834"
     },
     {
       "file": "touch-docx-original-before.png",
@@ -37,7 +41,7 @@
     },
     {
       "file": "touch-pdf-original-after.png",
-      "sha256": "4e654912e62439c6b16e55d1efc40901ce4a783f5853be2de05d74d101707702"
+      "sha256": "a311d4f177987d41a26937d9d9ed05f85cd6ea35c05b285b0eecb15736f593ae"
     },
     {
       "file": "touch-pdf-original-before.png",
@@ -45,11 +49,15 @@
     },
     {
       "file": "touch-saved-citation-after.png",
-      "sha256": "7e7a9fa27e1294f427e5a5f93e1e5412d6e9b9eefc47436264a65b97f4f005a5"
+      "sha256": "f2a15f902f25a28edf018cc5b6e8550068b429b49ad46bde2b33c54413862b7b"
     },
     {
       "file": "touch-saved-citation-before.png",
       "sha256": "d4ada8d4a3aba4c98bfa479bd14e5c3ca69d4b52b027d8b365e5f49c5f3bcdd7"
+    },
+    {
+      "file": "touch-saved-read-error-after.png",
+      "sha256": "b96a15d72296777c7db2396a2ac6ffdf853c9bbce44cb233aa83da28fb23a5f1"
     }
   ]
 }
