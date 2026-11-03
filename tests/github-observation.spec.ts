@@ -411,62 +411,82 @@ test('confirming an event preserves the exact task request across an uncertain r
   expect(errors.errors).toEqual([]);
 });
 
-test('event details retain a read error and fit a narrow window', async ({
-  page,
-  browserName,
-}) => {
-  const errors = watchPageErrors(page, browserName);
-  const longTitle = 'UnbrokenSubject'.repeat(60);
-  const { source } = await fixture(page, 'GitHub reading and recovery');
-  const response = await deliver(
+for (const backgroundRecovery of [false, true]) {
+  test(`event details retain a read error and fit a narrow window${backgroundRecovery ? ' after background recovery' : ''}`, async ({
     page,
-    source,
-    payload('Original body with long text '.repeat(80), longTitle),
-  );
-  const { eventId } = (await response.json()) as { eventId: string };
-  await panel(page)
-    .getByRole('button', { name: 'Refresh Events', exact: true })
-    .click();
-  await panel(page)
-    .getByRole('button', { name: new RegExp(longTitle) })
-    .click();
-  await expect(panel(page).locator('.github-event-body')).toBeVisible();
-  await expect(panel(page).getByRole('heading', { level: 2 })).toHaveText(
-    longTitle,
-  );
-  await page.route(`**/api/github-events/${eventId}`, (route) =>
-    route.fulfill({
-      status: 503,
-      json: { error: 'Temporary event read failure', code: 'unavailable' },
-    }),
-  );
-  await panel(page)
-    .getByRole('button', { name: 'Refresh Event', exact: true })
-    .click();
-  await expect(panel(page).getByRole('alert')).toContainText(
-    'Temporary event read failure',
-  );
-  await expect(panel(page).locator('.github-event-body')).toBeVisible();
-  await expect(
-    panel(page).getByRole('button', {
-      name: 'Start collaboration…',
-      exact: true,
-    }),
-  ).toBeDisabled();
-  await page.unroute(`**/api/github-events/${eventId}`);
-  await panel(page).getByRole('button', { name: 'Retry Event' }).click();
-  await expect(
-    panel(page).getByRole('button', {
-      name: 'Start collaboration…',
-      exact: true,
-    }),
-  ).toBeEnabled();
-  const overflow = await panel(page).evaluate(
-    (element) => element.scrollWidth > element.clientWidth + 1,
-  );
-  expect(overflow).toBe(false);
-  expect(errors.errors).toEqual([]);
-});
+    browserName,
+  }) => {
+    if (backgroundRecovery) await page.clock.install();
+    const errors = watchPageErrors(page, browserName);
+    const longTitle = 'UnbrokenSubject'.repeat(60);
+    const { source } = await fixture(page, 'GitHub reading and recovery');
+    const response = await deliver(
+      page,
+      source,
+      payload('Original body with long text '.repeat(80), longTitle),
+    );
+    const { eventId } = (await response.json()) as { eventId: string };
+    await panel(page)
+      .getByRole('button', { name: 'Refresh Events', exact: true })
+      .click();
+    await panel(page)
+      .getByRole('button', { name: new RegExp(longTitle) })
+      .click();
+    await expect(panel(page).locator('.github-event-body')).toBeVisible();
+    await expect(panel(page).getByRole('heading', { level: 2 })).toHaveText(
+      longTitle,
+    );
+    await page.route(`**/api/github-events/${eventId}`, (route) =>
+      route.fulfill({
+        status: 503,
+        json: { error: 'Temporary event read failure', code: 'unavailable' },
+      }),
+    );
+    await panel(page)
+      .getByRole('button', { name: 'Refresh Event', exact: true })
+      .click();
+    await expect(panel(page).getByRole('alert')).toContainText(
+      'Temporary event read failure',
+    );
+    await expect(panel(page).locator('.github-event-body')).toBeVisible();
+    await expect(
+      panel(page).getByRole('button', {
+        name: 'Start collaboration…',
+        exact: true,
+      }),
+    ).toBeDisabled();
+    await page.unroute(`**/api/github-events/${eventId}`);
+    if (backgroundRecovery) {
+      const healed = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(`/api/github-events/${eventId}`) &&
+          response.status() === 200,
+      );
+      // Team's existing fallback can heal the read before the next user click.
+      await page.clock.fastForward(15_000);
+      await healed;
+      await expect(
+        panel(page).getByRole('button', { name: 'Refresh Event', exact: true }),
+      ).toBeVisible();
+    }
+    // A successful background read changes the label, not this action's owner.
+    await panel(page)
+      .getByRole('button', { name: /^(Retry|Refresh) Event$/, exact: true })
+      .click();
+    await expect(panel(page).getByRole('alert')).toHaveCount(0);
+    await expect(
+      panel(page).getByRole('button', {
+        name: 'Start collaboration…',
+        exact: true,
+      }),
+    ).toBeEnabled();
+    const overflow = await panel(page).evaluate(
+      (element) => element.scrollWidth > element.clientWidth + 1,
+    );
+    expect(overflow).toBe(false);
+    expect(errors.errors).toEqual([]);
+  });
+}
 
 test('reading needs no execution setup and the authorization form keeps its blocking reason at Start', async ({
   page,
