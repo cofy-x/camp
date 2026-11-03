@@ -69,6 +69,17 @@ type subject struct {
 }
 
 func Parse(repository, kind string, body []byte) (Observation, error) {
+	return parseObservation(repository, kind, body, false)
+}
+
+// ParseDelivery validates signed payload bytes without looking up a source.
+// Storage must still bind its repository and identity to the current source in
+// the transaction that records the delivery; this function grants no authority.
+func ParseDelivery(kind string, body []byte) (Observation, error) {
+	return parseObservation("", kind, body, true)
+}
+
+func parseObservation(repository, kind string, body []byte, unbound bool) (Observation, error) {
 	var p struct {
 		Action     string `json:"action"`
 		Repository struct {
@@ -84,8 +95,16 @@ func Parse(repository, kind string, body []byte) (Observation, error) {
 		Pull    subject `json:"pull_request"`
 		Comment subject `json:"comment"`
 	}
-	if len(body) > MaxPayloadBytes || !utf8.Valid(body) || json.Unmarshal(body, &p) != nil ||
-		p.Repository.ID < 1 || !strings.EqualFold(p.Repository.FullName, repository) {
+	if len(body) > MaxPayloadBytes || !utf8.Valid(body) || json.Unmarshal(body, &p) != nil || p.Repository.ID < 1 {
+		return Observation{}, errors.New("Use a valid JSON delivery from the configured repository.")
+	}
+	if unbound {
+		repository = strings.ToLower(p.Repository.FullName)
+		if !RepositoryPattern.MatchString(repository) || strings.HasSuffix(repository, "/.") || strings.HasSuffix(repository, "/..") {
+			return Observation{}, errors.New("Use a valid JSON delivery from the configured repository.")
+		}
+	}
+	if !strings.EqualFold(p.Repository.FullName, repository) {
 		return Observation{}, errors.New("Use a valid JSON delivery from the configured repository.")
 	}
 	o := Observation{Kind: kind, Action: p.Action, Repository: repository, RepositoryID: p.Repository.ID, ActorID: p.Sender.ID, ActorLogin: p.Sender.Login, ActorKind: p.Sender.Type}

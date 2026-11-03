@@ -142,42 +142,45 @@ func (s *Store) CreateSourceImport(ctx context.Context, in SourceImportInput) (o
 	})
 	return
 }
-func (s *Store) GetSourceImport(ctx context.Context, id string) (SourceImport, error) {
-	r, e := s.queries().GetSourceImport(ctx, id)
-	if e != nil {
-		return SourceImport{}, missing(e, "The source import")
-	}
-	if _, authenticated := UserFromContext(ctx); authenticated {
-		runner, err := s.queries().GetRunner(ctx, r.RunnerID)
+func (s *Store) GetSourceImport(ctx context.Context, id string) (out SourceImport, err error) {
+	err = s.readTransaction(ctx, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		r, err := q.GetSourceImport(ctx, id)
 		if err != nil {
-			return SourceImport{}, err
+			return missing(err, "The source import")
 		}
-		if err = requireObjectOwner(ctx, s.queries(), runner.OwnerUserID.String); err != nil {
-			return SourceImport{}, err
-		}
-	}
-	return sourceImportRow(r), nil
-}
-func (s *Store) ListSourceImports(ctx context.Context) ([]SourceImport, error) {
-	actor, authenticated, err := currentActor(ctx, s.queries())
-	if err != nil {
-		return nil, err
-	}
-	rows, e := s.queries().ListSourceImports(ctx)
-	out := make([]SourceImport, 0, len(rows))
-	for _, r := range rows {
-		if authenticated && actor.Role != "admin" {
-			runner, err := s.queries().GetRunner(ctx, r.RunnerID)
+		if _, authenticated := UserFromContext(ctx); authenticated {
+			runner, err := q.GetRunner(ctx, r.RunnerID)
 			if err != nil {
-				return nil, err
+				return err
 			}
-			if runner.OwnerUserID.String != actor.ID {
-				continue
+			if err = requireObjectOwner(ctx, q, runner.OwnerUserID.String); err != nil {
+				return err
 			}
 		}
-		out = append(out, sourceImportRow(r))
-	}
-	return out, e
+		out = sourceImportRow(r)
+		return nil
+	})
+	return out, err
+}
+func (s *Store) ListSourceImports(ctx context.Context) (out []SourceImport, err error) {
+	err = s.readTransaction(ctx, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		actor, authenticated, err := currentActor(ctx, q)
+		if err != nil {
+			return err
+		}
+		rows, err := q.ListVisibleSourceImports(ctx, sqlgen.ListVisibleSourceImportsParams{IncludeAll: !authenticated || actor.Role == "admin", OwnerUserID: nullableParent(actor.ID)})
+		if err != nil {
+			return err
+		}
+		out = make([]SourceImport, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, sourceImportRow(r))
+		}
+		return nil
+	})
+	return out, err
 }
 func (s *Store) ListActiveSourceImports(ctx context.Context) ([]SourceImport, error) {
 	rows, e := s.queries().ListActiveSourceImports(ctx)

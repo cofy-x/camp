@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"slices"
 	"time"
 
@@ -14,15 +13,17 @@ import (
 )
 
 func automationTasks(ctx context.Context, q *sqlgen.Queries, room, source, thread string, events []orchestration.SourceEvent) ([]orchestration.TaskSummary, string, error) {
-	rows, err := q.ListRoomTasks(ctx, room)
-	if err != nil {
-		return nil, "", err
-	}
 	ids := make([]string, 0, len(events))
 	for _, event := range events {
 		ids = append(ids, event.ID)
 	}
 	eventIDs, err := json.Marshal(ids)
+	if err != nil {
+		return nil, "", err
+	}
+	// Keep scope selection and routing facts in one snapshot projection. Loading
+	// full Room task snapshots here also loaded every unrelated grant/history.
+	rows, err := q.AutomationRelatedTaskRouting(ctx, sqlgen.AutomationRelatedTaskRoutingParams{RoomID: room, SourceID: source, ThreadKey: thread, EventIds: string(eventIDs)})
 	if err != nil {
 		return nil, "", err
 	}
@@ -38,61 +39,16 @@ func automationTasks(ctx context.Context, q *sqlgen.Queries, room, source, threa
 		ReceivedEventIDs     []string
 	}
 	facts := []routingFact{}
-	for _, raw := range rows {
-		var task CollaborationTask
-		if err = json.Unmarshal([]byte(raw), &task); err != nil {
+	for _, row := range rows {
+		if row.MissingPolicy != 0 {
+			return nil, "", sql.ErrNoRows
+		}
+		received := []string{}
+		if err = json.Unmarshal([]byte(row.ReceivedEventIds), &received); err != nil {
 			return nil, "", err
 		}
-		related, enabledPolicy := false, true
-		if task.AutomationPolicyID != "" {
-			policy, err := q.GetAutomationPolicyID(ctx, task.AutomationPolicyID)
-			if err != nil {
-				return nil, "", err
-			}
-			related = policy.SourceID == source && task.AutomationScope == thread
-			enabledPolicy = policy.Enabled != 0 || policy.SourceID != source
-		}
-		if source == "room" && thread == room+":"+task.ThreadRootID {
-			related = true
-		}
-		if source != "room" && task.SourceEventID != "" {
-			row, err := q.GetGitHubEvent(ctx, task.SourceEventID)
-			if err == nil {
-				var original struct {
-					RepositoryID int64 `json:"repositoryId"`
-					Number       int64 `json:"number"`
-				}
-				if err = json.Unmarshal([]byte(row.Value), &original); err != nil {
-					return nil, "", err
-				}
-				if row.SourceID == source && fmt.Sprintf("%d:%d", original.RepositoryID, original.Number) == thread {
-					related = true
-				}
-			} else if !errors.Is(err, sql.ErrNoRows) {
-				return nil, "", err
-			}
-		}
-		subscriptions, err := q.ListAutomationTaskSubscriptions(ctx, task.ID)
-		if err != nil {
-			return nil, "", err
-		}
-		fact := routingFact{ID: task.ID, Goal: task.Goal, Status: task.Status}
-		for _, sub := range subscriptions {
-			if sub.SourceID == source && sub.ThreadKey == thread {
-				related = true
-				fact.SubscriptionID, fact.SubscriptionRevision, fact.SubscriptionEnabled = sub.ID, sub.Revision, sub.Enabled != 0
-				fact.ReceivesInputs = sub.Enabled != 0 && taskReceivesEvents(task) && enabledPolicy
-			}
-		}
-		if !related {
-			continue
-		}
-		received, err := q.AutomationTaskBatchDeliveries(ctx, sqlgen.AutomationTaskBatchDeliveriesParams{TaskID: task.ID, EventIds: string(eventIDs)})
-		if err != nil {
-			return nil, "", err
-		}
-		fact.ReceivedEventIDs = received
-		tasks = append(tasks, orchestration.TaskSummary{ID: task.ID, Goal: task.Goal, Status: task.Status, Revision: task.Revision, ReceivesInputs: fact.ReceivesInputs, ReceivedEventIDs: received})
+		fact := routingFact{ID: row.ID, Goal: row.Goal, Status: row.Status, ReceivesInputs: row.ReceivesInputs != 0, SubscriptionID: row.SubscriptionID, SubscriptionRevision: row.SubscriptionRevision, SubscriptionEnabled: row.SubscriptionEnabled != 0, ReceivedEventIDs: received}
+		tasks = append(tasks, orchestration.TaskSummary{ID: row.ID, Goal: row.Goal, Status: row.Status, Revision: row.Revision, ReceivesInputs: fact.ReceivesInputs, ReceivedEventIDs: received})
 		facts = append(facts, fact)
 	}
 	raw, err := json.Marshal(facts)

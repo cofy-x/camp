@@ -251,6 +251,18 @@ func (s *Store) ReceiveGitHubDelivery(ctx context.Context, id, credential, deliv
 	if !githubhooks.DeliveryPattern.MatchString(delivery) {
 		return out, false, problem("invalid_source", "Use one GitHub delivery GUID.")
 	}
+	// Parse and hash up to a MiB of immutable signed bytes before acquiring the
+	// database connection. The transaction below binds the prepared observation
+	// to the current source, credential and pinned repository identity.
+	observation, e := githubhooks.ParseDelivery(kind, payload)
+	if e != nil {
+		return out, false, problem("invalid_source", e.Error())
+	}
+	fingerprint := githubhooks.PayloadFingerprint(payload)
+	raw, e := json.Marshal(observation)
+	if e != nil {
+		return out, false, e
+	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
 		source, e := q.GetGitHubSource(ctx, id)
@@ -260,14 +272,12 @@ func (s *Store) ReceiveGitHubDelivery(ctx context.Context, id, credential, deliv
 		if source.Enabled == 0 || source.SecretRef != credential {
 			return problem("source_unavailable", "This source is disabled or its credential changed.")
 		}
-		observation, e := githubhooks.Parse(source.Repository, kind, payload)
-		if e != nil {
-			return problem("invalid_source", e.Error())
+		if !strings.EqualFold(source.Repository, observation.Repository) {
+			return problem("invalid_source", "Use a valid JSON delivery from the configured repository.")
 		}
 		if source.RepositoryID != 0 && source.RepositoryID != observation.RepositoryID {
 			return problem("source_conflict", "The repository identity changed. Configure a new source explicitly.")
 		}
-		fingerprint := githubhooks.PayloadFingerprint(payload)
 		previous, e := q.GetGitHubDelivery(ctx, sqlgen.GetGitHubDeliveryParams{SourceID: id, DeliveryID: strings.ToLower(delivery)})
 		if e == nil {
 			if previous.Fingerprint != fingerprint {
@@ -286,7 +296,6 @@ func (s *Store) ReceiveGitHubDelivery(ctx context.Context, id, credential, deliv
 		eventID, e := q.GetGitHubFingerprint(ctx, sqlgen.GetGitHubFingerprintParams{SourceID: id, Fingerprint: fingerprint})
 		if errors.Is(e, sql.ErrNoRows) {
 			eventID = newID()
-			raw, _ := json.Marshal(observation)
 			disposition := "pending"
 			if observation.IgnoreReason != "" {
 				disposition = "ignored"

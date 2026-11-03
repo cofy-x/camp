@@ -49,6 +49,10 @@ func TestPayloadNormalizationAndFilters(t *testing.T) {
 			if err != nil || o.IgnoreReason != "" || o.Body != subject["body"] || o.OccurredAt != "2026-11-02T13:00:00Z" {
 				t.Fatal(o, err)
 			}
+			prepared, err := ParseDelivery(kind, raw)
+			if err != nil || prepared != o {
+				t.Fatal("preparing outside storage changed the immutable observation", prepared, o, err)
+			}
 			if !strings.HasPrefix(o.URL, "https://github.com/acme/project/") || !strings.Contains(o.Context(), "untrusted context") {
 				t.Fatal(o)
 			}
@@ -75,6 +79,15 @@ func TestPayloadNormalizationAndFilters(t *testing.T) {
 		o, err := Parse("a/b", "issues", []byte(raw))
 		if err == nil && o.IgnoreReason != "nonhuman_actor" {
 			t.Fatal("invalid event became pending", o)
+		}
+	}
+}
+
+func TestPreparedDeliveryRejectsInvalidRepositoryNames(t *testing.T) {
+	for _, repository := range []string{"a/.", "a/..", "a/../../b", "a/b\n", "https://github.com/a/b"} {
+		raw, _ := json.Marshal(map[string]any{"repository": map[string]any{"id": 1, "full_name": repository}})
+		if _, err := ParseDelivery("ping", raw); err == nil {
+			t.Fatal("unbound preparation accepted an invalid repository name", repository)
 		}
 	}
 }

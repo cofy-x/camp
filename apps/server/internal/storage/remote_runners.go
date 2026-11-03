@@ -173,11 +173,22 @@ func (s *Store) CreateRunnerEnrollment(ctx context.Context, name string, expires
 	return
 }
 func (s *Store) ListRunnerEnrollments(ctx context.Context) ([]RunnerEnrollment, error) {
-	actor, authenticated, err := currentActor(ctx, s.queries())
+	var actor User
+	var authenticated bool
+	var rows []sqlgen.RunnerEnrollment
+	err := s.readTransaction(ctx, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		var err error
+		actor, authenticated, err = currentActor(ctx, q)
+		if err != nil {
+			return err
+		}
+		rows, err = q.ListRunnerEnrollments(ctx)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.queries().ListRunnerEnrollments(ctx)
 	out := make([]RunnerEnrollment, 0, len(rows))
 	for _, r := range rows {
 		if authenticated && actor.Role != "admin" && actor.ID != r.OwnerUserID.String {
@@ -185,7 +196,7 @@ func (s *Store) ListRunnerEnrollments(ctx context.Context) ([]RunnerEnrollment, 
 		}
 		out = append(out, enrollmentRow(r))
 	}
-	return out, err
+	return out, nil
 }
 func (s *Store) RevokeRunnerEnrollment(ctx context.Context, id string) error {
 	return s.transaction(ctx, func(tx *sql.Tx) error {

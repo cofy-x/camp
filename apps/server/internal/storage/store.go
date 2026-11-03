@@ -83,7 +83,7 @@ func OpenContext(ctx context.Context, filename string) (result *Store, err error
 func databaseDSN(filename string) string {
 	// A short SQLite busy wait keeps context cancellation responsive. Write
 	// transactions retry lock acquisition within the context and a 5 s ceiling.
-	params := url.Values{"_pragma": {"busy_timeout(100)", "foreign_keys(1)", "journal_mode(WAL)"}, "_txlock": {"immediate"}}
+	params := url.Values{"_pragma": {"busy_timeout(100)", "foreign_keys(1)", "journal_mode(WAL)", "synchronous(FULL)"}, "_txlock": {"immediate"}}
 	if filename == ":memory:" {
 		return filename + "?" + params.Encode()
 	}
