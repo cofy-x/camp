@@ -150,6 +150,8 @@ test('explicit selection preserves executable alias and never reads global conte
   sourceDocker(engine, ['info'], { json: true });
   assert.deepEqual(calls[0].args, ['--host', 'unix://' + f.socket, 'info']);
   assert.equal(calls[0].binary, f.alias);
+  assert.equal(calls[0].options.timeout, 30_000);
+  assert.equal(calls[0].options.killSignal, 'SIGKILL');
   assert.ok(
     !(
       await readFile(path.join(engine.directory, 'engine.json'), 'utf8')
@@ -250,6 +252,8 @@ test('default callers honor a local environment endpoint or resolve their existi
     '{{.Endpoints.docker.Host}}',
   ]);
   assert.equal(calls[0].options.env.DOCKER_CONTEXT, 'selected');
+  assert.equal(calls[0].options.timeout, 10_000);
+  assert.equal(calls[0].options.killSignal, 'SIGKILL');
   assert.equal(calls[0].options.env.DEEPSEEK_API_KEY, undefined);
   assert.equal(selected.environment.DOCKER_CONTEXT, undefined);
   assert.deepEqual(selected.args, ['--host', 'unix://' + f.socket]);
@@ -472,6 +476,115 @@ test('source probe output bounds and lost child spawns cannot become success', a
   const pending = waitForSourceProbe(failed);
   failed.emit('error', new Error('spawn failed'));
   await assert.rejects(pending, /spawn failed/);
+});
+
+test('worker packaging interrupted during archive hashing retains failure evidence without publishing a descriptor', async (t) => {
+  const f = await fixture(t);
+  const scripts = path.join(f.root, 'scripts');
+  const worker = path.join(f.root, 'tools/layerfs-worker');
+  await mkdir(scripts);
+  await mkdir(worker, { recursive: true });
+  for (const [source, destination] of [
+    [
+      new URL('../../../scripts/package-worker.mjs', import.meta.url),
+      path.join(scripts, 'package-worker.mjs'),
+    ],
+    [
+      new URL('../source-engine.mjs', import.meta.url),
+      path.join(worker, 'source-engine.mjs'),
+    ],
+  ])
+    await writeFile(destination, await readFile(source));
+  await writeFile(
+    path.join(scripts, 'lib.mjs'),
+    `
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import path from 'node:path';
+export const root = path.dirname(import.meta.dirname);
+export const command = (binary, args, options) => promisify(execFile)(binary, args, { ...options, timeout: 5000 });
+`,
+  );
+  const image = 'sha256:' + 'c'.repeat(64);
+  const commit = 'd'.repeat(40);
+  await writeFile(
+    path.join(worker, 'installed.json'),
+    JSON.stringify({
+      platform: 'linux/arm64',
+      image,
+      commit,
+      version: '1.1.0',
+    }),
+  );
+  await writeFile(
+    f.binary,
+    `#!${process.execPath}
+import { writeFileSync } from 'node:fs';
+const args = process.argv.slice(2).slice(2);
+const image = ${JSON.stringify(image)};
+if (args[0] === 'info') process.stdout.write(JSON.stringify({ ID: 'engine', Architecture: 'arm64' }));
+else if (args[0] === 'image' && args[1] === 'inspect') process.stdout.write(JSON.stringify([{ Id: image, Architecture: 'arm64', Os: 'linux', Config: { Labels: { 'camp.layerfs.commit': ${JSON.stringify(commit)}, 'camp.runtime': 'layerfs-worker' } } }]));
+else if (args[0] === 'container' && args[1] === 'inspect') { process.stderr.write('Error: No such object: ' + args[2]); process.exitCode = 1; }
+else if (args[0] === 'run') process.stdout.write(JSON.stringify({ status: 'sealed', architecture: 'arm64', files: {}, build_id: 'e'.repeat(64) }));
+else if (args[0] === 'image' && args[1] === 'save') writeFileSync(args[args.indexOf('--output') + 1], 'fixture archive');
+else throw new Error('Unexpected fixture Docker command');
+`,
+  );
+  await writeFile(
+    path.join(f.bin, 'git'),
+    `#!${process.execPath}\nprocess.stdout.write('${commit}\\n');\n`,
+    { mode: 0o700 },
+  );
+  const preload = path.join(f.root, 'interrupt-hash.mjs');
+  await writeFile(
+    preload,
+    `
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+Object.defineProperty(process, 'arch', { value: 'arm64' });
+const original = fs.createReadStream;
+fs.createReadStream = function(file, ...args) {
+  const stream = original.call(this, file, ...args);
+  if (String(file).endsWith('.tar.gz')) stream.once('data', () => process.emit('SIGTERM'));
+  return stream;
+};
+syncBuiltinESMExports();
+`,
+  );
+  await assert.rejects(
+    promisify(execFile)(
+      process.execPath,
+      [
+        '--import',
+        preload,
+        path.join(scripts, 'package-worker.mjs'),
+        '--docker-binary',
+        f.alias,
+        '--docker-socket',
+        f.socket,
+      ],
+      {
+        env: {
+          PATH: f.bin + path.delimiter + process.env.PATH,
+          HOME: f.root,
+          TMPDIR: f.root,
+        },
+        timeout: 10_000,
+      },
+    ),
+    (error) => /Worker packaging interrupted by SIGTERM/.test(error.stderr),
+  );
+  const artifacts = await readdir(path.join(f.root, 'dist'));
+  assert.ok(artifacts.some((name) => name.endsWith('.tar.gz')));
+  assert.ok(artifacts.every((name) => name.startsWith('.worker-')));
+  const proofName = (await readdir(f.root)).find((name) =>
+    name.startsWith('camp-worker-source-'),
+  );
+  const proof = JSON.parse(
+    await readFile(path.join(f.root, proofName, 'engine.json'), 'utf8'),
+  );
+  assert.equal(proof.phase, 'failed-or-cleanup-unknown');
+  assert.equal(proof.error, 'Worker packaging interrupted by SIGTERM.');
 });
 
 test('all three source commands reject incomplete explicit selection before any engine work', async () => {

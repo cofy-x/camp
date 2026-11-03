@@ -156,8 +156,11 @@ try {
   );
   interrupted.signal.throwIfAborted();
   const hash = createHash('sha256');
-  for await (const chunk of createReadStream(`${temporary}.tar.gz`))
+  for await (const chunk of createReadStream(`${temporary}.tar.gz`)) {
+    interrupted.signal.throwIfAborted();
     hash.update(chunk);
+  }
+  interrupted.signal.throwIfAborted();
   const sha256 = hash.digest('hex'),
     filename = `camp-layerfs-worker-linux-arm64-${sha256}.tar.gz`;
   await rename(`${temporary}.tar.gz`, path.join(destination, filename));
@@ -187,6 +190,7 @@ try {
       bytes: (await stat(path.join(destination, filename))).size,
     },
   };
+  interrupted.signal.throwIfAborted();
   await writeFile(
     path.join(destination, 'checkpoint-worker-release.json'),
     `${JSON.stringify(descriptor, null, 2)}\n`,
@@ -199,11 +203,13 @@ try {
     `Packaged optional checkpoint worker ${filename}: ${descriptor.artifact.bytes} bytes\n`,
   );
 
+  interrupted.signal.throwIfAborted();
   await saveSourceEngineProof(selected, {
     phase: 'passed',
     archiveSHA256: sha256,
     image: installed.image,
   });
+  interrupted.signal.throwIfAborted();
 } catch (error) {
   await saveSourceEngineProof(selected, {
     phase: 'failed-or-cleanup-unknown',

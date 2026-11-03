@@ -166,7 +166,13 @@ export async function selectSourceEngine(
       const result = run(
         selected.invocation,
         ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'],
-        { env: lookup, encoding: 'utf8', maxBuffer: 1 << 20, timeout: 10_000 },
+        {
+          env: lookup,
+          encoding: 'utf8',
+          maxBuffer: 1 << 20,
+          timeout: 10_000,
+          killSignal: 'SIGKILL',
+        },
       );
       assert.ok(
         !result.error && result.status === 0,
@@ -248,6 +254,7 @@ export function sourceDocker(
     encoding: 'utf8',
     timeout,
     maxBuffer,
+    killSignal: 'SIGKILL',
   });
   if (result.error || result.status !== 0) {
     const error = new Error(
