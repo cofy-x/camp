@@ -16,6 +16,9 @@ const binary = join(
 export async function remoteBrowserEnvironment(
   info: TestInfo,
   browser: string,
+  sourceFiles: Record<string, string> = {
+    'notes.md': '# Source notes\n\nKeep this original unchanged.\n',
+  },
 ) {
   const directory = await mkdtemp(join(tmpdir(), `camp-remote-${browser}-`));
   const listener = createServer();
@@ -67,10 +70,8 @@ export async function remoteBrowserEnvironment(
       .poll(() => output.includes('desktop listening'), { timeout: 30_000 })
       .toBe(true);
     await mkdir(join(directory, 'source'));
-    await writeFile(
-      join(directory, 'source', 'notes.md'),
-      '# Source notes\n\nKeep this original unchanged.\n',
-    );
+    for (const [name, content] of Object.entries(sourceFiles))
+      await writeFile(join(directory, 'source', name), content);
   } catch (error) {
     server.kill('SIGTERM');
     await rm(directory, { recursive: true, force: true });

@@ -15,16 +15,19 @@ import {
   syncDirectory,
   validatePreflight,
 } from './verify-remote-real.mjs';
+import {
+  DemoError,
+  check,
+  importDemoRoom,
+  createDemoAgent,
+  installDemoDispatchGuard,
+  prepareDemoComposer,
+  selectDemoValue,
+} from './demo-remote-ui-driver.mjs';
 
 const usage =
   'Usage: node scripts/demo-remote-ui.mjs --allow-two-real-runs ORIGIN ACCESS_JSON RUNNER_ID_OR_NAME SOURCE_ALIAS REPORT_DIR';
 const terminal = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
-
-class DemoError extends Error {}
-
-function check(value, message) {
-  if (!value) throw new DemoError(message);
-}
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -89,8 +92,6 @@ export async function main(args = process.argv.slice(2)) {
   let recordingContext;
   let page;
   let signedIn = false;
-  let armed = null;
-  let dispatchError = false;
 
   async function save() {
     for (const [name, value] of [
@@ -153,46 +154,7 @@ export async function main(args = process.argv.slice(2)) {
       name: 'Document review',
       exact: true,
     });
-    await page.route('**/api/rooms/*/messages', async (route) => {
-      if (route.request().method() !== 'POST') return route.continue();
-      try {
-        const body = route.request().postDataJSON();
-        check(
-          armed &&
-            armed.state === 'reserved' &&
-            new URL(route.request().url()).pathname === armed.route &&
-            body.content === armed.prompt &&
-            body.threadRootId === '' &&
-            body.runnerRevision === armed.runnerRevision &&
-            body.recipientAgentIds?.length === 1 &&
-            body.recipientAgentIds[0] === armed.agentId &&
-            typeof body.requestId === 'string' &&
-            body.requestId.length > 0 &&
-            ledger.requests.every(
-              (request) =>
-                request === armed || request.body?.requestId !== body.requestId,
-            ) &&
-            !body.postOnly,
-          'Unexpected message submission was blocked.',
-        );
-        if (armed.feedbackMessageId)
-          check(
-            body.references?.some(
-              (reference) =>
-                reference.kind === 'message' &&
-                reference.messageId === armed.feedbackMessageId,
-            ),
-            'Review feedback reference was not attached.',
-          );
-        armed.body = body;
-        armed.state = 'dispatched-outcome-unknown';
-        await save();
-        await route.continue();
-      } catch {
-        dispatchError = true;
-        await route.abort('blockedbyclient');
-      }
-    });
+    const dispatch = await installDemoDispatchGuard({ page, ledger, save });
 
     async function get(route, text = false) {
       const response = await page.request.get(route, {
@@ -201,17 +163,6 @@ export async function main(args = process.argv.slice(2)) {
       });
       check(response.ok(), 'A read-only API observation failed.');
       return text ? response.text() : response.json();
-    }
-
-    async function openApp(name) {
-      await page
-        .getByRole('menubar')
-        .getByRole('menuitem', { name: 'Desktop', exact: true })
-        .click();
-      await page
-        .getByRole('menu')
-        .getByRole('menuitem', { name, exact: true })
-        .click();
     }
 
     async function file(resourceId, commit, filename) {
@@ -248,6 +199,8 @@ export async function main(args = process.argv.slice(2)) {
     );
     const source = sources[0];
     ledger.runnerId = report.runnerId = runnerId;
+    ledger.sourceId = report.sourceId = source.id;
+    ledger.sourceRevision = report.sourceRevision = source.revision;
     ledger.configurationRevision = configuration.revision;
     report.budget = budget;
     const roomName = `Camp UI 演示 ${randomUUID().slice(0, 8)}`;
@@ -255,72 +208,44 @@ export async function main(args = process.argv.slice(2)) {
     await save();
 
     stage = 'source-import';
-    await openApp('Library');
-    const drawer = library.getByRole('button', {
-      name: 'Sources',
-      exact: true,
+    const { room, imported } = await importDemoRoom({
+      page,
+      get,
+      runnerId,
+      source,
+      roomName,
+      snapshot,
     });
-    if (await drawer.isVisible()) await drawer.click();
-    await library
-      .getByRole('button', { name: 'Import from Runner…', exact: true })
-      .click();
-    const panel = library.getByRole('region', {
-      name: 'Import from Runner',
-      exact: true,
-    });
-    await panel
-      .getByLabel('Source Runner', { exact: true })
-      .selectOption(runnerId);
-    await panel
-      .getByLabel('Registered directory', { exact: true })
-      .selectOption(source.id);
-    await panel.getByLabel('New Room name', { exact: true }).fill(roomName);
-    await snapshot('1. 从 Runner 已授权来源导入独立资料快照');
-    await panel
-      .getByRole('button', { name: 'Import Snapshot', exact: true })
-      .click();
-    await expect(panel).toContainText('Room created', { timeout: 360_000 });
-    const imported = (await get('/api/source-imports')).sourceImports.find(
-      (value) => value.roomName === roomName && value.runnerId === runnerId,
-    );
-    check(
-      imported?.status === 'succeeded' && imported.roomId,
-      'The source import did not create a Room.',
-    );
-    const room = (await get('/api/rooms')).rooms.find(
-      (value) => value.id === imported.roomId,
-    );
-    check(
-      room && room.runnerId === runnerId,
-      'The imported Room must target the source Runner.',
-    );
     ledger.roomId = report.roomId = room.id;
     report.resourceId = room.resourceId;
     report.sourceImportId = imported.id;
     report.sourceCommit = imported.commit;
+    await save();
     const sourceFiles = await get(`/api/resources/${room.resourceId}/files`);
     check(
-      sourceFiles.files.includes('brief.md') &&
+      sourceFiles.commit === imported.commit &&
+        sourceFiles.files.includes('brief.md') &&
         !sourceFiles.files.includes('onboarding.md'),
-      'Demo source must contain brief.md and no onboarding.md.',
+      'The unchanged imported source must contain brief.md and no onboarding.md.',
     );
-    const brief = await file(room.resourceId, sourceFiles.commit, 'brief.md');
+    const brief = await file(room.resourceId, imported.commit, 'brief.md');
     check(brief.trim().length > 0, 'The imported brief is empty.');
     report.briefSHA256 = sha256(brief);
-    await snapshot('2. 快照导入完成，创建新的演示 Room');
-    await panel.getByRole('button', { name: 'Open Room', exact: true }).click();
-    await expect(
-      workspace.getByLabel(`Message ${roomName}`, { exact: true }),
-    ).toBeVisible();
-    const members = (await get(`/api/rooms/${room.id}/members`)).members;
-    const agent = members.find(
-      (value) =>
-        value.id === room.defaultAgentId &&
-        value.enabled &&
-        value.access === 'write',
-    );
-    check(agent, 'The imported Room needs an enabled default writing Agent.');
+    stage = 'agent-setup';
+    const agentName = `UI Writer ${randomUUID().slice(0, 8)}`;
+    ledger.agentName = report.agentName = agentName;
+    await save();
+    const agent = await createDemoAgent({
+      page,
+      get,
+      room,
+      user,
+      runnerId,
+      name: agentName,
+      snapshot,
+    });
     ledger.agentId = report.agentId = agent.id;
+    report.checks.push('explicit-owned-writer-and-runner-through-ui');
     await save();
 
     async function send(prompt, feedbackMessageId = '') {
@@ -329,35 +254,30 @@ export async function main(args = process.argv.slice(2)) {
         (value) => value.id === runnerId,
       );
       validatePreflight(settings, runner, configuration.revision);
-      check(ledger.requests.length < 2, 'The two-run budget is exhausted.');
-      const composer = workspace.getByRole('form', {
-        name: 'Room composer',
-        exact: true,
-      });
-      await expect(composer).toBeVisible();
-      await composer.getByRole('button', { name: /^To:/ }).click();
-      const choices = composer.getByRole('checkbox');
-      for (let index = 0; index < (await choices.count()); index++)
-        await choices.nth(index).uncheck();
-      await composer
-        .getByRole('checkbox', { name: agent.name, exact: true })
-        .check();
-      await composer.getByRole('button', { name: /^To:/ }).click();
-      await composer
-        .getByLabel(`Message ${roomName}`, { exact: true })
-        .fill(prompt);
-      const request = {
-        intentId: randomUUID(),
-        reservedAt: new Date().toISOString(),
+      const members = (await get(`/api/rooms/${room.id}/members`)).members;
+      const currentAgent = members.find((value) => value.id === agent.id);
+      const currentRoom = (await get('/api/rooms')).rooms.find(
+        (value) => value.id === room.id,
+      );
+      check(
+        currentAgent?.enabled &&
+          currentAgent.access === 'write' &&
+          currentAgent.ownerUserId === user.id &&
+          currentAgent.revision === agent.revision &&
+          currentAgent.preferredRunnerId === runnerId &&
+          currentRoom?.resourceId === room.resourceId &&
+          currentRoom.runnerId === runnerId &&
+          currentRoom.runnerRevision === room.runnerRevision,
+        'The selected Agent, membership, Resource or Runner route changed; no further work will be sent.',
+      );
+      const composer = await prepareDemoComposer(page, room, agent, prompt);
+      const request = dispatch.reserve({
         route: `/api/rooms/${room.id}/messages`,
         prompt,
         runnerRevision: room.runnerRevision,
         agentId: agent.id,
         feedbackMessageId,
-        state: 'reserved',
-      };
-      ledger.requests.push(request);
-      armed = request;
+      });
       await save();
       await snapshot(
         `第 ${ledger.requests.length} 次任务：明确选择 Agent，检查内容后发送`,
@@ -375,9 +295,9 @@ export async function main(args = process.argv.slice(2)) {
         .getByRole('button', { name: 'Send to Agent', exact: true })
         .click();
       const response = await responsePromise;
-      armed = null;
+      dispatch.disarm();
       check(
-        !dispatchError && response.ok(),
+        !dispatch.blocked() && response.ok(),
         'The UI send was not confirmed; inspect the preserved ledger.',
       );
       const accepted = await response.json();
@@ -473,9 +393,7 @@ export async function main(args = process.argv.slice(2)) {
     });
     const title = `${roomName} · 上手指南审核`;
     await reviewRequest.getByLabel('Title', { exact: true }).fill(title);
-    await reviewRequest
-      .getByLabel('Reviewer', { exact: true })
-      .selectOption(user.id);
+    await selectDemoValue(page, reviewRequest, 'Reviewer', user.id);
     await reviewRequest
       .getByRole('button', { name: 'Request Review', exact: true })
       .click();

@@ -107,4 +107,15 @@ The access format is `{"origin":"https://camp.example.com","admin":{"username":"
 
 Report/ledger identities are reserved durably before work submission. Unknown outcomes consume the authorization; commands refuse reused reports and never retry work automatically. Inspect saved request/Room/Run/Task IDs after failure and use explicit cancellation if needed. A new report path grants new work; it is not a recovery instruction. Keep reports private.
 
-[The browser demonstration](../scripts/demo-remote-ui.mjs) retains a separately flagged two-Run ledger and private screenshot/video output, but its imported-Room setup still assumes a default Agent. It stops before its first paid submission on the current import flow; [#91](https://github.com/cofy-x/camp/issues/91) tracks explicit Agent/Runner setup and model-free browser qualification. Use the maintained API tools above for paid acceptance. The older `verify-rooms-real`, `verify-handoff-real` and `verify-team-real` scripts target retired local workflows and are not current remote acceptance commands. Keeping those source files does not establish compatibility.
+[The browser demonstration](../scripts/demo-remote-ui.mjs) has a separate two-Run allowance:
+
+```sh
+node scripts/demo-remote-ui.mjs --allow-two-real-runs \
+  https://camp.example.com /private/access.json RUNNER_ID SOURCE_ALIAS /private/new-ui-report
+```
+
+The registered source must contain a nonempty `brief.md` and no `onboarding.md`. Through the current UI, the demo imports a new Room, creates and joins its own writing Agent, explicitly selects the source Runner, and selects that Agent in the composer. The Runner must permit the new owned Agent. A legacy team Assistant may be present; neither Room defaults nor personal execution defaults choose the demo recipient or machine. These setup operations start no Agent work.
+
+Two subsequent UI sends create and revise the document around human review. Before each send, the demo rechecks model limits/revision, current membership, Agent revision and explicit route. The dispatch guard journals the exact message before forwarding it, rejects unexpected recipients/references and other work admission, and never re-arms an uncertain or unsuccessful request. The existing exclusive private report claim, screenshots/video, original-source checks, native session resume and immutable human delivery remain required.
+
+[Model-free browser qualification](../tests/paid-ui-demo.spec.ts) uses the same setup/composer/dispatch driver with a real Server and Fixture Runners. It covers imports with and without a legacy default Agent, a different personal Runner default, no work during setup, and an uncertain response without resubmission. This establishes UI setup and dispatch behavior; native execution and real-provider acceptance require their own explicitly authorized checks. The older `verify-rooms-real`, `verify-handoff-real` and `verify-team-real` scripts target retired local workflows and are not current remote acceptance commands. Keeping those source files does not establish compatibility.
