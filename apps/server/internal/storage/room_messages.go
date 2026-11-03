@@ -220,6 +220,9 @@ func (s *Store) SendMessage(ctx context.Context, room string, input SendMessageI
 		if err := recordRoomAdmission(ctx, q, result, decision, f); err != nil {
 			return err
 		}
+		if err := recordAutomationRoomEvent(ctx, tx, m, in, decision); err != nil {
+			return err
+		}
 		if err := notifyMentions(ctx, q, m); err != nil {
 			return err
 		}

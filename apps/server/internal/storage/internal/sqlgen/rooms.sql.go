@@ -1239,7 +1239,13 @@ const taskContextMessages = `-- name: TaskContextMessages :many
 SELECT m.id, m.room_id, m.thread_root_id, m.seq, m.author_kind, m.agent_id, m.run_id, m.content, m.request_id, m.fingerprint, m.created_at, m.updated_at, m.references_json, m.author_user_id, m.author_name, m.review_id, m.task_id FROM messages m
 WHERE m.room_id=?1 AND (COALESCE(m.thread_root_id,'')=?2 OR m.id=?2)
 AND m.seq>?3 AND m.seq<=?4
-AND NOT EXISTS (SELECT 1 FROM task_inputs i WHERE i.id=m.id AND i.task_id=?5 AND i.seq>?6)
+AND NOT EXISTS (SELECT 1 FROM task_inputs i WHERE i.message_id=m.id AND i.task_id=?5 AND i.seq>?6)
+AND NOT EXISTS (
+ SELECT 1 FROM task_inputs copy JOIN task_inputs pending
+ ON pending.task_id=?5 AND pending.source_event_id=copy.source_event_id
+ AND pending.part_index=copy.part_index AND pending.seq>?6
+ WHERE copy.message_id=m.id AND copy.source_event_id<>''
+)
 ORDER BY m.seq DESC LIMIT 100
 `
 

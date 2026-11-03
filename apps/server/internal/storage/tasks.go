@@ -202,53 +202,16 @@ func (s *Store) CreateTask(ctx context.Context, roomID string, in CreateTaskInpu
 				return e
 			}
 		}
-		room, e := q.GetRoom(ctx, roomID)
-		if e != nil {
-			return missing(e, "The room")
-		}
-		resource, e := q.GetResource(ctx, room.ResourceID)
-		if e != nil {
-			return e
-		}
-		participants, e := taskParticipants(ctx, q, room, in.ParticipantAgentIDs)
-		if e != nil {
-			return e
-		}
-		refs, e := snapshotReferences(ctx, q, roomID, in.References, true)
-		if e != nil {
-			return e
-		}
-		if in.ThreadRootID != "" {
-			m, e := q.GetMessage(ctx, in.ThreadRootID)
-			if e != nil || m.RoomID != roomID || m.ThreadRootID.Valid {
-				return problem("invalid_task", "Choose a top-level message in this room.")
-			}
-		}
-		stamp := now()
 		user, _ := UserFromContext(ctx)
-		out = CollaborationTask{InputProtocol: in.InputProtocol, ID: newID(), RoomID: roomID, ThreadRootID: in.ThreadRootID, ResourceID: resource.ID, RequestedByUserID: actorID(ctx), Goal: in.Goal, Status: "queued", Revision: 1, Participants: participants, CurrentAgentID: in.FirstAgentID, BaseSharedCommit: resource.CurrentCommit, CheckpointCommit: resource.CurrentCommit, MaxTurns: 6, MaxModelRequests: 24, Inputs: []TaskInput{}, Environment: json.RawMessage(resource.Environment), Budget: b, References: refs, CreatedAt: stamp, UpdatedAt: stamp}
-		if _, ok := taskParticipant(out, in.FirstAgentID); !ok {
-			return problem("invalid_task", "Choose the first agent from the approved participants.")
-		}
-		seq, e := q.NextMessageSequence(ctx, roomID)
+		out, e = createTaskTx(ctx, q, roomID, in, b, taskCreation{RequesterUserID: user.ID, OriginAuthorKind: "user", OriginAuthorUserID: user.ID, OriginAuthorName: user.Name, MaxTurns: 6, MaxModelRequests: 24})
 		if e != nil {
-			return e
-		}
-		m := Message{ID: newID(), TaskID: out.ID, RoomID: roomID, ThreadRootID: in.ThreadRootID, Seq: seq, AuthorKind: "user", AuthorUserID: user.ID, AuthorName: user.Name, Content: in.Goal, References: refs, CreatedAt: stamp, UpdatedAt: stamp}
-		out.OriginMessageID = m.ID
-		out.SourceEventID = in.SourceEventID
-		if out.ThreadRootID == "" {
-			out.ThreadRootID = m.ID
-		}
-		if e = insertMessage(ctx, q, m, ""); e != nil {
-			return e
-		}
-		raw, _ := json.Marshal(out)
-		if e = q.CreateTask(ctx, sqlgen.CreateTaskParams{ID: out.ID, RoomID: roomID, RequestedByUserID: out.RequestedByUserID, Status: out.Status, Revision: out.Revision, Snapshot: string(raw), CreatedAt: stamp, UpdatedAt: stamp}); e != nil {
 			return e
 		}
 		if in.SourceEventID != "" {
 			if e = acceptGitHubEvent(ctx, q, &out, sourceEvent); e != nil {
+				return e
+			}
+			if e = markAutomationManualDecision(ctx, q, in.SourceEventID, out.ID); e != nil {
 				return e
 			}
 		}
@@ -258,12 +221,74 @@ func (s *Store) CreateTask(ctx context.Context, roomID string, in CreateTaskInpu
 		if e = saveTask(ctx, q, &out); e != nil {
 			return e
 		}
-		if e = recordTaskAdmission(ctx, q, out, orchestration.TaskStart, orchestration.RequestRef{Scope: scope, ID: in.RequestID, Hash: hash}, m.ID); e != nil {
+		if e = recordTaskAdmission(ctx, q, out, orchestration.TaskStart, orchestration.RequestRef{Scope: scope, ID: in.RequestID, Hash: hash}, out.OriginMessageID); e != nil {
 			return e
 		}
 		return saveTaskReceipt(ctx, q, scope, in.RequestID, hash, out)
 	})
 	return taskOutput(ctx, s.queries(), out, err, in.PagedResponse)
+}
+
+type taskCreation struct {
+	RequesterUserID, OriginAuthorKind, OriginAuthorUserID, OriginAuthorName string
+	MaxTurns, MaxModelRequests                                              int
+}
+
+// createTaskTx freezes the grant and creates its visible origin. Callers append
+// initial evidence and enqueue the first round in this same transaction.
+func createTaskTx(ctx context.Context, q *sqlgen.Queries, roomID string, in CreateTaskInput, b Budget, grant taskCreation) (out CollaborationTask, err error) {
+	if !validText(in.Goal, MaxRunPromptSize, false) || b.MaxTokens < 1 || b.MaxSteps < 1 || b.TimeoutSeconds < 1 || grant.MaxTurns < 1 || grant.MaxModelRequests < 1 {
+		return out, problem("invalid_task", "Provide a goal and finite execution allowance.")
+	}
+	requester, e := q.GetUser(ctx, grant.RequesterUserID)
+	if e != nil || !requester.Enabled {
+		return out, problem("forbidden", "The collaboration requester is unavailable.")
+	}
+	room, e := q.GetRoom(ctx, roomID)
+	if e != nil {
+		return out, missing(e, "The room")
+	}
+	resource, e := q.GetResource(ctx, room.ResourceID)
+	if e != nil {
+		return out, e
+	}
+	participants, e := taskParticipants(ctx, q, room, in.ParticipantAgentIDs)
+	if e != nil {
+		return out, e
+	}
+	refs, e := snapshotReferences(ctx, q, roomID, in.References, true)
+	if e != nil {
+		return out, e
+	}
+	if in.ThreadRootID != "" {
+		m, e := q.GetMessage(ctx, in.ThreadRootID)
+		if e != nil || m.RoomID != roomID || m.ThreadRootID.Valid {
+			return out, problem("invalid_task", "Choose a top-level message in this room.")
+		}
+	}
+	stamp := now()
+	out = CollaborationTask{InputProtocol: in.InputProtocol, ID: newID(), RoomID: roomID, ThreadRootID: in.ThreadRootID, ResourceID: resource.ID, RequestedByUserID: grant.RequesterUserID, Goal: in.Goal, Status: "queued", Revision: 1, Participants: participants, CurrentAgentID: in.FirstAgentID, BaseSharedCommit: resource.CurrentCommit, CheckpointCommit: resource.CurrentCommit, MaxTurns: grant.MaxTurns, MaxModelRequests: grant.MaxModelRequests, Inputs: []TaskInput{}, Environment: json.RawMessage(resource.Environment), Budget: b, References: refs, CreatedAt: stamp, UpdatedAt: stamp}
+	if _, ok := taskParticipant(out, in.FirstAgentID); !ok {
+		return out, problem("invalid_task", "Choose the first agent from the approved participants.")
+	}
+	seq, e := q.NextMessageSequence(ctx, roomID)
+	if e != nil {
+		return out, e
+	}
+	m := Message{ID: newID(), TaskID: out.ID, RoomID: roomID, ThreadRootID: in.ThreadRootID, Seq: seq, AuthorKind: grant.OriginAuthorKind, AuthorUserID: grant.OriginAuthorUserID, AuthorName: grant.OriginAuthorName, Content: in.Goal, References: refs, CreatedAt: stamp, UpdatedAt: stamp}
+	out.OriginMessageID = m.ID
+	out.SourceEventID = in.SourceEventID
+	if out.ThreadRootID == "" {
+		out.ThreadRootID = m.ID
+	}
+	if e = insertMessage(ctx, q, m, ""); e != nil {
+		return out, e
+	}
+	raw, _ := json.Marshal(out)
+	if e = q.CreateTask(ctx, sqlgen.CreateTaskParams{ID: out.ID, RoomID: roomID, RequestedByUserID: out.RequestedByUserID, Status: out.Status, Revision: out.Revision, Snapshot: string(raw), CreatedAt: stamp, UpdatedAt: stamp}); e != nil {
+		return out, e
+	}
+	return out, nil
 }
 
 // Queue creation does not consume a round or hold a writer lease. The fixed
@@ -423,6 +448,12 @@ func (s *Store) OperateTask(ctx context.Context, id, action string, in TaskOpera
 			if e = taskManage(ctx, q, out); e != nil {
 				return e
 			}
+			if e = q.CloseTaskAutomationSubscriptions(ctx, out.ID); e != nil {
+				return e
+			}
+			if e = q.RetireCancelledAutomationEvents(ctx, out.ID); e != nil {
+				return e
+			}
 			out.Status = "cancelling"
 			out.Error = "Cancellation requested."
 			if e = saveTask(ctx, q, &out); e != nil {
@@ -468,12 +499,12 @@ func addTaskInput(ctx context.Context, q *sqlgen.Queries, t *CollaborationTask, 
 	if e != nil {
 		return "", e
 	}
-	input := TaskInput{Seq: t.InputRevision + 1, ID: newID(), AuthorUserID: u.ID, AuthorName: u.Name, Content: content, CreatedAt: now()}
+	input := TaskInput{Seq: t.InputRevision + 1, ID: newID(), MessageID: newID(), AuthorUserID: u.ID, AuthorName: u.Name, Content: content, CreatedAt: now()}
 	seq, e := q.NextMessageSequence(ctx, t.RoomID)
 	if e != nil {
 		return "", e
 	}
-	m := Message{ID: input.ID, TaskID: t.ID, RoomID: t.RoomID, ThreadRootID: t.ThreadRootID, Seq: seq, AuthorKind: "user", AuthorUserID: u.ID, AuthorName: u.Name, Content: content, CreatedAt: input.CreatedAt, UpdatedAt: input.CreatedAt}
+	m := Message{ID: input.MessageID, TaskID: t.ID, RoomID: t.RoomID, ThreadRootID: t.ThreadRootID, Seq: seq, AuthorKind: "user", AuthorUserID: u.ID, AuthorName: u.Name, Content: content, CreatedAt: input.CreatedAt, UpdatedAt: input.CreatedAt}
 	if e = insertMessage(ctx, q, m, ""); e != nil {
 		return "", e
 	}
@@ -481,12 +512,12 @@ func addTaskInput(ctx context.Context, q *sqlgen.Queries, t *CollaborationTask, 
 	if e != nil {
 		return "", e
 	}
-	if e = q.InsertTaskInput(ctx, sqlgen.InsertTaskInputParams{ID: input.ID, TaskID: t.ID, Seq: input.Seq, ContentBytes: int64(len(content)), Value: string(data)}); e != nil {
+	if e = q.InsertTaskInput(ctx, sqlgen.InsertTaskInputParams{ID: input.ID, MessageID: input.MessageID, TaskID: t.ID, Seq: input.Seq, ContentBytes: int64(len(content)), Value: string(data)}); e != nil {
 		return "", e
 	}
 	t.InputRevision = input.Seq
 	t.InputBytes += int64(len(content))
-	return input.ID, nil
+	return input.MessageID, nil
 }
 func taskNotice(ctx context.Context, q *sqlgen.Queries, t CollaborationTask, kind, text string) error {
 	seq, e := q.NextMessageSequence(ctx, t.RoomID)
@@ -495,6 +526,9 @@ func taskNotice(ctx context.Context, q *sqlgen.Queries, t CollaborationTask, kin
 	}
 	m := Message{ID: newID(), TaskID: t.ID, RoomID: t.RoomID, ThreadRootID: t.ThreadRootID, Seq: seq, AuthorKind: "system", Content: text, CreatedAt: now(), UpdatedAt: now()}
 	if e = insertMessage(ctx, q, m, ""); e != nil {
+		return e
+	}
+	if e = queueAutomationTaskNotice(ctx, q, t, kind, text); e != nil {
 		return e
 	}
 	return q.CreateInboxItem(ctx, sqlgen.CreateInboxItemParams{ID: newID(), UserID: t.RequestedByUserID, Kind: kind, RoomID: t.RoomID, MessageID: m.ID, TaskID: t.ID, CreatedAt: now()})

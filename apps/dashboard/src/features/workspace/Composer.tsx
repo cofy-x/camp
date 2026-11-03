@@ -31,6 +31,7 @@ import { documentFormat, documentPending } from './documents';
 import { useTeam } from '../../team/TeamContext';
 import { useConversationDraft } from './useConversationDraft';
 import { APIError } from '../../shared/api/http';
+import { automationApi } from '../automation/api';
 
 export function Composer({
   room,
@@ -53,6 +54,26 @@ export function Composer({
 }) {
   const key = conversationKey(room.id, threadId);
   const team = useTeam();
+  const [automationMode, setAutomationMode] = useState<
+    'observe' | 'auto' | null
+  >(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void automationApi
+      .policies(room.id, controller.signal)
+      .then(({ policies }) => {
+        if (!controller.signal.aborted)
+          setAutomationMode(
+            policies.find(
+              (policy) => policy.sourceId === 'room' && policy.enabled,
+            )?.mode ?? null,
+          );
+      })
+      .catch(() => {
+        // Retain the last observed consequence if a background read fails.
+      });
+    return () => controller.abort();
+  }, [room.id, team.revision]);
   const privateDraft = useConversationDraft(
     key,
     `${room.id}:${threadId || 'room'}`,
@@ -574,7 +595,11 @@ export function Composer({
                 ? 'Waiting for attachments…'
                 : preparingDocuments && hasAgentWork && !retry
                   ? 'Preparing attachment text…'
-                  : 'Ctrl / ⌘ + Return to send'}
+                  : !postOnly && !hasAgentWork && automationMode
+                    ? automationMode === 'auto'
+                      ? 'Room automation may start a collaboration.'
+                      : 'Room automation may assess this post using a model.'
+                    : 'Ctrl / ⌘ + Return to send'}
         </span>
         <Button
           type="submit"

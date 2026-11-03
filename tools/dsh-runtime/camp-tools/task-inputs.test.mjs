@@ -8,6 +8,12 @@ test('task input tool keeps scope fixed, bounds requests and preserves original 
       {
         seq: 1,
         id: 'original',
+        messageId: 'external-message',
+        sourceEventId: 'github:original-event',
+        partIndex: 2,
+        authorKind: 'external',
+        externalActorId: '123',
+        authorUserId: '',
         authorName: 'Person',
         content: '<original>',
         createdAt: 'unchanged',

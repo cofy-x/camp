@@ -10,11 +10,37 @@ const title = 'Review the onboarding guide — 验证事件接入';
 const panel = (page: Page) =>
   workspace(page).getByRole('region', { name: 'GitHub events', exact: true });
 
+const settings = (page: Page) =>
+  workspace(page).getByRole('region', { name: 'Room automation', exact: true });
+
 async function openEvents(page: Page) {
   await workspace(page)
-    .getByRole('button', { name: 'GitHub', exact: true })
+    .getByRole('button', { name: 'Automation', exact: true })
     .click();
+  await settings(page)
+    .getByRole('tab', { name: 'Activity', exact: true })
+    .click();
+  const inbox = settings(page).getByRole('button', {
+    name: 'GitHub inbox',
+    exact: true,
+  });
+  if (await inbox.isVisible()) await inbox.click();
   await expect(panel(page)).toBeVisible();
+}
+
+async function openSources(page: Page) {
+  await workspace(page)
+    .getByRole('button', { name: 'Automation', exact: true })
+    .click();
+  await settings(page)
+    .getByRole('tab', { name: 'Settings', exact: true })
+    .click();
+  const sources = settings(page).locator('details.github-sources');
+  await expect(sources).toBeVisible();
+  if (
+    !(await sources.evaluate((element) => (element as HTMLDetailsElement).open))
+  )
+    await sources.locator('summary').first().click();
 }
 
 function payload(body: string, eventTitle = title) {
@@ -105,12 +131,9 @@ test('signed observations stay pending, retain originals and require an explicit
   );
   expect(await download.text()).toBe(body);
   await panel(page).getByRole('button', { name: 'Back to Events' }).click();
-  const sources = panel(page).locator('details.github-sources');
-  if (
-    !(await sources.evaluate((element) => (element as HTMLDetailsElement).open))
-  )
-    await sources.locator('summary').first().click();
-  await panel(page)
+  await openSources(page);
+  await settings(page)
+    .locator('.github-sources')
     .getByRole('checkbox', { name: 'Enabled', exact: true })
     .uncheck();
   await expect
@@ -129,7 +152,7 @@ test('signed observations stay pending, retain originals and require an explicit
     secret,
   });
   expect(replacement.ok()).toBe(true);
-  const oldSource = panel(page)
+  const oldSource = settings(page)
     .locator('.github-sources li')
     .filter({ hasText: 'Repository ID 123' });
   await oldSource
@@ -150,6 +173,7 @@ test('signed observations stay pending, retain originals and require an explicit
       )
     ).status,
   ).toBe(409);
+  await openEvents(page);
   await item.click();
   await expect(
     panel(page).getByRole('button', {
@@ -190,7 +214,7 @@ test('source setup recovers a lost response after reload without persisting its 
     page,
     `GitHub source recovery-${randomUUID().slice(0, 8)}`,
   );
-  await openEvents(page);
+  await openSources(page);
   let submissions = 0;
   await page.route(`**/api/rooms/${room.id}/github-sources`, async (route) => {
     if (route.request().method() !== 'POST') return route.fallback();
@@ -199,15 +223,17 @@ test('source setup recovers a lost response after reload without persisting its 
     expect(response.ok()).toBe(true);
     return route.abort('failed');
   });
-  await panel(page)
+  await settings(page)
     .getByLabel('Repository', { exact: true })
     .fill('camp-example/research');
-  await panel(page).getByLabel('Webhook secret', { exact: true }).fill(secret);
-  await panel(page)
+  await settings(page)
+    .getByLabel('Webhook secret', { exact: true })
+    .fill(secret);
+  await settings(page)
     .getByRole('button', { name: 'Add Source', exact: true })
     .click();
   await expect(
-    panel(page).getByRole('button', { name: 'Check Saved Operation' }),
+    settings(page).getByRole('button', { name: 'Check Saved Operation' }),
   ).toBeVisible();
   const storage = await page.evaluate(() =>
     JSON.stringify({
@@ -217,27 +243,24 @@ test('source setup recovers a lost response after reload without persisting its 
   );
   expect(storage).not.toContain(secret);
   await errors.reload();
-  await openEvents(page);
-  const sources = panel(page).locator('details.github-sources');
-  if (
-    !(await sources.evaluate((element) => (element as HTMLDetailsElement).open))
-  )
-    await sources.locator('summary').first().click();
-  await panel(page)
+  await openSources(page);
+  await settings(page)
     .getByRole('button', { name: 'Check Saved Operation' })
     .click();
   await expect(
-    panel(page).getByRole('button', { name: 'Check Saved Operation' }),
+    settings(page).getByRole('button', { name: 'Check Saved Operation' }),
   ).toHaveCount(0);
   await expect(
-    panel(page).getByText('camp-example/research', { exact: true }),
+    settings(page)
+      .locator('.github-sources')
+      .getByText('camp-example/research', { exact: true }),
   ).toBeVisible();
   await expect(
-    panel(page).getByLabel('Webhook secret', { exact: true }),
+    settings(page).getByLabel('Webhook secret', { exact: true }),
   ).toHaveValue('');
   expect(submissions).toBe(1);
-  await panel(page).getByText('Webhook setup', { exact: true }).click();
-  await expect(panel(page).getByLabel('Payload URL')).toHaveValue(
+  await settings(page).getByText('Webhook setup', { exact: true }).click();
+  await expect(settings(page).getByLabel('Payload URL')).toHaveValue(
     /\/api\/hooks\/github\/[a-f0-9]{32}$/,
   );
   expect(errors.errors).toEqual([]);

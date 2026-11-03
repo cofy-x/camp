@@ -1,0 +1,245 @@
+import { request } from '../../shared/api/http';
+
+export interface AutomationPolicy {
+  id: string;
+  roomId: string;
+  sourceId: string;
+  revision: number;
+  ownerUserId: string;
+  enabled: boolean;
+  mode: 'observe' | 'auto';
+  rules: string;
+  allowedActorIds: string[];
+  participantAgentIds: string[];
+  firstAgentId: string;
+  maxTurns: number;
+  maxModelRequests: number;
+  dailyEvaluations: number;
+  dailyTasks: number;
+  allowAnswers: boolean;
+  allowComments: boolean;
+  credentialConfigured: boolean;
+  commentActorId?: number;
+  startAfter: number;
+}
+
+export type PolicyValues = Pick<
+  AutomationPolicy,
+  | 'enabled'
+  | 'mode'
+  | 'rules'
+  | 'allowedActorIds'
+  | 'participantAgentIds'
+  | 'firstAgentId'
+  | 'maxTurns'
+  | 'maxModelRequests'
+  | 'dailyEvaluations'
+  | 'dailyTasks'
+  | 'allowAnswers'
+  | 'allowComments'
+>;
+
+export interface SourceEvent {
+  seq: number;
+  id: string;
+  roomId: string;
+  sourceId: string;
+  threadKey: string;
+  kind: string;
+  actorId: string;
+  actorLogin: string;
+  actorKind: string;
+  messageId?: string;
+  externalEventId?: string;
+  repository?: string;
+  repositoryId?: number;
+  number?: number;
+  content: string;
+  occurredAt: string;
+  status: string;
+  reason?: string;
+  evaluationId?: string;
+  taskId?: string;
+  policyRevision?: number;
+  preview?: string;
+  assessmentOutcome?: 'accept' | 'ignore' | 'unavailable';
+  assessmentReason?: string;
+}
+
+export interface SourceEventPage {
+  items: SourceEvent[];
+  through: number;
+  nextAfter: number | null;
+  nextBefore?: number | null;
+  hasMore: boolean;
+}
+
+export interface Evaluation {
+  id: string;
+  status: string;
+  policy: AutomationPolicy;
+  events: SourceEvent[];
+  tasks: { id: string; goal: string; status: string; revision: number }[];
+  modelRevision: string;
+  totalTasks: number;
+  tasksOmitted: boolean;
+  assessment?: {
+    outcome: 'accept' | 'ignore' | 'unavailable';
+    goal?: string;
+    reason: string;
+  } | null;
+  createdAt: string;
+}
+
+export interface Subscription {
+  id: string;
+  taskId: string;
+  sourceId: string;
+  threadKey: string;
+  enabled: boolean;
+  revision: number;
+}
+
+export interface Delivery {
+  attempts?: {
+    revision?: number;
+    actorId: number;
+    startedAt?: string;
+    outcome?: 'sending' | 'sent' | 'failed' | 'unknown';
+  }[];
+  receipts?: { commentId: number; actorId: number; url: string }[];
+  receiptScanLimited?: boolean;
+  withdrawn?: boolean;
+  id: string;
+  taskId: string;
+  sourceId: string;
+  policyId: string;
+  revision: number;
+  repository: string;
+  repositoryId: number;
+  number: number;
+  body: string;
+  marker: string;
+  questionId?: string;
+  status: string;
+  reason?: string;
+  commentId?: number;
+  url?: string;
+  createdAt: string;
+}
+
+export interface AutomationReceipt {
+  kind: string;
+  policy?: AutomationPolicy;
+  delivery?: Delivery;
+  subscription?: Subscription;
+  credentialConfigured?: boolean;
+}
+
+const id = encodeURIComponent;
+const json = (method: string, value: unknown) => ({
+  method,
+  body: JSON.stringify(value),
+});
+
+export const automationApi = {
+  policies: (room: string, signal?: AbortSignal) =>
+    request<{ policies: AutomationPolicy[] }>(
+      `/rooms/${id(room)}/automation-policies`,
+      { signal },
+    ),
+  savePolicy: (
+    room: string,
+    source: string,
+    value: PolicyValues & { requestId: string; revision: number },
+  ) =>
+    request<{ policy: AutomationPolicy }>(
+      `/rooms/${id(room)}/automation-policies/${id(source)}`,
+      json('PUT', value),
+    ),
+  events: (
+    room: string,
+    after: number,
+    through?: number,
+    signal?: AbortSignal,
+  ) => {
+    const query = new URLSearchParams({ after: String(after), limit: '20' });
+    if (through !== undefined) query.set('through', String(through));
+    return request<SourceEventPage>(
+      `/rooms/${id(room)}/automation-events?${query}`,
+      { signal },
+    );
+  },
+  activity: (
+    room: string,
+    options: { before?: number; through?: number; sourceId?: string },
+    signal?: AbortSignal,
+  ) => {
+    const query = new URLSearchParams({ direction: 'desc', limit: '20' });
+    if (options.before !== undefined)
+      query.set('before', String(options.before));
+    if (options.through !== undefined)
+      query.set('through', String(options.through));
+    if (options.sourceId) query.set('sourceId', options.sourceId);
+    return request<SourceEventPage>(
+      `/rooms/${id(room)}/automation-events?${query}`,
+      { signal },
+    );
+  },
+  receipt: (requestId: string) =>
+    request<AutomationReceipt>(`/automation-requests/${id(requestId)}`),
+  cancelReceipt: (requestId: string) =>
+    request<AutomationReceipt>(
+      `/automation-requests/${id(requestId)}/cancel`,
+      json('POST', {}),
+    ),
+  evaluation: (evaluationId: string, signal?: AbortSignal) =>
+    request<Evaluation>(`/automation-evaluations/${id(evaluationId)}`, {
+      signal,
+    }),
+  subscriptions: (task: string, signal?: AbortSignal) =>
+    request<{ subscriptions: Subscription[] }>(
+      `/tasks/${id(task)}/subscriptions`,
+      { signal },
+    ),
+  saveSubscription: (
+    task: string,
+    value: Pick<
+      Subscription,
+      'sourceId' | 'threadKey' | 'revision' | 'enabled'
+    > & {
+      requestId: string;
+    },
+  ) =>
+    request<AutomationReceipt>(
+      `/tasks/${id(task)}/subscriptions`,
+      json('PUT', value),
+    ),
+  deliveries: (task: string, cursor = '', signal?: AbortSignal) =>
+    request<{ deliveries: Delivery[]; nextCursor: string }>(
+      `/tasks/${id(task)}/deliveries?${new URLSearchParams({ cursor, limit: '20' })}`,
+      { signal },
+    ),
+  deliveryAction: (
+    delivery: string,
+    action: 'reconcile' | 'resend',
+    value: { requestId: string; revision: number },
+  ) =>
+    request<AutomationReceipt>(
+      `/automation-deliveries/${id(delivery)}/${action}`,
+      json('POST', value),
+    ),
+  credential: (
+    source: string,
+    value: {
+      requestId: string;
+      revision: number;
+      token: string;
+      actorId: number;
+    },
+  ) =>
+    request<AutomationReceipt>(
+      `/github-sources/${id(source)}/comment-credential`,
+      json('PUT', value),
+    ),
+};

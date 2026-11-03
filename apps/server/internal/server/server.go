@@ -15,6 +15,7 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"github.com/cofy-x/camp/apps/server/internal/documents"
 	"github.com/cofy-x/camp/apps/server/internal/documenttext"
+	"github.com/cofy-x/camp/apps/server/internal/eventflow"
 	"github.com/cofy-x/camp/apps/server/internal/httpapi"
 	"github.com/cofy-x/camp/apps/server/internal/library"
 	"github.com/cofy-x/camp/apps/server/internal/remoteruns"
@@ -119,6 +120,16 @@ func Run(ctx context.Context, config Config) error {
 		return fmt.Errorf("initialize webhook credentials: %w", err)
 	}
 	api.EnableGitHub(webhookSecrets)
+	commentCredentials, err := configuration.OpenGitHubCredentials(filepath.Join(config.DataDir, "configuration", "github-comments"))
+	if err != nil {
+		return fmt.Errorf("initialize comment credentials: %w", err)
+	}
+	events, err := eventflow.New(ctx, store, runManager.ModelConfiguration(), commentCredentials, logger)
+	if err != nil {
+		return fmt.Errorf("initialize event processing: %w", err)
+	}
+	defer events.Shutdown(context.Background())
+	api.EnableAutomation(commentCredentials)
 	api.EnableTeam(auth, config.TrustedOrigins, config.PublicOrigin)
 	api.EnableRemote(runManager)
 	api.EnableSettings(runManager, importPolicy)
@@ -171,9 +182,12 @@ func Run(ctx context.Context, config Config) error {
 	defer cancel()
 	api.StopStreams()
 	return errors.Join(serveErr, shutdownService(shutdown, httpServer, func(ctx context.Context) error {
+		// Stop intake effects before the execution scheduler drains. Persisted
+		// uncertain work is reconciled on restart, never replayed at shutdown.
+		eventErr := events.Shutdown(ctx)
 		done := make(chan error, 1)
 		go func() { done <- runManager.Shutdown(ctx) }()
-		return errors.Join(documentManager.Shutdown(ctx), <-done)
+		return errors.Join(eventErr, documentManager.Shutdown(ctx), <-done)
 	}, cancelRequests))
 }
 

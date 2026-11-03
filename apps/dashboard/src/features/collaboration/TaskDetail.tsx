@@ -10,6 +10,7 @@ import { taskStatus } from './api';
 import { AssistantContent } from '../workspace/AssistantContent';
 import { TaskHistory } from './TaskHistory';
 import { useTaskController } from './useTaskController';
+import { TaskAutomation } from '../automation/TaskAutomation';
 
 export function TaskDetail({
   id,
@@ -514,6 +515,7 @@ export function TaskDetail({
                     Open Previous Task Draft
                   </Button>
                 )}
+                <TaskAutomation task={task} manage={manage} desktop={desktop} />
               </div>
             )}
           </Tabs>
