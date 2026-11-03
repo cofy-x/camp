@@ -301,15 +301,18 @@ export function requireSourceEngine(engine, expected) {
   return info;
 }
 
-function absent(error, name) {
+function absent(error, name, resource) {
   return (
     error.status === 1 &&
-    error.stderr
+    (error.stderr
       .split('\n')
       .some(
         (line) =>
           line.includes('No such ') && line.trim().endsWith(': ' + name),
-      )
+      ) ||
+      (resource === 'volume' &&
+        error.stderr.trim() ===
+          'Error response from daemon: get ' + name + ': no such volume'))
   );
 }
 
@@ -332,7 +335,7 @@ export function inspectSourceVolume(engine, name) {
       timeout: 10_000,
     })[0];
   } catch (error) {
-    if (absent(error, name)) return null;
+    if (absent(error, name, 'volume')) return null;
     throw error;
   }
 }

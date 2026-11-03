@@ -271,5 +271,7 @@ process.stdout.write(
     (report.passed ? 'passed' : 'failed') +
     ': ' +
     destination +
+    '\nPrivate source-engine proof: ' +
+    path.join(selected.directory, 'engine.json') +
     '\n',
 );

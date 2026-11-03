@@ -21,6 +21,8 @@ import { test } from 'node:test';
 import { promisify } from 'node:util';
 import { fileURLToPath, URL } from 'node:url';
 import {
+  inspectSourceContainer,
+  inspectSourceVolume,
   removeSourceVolume,
   selectSourceEngine,
   sourceDocker,
@@ -315,7 +317,14 @@ function resources({
                     : volume.CreatedAt,
               },
             ])
-          : missing(args[2]);
+          : {
+              status: 1,
+              stdout: '',
+              stderr:
+                'Error response from daemon: get ' +
+                args[2] +
+                ': no such volume\n',
+            };
       }
       if (args[0] === 'container' && args[1] === 'ls')
         return ok(inUse ? 'foreign-container' : '');
@@ -339,6 +348,34 @@ function resources({
   };
   return { engine, owner, mutations };
 }
+
+test('volume inspection recognizes the exact daemon absence response and rejects unrelated failures', () => {
+  const name = 'probe-home';
+  const missingVolume =
+    'Error response from daemon: get ' + name + ': no such volume';
+  const engine = (result) => ({
+    binary: '/fixed/docker',
+    args: ['--host', 'unix:///fixed.sock'],
+    environment: {},
+    run: () => result,
+  });
+  const response = (stderr, status = 1) => ({ status, stdout: '', stderr });
+  for (const result of [missing(name), response(missingVolume + '\n')])
+    assert.equal(inspectSourceVolume(engine(result), name), null);
+  for (const result of [
+    response(missingVolume, 125),
+    response(missingVolume.replace(name, name + '-other')),
+    response('permission denied: ' + missingVolume),
+    response('Cannot connect to the Docker daemon'),
+    response(missingVolume + ': transport failed'),
+    response('permission denied\n' + missingVolume),
+    response(missingVolume + '\ntransport failed'),
+  ])
+    assert.throws(() => inspectSourceVolume(engine(result), name));
+  assert.throws(() =>
+    inspectSourceContainer(engine(response(missingVolume)), name),
+  );
+});
 
 test('source cleanup binds exact container ID, labels, image and engine, and never force removes', () => {
   const f = resources();
