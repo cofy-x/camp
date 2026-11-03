@@ -313,6 +313,7 @@ func TestConnectionReplacementPreservesPragmas(t *testing.T) {
 	for range 2 {
 		assertScalar(t, s, "PRAGMA foreign_keys", 1)
 		assertScalar(t, s, "PRAGMA busy_timeout", 100)
+		assertScalar(t, s, "PRAGMA synchronous", 2)
 		var journal string
 		if err := s.db.QueryRow("PRAGMA journal_mode").Scan(&journal); err != nil || journal != "wal" {
 			t.Fatalf("replacement journal mode %q: %v", journal, err)

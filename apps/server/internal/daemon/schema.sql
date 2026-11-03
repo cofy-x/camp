@@ -1,6 +1,3 @@
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = FULL;
-PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS commands (
  id TEXT PRIMARY KEY,
  operation_id TEXT NOT NULL UNIQUE,

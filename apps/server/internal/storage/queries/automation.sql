@@ -95,11 +95,6 @@ WHERE task_id=sqlc.arg(task_id)
  AND (sqlc.arg(before_at)='' OR created_at<sqlc.arg(before_at)
   OR (created_at=sqlc.arg(before_at) AND id<sqlc.arg(before_id)))
 ORDER BY created_at DESC,id DESC LIMIT sqlc.arg(page_limit);
--- name: AutomationTaskBatchDeliveries :many
-SELECT DISTINCT source_event_id FROM task_inputs
-WHERE task_id=sqlc.arg(task_id)
- AND source_event_id IN (SELECT CAST(value AS TEXT) FROM json_each(sqlc.arg(event_ids)))
-ORDER BY source_event_id;
 -- name: AutomationActivityAscending :many
 SELECT e.*,
  CAST(coalesce(CASE WHEN e.source_id='room' THEN json_extract(e.value,'$.content')
@@ -126,6 +121,34 @@ LEFT JOIN automation_evaluations a ON a.id=e.evaluation_id AND a.source_id=e.sou
 WHERE e.room_id=sqlc.arg(room_id) AND e.seq<=sqlc.arg(through_seq)
  AND e.seq<=sqlc.arg(before_seq)
 ORDER BY e.seq DESC LIMIT sqlc.arg(page_limit);
+
+-- name: AutomationRelatedTaskRouting :many
+SELECT t.id,t.status,t.revision,
+ CAST(coalesce(json_extract(t.snapshot,'$.goal'),'') AS TEXT) AS goal,
+ CAST(coalesce(s.id,'') AS TEXT) AS subscription_id,
+ CAST(coalesce(s.revision,0) AS INTEGER) AS subscription_revision,
+ CAST(coalesce(s.enabled,0) AS INTEGER) AS subscription_enabled,
+ CAST(CASE WHEN coalesce(json_extract(t.snapshot,'$.automationPolicyId'),'')<>'' AND p.id IS NULL THEN 1 ELSE 0 END AS INTEGER) AS missing_policy,
+ CAST(CASE WHEN s.enabled=1 AND t.status NOT IN ('completed','cancelled','interrupted','cancelling')
+  AND (coalesce(json_extract(t.snapshot,'$.automationPolicyId'),'')='' OR p.enabled<>0 OR p.source_id<>sqlc.arg(source_id))
+  THEN 1 ELSE 0 END AS INTEGER) AS receives_inputs,
+ CAST(coalesce((SELECT json_group_array(batch.source_event_id) FROM (
+  SELECT DISTINCT i.source_event_id FROM task_inputs i
+  WHERE i.task_id=t.id AND i.source_event_id IN (SELECT CAST(value AS TEXT) FROM json_each(sqlc.arg(event_ids)))
+  ORDER BY i.source_event_id
+ ) batch),'[]') AS TEXT) AS received_event_ids
+FROM collaboration_tasks t
+LEFT JOIN automation_policies p ON p.id=json_extract(t.snapshot,'$.automationPolicyId')
+LEFT JOIN automation_subscriptions s ON s.task_id=t.id AND s.source_id=sqlc.arg(source_id) AND s.thread_key=sqlc.arg(thread_key)
+LEFT JOIN github_events g ON g.id=json_extract(t.snapshot,'$.sourceEventId')
+WHERE t.room_id=sqlc.arg(room_id) AND (
+ (p.source_id=sqlc.arg(source_id) AND json_extract(t.snapshot,'$.automationScope')=sqlc.arg(thread_key))
+ OR (sqlc.arg(source_id)='room' AND sqlc.arg(thread_key)=t.room_id||':'||coalesce(json_extract(t.snapshot,'$.threadRootId'),''))
+ OR (sqlc.arg(source_id)<>'room' AND g.source_id=sqlc.arg(source_id)
+  AND printf('%lld:%lld',json_extract(g.value,'$.repositoryId'),json_extract(g.value,'$.number'))=sqlc.arg(thread_key))
+ OR s.id IS NOT NULL
+)
+ORDER BY t.created_at,t.id;
 -- name: AutomationActivitySourceAscending :many
 SELECT e.*,
  CAST(coalesce(CASE WHEN e.source_id='room' THEN json_extract(e.value,'$.content')

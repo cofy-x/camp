@@ -255,12 +255,24 @@ func requireActor(ctx context.Context, q *sqlgen.Queries, admin bool) error {
 	return nil
 }
 func (s *Store) ListInvites(ctx context.Context) ([]Invite, error) {
-	rows, e := s.queries().ListInvites(ctx)
+	var rows []sqlgen.Invite
+	err := s.readTransaction(ctx, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		if err := requireActor(ctx, q, true); err != nil {
+			return err
+		}
+		var err error
+		rows, err = q.ListInvites(ctx)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
 	out := make([]Invite, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, inviteRow(r))
 	}
-	return out, e
+	return out, nil
 }
 func (s *Store) RevokeInvite(ctx context.Context, id string) error {
 	return s.transaction(ctx, func(tx *sql.Tx) error {

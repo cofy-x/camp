@@ -88,6 +88,11 @@ SELECT * FROM source_imports WHERE id=?;
 SELECT * FROM source_imports WHERE requested_by_user_id=? AND request_id=?;
 -- name: ListSourceImports :many
 SELECT * FROM source_imports ORDER BY created_at DESC,id DESC LIMIT 100;
+-- name: ListVisibleSourceImports :many
+SELECT i.* FROM source_imports AS i
+LEFT JOIN runners AS r ON r.id=i.runner_id
+WHERE sqlc.arg(include_all)=1 OR r.owner_user_id=sqlc.arg(owner_user_id)
+ORDER BY i.created_at DESC,i.id DESC LIMIT 100;
 -- name: ListActiveSourceImports :many
 SELECT * FROM source_imports WHERE status IN ('queued','capturing','uploading','cancelling') ORDER BY created_at,id;
 -- name: SaveSourceImport :exec

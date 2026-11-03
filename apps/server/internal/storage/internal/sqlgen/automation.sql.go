@@ -503,31 +503,84 @@ func (q *Queries) AutomationFrontier(ctx context.Context, roomID string) (int64,
 	return column_1, err
 }
 
-const automationTaskBatchDeliveries = `-- name: AutomationTaskBatchDeliveries :many
-SELECT DISTINCT source_event_id FROM task_inputs
-WHERE task_id=?1
- AND source_event_id IN (SELECT CAST(value AS TEXT) FROM json_each(?2))
-ORDER BY source_event_id
+const automationRelatedTaskRouting = `-- name: AutomationRelatedTaskRouting :many
+SELECT t.id,t.status,t.revision,
+ CAST(coalesce(json_extract(t.snapshot,'$.goal'),'') AS TEXT) AS goal,
+ CAST(coalesce(s.id,'') AS TEXT) AS subscription_id,
+ CAST(coalesce(s.revision,0) AS INTEGER) AS subscription_revision,
+ CAST(coalesce(s.enabled,0) AS INTEGER) AS subscription_enabled,
+ CAST(CASE WHEN coalesce(json_extract(t.snapshot,'$.automationPolicyId'),'')<>'' AND p.id IS NULL THEN 1 ELSE 0 END AS INTEGER) AS missing_policy,
+ CAST(CASE WHEN s.enabled=1 AND t.status NOT IN ('completed','cancelled','interrupted','cancelling')
+  AND (coalesce(json_extract(t.snapshot,'$.automationPolicyId'),'')='' OR p.enabled<>0 OR p.source_id<>?1)
+  THEN 1 ELSE 0 END AS INTEGER) AS receives_inputs,
+ CAST(coalesce((SELECT json_group_array(batch.source_event_id) FROM (
+  SELECT DISTINCT i.source_event_id FROM task_inputs i
+  WHERE i.task_id=t.id AND i.source_event_id IN (SELECT CAST(value AS TEXT) FROM json_each(?2))
+  ORDER BY i.source_event_id
+ ) batch),'[]') AS TEXT) AS received_event_ids
+FROM collaboration_tasks t
+LEFT JOIN automation_policies p ON p.id=json_extract(t.snapshot,'$.automationPolicyId')
+LEFT JOIN automation_subscriptions s ON s.task_id=t.id AND s.source_id=?1 AND s.thread_key=?3
+LEFT JOIN github_events g ON g.id=json_extract(t.snapshot,'$.sourceEventId')
+WHERE t.room_id=?4 AND (
+ (p.source_id=?1 AND json_extract(t.snapshot,'$.automationScope')=?3)
+ OR (?1='room' AND ?3=t.room_id||':'||coalesce(json_extract(t.snapshot,'$.threadRootId'),''))
+ OR (?1<>'room' AND g.source_id=?1
+  AND printf('%lld:%lld',json_extract(g.value,'$.repositoryId'),json_extract(g.value,'$.number'))=?3)
+ OR s.id IS NOT NULL
+)
+ORDER BY t.created_at,t.id
 `
 
-type AutomationTaskBatchDeliveriesParams struct {
-	TaskID   string
-	EventIds interface{}
+type AutomationRelatedTaskRoutingParams struct {
+	SourceID  string
+	EventIds  interface{}
+	ThreadKey string
+	RoomID    string
 }
 
-func (q *Queries) AutomationTaskBatchDeliveries(ctx context.Context, arg AutomationTaskBatchDeliveriesParams) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, automationTaskBatchDeliveries, arg.TaskID, arg.EventIds)
+type AutomationRelatedTaskRoutingRow struct {
+	ID                   string
+	Status               string
+	Revision             int64
+	Goal                 string
+	SubscriptionID       string
+	SubscriptionRevision int64
+	SubscriptionEnabled  int64
+	MissingPolicy        int64
+	ReceivesInputs       int64
+	ReceivedEventIds     string
+}
+
+func (q *Queries) AutomationRelatedTaskRouting(ctx context.Context, arg AutomationRelatedTaskRoutingParams) ([]AutomationRelatedTaskRoutingRow, error) {
+	rows, err := q.db.QueryContext(ctx, automationRelatedTaskRouting,
+		arg.SourceID,
+		arg.EventIds,
+		arg.ThreadKey,
+		arg.RoomID,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []string{}
+	items := []AutomationRelatedTaskRoutingRow{}
 	for rows.Next() {
-		var source_event_id string
-		if err := rows.Scan(&source_event_id); err != nil {
+		var i AutomationRelatedTaskRoutingRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.Revision,
+			&i.Goal,
+			&i.SubscriptionID,
+			&i.SubscriptionRevision,
+			&i.SubscriptionEnabled,
+			&i.MissingPolicy,
+			&i.ReceivesInputs,
+			&i.ReceivedEventIds,
+		); err != nil {
 			return nil, err
 		}
-		items = append(items, source_event_id)
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

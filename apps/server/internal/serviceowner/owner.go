@@ -25,6 +25,9 @@ func Acquire(dataDir string) (*Ownership, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
+	if err := validateOwnershipDirectory(dir); err != nil {
+		return nil, err
+	}
 	lock, err := AcquireDirectory(dir)
 	if err != nil {
 		return nil, err
@@ -65,16 +68,23 @@ func AcquireExisting(dataDir string) (*Ownership, error) {
 	if err != nil {
 		return nil, err
 	}
-	info, err := os.Lstat(dir)
-	if err != nil {
+	if err = validateOwnershipDirectory(dir); err != nil {
 		return nil, err
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, errors.New("The Server ownership directory must be a real directory")
 	}
 	lock, err := acquireExistingDirectory(dir)
 	if err != nil {
 		return nil, err
 	}
 	return &Ownership{dir: dir, lock: lock}, nil
+}
+
+func validateOwnershipDirectory(dir string) error {
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("The Server ownership directory must be a real directory")
+	}
+	return nil
 }

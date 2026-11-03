@@ -8,8 +8,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
@@ -32,7 +35,22 @@ func openJournal(directory string) (*journal, error) {
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return nil, err
 	}
-	name := filepath.Join(directory, "journal.sqlite")
+	name, err := filepath.Abs(filepath.Join(directory, "journal.sqlite"))
+	if err != nil {
+		return nil, err
+	}
+	// Older releases passed this path directly to the driver, which truncates
+	// bare filenames at '?'. Never replace that displaced journal with an empty
+	// one: its command receipts may be the only protection against a replay.
+	if legacy, _, ok := strings.Cut(name, "?"); ok {
+		previous, statErr := os.Stat(legacy)
+		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return nil, statErr
+		}
+		if statErr == nil && previous.Mode().IsRegular() && previous.Size() > 0 {
+			return nil, fmt.Errorf("A legacy Runner journal may exist at %q. Stop the Runner, back up the originals, and recover that database and its WAL to %q; move the legacy files aside before starting", legacy, name)
+		}
+	}
 	f, err := os.OpenFile(name, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
@@ -40,16 +58,16 @@ func openJournal(directory string) (*journal, error) {
 	if err = f.Close(); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", name)
+	// Connection settings belong in the DSN so database/sql also applies them
+	// after replacing a connection. Encode the path as data, not URI options.
+	params := url.Values{"_pragma": {"busy_timeout(5000)", "foreign_keys(1)", "journal_mode(WAL)", "synchronous(FULL)"}}
+	target := url.URL{Scheme: "file", Path: filepath.ToSlash(name), RawQuery: params.Encode()}
+	db, err := sql.Open("sqlite", target.String())
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
 	if _, err = db.Exec(journalSchema); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err = db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -193,7 +211,7 @@ func (j *journal) appendEvent(ctx context.Context, id, kind, text string) error 
 	}
 	defer tx.Rollback()
 	var count, total int64
-	if err = tx.QueryRowContext(ctx, "SELECT COUNT(*),COALESCE(SUM(length(text)),0) FROM events WHERE operation_id=?", id).Scan(&count, &total); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT COUNT(*),COALESCE(SUM(length(CAST(text AS BLOB))),0) FROM events WHERE operation_id=?", id).Scan(&count, &total); err != nil {
 		return err
 	}
 	// Log pressure stops the execution instead of losing lifecycle observations.

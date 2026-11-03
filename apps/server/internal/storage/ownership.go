@@ -228,25 +228,39 @@ func (s *Store) SetExecutionDefault(ctx context.Context, in ExecutionDefaultInpu
 	return
 }
 
-func (s *Store) RunnerSources(ctx context.Context, id string) ([]RunnerSource, error) {
-	runner, err := s.GetRunner(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if err = requireObjectOwner(ctx, s.queries(), runner.OwnerUserID); err != nil {
-		return nil, err
-	}
-	return runner.Sources, nil
+func (s *Store) RunnerSources(ctx context.Context, id string) (out []RunnerSource, err error) {
+	err = s.readTransaction(ctx, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		row, err := q.GetRunner(ctx, id)
+		if err != nil {
+			return missing(err, "The runner")
+		}
+		if err = requireObjectOwner(ctx, q, row.OwnerUserID.String); err != nil {
+			return err
+		}
+		runner, err := runnerRow(row)
+		if err != nil {
+			return err
+		}
+		out = runner.Sources
+		return nil
+	})
+	return out, err
 }
-func (s *Store) ListRunnerAgentGrants(ctx context.Context, id string) ([]string, error) {
-	runner, err := s.queries().GetRunner(ctx, id)
-	if err != nil {
-		return nil, missing(err, "The runner")
-	}
-	if err = requireObjectOwner(ctx, s.queries(), runner.OwnerUserID.String); err != nil {
-		return nil, err
-	}
-	return s.queries().ListRunnerAgentGrants(ctx, id)
+func (s *Store) ListRunnerAgentGrants(ctx context.Context, id string) (out []string, err error) {
+	err = s.readTransaction(ctx, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		runner, err := q.GetRunner(ctx, id)
+		if err != nil {
+			return missing(err, "The runner")
+		}
+		if err = requireObjectOwner(ctx, q, runner.OwnerUserID.String); err != nil {
+			return err
+		}
+		out, err = q.ListRunnerAgentGrants(ctx, id)
+		return err
+	})
+	return out, err
 }
 func (s *Store) SetRunnerAgentGrant(ctx context.Context, runnerID, agentID string, allow bool) (out []string, err error) {
 	err = s.transaction(ctx, func(tx *sql.Tx) error {

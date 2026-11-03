@@ -1047,6 +1047,65 @@ func (q *Queries) ListSourceImports(ctx context.Context) ([]SourceImport, error)
 	return items, nil
 }
 
+const listVisibleSourceImports = `-- name: ListVisibleSourceImports :many
+SELECT i.id, i.runner_id, i.requested_by_user_id, i.request_id, i.request_hash, i.source, i.source_revision, i.source_alias, i.room_name, i.resource_key, i.command_id, i.status, i.expires_at, i.room_id, i.resource_id, i.artifact_digest, i.artifact_path, i.commit_id, i.completion_id, i.result_hash, i.error, i.created_at, i.updated_at FROM source_imports AS i
+LEFT JOIN runners AS r ON r.id=i.runner_id
+WHERE ?1=1 OR r.owner_user_id=?2
+ORDER BY i.created_at DESC,i.id DESC LIMIT 100
+`
+
+type ListVisibleSourceImportsParams struct {
+	IncludeAll  interface{}
+	OwnerUserID sql.NullString
+}
+
+func (q *Queries) ListVisibleSourceImports(ctx context.Context, arg ListVisibleSourceImportsParams) ([]SourceImport, error) {
+	rows, err := q.db.QueryContext(ctx, listVisibleSourceImports, arg.IncludeAll, arg.OwnerUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SourceImport{}
+	for rows.Next() {
+		var i SourceImport
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunnerID,
+			&i.RequestedByUserID,
+			&i.RequestID,
+			&i.RequestHash,
+			&i.Source,
+			&i.SourceRevision,
+			&i.SourceAlias,
+			&i.RoomName,
+			&i.ResourceKey,
+			&i.CommandID,
+			&i.Status,
+			&i.ExpiresAt,
+			&i.RoomID,
+			&i.ResourceID,
+			&i.ArtifactDigest,
+			&i.ArtifactPath,
+			&i.CommitID,
+			&i.CompletionID,
+			&i.ResultHash,
+			&i.Error,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const nextRunnerEventSequence = `-- name: NextRunnerEventSequence :one
 SELECT CAST(COALESCE(MAX(sequence),0)+1 AS INTEGER) FROM runner_event_receipts WHERE operation_id=?
 `
