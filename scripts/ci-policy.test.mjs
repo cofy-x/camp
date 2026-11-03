@@ -55,8 +55,8 @@ test('native recovery retains failure evidence without masking the test exit', a
       '      - name: Check native reconnection, revocation and crash recovery without replay\n',
     )[1]
     .split('      - name:')[0];
-  assert.match(step, /^        shell: bash$/m);
-  const script = step.match(/^        run: (.+)$/m)[1];
+  assert.match(step, /^ {8}shell: bash$/m);
+  const script = step.match(/^ {8}run: (.+)$/m)[1];
   const directory = await mkdtemp(path.join(os.tmpdir(), 'camp-native-gate-'));
   t.after(() => rm(directory, { recursive: true }));
   await mkdir(path.join(directory, 'dist/native-mac'), { recursive: true });
