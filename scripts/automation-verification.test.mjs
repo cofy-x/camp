@@ -347,7 +347,12 @@ test('failure cleanup journals each cancellation, retains unknown replies and le
   }
 });
 
-for (const unknown of ['github', 'ingress'])
+for (const unknown of [
+  'github',
+  'ingress',
+  'public-github',
+  'public-github-cleanup-unknown',
+])
   test(`real automation driver stops after uncertain ${unknown}, retains budget and never journals credentials`, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'camp-automation-driver-'));
     const reportDir = join(directory, 'report');
@@ -359,6 +364,10 @@ for (const unknown of ['github', 'ingress'])
     let githubWrites = 0;
     let ingresses = 0;
     let disabled = 0;
+    let publicConnections = 0;
+    let publicReceives = 0;
+    let publicCloses = 0;
+    const publicMode = unknown.startsWith('public-');
     const server = createServer(async (request, response) => {
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
@@ -428,6 +437,15 @@ for (const unknown of ['github', 'ingress'])
         assert.equal(body.actorId, 123);
         policy.revision++;
         value = { kind: 'policy', policy };
+      } else if (
+        route === '/api/rooms/room/automation-policies' &&
+        unknown === 'public-github-cleanup-unknown' &&
+        disabled > 0
+      ) {
+        response
+          .writeHead(503, { 'Content-Type': 'application/json' })
+          .end(JSON.stringify({ error: token }));
+        return;
       } else if (route === '/api/rooms/room/automation-policies')
         value = { policies: policy ? [policy] : [] };
       else if (route === '/api/rooms/room/tasks') value = { tasks: [] };
@@ -492,7 +510,19 @@ for (const unknown of ['github', 'ingress'])
         );
         assert.equal(saved.requests.at(-1).state, 'reserved-outcome-unknown');
         assert.equal(saved.consumed.githubInputWrites, 1);
-        if (unknown === 'github') throw new Error(token);
+        assert.equal(saved.requests.at(-1).kind, 'github-create-issue');
+        assert.equal(saved.consumed.assessments, publicMode ? 1 : 0);
+        assert.equal(saved.consumed.tasks, 0);
+        if (publicMode) {
+          // The real callback can escape before GitHub returns its write
+          // response. Its assessment allowance must already be on disk.
+          assert.equal(publicConnections, 1);
+          assert.deepEqual(saved.requests.at(-1).cost, {
+            githubInputWrites: 1,
+            assessments: 1,
+          });
+        }
+        if (unknown === 'github' || publicMode) throw new Error(token);
         issue = {
           ...JSON.parse(stdin),
           id: 999,
@@ -514,15 +544,56 @@ for (const unknown of ['github', 'ingress'])
       'native-runner',
       'owner/repo',
       reportDir,
+      ...(publicMode ? ['--public-webhook', 'https://callbacks.example'] : []),
     ];
+    const dependencies = {
+      gh: github,
+      ...(publicMode
+        ? {
+            publicWebhook: (options) => {
+              assert.equal(options.publicOrigin, 'https://callbacks.example');
+              assert.equal(options.secret, secret);
+              assert.equal(options.report.ingressMode, 'github-public');
+              return {
+                connect: async () => {
+                  publicConnections++;
+                },
+                receive: async () => {
+                  publicReceives++;
+                  throw new Error(
+                    'An unknown GitHub write must not be replayed.',
+                  );
+                },
+                close: async () => {
+                  publicCloses++;
+                  assert.equal(disabled, 1);
+                  const saved = JSON.parse(
+                    await readFile(join(reportDir, 'ledger.json'), 'utf8'),
+                  );
+                  // Hook shutdown is still attempted after an unavailable
+                  // policy readback, using its own independent cleanup owner.
+                  assert.equal(
+                    saved.cleanup.policyDisabled,
+                    unknown !== 'public-github-cleanup-unknown',
+                  );
+                  return { disabled: true, durable: true };
+                },
+              };
+            },
+          }
+        : {}),
+    };
     try {
       await assert.rejects(
-        main(args, { gh: github }),
+        main(args, dependencies),
         /reservation is consumed/u,
       );
       assert.equal(githubWrites, 1);
       assert.equal(ingresses, unknown === 'ingress' ? 1 : 0);
       assert.equal(disabled, 1);
+      assert.equal(publicConnections, publicMode ? 1 : 0);
+      assert.equal(publicReceives, 0);
+      assert.equal(publicCloses, publicMode ? 1 : 0);
       const ledger = await readFile(join(reportDir, 'ledger.json'), 'utf8');
       const report = await readFile(join(reportDir, 'report.json'), 'utf8');
       for (const credential of [token, password, secret]) {
@@ -531,11 +602,36 @@ for (const unknown of ['github', 'ingress'])
       }
       const saved = JSON.parse(ledger);
       assert.equal(saved.consumed.githubInputWrites, 1);
-      assert.equal(saved.consumed.assessments, unknown === 'ingress' ? 1 : 0);
+      assert.equal(
+        saved.consumed.assessments,
+        unknown === 'ingress' || publicMode ? 1 : 0,
+      );
       assert.equal(saved.consumed.tasks, 0);
-      assert.equal(JSON.parse(report).cleanup.policyDisabled, true);
-      await assert.rejects(main(args, { gh: github }), { code: 'EEXIST' });
+      const stopped = JSON.parse(report);
+      assert.equal(
+        stopped.cleanup.policyDisabled,
+        unknown !== 'public-github-cleanup-unknown',
+      );
+      if (publicMode) {
+        assert.equal(stopped.ingressMode, 'github-public');
+        assert.deepEqual(stopped.cleanup.githubWebhook, {
+          disabled: true,
+          durable: true,
+        });
+        assert.equal(
+          saved.requests.filter((request) => request.kind === 'signed-ingress')
+            .length,
+          0,
+        );
+        const request = saved.requests.find(
+          (request) => request.kind === 'github-create-issue',
+        );
+        assert.equal(request.state, 'outcome-unknown');
+        assert.equal(stopped.sourceEvents.length, 0);
+      }
+      await assert.rejects(main(args, dependencies), { code: 'EEXIST' });
       assert.equal(githubWrites, 1);
+      assert.equal(publicCloses, publicMode ? 1 : 0);
     } finally {
       server.closeAllConnections();
       await new Promise((resolve) => server.close(resolve));
