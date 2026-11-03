@@ -22,9 +22,6 @@ function checkout(t, extra = {}) {
     'tools/dsh-runtime/package.json': JSON.stringify({
       dependencies: { '@deepseek-ai/dsh': '0.2.1-rc.3' },
     }),
-    'tools/document-runtime/package.json': JSON.stringify({
-      dependencies: { 'pdfjs-dist': '6.4.299' },
-    }),
     'tools/project-runtime/package.json': JSON.stringify({
       dependencies: { pnpm: '12.11.2' },
     }),
@@ -60,7 +57,7 @@ test('checks unstaged Markdown, reference/image links and GitHub heading collisi
       '# Not a heading',
       '```',
       '[repeat]: <docs/A guide (new).md#repeat-2>',
-      'Go **1.27.3**, Node **24.16.0**, pnpm **12.11.2**, DSH **0.2.1-rc.3**, PDF.js **6.4.299**.',
+      'Go **1.27.3**, Node **24.16.0**, pnpm **12.11.2**, DSH **0.2.1-rc.3**.',
       'npx --yes pnpm@12.11.2 exec playwright test',
       'This guide describes DSH 0.2.1-rc.3.',
     ].join('\n'),
@@ -119,7 +116,7 @@ test('reports broken targets and anchors with locations, including decision reco
 test('detects stale version claims, shell examples and mismatched runtime pins', (t) => {
   const root = checkout(t, {
     'README.md':
-      'Go **1.26.0**, Node **22.0.0**, pnpm **10.0.0**, DSH **0.1.0**, PDF.js **5.0.0**.\n```sh\nnpx pnpm@11.0.0 install\n```\n',
+      'Go **1.26.0**, Node **22.0.0**, pnpm **10.0.0**, DSH **0.1.0**.\n```sh\nnpx pnpm@11.0.0 install\n```\n',
     'apps/example/package.json': JSON.stringify({
       engines: { node: '22.0.0', pnpm: '11.0.0' },
       packageManager: 'pnpm@11.0.0',
@@ -133,7 +130,7 @@ test('detects stale version claims, shell examples and mismatched runtime pins',
     }),
   });
   const { errors } = checkDocs(root);
-  assert.equal(errors.length, 12);
+  assert.equal(errors.length, 11);
   assert.match(
     errors.join('\n'),
     /README.md:1: Go 1.26.0 differs from go.mod \(1.27.3\)/,

@@ -9,66 +9,6 @@ import (
 	"context"
 )
 
-const createDocument = `-- name: CreateDocument :exec
-INSERT INTO documents(id,resource_id,commit_id,path,extractor_version,status,snapshot,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)
-`
-
-type CreateDocumentParams struct {
-	ID               string
-	ResourceID       string
-	CommitID         string
-	Path             string
-	ExtractorVersion string
-	Status           string
-	Snapshot         string
-	CreatedAt        string
-	UpdatedAt        string
-}
-
-func (q *Queries) CreateDocument(ctx context.Context, arg CreateDocumentParams) error {
-	_, err := q.db.ExecContext(ctx, createDocument,
-		arg.ID,
-		arg.ResourceID,
-		arg.CommitID,
-		arg.Path,
-		arg.ExtractorVersion,
-		arg.Status,
-		arg.Snapshot,
-		arg.CreatedAt,
-		arg.UpdatedAt,
-	)
-	return err
-}
-
-const documentRooms = `-- name: DocumentRooms :many
-SELECT id FROM rooms WHERE rooms.resource_id=?1
-UNION SELECT room_id FROM room_uploads WHERE room_uploads.resource_id=?1
-UNION SELECT room_id FROM runs WHERE runs.resource_id=?1
-`
-
-func (q *Queries) DocumentRooms(ctx context.Context, resourceID string) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, documentRooms, resourceID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getDocument = `-- name: GetDocument :one
 SELECT snapshot FROM documents WHERE id=?
 `
@@ -97,78 +37,19 @@ func (q *Queries) LatestDocument(ctx context.Context, arg LatestDocumentParams) 
 	return snapshot, err
 }
 
-const latestDocumentVersion = `-- name: LatestDocumentVersion :one
-SELECT snapshot FROM documents WHERE resource_id=? AND commit_id=? AND path=? AND extractor_version=? ORDER BY seq DESC LIMIT 1
+const latestReadyDocument = `-- name: LatestReadyDocument :one
+SELECT snapshot FROM documents WHERE resource_id=? AND commit_id=? AND path=? AND status='ready' ORDER BY seq DESC LIMIT 1
 `
 
-type LatestDocumentVersionParams struct {
-	ResourceID       string
-	CommitID         string
-	Path             string
-	ExtractorVersion string
+type LatestReadyDocumentParams struct {
+	ResourceID string
+	CommitID   string
+	Path       string
 }
 
-func (q *Queries) LatestDocumentVersion(ctx context.Context, arg LatestDocumentVersionParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, latestDocumentVersion,
-		arg.ResourceID,
-		arg.CommitID,
-		arg.Path,
-		arg.ExtractorVersion,
-	)
+func (q *Queries) LatestReadyDocument(ctx context.Context, arg LatestReadyDocumentParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, latestReadyDocument, arg.ResourceID, arg.CommitID, arg.Path)
 	var snapshot string
 	err := row.Scan(&snapshot)
 	return snapshot, err
-}
-
-const pendingDocuments = `-- name: PendingDocuments :many
-SELECT snapshot FROM documents WHERE status IN ('queued','extracting') ORDER BY seq
-`
-
-func (q *Queries) PendingDocuments(ctx context.Context) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, pendingDocuments)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var snapshot string
-		if err := rows.Scan(&snapshot); err != nil {
-			return nil, err
-		}
-		items = append(items, snapshot)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const updateDocument = `-- name: UpdateDocument :execrows
-UPDATE documents SET status=?1,snapshot=?2,updated_at=?3 WHERE id=?4 AND status=?5
-`
-
-type UpdateDocumentParams struct {
-	Status         string
-	Snapshot       string
-	UpdatedAt      string
-	ID             string
-	PreviousStatus string
-}
-
-func (q *Queries) UpdateDocument(ctx context.Context, arg UpdateDocumentParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateDocument,
-		arg.Status,
-		arg.Snapshot,
-		arg.UpdatedAt,
-		arg.ID,
-		arg.PreviousStatus,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
 }

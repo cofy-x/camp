@@ -84,11 +84,9 @@ After installing the fixed runtimes and building the helper:
 ```sh
 make test-layerfs test-dsh test-project-env
 make test-remote-native
-CAMP_TEST_DOCUMENT_RUNTIME="$PWD/tools/document-runtime" \
-  go test -race ./apps/server/internal/documenttext -count=1
 ```
 
-The parser command additionally needs `make install-document-runtime`. These checks use real native processes with deterministic local providers, not a paid model key. Missing prerequisites can skip gated Go tests; inspect skips rather than treating a zero exit as native acceptance. See [contribution checks](../CONTRIBUTING.md#checks) for source/browser checks and [remote validation](../tools/remote-dev/README.md) for Compose Fixture scope.
+These checks use real native processes with deterministic local providers, not a paid model key. Missing prerequisites can skip gated Go tests; inspect skips rather than treating a zero exit as native acceptance. See [contribution checks](../CONTRIBUTING.md#checks) for source/browser checks and [remote validation](../tools/remote-dev/README.md) for Compose Fixture scope.
 
 ## Collaboration decisions
 

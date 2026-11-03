@@ -13,8 +13,6 @@ import (
 
 	"github.com/cofy-x/camp/apps/server/internal/collaboration"
 	"github.com/cofy-x/camp/apps/server/internal/configuration"
-	"github.com/cofy-x/camp/apps/server/internal/documents"
-	"github.com/cofy-x/camp/apps/server/internal/documenttext"
 	"github.com/cofy-x/camp/apps/server/internal/eventflow"
 	"github.com/cofy-x/camp/apps/server/internal/httpapi"
 	"github.com/cofy-x/camp/apps/server/internal/library"
@@ -42,10 +40,6 @@ type Config struct {
 	Logger              *slog.Logger
 	ShutdownTimeout     time.Duration
 	Models              configuration.ModelInput
-	DocumentNodePath    string
-	DocumentRuntimeDir  string
-	DocumentHelperPath  string
-	DocumentError       error
 	OnReady             func(address, setupPath string)
 }
 
@@ -105,18 +99,7 @@ func Run(ctx context.Context, config Config) error {
 		return fmt.Errorf("initialize agent runs: %w", err)
 	}
 	defer runManager.Shutdown(context.Background())
-	executable, _ := os.Executable()
-	documentEngine := documenttext.New(documenttext.Config{ExecutablePath: executable, RuntimeDir: config.DocumentRuntimeDir, NodePath: config.DocumentNodePath, HelperPath: config.DocumentHelperPath, JobRoot: filepath.Join(config.DataDir, "document-jobs"), InstallationError: config.DocumentError})
-	readerContext, stopReaders := context.WithCancel(ctx)
-	readersDone := make(chan struct{})
-	defer func() { stopReaders(); <-readersDone }()
-	go func() { defer close(readersDone); documentEngine.CheckReaders(readerContext) }()
-	documentManager, err := documents.New(ctx, store, resources.New(filepath.Join(config.DataDir, "resources")), documentEngine, logger)
-	if err != nil {
-		return fmt.Errorf("initialize document preparation: %w", err)
-	}
-	defer documentManager.Shutdown(context.Background())
-	rooms, err := collaboration.New(ctx, store, runManager, config.DataDir, documentManager)
+	rooms, err := collaboration.New(ctx, store, runManager, config.DataDir)
 	if err != nil {
 		return fmt.Errorf("initialize rooms: %w", err)
 	}
@@ -139,7 +122,7 @@ func Run(ctx context.Context, config Config) error {
 	api.EnableAutomation(commentCredentials)
 	api.EnableTeam(auth, config.TrustedOrigins, config.PublicOrigin)
 	api.EnableRemote(runManager)
-	api.EnableSettings(serverSettings{Manager: runManager, documents: documentEngine}, importPolicy)
+	api.EnableSettings(runManager, importPolicy)
 	api.EnableLibrary(library.New(store, resources.New(filepath.Join(config.DataDir, "resources")), runManager))
 	defer api.StopStreams()
 	mux.Handle("/api/daemon/", runManager.Handler())
@@ -192,9 +175,7 @@ func Run(ctx context.Context, config Config) error {
 		// Stop intake effects before the execution scheduler drains. Persisted
 		// uncertain work is reconciled on restart, never replayed at shutdown.
 		eventErr := events.Shutdown(ctx)
-		done := make(chan error, 1)
-		go func() { done <- runManager.Shutdown(ctx) }()
-		return errors.Join(eventErr, documentManager.Shutdown(ctx), <-done)
+		return errors.Join(eventErr, runManager.Shutdown(ctx))
 	}, cancelRequests))
 }
 

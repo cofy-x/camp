@@ -4,12 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
-  documentService,
-  assertDocumentServiceReceipt,
-} from './document-service.mjs';
+  serverService,
+  assertServerServiceReceipt,
+} from './server-service.mjs';
 
 async function fixture(t) {
-  const root = await mkdtemp(join(tmpdir(), 'camp-document-service-'));
+  const root = await mkdtemp(join(tmpdir(), 'camp-server-service-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const data = join(root, 'private-data');
   await mkdir(data, { mode: 0o700 });
@@ -26,22 +26,19 @@ function receiptFixture() {
     mode: 'service',
     cleanupConfirmed: true,
     retainedDataPreserved: true,
-    readerJobsRemaining: 0,
+    parserJobsCreated: false,
     modelRequests: 0,
     sourceModified: false,
     binarySHA256: 'b'.repeat(64),
     checks: [
-      'model-free-reader-self-tests',
-      'readiness-get-reuses-observations',
-      'real-pdf-and-docx-preparation',
-      'stable-page-and-paragraph-citations',
-      'immutable-original-downloads',
-      'no-runner-or-model-required',
+      'markdown-and-plaintext',
+      'original-only-attachments-preserved',
+      'no-parser-readiness-or-jobs',
       'allowlisted-server-directory-import-preserves-source',
-      'restart-preserves-prepared-text-and-citations',
-      'packaged-server-launchd-reader-lifecycle',
+      'restart-preserves-files',
+      'packaged-server-launchd-lifecycle',
       'service-removal-preserves-private-data',
-      'reader-jobs-clean-and-owned-service-absent',
+      'owned-service-absent',
     ],
     service: ['install', 'start', 'stop', 'start', 'stop', 'remove'].map(
       (action) => ({
@@ -62,7 +59,7 @@ function receiptFixture() {
   };
 }
 
-test('document transport uses explicit service actions and confirms stop/removal without enabling login', async (t) => {
+test('Server transport uses explicit service actions and confirms stop/removal without enabling login', async (t) => {
   const { root, data } = await fixture(t);
   const calls = [];
   const state = {
@@ -73,7 +70,7 @@ test('document transport uses explicit service actions and confirms stop/removal
     running: false,
     loginEnabled: false,
   };
-  const adapter = documentService({
+  const adapter = serverService({
     binary: '/fixed/camp',
     data,
     cwd: root,
@@ -125,7 +122,7 @@ test('uncertain service inspection preserves a failed fixture without replay or 
   const retained = join(data, 'private-marker');
   await writeFile(retained, 'keep exact bytes');
   const calls = [];
-  const adapter = documentService({
+  const adapter = serverService({
     binary: '/fixed/camp',
     data,
     cwd: root,
@@ -150,19 +147,19 @@ test('uncertain service inspection preserves a failed fixture without replay or 
   assert.equal(await readFile(retained, 'utf8'), 'keep exact bytes');
 });
 
-test('document release evidence rejects foreground, unknown cleanup, changed source and failed preservation', () => {
+test('Server release evidence rejects foreground, unknown cleanup, changed source and failed preservation', () => {
   const identity = {
     version: 'v0.1.0-alpha.10',
     sourceCommit: 'a'.repeat(40),
     platform: 'darwin/arm64',
   };
   const report = receiptFixture();
-  assertDocumentServiceReceipt(report, identity);
+  assertServerServiceReceipt(report, identity);
   for (const [key, value] of Object.entries({
     mode: 'foreground',
     cleanupConfirmed: false,
     retainedDataPreserved: false,
-    readerJobsRemaining: 1,
+    parserJobsCreated: 1,
     modelRequests: 1,
     sourceModified: true,
     sourceCommit: 'c'.repeat(40),
@@ -170,23 +167,23 @@ test('document release evidence rejects foreground, unknown cleanup, changed sou
     service: [],
   }))
     assert.throws(
-      () => assertDocumentServiceReceipt({ ...report, [key]: value }, identity),
+      () => assertServerServiceReceipt({ ...report, [key]: value }, identity),
       key,
     );
 });
 
-test('document acceptance rejects missing schema/checks and every incomplete restart lifecycle', () => {
+test('Server acceptance rejects missing schema/checks and every incomplete restart lifecycle', () => {
   const report = receiptFixture();
-  assertDocumentServiceReceipt(report);
+  assertServerServiceReceipt(report);
   for (const schema of [undefined, 0, 2])
-    assert.throws(() => assertDocumentServiceReceipt({ ...report, schema }));
+    assert.throws(() => assertServerServiceReceipt({ ...report, schema }));
   assert.throws(() =>
-    assertDocumentServiceReceipt({ ...report, checks: undefined }),
+    assertServerServiceReceipt({ ...report, checks: undefined }),
   );
   for (const check of report.checks)
     assert.throws(
       () =>
-        assertDocumentServiceReceipt({
+        assertServerServiceReceipt({
           ...report,
           checks: report.checks.filter((value) => value !== check),
         }),
@@ -195,7 +192,7 @@ test('document acceptance rejects missing schema/checks and every incomplete res
   for (let index = 0; index < report.service.length; index++) {
     assert.throws(
       () =>
-        assertDocumentServiceReceipt({
+        assertServerServiceReceipt({
           ...report,
           service: report.service.filter(
             (_value, position) => position !== index,
@@ -214,7 +211,7 @@ test('document acceptance rejects missing schema/checks and every incomplete res
       const service = structuredClone(report.service);
       delete service[index][key];
       assert.throws(
-        () => assertDocumentServiceReceipt({ ...report, service }),
+        () => assertServerServiceReceipt({ ...report, service }),
         `missing ${key} in observation ${index}`,
       );
     }
@@ -222,7 +219,7 @@ test('document acceptance rejects missing schema/checks and every incomplete res
   const reordered = structuredClone(report.service);
   [reordered[1], reordered[2]] = [reordered[2], reordered[1]];
   assert.throws(() =>
-    assertDocumentServiceReceipt({ ...report, service: reordered }),
+    assertServerServiceReceipt({ ...report, service: reordered }),
   );
 });
 
@@ -254,9 +251,15 @@ test('both ARM64 release hosts verify the complete Server archive and public Go 
     runner,
     /CAMP_SMOKE_BINARY: .*\/dist\/camp-server-darwin-arm64\/camp/,
   );
-  assert.match(runner, /CAMP_DOCUMENT_REPORT: .*server-service-verification-/);
-  assert.match(runner, /run: node scripts\/smoke-documents\.mjs --service/);
+  assert.match(
+    runner,
+    /CAMP_SERVER_SERVICE_REPORT: .*server-service-verification-/,
+  );
+  assert.match(
+    runner,
+    /run: node scripts\/smoke-server-service\.mjs --service/,
+  );
   const go = workflow.slice(workflow.indexOf('  go_install:'));
   assert.match(go, /host: macos-15-intel/);
-  assert.match(go, /run: node scripts\/smoke-documents\.mjs --service/);
+  assert.match(go, /run: node scripts\/smoke-server-service\.mjs --service/);
 });

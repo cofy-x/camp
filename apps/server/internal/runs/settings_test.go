@@ -94,11 +94,14 @@ func TestReadinessExplainsMissingComponentsWithoutModelCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Ready || report.CheckedAt != "" || len(report.Components) < 12 {
+	if report.Ready || report.CheckedAt != "" || len(report.Components) != 11 {
 		t.Fatalf("incomplete diagnostics: %+v", report)
 	}
 	statuses := map[string]string{}
 	for _, item := range report.Components {
+		if strings.HasPrefix(item.ID, "document-") {
+			t.Fatalf("readiness advertises a removed document parser: %+v", item)
+		}
 		statuses[item.ID] = item.Status
 	}
 	if statuses["model"] != "ready" || statuses["connection"] != "unknown" || statuses["storage"] != "unknown" {

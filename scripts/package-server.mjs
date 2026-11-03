@@ -2,7 +2,6 @@ import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { command, go, root } from './lib.mjs';
 import { collectLicenses } from './licenses.mjs';
-import { packageDocumentRuntime } from './document-runtime.mjs';
 import {
   archiveTree,
   installationNotes,
@@ -46,10 +45,6 @@ for (const platform of platforms) {
       await cp(join(root, 'dist/camp'), join(staging, 'camp'));
     else {
       const [GOOS, GOARCH] = platform.split('-');
-      const documents = await packageDocumentRuntime(
-        join(staging, 'documents'),
-        platform,
-      );
       await command(
         go,
         [
@@ -58,7 +53,7 @@ for (const platform of platforms) {
           '-tags',
           'production',
           '-ldflags',
-          `${flags} -X github.com/cofy-x/camp/apps/server/internal/documenttext.packagedManifestSHA256=${documents}`,
+          flags,
           '-o',
           join(staging, 'camp'),
           './apps/server/cmd/server',

@@ -141,7 +141,7 @@ func referenceRunMetadata(ref *Reference, run Run) {
 	ref.Checks, _ = truncateReferenceText(strings.Join(parts, "; "), 2048)
 }
 
-func snapshotReferences(ctx context.Context, q *sqlgen.Queries, room string, inputs []ReferenceInput, needsAgent bool) ([]Reference, error) {
+func snapshotReferences(ctx context.Context, q *sqlgen.Queries, room string, inputs []ReferenceInput) ([]Reference, error) {
 	refs := make([]Reference, 0, len(inputs))
 	textBytes := 0
 	for _, in := range inputs {
@@ -213,7 +213,7 @@ func snapshotReferences(ctx context.Context, q *sqlgen.Queries, room string, inp
 				}
 				referenceRunMetadata(&ref, run)
 			}
-			ref.Document, err = snapshotDocument(ctx, q, in, needsAgent)
+			ref.Document, err = snapshotDocument(ctx, q, in)
 			if err != nil {
 				return nil, err
 			}

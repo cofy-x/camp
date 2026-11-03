@@ -33,13 +33,13 @@ function ReferenceCard({
       ?.scrollIntoView({ block: 'nearest' });
   }, []);
   const file = reference.kind === 'file';
-  const prepareDocument = Boolean(
+  const loadDocument = Boolean(
     onDocumentChange && file && documentFormat(reference.path),
   );
   const documentState = useDocumentPreview(
     reference,
     (document) => onDocumentChange?.(reference, document),
-    prepareDocument,
+    loadDocument,
   );
   const document = documentState.document
     ? documentSnapshot(documentState.document)
@@ -69,9 +69,9 @@ function ReferenceCard({
           {status && <small>{status}</small>}
           {document ? (
             <small>{documentStatusLabel(document)}</small>
-          ) : prepareDocument ? (
+          ) : file && documentFormat(reference.path) ? (
             <small>
-              {documentState.error ? 'Preview unavailable' : 'Preparing text'}
+              {documentState.loading ? 'Loading saved text…' : 'Original only'}
             </small>
           ) : null}
         </summary>
@@ -79,23 +79,22 @@ function ReferenceCard({
           <div className="workspace-reference-evidence" ref={evidence}>
             {file ? (
               <>
-                <p>
-                  {reference.origin === 'upload'
-                    ? 'Uploaded attachment'
-                    : reference.sourceRunId
-                      ? reference.published
-                        ? 'Saved result file'
-                        : 'Retained result file'
-                      : 'Shared resource file'}{' '}
-                  · pinned version
-                  {current && current !== reference.commit && (
-                    <strong> · Shared files use a different version</strong>
-                  )}
-                </p>
+                {reference.sourceRunId && (
+                  <p>
+                    {reference.published
+                      ? 'Saved result file'
+                      : 'Retained result file'}
+                  </p>
+                )}
+                {current && current !== reference.commit && (
+                  <p>
+                    <strong>Shared files use a different version</strong>
+                  </p>
+                )}
                 <FilePreview
                   reference={reference}
                   onReady={reveal}
-                  documentState={prepareDocument ? documentState : undefined}
+                  documentState={loadDocument ? documentState : undefined}
                   onDocumentChange={
                     onDocumentChange
                       ? (document) => onDocumentChange(reference, document)

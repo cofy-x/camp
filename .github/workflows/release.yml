@@ -257,7 +257,7 @@ jobs:
           name: server-verification-${{ matrix.platform }}
           path: |
             dist/release/server-verification-${{ matrix.platform }}.json
-            dist/release/server-document-service-${{ matrix.platform }}.json
+            dist/release/server-service-verification-${{ matrix.platform }}.json
           if-no-files-found: error
           retention-days: 7
 
@@ -303,12 +303,12 @@ jobs:
           cp dist/smoke-offline.json dist/runner-verification-${{ matrix.host }}-offline.json
           CAMP_SMOKE_RUNNER_BINARY="$PWD/dist/camp" node scripts/smoke-bundle.mjs online
           cp dist/smoke-online.json dist/runner-verification-${{ matrix.host }}-server-entrypoint.json
-      - name: Check the complete Server package with launchd and bundled readers
+      - name: Check the complete Server package with launchd and original attachments
         env:
           CAMP_SMOKE_BINARY: ${{ github.workspace }}/dist/camp-server-darwin-arm64/camp
           CAMP_SERVER_ARCHIVE: ${{ github.workspace }}/dist/camp-server-darwin-arm64.tar.gz
-          CAMP_DOCUMENT_REPORT: ${{ github.workspace }}/dist/server-service-verification-${{ matrix.host }}.json
-        run: node scripts/smoke-documents.mjs --service
+          CAMP_SERVER_SERVICE_REPORT: ${{ github.workspace }}/dist/server-service-verification-${{ matrix.host }}.json
+        run: node scripts/smoke-server-service.mjs --service
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -590,13 +590,13 @@ jobs:
           CAMP_SMOKE_BINARY: ${{ runner.temp }}/camp-go-bin/camp
           XDG_CACHE_HOME: ${{ runner.temp }}/camp-go-cache
         run: node scripts/smoke-production.mjs
-      - name: Verify bundled Mac documents and directory import through the Go entrypoint
+      - name: Verify Mac Server service and directory import through the Go entrypoint
         if: startsWith(matrix.platform, 'darwin-')
-        id: documents
+        id: service
         env:
           CAMP_SMOKE_BINARY: ${{ runner.temp }}/camp-go-bin/camp
           XDG_CACHE_HOME: ${{ runner.temp }}/camp-go-cache
-        run: node scripts/smoke-documents.mjs --service
+        run: node scripts/smoke-server-service.mjs --service
       - name: Verify native Mac setup, execution and service through the Go entrypoint
         if: matrix.platform == 'darwin-arm64'
         id: runner
@@ -610,7 +610,7 @@ jobs:
         env:
           CAMP_GO_INSTALL_OUTCOME: ${{ steps.install.outcome }}
           CAMP_GO_SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
-          CAMP_GO_DOCUMENT_OUTCOME: ${{ steps.documents.outcome }}
+          CAMP_GO_SERVICE_OUTCOME: ${{ steps.service.outcome }}
           CAMP_GO_RUNNER_OUTCOME: ${{ steps.runner.outcome }}
         run: node scripts/record-go-install.mjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

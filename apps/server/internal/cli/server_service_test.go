@@ -29,7 +29,7 @@ func TestServerServiceSettingsFreezePublicConfigurationWithoutCredentials(t *tes
 	if strings.Contains(string(data), "must-not") || strings.Contains(string(data), "DEEPSEEK") || strings.Contains(string(data), "HTTPS_PROXY") {
 		t.Fatal("persisted ambient credentials or proxy")
 	}
-	if config.Environment["CAMP_DOCUMENT_NODE"] != filepath.Join(directory, "runtime/node") {
+	if _, exists := config.Environment["CAMP_DOCUMENT_NODE"]; exists {
 		t.Fatal(config.Environment)
 	}
 	if err := writeServerServiceConfig(directory, config); err != nil {
@@ -48,81 +48,42 @@ func TestServerServiceSettingsFreezePublicConfigurationWithoutCredentials(t *tes
 	}
 }
 
-func TestServerServiceSettingsFreezeDocumentNodeFromInstallerPath(t *testing.T) {
+func TestServerServiceIgnoresRetiredReaderSettingsWithoutRewritingHistory(t *testing.T) {
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	selectedBin, fallbackBin := filepath.Join(directory, "selected-bin"), filepath.Join(directory, "fallback-bin")
-	for _, bin := range []string{selectedBin, fallbackBin} {
-		if err := os.Mkdir(bin, 0700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(bin, "node"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	t.Setenv("PATH", selectedBin)
 	config, err := serverServiceSettings(serveOptions{dataDir: directory}, func(key string) string {
-		if key == "CAMP_DOCUMENT_NODE" {
-			return "node"
+		if legacyDocumentEnvironment(key) {
+			return "missing-reader"
 		}
 		return ""
 	}, directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	selected := filepath.Join(selectedBin, "node")
-	if config.Environment["CAMP_DOCUMENT_NODE"] != selected {
-		t.Fatalf("lost installer-selected Node: %+v", config.Environment)
+	if len(config.Environment) != 0 {
+		t.Fatal("captured retired reader configuration", config.Environment)
 	}
+	config.Environment = map[string]string{"CAMP_DOCUMENT_NODE": "/retired/node", "CAMP_DOCUMENT_RUNTIME": "/retired/runtime", "CAMP_IMPORT_ROOTS": "/approved/source"}
 	if err := writeServerServiceConfig(directory, config); err != nil {
+		t.Fatal(err)
+	}
+	filename := filepath.Join(directory, "service", "server.json")
+	before, err := os.ReadFile(filename)
+	if err != nil {
 		t.Fatal(err)
 	}
 	stored, err := readServerServiceConfig(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", fallbackBin)
-	getenv := func(key string) string { return stored.Environment[key] }
-	resolved := resolveDocumentSettings(getenv, directory, "/source/camp")
-	if resolved.InstallationError != nil || resolved.NodePath != selected {
-		t.Fatalf("service PATH changed the persisted Node selection: %+v", resolved)
+	if len(stored.Environment) != 1 || stored.Environment["CAMP_IMPORT_ROOTS"] != "/approved/source" {
+		t.Fatal("legacy settings reached Server execution", stored.Environment)
 	}
-	if err := os.Remove(selected); err != nil {
-		t.Fatal(err)
-	}
-	resolved = resolveDocumentSettings(getenv, directory, "/source/camp")
-	if resolved.InstallationError == nil || resolved.NodePath != selected {
-		t.Fatalf("missing selected Node fell back to the service PATH: %+v", resolved)
-	}
-}
-
-func TestServerServiceSettingsRejectUnknownDocumentNodeWithoutFallback(t *testing.T) {
-	directory, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	bin := filepath.Join(directory, "bin")
-	if err := os.Mkdir(bin, 0700); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{filepath.Join(bin, "node"), filepath.Join(directory, "unknown-node")} {
-		if err := os.WriteFile(name, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	t.Setenv("PATH", bin)
-	if _, err := serverServiceSettings(serveOptions{dataDir: directory}, func(key string) string {
-		if key == "CAMP_DOCUMENT_NODE" {
-			return "unknown-node"
-		}
-		return ""
-	}, directory); err == nil || !strings.Contains(err.Error(), "CAMP_DOCUMENT_NODE") {
-		t.Fatalf("unknown selection silently used ambient Node or a different cwd path: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(directory, "service")); !os.IsNotExist(err) {
-		t.Fatal("rejected Node selection wrote service settings", err)
+	after, err := os.ReadFile(filename)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("read rewrote historical service metadata", err)
 	}
 }
 

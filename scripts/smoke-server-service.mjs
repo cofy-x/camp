@@ -21,7 +21,7 @@ import {
   waitFor,
 } from './lib.mjs';
 import { hashFile, releaseIdentity } from './release.mjs';
-import { documentService } from './document-service.mjs';
+import { serverService } from './server-service.mjs';
 
 const { values } = parseArgs({
   options: { service: { type: 'boolean', default: false } },
@@ -32,12 +32,6 @@ if (values.service) {
     'darwin',
     'Server service acceptance requires an actual Mac.',
   );
-  for (const key of ['CAMP_DOCUMENT_RUNTIME', 'CAMP_DOCUMENT_NODE'])
-    assert.equal(
-      process.env[key] || '',
-      '',
-      'Bundled acceptance cannot use reader overrides.',
-    );
 }
 const binary = resolve(process.env.CAMP_SMOKE_BINARY || builtBinary);
 const temporary = await scratch();
@@ -81,21 +75,16 @@ const environment = {
   ...(process.env.XDG_CACHE_HOME
     ? { XDG_CACHE_HOME: process.env.XDG_CACHE_HOME }
     : {}),
-  ...Object.fromEntries(
-    ['CAMP_DOCUMENT_RUNTIME', 'CAMP_DOCUMENT_NODE']
-      .filter((key) => process.env[key])
-      .map((key) => [key, process.env[key]]),
-  ),
 };
 const interrupted = new AbortController();
 const interrupt = () =>
   interrupted.abort(
-    new Error('Document acceptance was interrupted; preserve failed fixtures.'),
+    new Error('Server acceptance was interrupted; preserve failed fixtures.'),
   );
 process.on('SIGINT', interrupt);
 process.on('SIGTERM', interrupt);
 const service = values.service
-  ? documentService({
+  ? serverService({
       binary,
       data,
       cwd: temporary,
@@ -141,8 +130,7 @@ async function retainedData() {
 
   async function visit(relative) {
     for (const name of (await readdir(join(data, relative))).sort()) {
-      if (!relative && ['service', 'logs', 'document-jobs'].includes(name))
-        continue;
+      if (!relative && ['service', 'logs'].includes(name)) continue;
       const path = join(relative, name);
       const info = await lstat(join(data, path));
       if (info.isDirectory()) await visit(path);
@@ -191,15 +179,8 @@ async function api(path, options = {}, status = 200) {
   return response;
 }
 
-async function until(read, accept) {
-  const deadline = Date.now() + 60000;
-  while (Date.now() < deadline) {
-    interrupted.signal.throwIfAborted();
-    const value = await read();
-    if (accept(value)) return value;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error('The isolated document observation did not complete.');
+async function assertNoParserJobs() {
+  await assert.rejects(lstat(join(data, 'document-jobs')), { code: 'ENOENT' });
 }
 
 try {
@@ -209,48 +190,38 @@ try {
     method: 'POST',
     body: {
       token: (await readFile(join(data, 'team-setup.token'), 'utf8')).trim(),
-      username: 'document-owner',
-      name: 'Document Owner',
-      password: 'Private synthetic document fixture password',
+      username: 'server-owner',
+      name: 'Server Owner',
+      password: 'Private synthetic Server fixture password',
     },
   });
   cookie = setup.headers.getSetCookie()[0].split(';')[0];
-  const readiness = await until(
-    async () => (await api('/api/settings/readiness')).json(),
-    (value) =>
-      value.components.filter(
-        (component) =>
-          component.id.startsWith('document-') && component.status === 'ready',
-      ).length === 2,
-  );
-  assert.equal(
-    readiness.ready,
-    false,
-    'Reader readiness must not invent a Runner or model.',
-  );
-  const checked = readiness.components.filter((component) =>
-    component.id.startsWith('document-'),
-  );
-  for (let i = 0; i < 3; i++)
-    assert.deepEqual(
-      (await (await api('/api/settings/readiness')).json()).components.filter(
-        (component) => component.id.startsWith('document-'),
-      ),
-      checked,
+  for (let i = 0; i < 3; i++) {
+    const readiness = await (await api('/api/settings/readiness')).json();
+    assert.equal(
+      readiness.ready,
+      false,
+      'Plain Server work must not invent a Runner or model.',
     );
-  report.checks.push(
-    'model-free-reader-self-tests',
-    'readiness-get-reuses-observations',
-  );
+    assert.ok(
+      readiness.components.every(
+        (component) => !component.id.startsWith('document-'),
+      ),
+    );
+  }
   const { runners } = await (await api('/api/runners')).json();
   assert.equal(runners.length, 0);
   const { rooms } = await (await api('/api/rooms')).json();
   const originals = [];
-  for (const [name, count] of [
-    ['customer-brief.pdf', 2],
-    ['interview-notes.docx', 9],
+  for (const [name, bytes] of [
+    [
+      'guide.md',
+      Buffer.from('# Team guide\n\nKeep source material in Markdown.\n'),
+    ],
+    ['notes.txt', Buffer.from('Plain text remains readable.\n')],
+    ['original.pdf', Buffer.from('%PDF-opaque attachment fixture\n')],
+    ['original.docx', Buffer.from('PK opaque attachment fixture\n')],
   ]) {
-    const bytes = await readFile(join(root, 'examples/documents', name));
     const form = new FormData();
     form.append('requestId', randomUUID());
     form.append('file', new Blob([bytes]), name);
@@ -260,31 +231,33 @@ try {
         body: form,
       })
     ).json();
-    assert.ok(reference.document?.id);
-    const { document } = await until(
-      async () => (await api(`/api/documents/${reference.document.id}`)).json(),
-      (value) =>
-        value.document.status !== 'queued' &&
-        value.document.status !== 'extracting',
+    assert.equal(
+      reference.document ?? null,
+      null,
+      'An upload started document preparation.',
     );
-    assert.equal(document.status, 'ready', JSON.stringify(document.error));
-    assert.equal(document.sections.length, count);
-    assert.equal(document.sections[0].id, 'p1');
-    const original = Buffer.from(
-      await (
-        await api(
-          `/api/resources/${reference.resourceId}/file?path=${encodeURIComponent(reference.path)}&commit=${reference.commit}`,
-        )
-      ).arrayBuffer(),
+    const endpoint = `/api/resources/${reference.resourceId}/file?path=${encodeURIComponent(reference.path)}&commit=${reference.commit}`;
+    assert.deepEqual(
+      Buffer.from(await (await api(endpoint)).arrayBuffer()),
+      bytes,
     );
-    assert.deepEqual(original, bytes);
-    originals.push({ reference, bytes, document });
+    originals.push({ endpoint, bytes });
+    if (/\.(pdf|docx)$/.test(name)) {
+      await api(
+        `/api/resources/${reference.resourceId}/document`,
+        {
+          method: 'POST',
+          body: { commit: reference.commit, path: reference.path },
+        },
+        404,
+      );
+    }
   }
+  await assertNoParserJobs();
   report.checks.push(
-    'real-pdf-and-docx-preparation',
-    'stable-page-and-paragraph-citations',
-    'immutable-original-downloads',
-    'no-runner-or-model-required',
+    'markdown-and-plaintext',
+    'original-only-attachments-preserved',
+    'no-parser-readiness-or-jobs',
   );
   const { resource } = await (
     await api('/api/resources', {
@@ -313,22 +286,16 @@ try {
   await stopServer();
   await start();
   for (const saved of originals) {
-    const { document } = await (
-      await api(`/api/documents/${saved.document.id}`)
-    ).json();
-    assert.deepEqual(document.sections, saved.document.sections);
+    assert.deepEqual(
+      Buffer.from(await (await api(saved.endpoint)).arrayBuffer()),
+      saved.bytes,
+    );
   }
-  report.checks.push('restart-preserves-prepared-text-and-citations');
+  await assertNoParserJobs();
+  report.parserJobsCreated = false;
+  report.checks.push('restart-preserves-files');
   if (service) {
     await stopServer();
-    report.readerJobsRemaining = (
-      await readdir(join(data, 'document-jobs'))
-    ).length;
-    assert.equal(
-      report.readerJobsRemaining,
-      0,
-      'Stopped readers retained unexpected ownership receipts.',
-    );
     const before = await retainedData();
     await service.remove();
     assert.deepEqual(
@@ -339,9 +306,9 @@ try {
     report.retainedDataPreserved = true;
     report.cleanupConfirmed = true;
     report.checks.push(
-      'packaged-server-launchd-reader-lifecycle',
+      'packaged-server-launchd-lifecycle',
       'service-removal-preserves-private-data',
-      'reader-jobs-clean-and-owned-service-absent',
+      'owned-service-absent',
     );
   }
   report.status = 'passed';
@@ -365,10 +332,10 @@ try {
     report.completedAt = new Date().toISOString();
     await mkdir(join(root, 'dist'), { recursive: true });
     await writeFile(
-      process.env.CAMP_DOCUMENT_REPORT ||
+      process.env.CAMP_SERVER_SERVICE_REPORT ||
         join(
           root,
-          `dist/document-verification-${process.platform}-${process.arch}.json`,
+          `dist/server-service-verification-${process.platform}-${process.arch}.json`,
         ),
       `${JSON.stringify(report, null, 2)}\n`,
     );

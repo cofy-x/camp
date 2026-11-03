@@ -4,7 +4,7 @@ Camp is a self-hosted workspace for trusted teams and AI agents, with a Platinum
 
 - Discuss work in Rooms and Threads.
 - Give Agents tasks or collaborate with multiple Agents, with explicit access and execution limits.
-- Keep original sources, versioned shared files and private editing drafts.
+- Work with Markdown and plain text, keeping original attachments, versioned shared files and private editing drafts.
 - Review work with people and deliver an exact saved version.
 
 Camp is in alpha and under active development.

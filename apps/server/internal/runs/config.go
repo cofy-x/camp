@@ -9,19 +9,18 @@ import (
 )
 
 type Config struct {
-	RuntimeDir         string
-	DocumentRuntimeDir string
-	LayerFSRuntimeDir  string
-	SandboxHelper      string
-	DockerSocket       string
-	NodePath           string
-	APIKey             string
-	BaseURL            string
-	Model              string
-	MaxTokens          int
-	MaxSteps           int
-	Timeout            time.Duration
-	ModelOverrides     *configuration.Overrides
+	RuntimeDir        string
+	LayerFSRuntimeDir string
+	SandboxHelper     string
+	DockerSocket      string
+	NodePath          string
+	APIKey            string
+	BaseURL           string
+	Model             string
+	MaxTokens         int
+	MaxSteps          int
+	Timeout           time.Duration
+	ModelOverrides    *configuration.Overrides
 }
 
 type Budget = configuration.Budget

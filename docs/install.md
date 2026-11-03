@@ -12,7 +12,7 @@ Runner discovers the selected local engine's volume directory through Docker's s
 
 The LayerFS local-volume backend requires privileged filesystem access. Docker group membership alone is insufficient. Use the same dedicated privileged account for setup, foreground operation and service installation. Linux native services require root-owned private storage and refuse another account's existing journal. Unprivileged/rootless Linux execution is unsupported. Treat the Runner operator as a trusted privileged host owner; tool containers receive no Docker control. Ubuntu policy may require an administrator-approved Bubblewrap profile.
 
-Server packages target Linux amd64 and macOS arm64/amd64. Server needs Git and private storage, without Docker, DSH or LayerFS. Its [lightweight image](../Dockerfile) omits native execution and optional PDF/DOCX reader dependencies. For readers on a Linux binary Server deployment, see the [document runtime](../tools/document-runtime/README.md). Complete macOS Server packages include private PDF/DOCX readers, with fixed Node/PDF.js inputs and a trusted Seatbelt process owner. Readers require neither a Runner, a model connection nor a host Node installation. Earlier releases may omit this runtime; check their exact Server acceptance. Controlled Server-host directory import uses the operator allowlist on Linux and Mac; ordinary Library imports select a Runner source alias. Originals remain downloadable when a reader is unavailable. Browser access from Windows requires no CLI. Mac/Windows browser and Compose usage does not imply native Runner support.
+Server packages target Linux amd64 and macOS arm64/amd64. Server needs Git and private storage, without Node, Docker, DSH or LayerFS. Markdown and plain text support reading and editing. Other attachments preserve their original bytes; new PDF/DOCX preparation is disabled, while saved parsed results and historical citations remain readable. Controlled Server-host directory import uses the operator allowlist on Linux and Mac; ordinary Library imports select a Runner source alias. Browser access from Windows requires no CLI. Mac/Windows browser and Compose usage does not imply native Runner support.
 
 ## Choose a version
 
@@ -57,7 +57,7 @@ Run `camp doctor` to inspect the selected local address, Git and private storage
 
 Starting `camp` prints the browser address, data location and private setup-token file path. The token itself is never printed or placed in a URL. Opening the browser is explicit and no service is enabled. After creating the team, use **Set Up Agent Work…** in an empty Room or **Help → Getting Ready** to follow model setup, Runner connection and first-task selection. Configure model settings in the browser; no model key belongs in shell arguments or Runner configuration.
 
-Extract the matching `camp-server-linux-amd64.tar.gz`, `camp-server-darwin-arm64.tar.gz` (Apple Silicon) or `camp-server-darwin-amd64.tar.gz` (Intel Mac), then run its `camp`. Source developers use `make build` and `dist/camp`. Keep the complete extracted layout together, including the adjacent `documents/` directory on Mac. The Server verifies its compiled-in reader manifest and fixed files, independently of the working directory. Keep data outside the extracted installation. The published Linux image contains the same Linux Server binary and dependency licenses. It needs a persistent `/data` mount and explicit port/TLS configuration; it does not include a Runner. For a binary deployment with remote access, provide TLS:
+Extract the matching `camp-server-linux-amd64.tar.gz`, `camp-server-darwin-arm64.tar.gz` (Apple Silicon) or `camp-server-darwin-amd64.tar.gz` (Intel Mac), then run its `camp`. Source developers use `make build` and `dist/camp`. Keep the extracted installation together and store team data outside it. The published Linux image contains the same Linux Server binary and dependency licenses. It needs a persistent `/data` mount and explicit port/TLS configuration; it does not include a Runner. For a binary deployment with remote access, provide TLS:
 
 ```sh
 CAMP_PUBLIC_ORIGIN=https://camp.example.com:3443 \
@@ -275,7 +275,7 @@ The retention policy is explicit:
 
 | Data | Lifetime |
 | --- | --- |
-| Registered Resource trees and all retained versions, uploaded originals, parser results, messages/task inputs, drafts, review/publication history, receipts and private settings | Protected; maintenance never expires or rewrites them |
+| Registered Resource trees and all retained versions, uploaded originals, saved parsed results, messages/task inputs, drafts, review/publication history, receipts and private settings | Protected; maintenance never expires or rewrites them |
 | Pending or active transfer/preparation directories, including source-import reservations | Protected until their durable lifecycle becomes terminal |
 | Unregistered Resource directories and unknown/terminal transfer copies | Eligible only for an exact stopped quarantine plan |
 | Runner identity/journal/session/checkpoint data | A separate Runner owner; use the existing `runner checkpoint storage` and cleanup commands |
