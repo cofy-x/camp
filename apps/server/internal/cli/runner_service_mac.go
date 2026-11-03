@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/daemon"
 	"github.com/cofy-x/camp/apps/server/internal/execution"
@@ -21,8 +22,21 @@ import (
 
 const macServiceHeader = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- Managed by Camp Runner -->\n"
 
+const macServerServiceHeader = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- Managed by Camp Server -->\n"
+
+func macServiceLabelFor(role, directory string) string {
+	if role == "" || role == "runner" {
+		return macServiceLabel(directory)
+	}
+	digest := sha256.Sum256([]byte(directory))
+	return fmt.Sprintf("dev.cofy.camp.%s.%x", role, digest[:8])
+}
+func (s macRunnerService) label() string { return macServiceLabelFor(s.role, s.directory) }
+
 type macRunnerService struct {
 	domain, directory, loginDirectory string
+	role                              string
+	arguments                         []string
 	otherDomains                      []string
 	command                           func(context.Context, ...string) error
 	loaded                            func(context.Context, string) bool
@@ -36,7 +50,7 @@ func (s macRunnerService) loadedTargets(ctx context.Context) []string {
 			continue
 		}
 		seen[domain] = true
-		target := domain + "/" + macServiceLabel(s.directory)
+		target := domain + "/" + s.label()
 		if s.loaded(ctx, target) {
 			targets = append(targets, target)
 		}
@@ -58,30 +72,46 @@ func macServiceDomain(ctx context.Context) string {
 }
 
 func macServicePlist(binary, directory string) ([]byte, error) {
+	return macServicePlistFor("runner", binary, directory, []string{"runner", "run", "--data-dir", directory, "--service-logs"})
+}
+
+func macServicePlistFor(role, binary, directory string, arguments []string) ([]byte, error) {
+	if role != "runner" && role != "server" {
+		return nil, errors.New("Unsupported Camp service role")
+	}
 	for _, value := range []string{binary, directory} {
 		if !filepath.IsAbs(value) || strings.ContainsAny(value, "\x00\r\n") {
 			return nil, errors.New("Service paths must be absolute and contain no line breaks or NUL")
 		}
 	}
+	for _, value := range arguments {
+		if strings.ContainsAny(value, "\x00\r\n") {
+			return nil, errors.New("Service arguments must contain no line breaks or NUL")
+		}
+	}
 	var b bytes.Buffer
-	b.WriteString(macServiceHeader + "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n")
+	header := macServiceHeader
+	if role == "server" {
+		header = macServerServiceHeader
+	}
+	b.WriteString(header + "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n")
 	text := func(value string) { _ = xml.EscapeText(&b, []byte(value)) }
 	entry := func(key, value string) {
 		b.WriteString("<key>" + key + "</key><string>")
 		text(value)
 		b.WriteString("</string>\n")
 	}
-	entry("Label", macServiceLabel(directory))
+	entry("Label", macServiceLabelFor(role, directory))
 	b.WriteString("<key>ProgramArguments</key><array>")
-	for _, arg := range []string{binary, "runner", "run", "--data-dir", directory} {
+	for _, arg := range append([]string{binary}, arguments...) {
 		b.WriteString("<string>")
 		text(arg)
 		b.WriteString("</string>")
 	}
 	b.WriteString("</array>\n")
 	entry("WorkingDirectory", directory)
-	entry("StandardOutPath", filepath.Join(directory, "logs", "runner.log"))
-	entry("StandardErrorPath", filepath.Join(directory, "logs", "runner-error.log"))
+	entry("StandardOutPath", "/dev/null")
+	entry("StandardErrorPath", "/dev/null")
 	b.WriteString("<key>EnvironmentVariables</key><dict><key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin</string></dict>\n")
 	// The process reconnects itself. A failure requiring operator attention must
 	// remain stopped rather than launchd replaying initialization indefinitely.
@@ -94,11 +124,12 @@ func readManagedMacPlist(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() {
+	owner, ownerErr := serviceDataOwner(name)
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > 128<<10 || ownerErr != nil || owner != uint32(os.Geteuid()) {
 		return nil, errors.New("Refusing an unmanaged or linked service file")
 	}
 	data, err := os.ReadFile(name)
-	if err == nil && !bytes.HasPrefix(data, []byte(macServiceHeader)) {
+	if err == nil && !bytes.HasPrefix(data, []byte(macServiceHeader)) && !bytes.HasPrefix(data, []byte(macServerServiceHeader)) {
 		err = errors.New("Refusing to replace or remove an unmanaged service")
 	}
 	return data, err
@@ -125,7 +156,7 @@ func writeMacPlist(name string, data []byte) error {
 }
 
 func (s macRunnerService) apply(ctx context.Context, action, binary string) error {
-	label := macServiceLabel(s.directory)
+	label := s.label()
 	target := s.domain + "/" + label
 	private := filepath.Join(s.directory, "service", label+".plist")
 	login := filepath.Join(s.loginDirectory, label+".plist")
@@ -134,7 +165,15 @@ func (s macRunnerService) apply(ctx context.Context, action, binary string) erro
 		if len(loaded) > 0 {
 			return errors.New("Stop this Runner service before updating its installation")
 		}
-		data, err := macServicePlist(binary, s.directory)
+		role := s.role
+		if role == "" {
+			role = "runner"
+		}
+		arguments := s.arguments
+		if len(arguments) == 0 {
+			arguments = []string{"runner", "run", "--data-dir", s.directory, "--service-logs"}
+		}
+		data, err := macServicePlistFor(role, binary, s.directory, arguments)
 		if err != nil {
 			return err
 		}
@@ -174,6 +213,16 @@ func (s macRunnerService) apply(ctx context.Context, action, binary string) erro
 			if err := s.command(ctx, "bootout", current); err != nil {
 				return err
 			}
+			stopping, cancel := context.WithTimeout(ctx, 30*time.Second)
+			for s.loaded(stopping, current) {
+				select {
+				case <-stopping.Done():
+					cancel()
+					return errors.New("Service shutdown is not confirmed; preserve its data and inspect service status")
+				case <-time.After(25 * time.Millisecond):
+				}
+			}
+			cancel()
 		}
 		if action == "stop" {
 			return nil

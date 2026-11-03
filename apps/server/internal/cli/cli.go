@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +35,9 @@ func Run(ctx context.Context, args []string, output io.Writer, version string) e
 	if len(args) > 0 && (args[0] == "doctor" || args[0] == "open") {
 		return runLocal(ctx, args, output)
 	}
+	if len(args) > 0 && args[0] == "service" {
+		return runServerService(ctx, args[1:], output, version)
+	}
 	if len(args) > 0 && args[0] == "storage" {
 		return runServerStorage(ctx, args[1:], output)
 	}
@@ -59,6 +63,7 @@ Commands:
   doctor    Check local Server prerequisites without changing data
   open      Open the browser address (use --print on headless hosts)
   runner    Install, connect, run, or inspect a Camp Runner
+  service   Explicitly manage the local Mac Server background service
   storage   Inspect or maintain stopped Server storage
   help      Show this help (--help, -h)
   version   Print the version (--version)
@@ -99,33 +104,38 @@ not be empty. Put options after "serve"; positional arguments are not accepted.
 		_, err = fmt.Fprintf(output, "%s %s\n", appName, version)
 		return err
 	default:
-		config, err := resolveConfig(cmd.options, os.Getenv, os.UserConfigDir)
-		if err != nil {
-			return err
-		}
-		cwd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("resolve working directory: %w", err)
-		}
-		config.DocumentRuntimeDir = documentRuntime(os.Getenv, cwd)
-		settings, err := readServiceSettings(cmd.options, os.Getenv, cwd)
-		if err != nil {
-			return err
-		}
-		config.Models, config.DocumentNodePath = settings.ModelInput, settings.NodePath
-		config.OnReady = func(address, setupPath string) {
-			config.Addr = address
-			if url, err := browserURL(config); err == nil {
-				_, _ = fmt.Fprintf(output, "Open Camp: %s\n", url)
-			}
-			directory, _ := filepath.Abs(config.DataDir)
-			_, _ = fmt.Fprintf(output, "Team data: %s\n", directory)
-			if setupPath != "" {
-				_, _ = fmt.Fprintf(output, "Read the private setup token from %s, create your team, then follow Getting Ready.\n", setupPath)
-			}
-		}
-		return server.Run(ctx, config)
+		return runServe(ctx, cmd.options, output, os.Getenv, nil)
 	}
+}
+
+func runServe(ctx context.Context, options serveOptions, output io.Writer, getenv func(string) string, logger *slog.Logger) error {
+	config, err := resolveConfig(options, getenv, os.UserConfigDir)
+	if err != nil {
+		return err
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolve working directory: %w", err)
+	}
+	config.DocumentRuntimeDir = documentRuntime(getenv, cwd)
+	settings, err := readServiceSettings(options, getenv, cwd)
+	if err != nil {
+		return err
+	}
+	config.Models, config.DocumentNodePath = settings.ModelInput, settings.NodePath
+	config.Logger = logger
+	config.OnReady = func(address, setupPath string) {
+		config.Addr = address
+		if url, err := browserURL(config); err == nil {
+			_, _ = fmt.Fprintf(output, "Open Camp: %s\n", url)
+		}
+		directory, _ := filepath.Abs(config.DataDir)
+		_, _ = fmt.Fprintf(output, "Team data: %s\n", directory)
+		if setupPath != "" {
+			_, _ = fmt.Fprintf(output, "Read the private setup token from %s, create your team, then follow Getting Ready.\n", setupPath)
+		}
+	}
+	return server.Run(ctx, config)
 }
 
 func documentRuntime(getenv func(string) string, cwd string) string {

@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 5 || os.Args[1] != "runner" || os.Args[2] != "run" || os.Args[3] != "--data-dir" {
+	if (len(os.Args) != 5 && len(os.Args) != 6) || os.Args[1] != "runner" || os.Args[2] != "run" || os.Args[3] != "--data-dir" || len(os.Args) == 6 && os.Args[5] != "--service-logs" {
 		os.Exit(2)
 	}
 	dir := os.Args[4]

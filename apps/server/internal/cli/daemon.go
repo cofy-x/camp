@@ -18,6 +18,7 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/execution"
 	"github.com/cofy-x/camp/apps/server/internal/nativeexecutor"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
+	"github.com/cofy-x/camp/apps/server/internal/servicelog"
 )
 
 type sourceFlags map[string]string
@@ -113,8 +114,11 @@ On Mac use service enable-login / disable-login to choose login startup.
 	var slots int
 	var sources sourceFlags
 	var toolRoots toolRootFlags
-	var development, clearToolRoots bool
+	var development, clearToolRoots, serviceLogs bool
 	flags.StringVar(&directory, "data-dir", "", "private Runner directory")
+	if action == "run" {
+		flags.BoolVar(&serviceLogs, "service-logs", false, "managed private bounded service logs")
+	}
 	if action == "setup" {
 		flags.StringVar(&server, "server", "", "Camp origin")
 		flags.StringVar(&name, "name", "", "Runner name")
@@ -214,6 +218,27 @@ On Mac use service enable-login / disable-login to choose login startup.
 			config.DockerSocket = docker
 		}
 		config.Native = runnerNative(bundle, config.DockerSocket)
+		if serviceLogs {
+			canonical, err := filepath.EvalSymlinks(directory)
+			if err != nil {
+				return err
+			}
+			logs, err := servicelog.Open(filepath.Join(canonical, "logs"), "runner.log")
+			if err != nil {
+				return err
+			}
+			defer logs.Close()
+			failures, err := servicelog.Open(filepath.Join(canonical, "logs"), "runner-error.log")
+			if err != nil {
+				return err
+			}
+			defer failures.Close()
+			err = daemon.Run(ctx, config, logs)
+			if err != nil {
+				_, _ = fmt.Fprintf(failures, "Runner stopped: %v\n", err)
+			}
+			return err
+		}
 		return daemon.Run(ctx, config, output)
 	}
 	previous, loadErr := daemon.LoadConfig(directory)

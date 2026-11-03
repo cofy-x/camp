@@ -167,6 +167,25 @@ Only `cleanup plan --action purge --batch BATCH_ID`, followed by `cleanup apply 
 
 ## Choose operation mode
 
+### Mac Server background operation
+
+Foreground `camp` remains available. To manage a Mac Server separately from its Runner:
+
+```sh
+camp service install --data-dir /private/camp --addr 127.0.0.1:3001
+camp service start --data-dir /private/camp
+camp service status --data-dir /private/camp --json
+camp service enable-login --data-dir /private/camp
+```
+
+Installation saves the resolved listener, TLS paths, import policy and selected private environment-file path without copying model credentials. Configure models in Settings or the private Server environment file; an interactive shell's model variables are not a persistent service configuration. The managed job uses a restricted environment and the same Server startup and data-directory lock as foreground execution. Installation starts nothing; login startup is a separate choice.
+
+Use `stop`, `disable-login` and `remove` with the same directory. Removal preserves team data. A failure remains stopped until explicitly started. Stop before reinstalling from an upgraded package or relocating a stopped backup; reinstall records the new absolute executable/data paths. Server and Runner services have distinct owned labels. Service status distinguishes installed, loaded, running and login-enabled states; an uncertain observation is not a confirmed stop.
+
+Mac Server and Runner services retain private logs under their respective data directories. Each output stream retains at most three 10 MiB files, including the current file. Rotation does not expire team data or checkpoint history. Existing Runner service installations adopt bounded logging when explicitly reinstalled from the new package.
+
+### Runner background operation
+
 Foreground `run` is enough. On systemd hosts an operator can separately choose:
 
 ```sh
