@@ -45,7 +45,7 @@ export function RunnersPanel({ desktop }: { desktop: DesktopAPI }) {
         setError('');
       } else
         setError(
-          'This Runner is no longer available. Choose another Runner or connect a Linux machine.',
+          'This Runner is no longer available. Choose another Runner or connect a machine.',
         );
     }
   }, [navigation, loading, runners]);
@@ -257,7 +257,7 @@ export function RunnersPanel({ desktop }: { desktop: DesktopAPI }) {
             <section
               className="camp-runner-detail"
               aria-label="Runner details"
-              key={selected.id}
+              key={`${user.id}:${selected.id}`}
             >
               <header className="camp-runner-heading">
                 <PixelIcon name="computer" size={32} />
@@ -367,7 +367,11 @@ export function RunnersPanel({ desktop }: { desktop: DesktopAPI }) {
                       )}
                     </div>
                   ) : null}
-                  <RunnerReadiness runner={selected} />
+                  <RunnerReadiness
+                    runner={selected}
+                    active={!connecting && tab === 'overview'}
+                    getActivationRevision={desktop.getActivationRevision}
+                  />
                   {(selected.runtime === 'fixture' ||
                     selected.capabilities.executor === 'fixture') && (
                     <p>
@@ -398,7 +402,10 @@ export function RunnersPanel({ desktop }: { desktop: DesktopAPI }) {
                   </>
                 )}
                 {tab === 'diagnostics' && (
-                  <RunnerDiagnostics runner={selected} />
+                  <RunnerDiagnostics
+                    runner={selected}
+                    getActivationRevision={desktop.getActivationRevision}
+                  />
                 )}
               </Tabs>
             </section>

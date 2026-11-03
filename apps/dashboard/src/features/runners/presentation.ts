@@ -22,12 +22,43 @@ export function runnerRuntime(runner: Runner) {
   )
     return 'Test executor';
   if (
-    runner.capabilities.workspace === 'native-local' &&
+    ['native-local', 'native-layerfs-worker'].includes(
+      runner.capabilities.workspace ?? '',
+    ) &&
     runner.capabilities.sandbox === 'seatbelt'
   )
     return 'Mac native';
   if (runner.capabilities.workspace === 'layerfs') return 'Linux native';
   return 'Native execution';
+}
+
+export function runnerAdapters(runner: Runner) {
+  const { workspace, sandbox, checkpoint, layerfsVersion } =
+    runner.capabilities;
+  const labels: Record<string, string> = {
+    'native-local': 'Native local directory',
+    'native-layerfs-worker': 'Native directory with LayerFS worker',
+    layerfs: 'LayerFS',
+    seatbelt: 'Seatbelt',
+    'linux-container': 'Linux container',
+    'local-capture': 'Sealed local capture',
+    'layerfs-disposable+native-capture':
+      'LayerFS checkpoint and native capture',
+  };
+  const reported = (value?: string) =>
+    value ? (labels[value] ?? 'Unrecognized adapter') : '';
+  return {
+    workspace: reported(workspace),
+    sandbox: reported(sandbox),
+    checkpoint: reported(checkpoint),
+    layerfsVersion:
+      workspace === 'layerfs' ||
+      workspace === 'native-layerfs-worker' ||
+      checkpoint === 'layerfs' ||
+      checkpoint === 'layerfs-disposable+native-capture'
+        ? layerfsVersion
+        : undefined,
+  };
 }
 
 export function runnerQueueMessage(runner: Runner | undefined) {
