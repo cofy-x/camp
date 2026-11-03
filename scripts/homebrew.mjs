@@ -55,7 +55,12 @@ export function homebrewFormula(descriptor) {
   depends_on "git"
 
   def install
-    bin.install "camp"
+    if OS.mac?
+      libexec.install "camp", "documents"
+      bin.install_symlink libexec/"camp"
+    else
+      bin.install "camp"
+    end
     doc.install "INSTALL.md"
     pkgshare.install "licenses", "runner-release.json"
   end

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { release as osRelease } from 'node:os';
 import { command, root, scratch } from './lib.mjs';
 import { hashFile, serverPlatforms } from './release.mjs';
+import { assertDocumentServiceReceipt } from './document-service.mjs';
 import {
   baselineLauncher,
   upgradeBaseline,
@@ -28,6 +29,7 @@ assert.equal(
   `${artifact.sha256}  ${artifact.filename}\n`,
 );
 const temporary = await scratch();
+let passed = false;
 try {
   await command('tar', ['-xzf', filename, '-C', temporary]);
   for (const baseline of [upgradeBaseline, previousRelease]) {
@@ -45,6 +47,32 @@ try {
       },
     );
   }
+  let documents;
+  if (process.platform === 'darwin') {
+    const documentReport = join(
+      directory,
+      `server-document-service-${platform}.json`,
+    );
+    await command(
+      process.execPath,
+      [join(root, 'scripts/smoke-documents.mjs'), '--service'],
+      {
+        env: {
+          ...process.env,
+          CAMP_SMOKE_BINARY: join(temporary, `camp-server-${platform}/camp`),
+          CAMP_DOCUMENT_REPORT: documentReport,
+          CAMP_SERVER_ARCHIVE: filename,
+        },
+      },
+    );
+    documents = JSON.parse(await readFile(documentReport, 'utf8'));
+    assertDocumentServiceReceipt(documents, {
+      version: descriptor.version,
+      sourceCommit: descriptor.sourceCommit,
+      platform: `darwin/${process.arch}`,
+    });
+    assert.equal(documents.archiveSHA256, artifact.sha256);
+  }
   const report = {
     schema: 1,
     status: 'passed',
@@ -53,6 +81,7 @@ try {
     platform,
     host: { os: osRelease(), architecture: process.arch },
     archiveSHA256: artifact.sha256,
+    documents,
     upgrade: { fromVersion: upgradeBaseline },
     previousUpgrade: { fromVersion: previousRelease },
     completedAt: new Date().toISOString(),
@@ -67,10 +96,16 @@ try {
       'drafts',
       'restart persistence',
       'upgrade retains authentication, exact files, private drafts and history',
+      ...(process.platform === 'darwin'
+        ? [
+            'bundled isolated PDF/DOCX readers without host Node or Runner',
+            'allowlisted Mac directory import and immutable document restart',
+            'Server launchd lifecycle with bundled readers and confirmed cleanup',
+          ]
+        : []),
     ],
     untested: [
       'native Runner (separately qualified by Runner installation acceptance)',
-      'PDF/DOCX preparation on macOS (unsupported)',
       'paid model provider',
     ],
   };
@@ -78,6 +113,8 @@ try {
     join(directory, `server-verification-${platform}.json`),
     `${JSON.stringify(report, null, 2)}\n`,
   );
+  passed = true;
 } finally {
-  await rm(temporary, { recursive: true, force: true });
+  if (passed) await rm(temporary, { recursive: true, force: true });
+  else console.error(`Retained failed Server package fixture: ${temporary}`);
 }

@@ -48,7 +48,7 @@ Keep these authority boundaries stable as implementations change. Workspace, san
 | [runnertools](../apps/server/internal/runnertools) / [workspace](../apps/server/internal/workspace) | Run-scoped file/command capabilities and replaceable workspace lifecycle/capture contracts |
 | [serverstorage](../apps/server/internal/serverstorage) | Stopped Server inventory, portable identity-bound orphan maintenance and recoverable receipts; no model/service authority |
 | [resources](../apps/server/internal/resources) / [library](../apps/server/internal/library) | Safe ingestion, immutable Git bytes and human publication using writer leases |
-| [documents](../apps/server/internal/documents) / [documenttext](../apps/server/internal/documenttext) | Durable text-preparation queue and isolated bounded parsers |
+| [documents](../apps/server/internal/documents) / [documenttext](../apps/server/internal/documenttext) | Durable text-preparation queue, fixed runtime verification and isolated bounded Linux/Mac parsers; no Runner/model authority |
 | [storage](../apps/server/internal/storage) | Persistent business invariants and atomic state changes, including authority/version checks at commit |
 | [httpapi](../apps/server/internal/httpapi) | Protocol parsing, request bounds, authentication integration and status mapping |
 

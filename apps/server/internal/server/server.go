@@ -44,6 +44,8 @@ type Config struct {
 	Models              configuration.ModelInput
 	DocumentNodePath    string
 	DocumentRuntimeDir  string
+	DocumentHelperPath  string
+	DocumentError       error
 	OnReady             func(address, setupPath string)
 }
 
@@ -104,7 +106,12 @@ func Run(ctx context.Context, config Config) error {
 	}
 	defer runManager.Shutdown(context.Background())
 	executable, _ := os.Executable()
-	documentManager, err := documents.New(ctx, store, resources.New(filepath.Join(config.DataDir, "resources")), documenttext.New(documenttext.Config{ExecutablePath: executable, RuntimeDir: config.DocumentRuntimeDir, NodePath: config.DocumentNodePath}), logger)
+	documentEngine := documenttext.New(documenttext.Config{ExecutablePath: executable, RuntimeDir: config.DocumentRuntimeDir, NodePath: config.DocumentNodePath, HelperPath: config.DocumentHelperPath, JobRoot: filepath.Join(config.DataDir, "document-jobs"), InstallationError: config.DocumentError})
+	readerContext, stopReaders := context.WithCancel(ctx)
+	readersDone := make(chan struct{})
+	defer func() { stopReaders(); <-readersDone }()
+	go func() { defer close(readersDone); documentEngine.CheckReaders(readerContext) }()
+	documentManager, err := documents.New(ctx, store, resources.New(filepath.Join(config.DataDir, "resources")), documentEngine, logger)
 	if err != nil {
 		return fmt.Errorf("initialize document preparation: %w", err)
 	}
@@ -132,7 +139,7 @@ func Run(ctx context.Context, config Config) error {
 	api.EnableAutomation(commentCredentials)
 	api.EnableTeam(auth, config.TrustedOrigins, config.PublicOrigin)
 	api.EnableRemote(runManager)
-	api.EnableSettings(runManager, importPolicy)
+	api.EnableSettings(serverSettings{Manager: runManager, documents: documentEngine}, importPolicy)
 	api.EnableLibrary(library.New(store, resources.New(filepath.Join(config.DataDir, "resources")), runManager))
 	defer api.StopStreams()
 	mux.Handle("/api/daemon/", runManager.Handler())

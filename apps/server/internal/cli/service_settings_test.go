@@ -71,7 +71,7 @@ func TestDSHConfigPrecedence(t *testing.T) {
 			if err != nil || config.APIKey != test.wantKey || config.MaxSteps != test.steps {
 				t.Fatalf("configuration precedence failed: %v", err)
 			}
-			if test.options.envFile != "" && (config.NodePath != "node-custom" || config.Model != "test-model" || config.BaseURL != "https://model.invalid/v1" || config.MaxTokens != 1024 || config.Timeout != 30*time.Second) {
+			if test.options.envFile != "" && (config.Model != "test-model" || config.BaseURL != "https://model.invalid/v1" || config.MaxTokens != 1024 || config.Timeout != 30*time.Second) {
 				t.Fatal("selected file fields were not resolved")
 			}
 
@@ -95,7 +95,6 @@ CAMP_DSH_RUNTIME=
 	want := map[string]string{
 		"DEEPSEEK_API_KEY":  "literal-$DO_NOT_EXPAND-$(do-not-run)",
 		"CAMP_DSH_MODEL":    "literal-model",
-		"CAMP_DSH_NODE":     "/path/with space/node",
 		"DEEPSEEK_BASE_URL": "https://example.invalid/api#literal",
 	}
 	if !reflect.DeepEqual(values, want) {

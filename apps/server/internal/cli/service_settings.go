@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -20,13 +19,12 @@ import (
 
 var serviceKeys = []string{
 	"DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "CAMP_DSH_MODEL",
-	"CAMP_DSH_NODE", "CAMP_DSH_MAX_TOKENS", "CAMP_DSH_MAX_STEPS", "CAMP_DSH_TIMEOUT_SECONDS",
+	"CAMP_DSH_MAX_TOKENS", "CAMP_DSH_MAX_STEPS", "CAMP_DSH_TIMEOUT_SECONDS",
 }
 
 // serviceSettings separates model bootstrap from the optional document worker.
 type serviceSettings struct {
 	configuration.ModelInput
-	NodePath string
 }
 
 func readServiceSettings(options serveOptions, getenv func(string) string, cwd string) (serviceSettings, error) {
@@ -70,13 +68,12 @@ func readServiceSettings(options serveOptions, getenv func(string) string, cwd s
 		}
 		return fallback
 	}
-	node, _ := exec.LookPath("node")
 	config := serviceSettings{ModelInput: configuration.ModelInput{
 		ModelOverrides: overrides,
 		APIKey:         values["DEEPSEEK_API_KEY"],
 		BaseURL:        value("DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic"),
 		Model:          value("CAMP_DSH_MODEL", "deepseek-v4-pro"),
-	}, NodePath: value("CAMP_DSH_NODE", node)}
+	}}
 	parsedURL, err := url.Parse(config.BaseURL)
 	if err != nil || parsedURL.Hostname() == "" || (parsedURL.Scheme != "https" && parsedURL.Scheme != "http") || parsedURL.User != nil || parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
 		return serviceSettings{}, errors.New("DEEPSEEK_BASE_URL must be an HTTP(S) URL without credentials, query parameters, or a fragment")

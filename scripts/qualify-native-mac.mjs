@@ -89,7 +89,7 @@ try {
       '-timeout=240s',
       // An interrupted diagnostic must not leave a standalone service fixture.
       // Actual packaged launchd lifecycle has independent CI/release acceptance.
-      '-skip=^TestMacBackgroundServiceActualLaunchd$',
+      '-skip=^TestMac(BackgroundServiceActualLaunchd|ServerServiceActualLaunchdAndRetainedData)$',
       ...[
         'processowner',
         'seatbelt',
