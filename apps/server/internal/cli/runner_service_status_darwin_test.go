@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -57,5 +58,29 @@ func TestMacServiceObservationSeparatesInstallationRunningAndLogin(t *testing.T)
 	}
 	if got := observe(one); got.State != "unknown" || got.Installed {
 		t.Fatal(got)
+	}
+}
+
+func TestMacServiceStatusUsesTheCanonicalStorageIdentity(t *testing.T) {
+	directory := t.TempDir()
+	canonical, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "selected-storage")
+	if err = os.Symlink(canonical, alias); err != nil {
+		t.Fatal(err)
+	}
+	content, err := macServicePlist("/private/camp", canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = writeMacPlist(filepath.Join(canonical, "service", macServiceLabel(canonical)+".plist"), content); err != nil {
+		t.Fatal(err)
+	}
+	// Read-only launchctl queries may be unavailable in the test account; the
+	// installed fact must still come from the same canonical private directory.
+	if got := readMacServiceStatus(context.Background(), alias, "runner"); !got.Installed {
+		t.Fatal("An alias selected another service identity", got)
 	}
 }

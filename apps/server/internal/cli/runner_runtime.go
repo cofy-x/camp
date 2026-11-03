@@ -30,6 +30,7 @@ var runtimePinJSON string
 type runtimePin struct {
 	Schema          int    `json:"schema"`
 	ReleaseVersion  string `json:"releaseVersion,omitempty"`
+	SourceCommit    string `json:"sourceCommit,omitempty"`
 	Platform        string `json:"platform"`
 	ProtocolVersion int    `json:"protocolVersion"`
 	SHA256          string `json:"sha256"`
@@ -53,7 +54,7 @@ func compiledRuntimePin() (runtimePin, error) {
 		if !ok {
 			return pin, errors.New("This release does not include a Runner runtime for this platform")
 		}
-		pin = runtimePin{Schema: 1, ReleaseVersion: release.Version, Platform: platform.RuntimePlatform, ProtocolVersion: release.ProtocolVersion, SHA256: runner.Runtime.SHA256, ManifestSHA256: runner.Runtime.ManifestSHA256, Bytes: runner.Runtime.Bytes, UnpackedBytes: runner.Runtime.UnpackedBytes}
+		pin = runtimePin{Schema: 1, ReleaseVersion: release.Version, SourceCommit: release.SourceCommit, Platform: platform.RuntimePlatform, ProtocolVersion: release.ProtocolVersion, SHA256: runner.Runtime.SHA256, ManifestSHA256: runner.Runtime.ManifestSHA256, Bytes: runner.Runtime.Bytes, UnpackedBytes: runner.Runtime.UnpackedBytes}
 	} else if err := json.Unmarshal([]byte(runtimePinJSON), &pin); err != nil {
 		return pin, errors.New("The Camp Runner installer has an invalid runtime pin")
 	}
@@ -63,6 +64,9 @@ func compiledRuntimePin() (runtimePin, error) {
 	}
 	if pin.ReleaseVersion != "" && !releaseinfo.ValidVersion(pin.ReleaseVersion) {
 		return pin, errors.New("The Camp Runner installer has an invalid release version")
+	}
+	if pin.SourceCommit != "" && (len(pin.SourceCommit) != 40 || strings.Trim(pin.SourceCommit, "0123456789abcdef") != "") {
+		return pin, errors.New("The Camp Runner installer has an invalid source commit")
 	}
 	return pin, nil
 }

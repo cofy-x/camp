@@ -96,6 +96,10 @@ func Run(ctx context.Context, config Config, output io.Writer) error {
 	}
 	defer journal.db.Close()
 	d := &Daemon{config: config, client: client, journal: journal, output: output, active: map[string]*activeOperation{}, grants: map[string]grant{}, bootID: randomID()}
+	// Invalidate the previous boot observation before a potentially slow native check.
+	if err := d.recordConnection(false); err != nil {
+		return err
+	}
 	cleanupConfirmed := true
 	if config.Executor == "native" {
 		config.Native.DataDir = config.DataDir
@@ -124,7 +128,11 @@ func Run(ctx context.Context, config Config, output io.Writer) error {
 			report.Ready = false
 		}
 		d.readiness = &report
-		if saveErr := WriteReadiness(config.DataDir, report); saveErr != nil {
+		fingerprint := ""
+		if d.native != nil {
+			fingerprint = d.native.Fingerprint()
+		}
+		if saveErr := WriteBoundReadiness(config, report, fingerprint); saveErr != nil {
 			err = errors.Join(err, saveErr)
 		}
 		if d.native != nil {
@@ -236,6 +244,9 @@ func (d *Daemon) capabilities() p.Capabilities {
 	d.mu.Unlock()
 	c := p.Capabilities{TaskInputsVersion: 1, Readiness: d.readiness, Executor: d.config.Executor, Ready: failure == nil, Slots: d.config.Slots, Fingerprint: fmt.Sprintf("camp-remote-v%d:%s:%s:%s", p.Version, runtime.GOOS, runtime.GOARCH, d.config.Executor)}
 	c.Storage = storage
+	if p.ValidateInstallation(d.config.Installation) == nil {
+		c.Installation = d.config.Installation
+	}
 	c.Platform = runtime.GOOS + "/" + runtime.GOARCH
 	if d.config.Executor == "native" && d.native != nil {
 		facts := d.native.Facts()

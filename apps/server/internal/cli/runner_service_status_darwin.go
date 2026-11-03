@@ -19,6 +19,16 @@ func serviceStatusLabel(role, directory string) string {
 }
 
 func readMacServiceStatus(ctx context.Context, directory, role string) serviceStatus {
+	// Service installation derives its identity from the canonical storage path.
+	// A /var alias or relocated symlink must observe that same owned job.
+	canonical, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		return serviceStatus{Supported: true, State: "unknown"}
+	}
+	directory, err = filepath.Abs(canonical)
+	if err != nil {
+		return serviceStatus{Supported: true, State: "unknown"}
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return serviceStatus{Supported: true, State: "unknown"}

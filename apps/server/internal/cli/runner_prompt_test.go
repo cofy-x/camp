@@ -48,7 +48,7 @@ func TestRepeatSetupRejectsChangedSourcesWithoutReplacingIdentity(t *testing.T) 
 			changed[i] = "notes=" + t.TempDir()
 		}
 	}
-	if err := runRunnerWithInput(context.Background(), changed, io.Discard, input); err == nil || !strings.Contains(err.Error(), "--source is for initial setup") {
+	if err := runRunnerWithInput(context.Background(), changed, io.Discard, input); err == nil || !strings.Contains(err.Error(), "--replace-sources") {
 		t.Fatal("Conflicting source configuration was silently ignored", err)
 	}
 	after, err := os.ReadFile(filepath.Join(directory, "daemon.json"))

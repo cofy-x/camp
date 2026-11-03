@@ -71,6 +71,9 @@ func (m *Manager) connect(w http.ResponseWriter, r *http.Request, runner storage
 	if hello.StorageID != runner.StorageID || hello.BootID == "" || hello.Capabilities.Slots < 1 || hello.Capabilities.Slots > p.MaxSlots || (hello.Capabilities.Executor != "native" && hello.Capabilities.Executor != "fixture") || (hello.Capabilities.Executor == "fixture" && !m.config.AllowFixture) {
 		return
 	}
+	if p.ValidateInstallation(hello.Capabilities.Installation) != nil {
+		return
+	}
 	caps, _ := json.Marshal(hello.Capabilities)
 	sources := make([]storage.RunnerSource, 0, len(hello.Sources))
 	for _, source := range hello.Sources {

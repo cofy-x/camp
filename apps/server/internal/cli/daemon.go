@@ -56,12 +56,13 @@ func runRunner(ctx context.Context, args []string, output io.Writer) error {
 
 func runRunnerWithInput(ctx context.Context, args []string, output io.Writer, input runnerInput) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" || (len(args) == 2 && (args[1] == "--help" || args[1] == "-h")) {
-		_, err := fmt.Fprint(output, `Usage: camp runner <setup|run|status|service> [options]
+		_, err := fmt.Fprint(output, `Usage: camp runner <setup|run|status|config|service> [options]
 
   setup             Guided setup in a terminal
   setup --server https://camp.example --name linux-a --data-dir /private/camp-runner --code-file /private/connect-code
   run --data-dir /private/camp-runner
-  status --data-dir /private/camp-runner
+  status --data-dir /private/camp-runner [--json]
+  config show --data-dir /private/camp-runner [--json]
   service <install|start|stop|status|enable-boot|disable-boot|remove> --data-dir /private/camp-runner
 
 Setup connects to Camp, installs its fixed runtime once, and checks isolated
@@ -83,6 +84,8 @@ Options:
   --ca-file path     Additional CA trust bundle; TLS verification remains enabled
   --slots count      Concurrent local operations (default 1)
   --source alias=path Register an authorized snapshot source (repeatable)
+  --replace-sources Replace existing aliases with the supplied --source map
+  --clear-sources   Revoke all saved source aliases during stopped setup
   --tool-root path   Mac read/execute grant for a tool directory (repeatable; replaces saved grants)
   --clear-tool-roots Revoke all saved Mac tool grants during stopped setup
   --docker-socket path Local Docker socket (default /var/run/docker.sock)
@@ -101,6 +104,9 @@ On Mac use service enable-login / disable-login to choose login startup.
 	if args[0] == "service" {
 		return runRunnerService(ctx, args[1:], output)
 	}
+	if args[0] == "config" {
+		return runRunnerConfig(args[1:], output)
+	}
 	if args[0] == "checkpoint" {
 		return runRunnerCheckpoint(ctx, args[1:], output)
 	}
@@ -114,11 +120,15 @@ On Mac use service enable-login / disable-login to choose login startup.
 	var slots int
 	var sources sourceFlags
 	var toolRoots toolRootFlags
-	var development, clearToolRoots, serviceLogs bool
+	var development, clearToolRoots, replaceSources, clearSources, jsonOutput, serviceLogs bool
 	flags.StringVar(&directory, "data-dir", "", "private Runner directory")
 	if action == "run" {
 		flags.BoolVar(&serviceLogs, "service-logs", false, "managed private bounded service logs")
 	}
+	if action == "status" {
+		flags.BoolVar(&jsonOutput, "json", false, "machine-readable status")
+	}
+
 	if action == "setup" {
 		flags.StringVar(&server, "server", "", "Camp origin")
 		flags.StringVar(&name, "name", "", "Runner name")
@@ -126,6 +136,8 @@ On Mac use service enable-login / disable-login to choose login startup.
 		flags.StringVar(&caFile, "ca-file", "", "additional CA trust bundle")
 		flags.IntVar(&slots, "slots", 1, "concurrent operations")
 		flags.Var(&sources, "source", "authorized source alias=path")
+		flags.BoolVar(&replaceSources, "replace-sources", false, "replace saved source aliases")
+		flags.BoolVar(&clearSources, "clear-sources", false, "revoke saved source aliases")
 		flags.Var(&toolRoots, "tool-root", "approved Mac tool directory; replaces saved tool roots")
 		flags.BoolVar(&clearToolRoots, "clear-tool-roots", false, "revoke saved Mac tool grants")
 		flags.StringVar(&executor, "executor", "native", "native or explicit fixture protocol tests")
@@ -146,7 +158,7 @@ On Mac use service enable-login / disable-login to choose login startup.
 		return errors.New("Runner commands do not accept positional arguments")
 	}
 	explicitCode, explicitDocker, explicitCA, explicitRuntime := false, false, false, false
-	explicitWorkspace := false
+	explicitWorkspace, explicitExecutor := false, false
 	flags.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "code-file":
@@ -159,9 +171,19 @@ On Mac use service enable-login / disable-login to choose login startup.
 			explicitRuntime = true
 		case "workspace-backend":
 			explicitWorkspace = true
+		case "executor":
+			explicitExecutor = true
 		}
 	})
 	interactive := input.isTerminal(input.reader)
+	if action == "setup" && !interactive && directory != "" {
+		var err error
+		location, err := savedRunnerSetupLocation(runnerSetupLocation{directory, server, name})
+		if err != nil {
+			return err
+		}
+		directory, server, name = location.directory, location.server, location.name
+	}
 	if action == "setup" && !interactive && (directory == "" || server == "" || name == "") {
 		return errors.New("Noninteractive setup requires --server, --name and --data-dir; provide --code-file for a new connection")
 	}
@@ -184,7 +206,7 @@ On Mac use service enable-login / disable-login to choose login startup.
 		return err
 	}
 	if action == "status" {
-		return daemon.Status(directory, output)
+		return runRunnerStatus(ctx, directory, output, jsonOutput)
 	}
 	if action == "run" {
 		config, err := daemon.LoadConfig(directory)
@@ -203,6 +225,8 @@ On Mac use service enable-login / disable-login to choose login startup.
 			bundle = pin.cache(directory)
 			if _, err := verifyPinnedRuntime(bundle, pin); err != nil {
 				config.NativeUnavailable = "The fixed runtime is missing or failed verification. Stop this Runner and repeat setup with the same data directory: " + err.Error()
+			} else {
+				config.Installation = installationFromPin(pin)
 			}
 		} else if bundle != "" && config.Executor == "native" {
 			if _, err := verifyRunnerBundle(bundle); err != nil {
@@ -246,6 +270,9 @@ On Mac use service enable-login / disable-login to choose login startup.
 		return loadErr
 	}
 	if loadErr == nil {
+		if !explicitExecutor {
+			executor = previous.Executor
+		}
 		if dockerBinary == "" {
 			dockerBinary = previous.DockerBinary
 		}
@@ -284,8 +311,21 @@ On Mac use service enable-login / disable-login to choose login startup.
 			return err
 		}
 	}
-	if loadErr == nil && len(sources) > 0 && !maps.Equal(map[string]string(sources), previous.Sources) {
-		return errors.New("Source aliases differ from this Runner's saved configuration. --source is for initial setup; stop this Runner and edit the sources map in its private daemon.json, then restart with the same data directory. Do not replace its identity or journal")
+	if clearSources && (replaceSources || len(sources) > 0) {
+		return errors.New("Choose --clear-sources or --replace-sources with --source")
+	}
+	if replaceSources && len(sources) == 0 {
+		return errors.New("Provide --source with --replace-sources; use --clear-sources to revoke every alias")
+	}
+	if loadErr == nil && len(sources) > 0 && !replaceSources && !maps.Equal(map[string]string(sources), previous.Sources) {
+		return errors.New("Source aliases differ from the saved configuration. Stop this Runner and repeat setup with --replace-sources and the complete --source map, or --clear-sources")
+	}
+	if loadErr == nil && replaceSources {
+		resolved, sourceErr := daemon.ResolveSources(directory, sources)
+		if sourceErr != nil {
+			return sourceErr
+		}
+		sources = sourceFlags(resolved)
 	}
 	needsCode := loadErr != nil || (previous.PendingToken == "" && previous.RunnerID == "")
 	if needsCode && !interactive && !explicitCode {
@@ -395,6 +435,15 @@ On Mac use service enable-login / disable-login to choose login startup.
 	if err != nil {
 		return err
 	}
+	if replaceSources || clearSources {
+		if err := daemon.SaveSources(config, sources); err != nil {
+			return err
+		}
+		config, err = daemon.LoadConfig(directory)
+		if err != nil {
+			return err
+		}
+	}
 	if updateToolRoots {
 		if err := daemon.SaveToolRoots(config, toolRoots); err != nil {
 			return err
@@ -430,6 +479,12 @@ On Mac use service enable-login / disable-login to choose login startup.
 	}
 	if err = daemon.SaveInstallation(config, bundle, docker); err != nil {
 		return err
+	}
+	config.BundleDir = bundle
+	if managedPin != nil {
+		if err := saveRunnerInstallation(config, *managedPin); err != nil {
+			return err
+		}
 	}
 	if executor == "native" {
 		native := runnerNative(bundle, docker)
@@ -489,16 +544,26 @@ func saveRunnerReadiness(ctx context.Context, directory string, config nativeexe
 		defer lock.Close()
 	}
 	report := nativeexecutor.HostChecks(config)
+	readinessExecutionFingerprint := ""
 	if installationErr != nil {
 		report.Checks = append(report.Checks, p.ReadinessCheck{ID: "image", Label: "Bundled execution image", Status: "failed", Detail: installationErr.Error()})
 	} else {
 		config.Lock = lock
-		report = probeRunner(ctx, directory, config)
+		report, readinessExecutionFingerprint = probeRunner(ctx, directory, config)
 	}
-	return report, daemon.WriteReadiness(directory, report)
+	saved, loadErr := daemon.LoadConfig(directory)
+	if loadErr != nil {
+		return report, loadErr
+	}
+	fingerprint := ""
+	if report.Ready {
+		fingerprint = readinessExecutionFingerprint
+	}
+	return report, daemon.WriteBoundReadiness(saved, report, fingerprint)
 }
 
-func probeRunner(ctx context.Context, directory string, config nativeexecutor.Config) p.ReadinessReport {
+func probeRunner(ctx context.Context, directory string, config nativeexecutor.Config) (p.ReadinessReport, string) {
+	fingerprint := ""
 	report := nativeexecutor.HostChecks(config)
 	scratch, err := os.MkdirTemp(directory, ".setup-check-")
 	if err == nil {
@@ -510,6 +575,7 @@ func probeRunner(ctx context.Context, directory string, config nativeexecutor.Co
 		executor, err = nativeexecutor.Open(probeCtx, config)
 		if err == nil {
 			report = executor.SelfTest(probeCtx)
+			fingerprint = executor.Fingerprint()
 			if closeErr := executor.Close(); closeErr != nil {
 				err = closeErr
 			}
@@ -519,7 +585,7 @@ func probeRunner(ctx context.Context, directory string, config nativeexecutor.Co
 		report.Ready = false
 		report.Checks = append(report.Checks, p.ReadinessCheck{ID: "runtime", Label: "Bundled execution runtime", Status: "failed", Detail: err.Error()})
 	}
-	return report
+	return report, fingerprint
 }
 
 func daemonDefault(key, fallback string) string {
