@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { lstat, readFile } from 'node:fs/promises';
+import { lstat, readFile, realpath } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import { validVersion } from './release.mjs';
@@ -9,13 +9,33 @@ import { validVersion } from './release.mjs';
 export const macWorkerScope = 'actual-mac-packaged-layerfs-worker';
 const sha = /^[a-f0-9]{64}$/;
 const commit = /^[a-f0-9]{40}$/;
+export const packageScenarioNames = [
+  'online',
+  'offline',
+  'defaultUpgrade',
+  'workerUpgrade',
+];
+export const packageScenarioDrivers = [
+  '.node-version',
+  'package.json',
+  'go.mod',
+  'go.sum',
+  'scripts/smoke-bundle.mjs',
+  'scripts/journal-evidence.mjs',
+  'scripts/setup-progress.mjs',
+  'scripts/lib.mjs',
+  'scripts/release.mjs',
+  'scripts/upgrade.mjs',
+  'scripts/upgrade-proxy.mjs',
+  'tools/layerfs-worker/tree.mjs',
+  'tools/layerfs-worker/contracts.mjs',
+  'tools/layerfs-worker/state.mjs',
+];
 export const qualificationDrivers = [
   '.node-version',
+  'package.json',
   'go.mod',
-  'main.go',
-  'internal/launcher/entrypoint.go',
-  'internal/launcher/launcher.go',
-  'internal/launcher/execute_unix.go',
+  'go.sum',
   'scripts/qualify-mac-worker.mjs',
   'scripts/mac-worker-evidence.mjs',
   'scripts/smoke-bundle.mjs',
@@ -30,6 +50,7 @@ export const qualificationDrivers = [
   'tools/layerfs-worker/state.mjs',
   'scripts/release.mjs',
   'scripts/setup-progress.mjs',
+  'scripts/runner-restart-resource.mjs',
 ];
 
 export const digestJSON = (value) =>
@@ -65,6 +86,36 @@ export function macWorkerServiceCleanupAction(status) {
   return 'uncertain';
 }
 
+export async function validateMacWorkerReuseFixture(directory, name, retained) {
+  assert.ok(packageScenarioNames.includes(name));
+  const fixture = join(directory, `camp-release-${name}`);
+  assert.equal(
+    retained,
+    fixture,
+    'Use the original canonical synthetic fixture path.',
+  );
+  for (const selected of [
+    directory,
+    fixture,
+    join(fixture, "Runner's private data"),
+    join(fixture, 'data'),
+  ]) {
+    const info = await lstat(selected);
+    assert.ok(
+      info.isDirectory() &&
+        info.uid === process.getuid() &&
+        !(info.mode & 0o077),
+      'Reuse fixture roots must be private owned real directories.',
+    );
+    assert.equal(
+      await realpath(selected),
+      selected,
+      'Reuse fixture roots cannot redirect to another installation.',
+    );
+  }
+  return fixture;
+}
+
 export function macWorkerStorageSummary(storage) {
   return {
     complete: storage?.complete,
@@ -91,10 +142,46 @@ export function macWorkerStorageSummary(storage) {
   };
 }
 
+const packageGoSource = (name) =>
+  /^[^/]+\.go$/.test(name) || /^internal\/launcher\/.+\.go$/.test(name);
+
+export async function packageGoSources(root, revision = 'HEAD') {
+  assert.ok(revision === 'HEAD' || /^[a-f0-9]{40}$/.test(revision));
+  const execute = promisify(execFile);
+  const options = {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: 1 << 20,
+    timeout: 10_000,
+    killSignal: 'SIGKILL',
+  };
+  const outputs = await Promise.all([
+    execute('git', ['ls-tree', '-z', '--name-only', revision], options),
+    execute(
+      'git',
+      [
+        'ls-tree',
+        '-r',
+        '-z',
+        '--name-only',
+        revision,
+        '--',
+        'internal/launcher',
+      ],
+      options,
+    ),
+  ]);
+  return outputs
+    .flatMap(({ stdout }) => stdout.split('\0'))
+    .filter(packageGoSource)
+    .sort();
+}
+
 export async function driverFiles(root) {
+  const names = [...qualificationDrivers, ...(await packageGoSources(root))];
   return Object.fromEntries(
     await Promise.all(
-      qualificationDrivers.map(async (name) => [
+      names.map(async (name) => [
         name,
         createHash('sha256')
           .update(await readFile(join(root, name)))
@@ -269,6 +356,282 @@ export function macWorkerRecoverySummary(recovery, reportSHA256) {
   };
 }
 
+export function macWorkerScenarioSummary(value, reportSHA256) {
+  const fields = [
+    'status',
+    'mode',
+    'workspaceBackend',
+    'platform',
+    'architecture',
+    'version',
+    'sourceCommit',
+    'sdkVersion',
+    'buildId',
+    'archiveSHA256',
+    'entrypointBinarySHA256',
+    'model',
+    'checks',
+    'fromVersion',
+    'baselineWorkspaceBackend',
+    'runnerIdentityPreserved',
+    'journalPreserved',
+    'durableSourceReceiptPreserved',
+    'lostCompletionReplyRecovered',
+    'workerUpgrade',
+    'timings',
+  ];
+  return {
+    ...Object.fromEntries(
+      fields
+        .filter((key) => value[key] !== undefined)
+        .map((key) => [key, value[key]]),
+    ),
+    checkpointStorage: macWorkerStorageSummary(value.checkpointStorage),
+    reportSHA256,
+  };
+}
+
+export function validateMacWorkerPackageScenario(
+  name,
+  item,
+  identity,
+  baseline,
+) {
+  assert.ok(
+    packageScenarioNames.includes(name),
+    'Select a known package scenario.',
+  );
+  const mode = ['online', 'offline'].includes(name) ? name : 'previous-upgrade';
+  const backend =
+    name === 'defaultUpgrade'
+      ? 'native-local'
+      : name === 'workerUpgrade'
+        ? 'layerfs-worker'
+        : undefined;
+  assert.equal(
+    item?.status,
+    'passed',
+    `Missing passing ${name} package scenario.`,
+  );
+  assert.equal(item.platform, 'darwin');
+  assert.equal(item.architecture, 'arm64');
+  assert.equal(item.workspaceBackend, 'layerfs-worker');
+  assert.equal(item.version, identity.version);
+  assert.equal(item.sourceCommit, identity.sourceCommit);
+  assert.equal(item.mode, mode);
+  assert.equal(
+    item.archiveSHA256,
+    identity.packages[name === 'offline' ? 'offline' : 'installer'].sha256,
+  );
+  assert.match(item.entrypointBinarySHA256, sha);
+  assert.match(item.reportSHA256, sha);
+  assert.equal(item.model?.paid, false);
+  assert.equal(item.model?.kind, 'deterministic-local-provider');
+  assert.equal(item.model?.requests, backend ? 5 : 2);
+  for (const check of [
+    'native-task',
+    'single-publication',
+    'stopped-runner-backup-relocation',
+    'complete-capture-native-and-worker-restore',
+  ])
+    assert.ok(item.checks?.includes(check));
+  const storage = item.checkpointStorage;
+  assert.equal(storage?.complete, true);
+  assert.equal(storage.retention?.deletionSupported, false);
+  for (const field of [
+    'liveOverview',
+    'policyConfigured',
+    'advisoryWarning',
+    'protectedHistoryPreserved',
+  ])
+    assert.equal(storage.lifecycle?.[field], true);
+  const guarded =
+    name === 'workerUpgrade' &&
+    item.workerUpgrade?.reconstructionRequired === true;
+  const fullCleanup = 'explicit-checkpoint-budget-quarantine-restore-purge';
+  const recoveryGuard = 'checkpoint-reconstruction-history-blocks-cleanup';
+  assert.equal(storage.retention.previewAllowed, !guarded);
+  assert.ok(item.checks.includes(guarded ? recoveryGuard : fullCleanup));
+  assert.ok(!item.checks.includes(guarded ? fullCleanup : recoveryGuard));
+  for (const field of [
+    'quarantinePreservesBytes',
+    'restoredExactly',
+    'permanentlyPurged',
+  ])
+    assert.equal(storage.lifecycle[field], guarded ? undefined : true);
+  for (const field of ['recoveryGuardPreserved', 'cleanupPlanBlocked'])
+    assert.equal(storage.lifecycle[field], guarded ? true : undefined);
+  assert.equal(
+    storage.lifecycle.cleanupPlanError,
+    guarded ? 'RecoveryRequired' : undefined,
+  );
+  if (backend) {
+    assert.equal(item.fromVersion, baseline);
+    assert.equal(item.baselineWorkspaceBackend, backend);
+    for (const field of [
+      'runnerIdentityPreserved',
+      'journalPreserved',
+      'durableSourceReceiptPreserved',
+      'lostCompletionReplyRecovered',
+    ])
+      assert.equal(item[field], true);
+  }
+  if (name === 'workerUpgrade') {
+    const upgrade = item.workerUpgrade;
+    assert.equal(upgrade?.fromVersion, baseline);
+    assert.equal(upgrade?.baselineBackend, 'layerfs-worker');
+    assert.equal(upgrade?.currentImage, identity.worker.image);
+    assert.match(upgrade?.baselineImage, /^sha256:[a-f0-9]{64}$/);
+    for (const field of [
+      'stoppedBackupPreserved',
+      'previousCapturesAndReceiptsPreserved',
+      'checkpointReadbackVerified',
+    ])
+      assert.equal(upgrade[field], true);
+    assert.ok(
+      Number.isSafeInteger(upgrade.retainedCaptureFiles) &&
+        upgrade.retainedCaptureFiles > 0,
+    );
+    assert.equal(typeof upgrade.reconstructionRequired, 'boolean');
+    if (upgrade.baselineImage !== upgrade.currentImage)
+      assert.equal(
+        upgrade.reconstructionRequired,
+        true,
+        'A changed worker image requires explicit reconstruction evidence.',
+      );
+    if (upgrade.reconstructionRequired) {
+      assert.match(upgrade.reconstruction?.sourceDigest, sha);
+      assert.equal(
+        upgrade.reconstruction.sourceDigest,
+        upgrade.reconstruction.resultDigest,
+      );
+      assert.notEqual(
+        upgrade.reconstruction.oldStore,
+        upgrade.reconstruction.newStore,
+      );
+      assert.notEqual(
+        upgrade.reconstruction.oldEpoch,
+        upgrade.reconstruction.newEpoch,
+      );
+      for (const field of ['oldStore', 'newStore', 'oldEpoch', 'newEpoch'])
+        assert.ok(
+          typeof upgrade.reconstruction[field] === 'string' &&
+            upgrade.reconstruction[field].length > 0,
+        );
+    }
+  }
+  return item;
+}
+
+export function packageScenarioFiles(files) {
+  const goFiles = Object.keys(files).filter(packageGoSource).sort();
+  assert.ok(
+    goFiles.some((name) => !name.includes('/')) &&
+      goFiles.some((name) => name.startsWith('internal/launcher/')),
+    'Missing baseline launcher Go source scope.',
+  );
+  return Object.fromEntries(
+    [...packageScenarioDrivers, ...goFiles].map((name) => {
+      assert.match(
+        files?.[name] ?? '',
+        sha,
+        `Missing package-scope input ${name}.`,
+      );
+      return [name, files[name]];
+    }),
+  );
+}
+
+export function validateMacWorkerReuse(source, current, inputs) {
+  assert.equal(source.schema, 1);
+  assert.equal(source.scope, macWorkerScope);
+  assert.ok(['failed', 'passed'].includes(source.status));
+  if (source.status === 'failed')
+    assert.ok(
+      typeof source.error?.message === 'string' &&
+        source.error.message.length > 0,
+    );
+  assert.equal(
+    source.serverHarness?.scope,
+    'exact-packaged-server-executable-only',
+  );
+  for (const field of [
+    'identity',
+    'baseline',
+    'host',
+    'engine',
+    'serverBinarySHA256',
+    'baselineWorkerImage',
+  ])
+    assert.deepEqual(source[field], current[field], `Reuse changed ${field}.`);
+  assert.match(source.engine?.identitySHA256 ?? '', sha);
+  assert.deepEqual(source.driver?.tools, current.driver?.tools);
+  assert.equal(source.driver?.modified, false);
+  assert.match(source.driver?.sourceCommit ?? '', commit);
+  assert.match(source.driver?.sourceTree ?? '', commit);
+  assert.equal(source.driver.sha256, digestJSON(source.driver.files));
+  assert.deepEqual(
+    source.driver.files,
+    inputs.sourceDriverFiles,
+    'Original producer files differ from their Git source.',
+  );
+  for (const name of [
+    'scripts/qualify-mac-worker.mjs',
+    'scripts/mac-worker-evidence.mjs',
+    ...packageScenarioDrivers.filter(
+      (file) => !['package.json', 'go.sum'].includes(file),
+    ),
+  ])
+    assert.match(source.driver.files[name] ?? '', sha);
+  assert.deepEqual(
+    packageScenarioFiles(inputs.scopeFiles),
+    packageScenarioFiles(current.driver.files),
+    'Package-scope inputs changed.',
+  );
+  assert.match(inputs.sourceQualificationSHA256, sha);
+  const reused = {};
+  for (const name of packageScenarioNames) {
+    const item = source.scenarios?.[name];
+    validateMacWorkerPackageScenario(
+      name,
+      item,
+      current.identity,
+      current.baseline,
+    );
+    assert.equal(
+      item.reuse,
+      undefined,
+      'Reuse only original package observations, without chaining receipts.',
+    );
+    const raw = inputs.rawReports?.[name];
+    assert.equal(
+      raw?.sha256,
+      item.reportSHA256,
+      `Changed original ${name} report bytes.`,
+    );
+    assert.deepEqual(
+      macWorkerScenarioSummary(raw.value, raw.sha256),
+      item,
+      `Changed original ${name} report fields.`,
+    );
+    reused[name] = {
+      ...item,
+      reuse: {
+        scope: 'passed-package-scenario',
+        sourceQualificationSHA256: inputs.sourceQualificationSHA256,
+        sourceQualificationStatus: source.status,
+        sourceQualificationError: source.error ?? null,
+        producer: source.driver,
+        driverScope: {
+          files: inputs.scopeFiles,
+          sha256: digestJSON(inputs.scopeFiles),
+        },
+      },
+    };
+  }
+  return reused;
+}
+
 export function validateMacWorkerReport(report, expected) {
   assert.equal(report.schema, 1);
   assert.equal(report.scope, macWorkerScope);
@@ -307,124 +670,39 @@ export function validateMacWorkerReport(report, expected) {
   if (expected.baseline) assert.equal(report.baseline, expected.baseline);
   const identity = report.identity;
   assert.notEqual(report.baseline, identity.version);
-  for (const [name, mode, backend] of [
-    ['online', 'online', undefined],
-    ['offline', 'offline', undefined],
-    ['defaultUpgrade', 'previous-upgrade', 'native-local'],
-    ['workerUpgrade', 'previous-upgrade', 'layerfs-worker'],
-  ]) {
-    const item = report.scenarios?.[name];
-    assert.equal(
-      item?.status,
-      'passed',
-      `Missing passing ${name} package scenario.`,
+  for (const name of packageScenarioNames)
+    validateMacWorkerPackageScenario(
+      name,
+      report.scenarios?.[name],
+      identity,
+      report.baseline,
     );
-    assert.equal(item.platform, 'darwin');
-    assert.equal(item.architecture, 'arm64');
-    assert.equal(item.workspaceBackend, 'layerfs-worker');
-    assert.equal(item.version, identity.version);
-    assert.equal(item.sourceCommit, identity.sourceCommit);
-    assert.equal(item.mode, mode);
+  let reusedRequests = 0;
+  for (const name of packageScenarioNames) {
+    const item = report.scenarios[name];
+    if (!item.reuse) continue;
+    const reuse = item.reuse;
+    assert.equal(reuse.scope, 'passed-package-scenario');
+    assert.match(reuse.sourceQualificationSHA256, sha);
+    assert.ok(['failed', 'passed'].includes(reuse.sourceQualificationStatus));
+    assert.equal(reuse.producer?.modified, false);
+    assert.match(reuse.producer?.sourceCommit ?? '', commit);
+    assert.match(reuse.producer?.sourceTree ?? '', commit);
+    assert.equal(reuse.producer.sha256, digestJSON(reuse.producer.files));
     assert.equal(
-      item.archiveSHA256,
-      identity.packages[name === 'offline' ? 'offline' : 'installer'].sha256,
+      reuse.driverScope?.sha256,
+      digestJSON(reuse.driverScope?.files),
     );
-    assert.match(item.entrypointBinarySHA256, sha);
-    assert.match(item.reportSHA256, sha);
-    assert.equal(item.model?.paid, false);
-    assert.equal(item.model?.kind, 'deterministic-local-provider');
-    assert.equal(item.model?.requests, backend ? 5 : 2);
-    for (const check of [
-      'native-task',
-      'single-publication',
-      'stopped-runner-backup-relocation',
-      'complete-capture-native-and-worker-restore',
-    ])
-      assert.ok(item.checks?.includes(check));
-    const storage = item.checkpointStorage;
-    assert.equal(storage?.complete, true);
-    assert.equal(storage.retention?.deletionSupported, false);
-    for (const field of [
-      'liveOverview',
-      'policyConfigured',
-      'advisoryWarning',
-      'protectedHistoryPreserved',
-    ])
-      assert.equal(storage.lifecycle?.[field], true);
-    const guarded =
-      name === 'workerUpgrade' &&
-      item.workerUpgrade?.reconstructionRequired === true;
-    const fullCleanup = 'explicit-checkpoint-budget-quarantine-restore-purge';
-    const recoveryGuard = 'checkpoint-reconstruction-history-blocks-cleanup';
-    assert.equal(storage.retention.previewAllowed, !guarded);
-    assert.ok(item.checks.includes(guarded ? recoveryGuard : fullCleanup));
-    assert.ok(!item.checks.includes(guarded ? fullCleanup : recoveryGuard));
-    for (const field of [
-      'quarantinePreservesBytes',
-      'restoredExactly',
-      'permanentlyPurged',
-    ])
-      assert.equal(storage.lifecycle[field], guarded ? undefined : true);
-    for (const field of ['recoveryGuardPreserved', 'cleanupPlanBlocked'])
-      assert.equal(storage.lifecycle[field], guarded ? true : undefined);
-    assert.equal(
-      storage.lifecycle.cleanupPlanError,
-      guarded ? 'RecoveryRequired' : undefined,
+    assert.deepEqual(
+      packageScenarioFiles(reuse.driverScope.files),
+      packageScenarioFiles(report.driver.files),
     );
-    if (backend) {
-      assert.equal(item.fromVersion, report.baseline);
-      assert.equal(item.baselineWorkspaceBackend, backend);
-      for (const field of [
-        'runnerIdentityPreserved',
-        'journalPreserved',
-        'durableSourceReceiptPreserved',
-        'lostCompletionReplyRecovered',
-      ])
-        assert.equal(item[field], true);
-    }
+    reusedRequests += item.model.requests;
   }
-  const upgrade = report.scenarios.workerUpgrade.workerUpgrade;
-  assert.equal(upgrade?.fromVersion, report.baseline);
-  assert.equal(upgrade?.baselineBackend, 'layerfs-worker');
-  assert.equal(upgrade?.currentImage, identity.worker.image);
-  assert.match(upgrade?.baselineImage, /^sha256:[a-f0-9]{64}$/);
-  for (const field of [
-    'stoppedBackupPreserved',
-    'previousCapturesAndReceiptsPreserved',
-    'checkpointReadbackVerified',
-  ])
-    assert.equal(upgrade[field], true);
   assert.ok(
-    Number.isSafeInteger(upgrade.retainedCaptureFiles) &&
-      upgrade.retainedCaptureFiles > 0,
+    reusedRequests === 0 || reusedRequests === 14,
+    'Reuse all four known package cases together.',
   );
-  assert.equal(typeof upgrade.reconstructionRequired, 'boolean');
-  if (upgrade.baselineImage !== upgrade.currentImage)
-    assert.equal(
-      upgrade.reconstructionRequired,
-      true,
-      'A changed worker image requires explicit reconstruction evidence.',
-    );
-  if (upgrade.reconstructionRequired) {
-    assert.match(upgrade.reconstruction?.sourceDigest, sha);
-    assert.equal(
-      upgrade.reconstruction.sourceDigest,
-      upgrade.reconstruction.resultDigest,
-    );
-    assert.notEqual(
-      upgrade.reconstruction.oldStore,
-      upgrade.reconstruction.newStore,
-    );
-    assert.notEqual(
-      upgrade.reconstruction.oldEpoch,
-      upgrade.reconstruction.newEpoch,
-    );
-    for (const field of ['oldStore', 'newStore', 'oldEpoch', 'newEpoch'])
-      assert.ok(
-        typeof upgrade.reconstruction[field] === 'string' &&
-          upgrade.reconstruction[field].length > 0,
-      );
-  }
   const restart = report.scenarios?.restart;
   assert.equal(restart?.passed, true);
   assert.equal(restart.published, false);
@@ -460,6 +738,8 @@ export function validateMacWorkerReport(report, expected) {
   assert.match(recovery.initial?.digest, sha);
   assert.equal(report.model?.paid, false);
   assert.equal(report.model?.requests, 16);
+  assert.equal(report.model.executedRequests, 16 - reusedRequests);
+  assert.equal(report.model.reusedRequests, reusedRequests);
   assert.equal(
     report.linuxImageQualification?.scope,
     'native-linux-arm64-image-only',

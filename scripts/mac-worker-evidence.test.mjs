@@ -1,9 +1,18 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -12,12 +21,18 @@ import {
   macWorkerIdentity,
   macWorkerRecoverySummary,
   macWorkerScope,
+  macWorkerScenarioSummary,
   macWorkerServiceCleanupAction,
   macWorkerStorageSummary,
   optionalMacWorkerEvidence,
   qualificationDrivers,
+  packageScenarioNames,
+  packageScenarioDrivers,
+  packageScenarioFiles,
   readMacWorkerIdentity,
   validateMacWorkerReport,
+  validateMacWorkerReuse,
+  validateMacWorkerReuseFixture,
 } from './mac-worker-evidence.mjs';
 
 test('the package campaign requires an explicit baseline before host or engine activity', async () => {
@@ -42,6 +57,68 @@ test('the package campaign requires an explicit baseline before host or engine a
       return true;
     },
   );
+});
+
+test('reuse requires both explicit original report and campaign paths before host activity', async () => {
+  for (const option of ['--reuse-report', '--reuse-directory'])
+    await assert.rejects(
+      promisify(execFile)(
+        process.execPath,
+        [
+          fileURLToPath(new URL('./qualify-mac-worker.mjs', import.meta.url)),
+          '--packages',
+          '/unused/candidate',
+          '--docker-binary',
+          '/unused/docker',
+          '--docker-socket',
+          '/unused/socket',
+          '--engine-profile',
+          'fixture',
+          option,
+          '/unused/original',
+        ],
+        { env: {}, timeout: 10000 },
+      ),
+      (error) =>
+        /Use --reuse-report and --reuse-directory together/.test(error.stderr),
+    );
+});
+
+test('package driver scope covers every literal source import before its helper can change independently', async () => {
+  const imports = (source) =>
+    [
+      ...source.matchAll(
+        /^\s*(?:import|export)\s+(?:[^;'"`]*?\sfrom\s*)?(['"])([^'"]+)\1/gm,
+      ),
+      ...source.matchAll(/\bimport\(\s*(['"])([^'"]+)\1/g),
+    ].map((match) => match[2]);
+  assert.deepEqual(
+    imports(
+      "import x from './a.mjs';\nimport './b.mjs';\nconst c = import('./c.mjs');",
+    ),
+    ['./a.mjs', './b.mjs', './c.mjs'],
+  );
+  const directory = fileURLToPath(new URL('../', import.meta.url));
+  for (const file of packageScenarioDrivers.filter((name) =>
+    name.endsWith('.mjs'),
+  )) {
+    const source = new URL('../' + file, import.meta.url);
+    for (const specifier of imports(await readFile(source, 'utf8'))) {
+      if (specifier.startsWith('node:')) continue;
+      assert.ok(
+        specifier.startsWith('.'),
+        `Declare the pinned dependency scope for ${file}: ${specifier}`,
+      );
+      const dependency = relative(
+        directory,
+        fileURLToPath(new URL(specifier, source)),
+      );
+      assert.ok(
+        packageScenarioDrivers.includes(dependency),
+        `Add ${dependency} to the package driver scope imported by ${file}.`,
+      );
+    }
+  }
 });
 
 test('failed campaign cleanup uses complete structured service ownership and never guesses from installation alone', () => {
@@ -136,6 +213,54 @@ test('storage qualification summary retains outcome proof without private captur
   );
 });
 
+test('reuse rejects aliased, redirected or public fixture data roots before any Runner command', async (t) => {
+  const directory = await realpath(
+    await mkdtemp(join(tmpdir(), 'camp-reuse-boundary-')),
+  );
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const fixtureRoot = join(directory, 'camp-release-online');
+  const runner = join(fixtureRoot, "Runner's private data");
+  const server = join(fixtureRoot, 'data');
+  await mkdir(fixtureRoot, { mode: 0o700 });
+  for (const child of [runner, server]) await mkdir(child, { mode: 0o700 });
+  assert.equal(
+    await validateMacWorkerReuseFixture(directory, 'online', fixtureRoot),
+    fixtureRoot,
+  );
+  await assert.rejects(
+    validateMacWorkerReuseFixture(
+      directory,
+      'online',
+      directory + '/./camp-release-online',
+    ),
+    /canonical/,
+  );
+  const other = join(directory, 'another-installation');
+  await mkdir(other, { mode: 0o700 });
+  for (const child of [runner, server]) {
+    await rm(child, { recursive: true });
+    await symlink(other, child);
+    await assert.rejects(
+      validateMacWorkerReuseFixture(directory, 'online', fixtureRoot),
+      /real directories/,
+    );
+    await rm(child);
+    await mkdir(child, { mode: 0o700 });
+    await chmod(child, 0o755);
+    await assert.rejects(
+      validateMacWorkerReuseFixture(directory, 'online', fixtureRoot),
+      /private owned/,
+    );
+    await chmod(child, 0o700);
+  }
+  await rm(fixtureRoot, { recursive: true });
+  await symlink(other, fixtureRoot);
+  await assert.rejects(
+    validateMacWorkerReuseFixture(directory, 'online', fixtureRoot),
+    /real directories/,
+  );
+});
+
 function fixture() {
   const sha = 'a'.repeat(64),
     source = 'b'.repeat(40),
@@ -201,7 +326,13 @@ function fixture() {
   };
   const identity = macWorkerIdentity(runner, server, worker, manifest);
   const drivers = Object.fromEntries(
-    qualificationDrivers.map((name) => [name, sha]),
+    [
+      ...qualificationDrivers,
+      'main.go',
+      'internal/launcher/entrypoint.go',
+      'internal/launcher/launcher.go',
+      'internal/launcher/execute_unix.go',
+    ].map((name) => [name, sha]),
   );
   const scenarios = Object.fromEntries(
     [
@@ -298,6 +429,7 @@ function fixture() {
     host: { platform: 'darwin/arm64' },
     driver: {
       sourceCommit: source,
+      sourceTree: source,
       modified: false,
       tools: { node: '24.16.0', go: 'go version go1.27.3 darwin/arm64' },
       files: drivers,
@@ -312,10 +444,22 @@ function fixture() {
       dockerVersion: '29.4.0',
       cpus: 4,
       memoryBytes: 2 ** 30,
+      identitySHA256: sha,
     },
     baseline: 'v0.1.0-alpha.10',
     scenarios,
-    model: { paid: false, requests: 16 },
+    model: {
+      paid: false,
+      requests: 16,
+      executedRequests: 16,
+      reusedRequests: 0,
+    },
+    baselineWorkerImage: {
+      archiveSHA256: sha,
+      image,
+      campSourceCommit: source,
+      reusedIdenticalArtifact: false,
+    },
     linuxImageQualification: {
       scope: 'native-linux-arm64-image-only',
       passed: true,
@@ -334,6 +478,166 @@ function fixture() {
     recovery,
   };
 }
+
+function reuseFixture() {
+  const f = fixture();
+  const source = structuredClone(f.report);
+  source.status = 'failed';
+  source.error = {
+    code: 'QualificationFailed',
+    message: 'Original restart failed before a model request.',
+  };
+  source.driver.sourceCommit = 'd'.repeat(40);
+  source.driver.sourceTree = 'e'.repeat(40);
+  source.driver.files['scripts/qualify-mac-worker.mjs'] = 'f'.repeat(64);
+  source.driver.files['scripts/mac-worker-evidence.mjs'] = 'f'.repeat(64);
+  for (const name of [
+    'package.json',
+    'go.sum',
+    'scripts/runner-restart-resource.mjs',
+  ])
+    delete source.driver.files[name];
+  source.driver.sha256 = digestJSON(source.driver.files);
+  delete source.scenarios.restart;
+  delete source.scenarios.recovery;
+  delete source.model;
+  const inputs = {
+    sourceQualificationSHA256: 'f'.repeat(64),
+    sourceDriverFiles: structuredClone(source.driver.files),
+    scopeFiles: packageScenarioFiles(f.report.driver.files),
+    rawReports: {},
+  };
+  for (const name of packageScenarioNames) {
+    const value = {
+      ...structuredClone(source.scenarios[name]),
+      retainedFixtureDirectory: `/owned/original/camp-release-${name}`,
+    };
+    delete value.reportSHA256;
+    const sha256 = digestJSON(value);
+    source.scenarios[name].reportSHA256 = sha256;
+    inputs.rawReports[name] = { value, sha256 };
+    assert.deepEqual(
+      macWorkerScenarioSummary(value, sha256),
+      source.scenarios[name],
+    );
+  }
+  return { ...f, source, inputs };
+}
+
+test('explicit reuse accepts only four original passing scopes while retaining their failed parent and producer provenance', () => {
+  const f = reuseFixture();
+  const reused = validateMacWorkerReuse(f.source, f.report, f.inputs);
+  assert.deepEqual(Object.keys(reused), packageScenarioNames);
+  for (const name of packageScenarioNames) {
+    const proof = reused[name].reuse;
+    assert.equal(proof.sourceQualificationStatus, 'failed');
+    assert.deepEqual(proof.sourceQualificationError, f.source.error);
+    assert.equal(
+      proof.sourceQualificationSHA256,
+      f.inputs.sourceQualificationSHA256,
+    );
+    assert.deepEqual(proof.producer, f.source.driver);
+    assert.deepEqual(proof.driverScope.files, f.inputs.scopeFiles);
+    assert.equal(proof.driverScope.sha256, digestJSON(f.inputs.scopeFiles));
+    assert.equal(reused[name].reportSHA256, f.inputs.rawReports[name].sha256);
+  }
+  Object.assign(f.report.scenarios, reused);
+  f.report.model.executedRequests = 2;
+  f.report.model.reusedRequests = 14;
+  validateMacWorkerReport(f.report, f.identity);
+  assert.equal(f.source.status, 'failed');
+  assert.equal(f.report.driver.sourceCommit, f.identity.sourceCommit);
+  assert.notEqual(
+    f.report.driver.sourceCommit,
+    reused.online.reuse.producer.sourceCommit,
+  );
+  const partial = structuredClone(f.report);
+  delete partial.scenarios.online.reuse;
+  assert.throws(() => validateMacWorkerReport(partial, f.identity));
+  const wrongCount = structuredClone(f.report);
+  wrongCount.model.executedRequests = 16;
+  assert.throws(() => validateMacWorkerReport(wrongCount, f.identity));
+});
+
+test('reuse rejects changed identities, inputs, raw hashes, acceptance outcomes and unknown or chained states', () => {
+  const changes = [
+    (f) => {
+      f.source.status = 'unknown';
+    },
+    (f) => {
+      f.source.identity.packages.worker.sha256 = '0'.repeat(64);
+    },
+    (f) => {
+      f.source.baseline = 'v0.1.0-alpha.9';
+    },
+    (f) => {
+      f.source.host.release = 'different-host';
+    },
+    (f) => {
+      f.source.engine.identitySHA256 = '0'.repeat(64);
+    },
+    (f) => {
+      f.source.serverBinarySHA256 = '0'.repeat(64);
+    },
+    (f) => {
+      f.source.baselineWorkerImage.archiveSHA256 = '0'.repeat(64);
+    },
+    (f) => {
+      f.source.driver.tools.node = '99.0.0';
+    },
+    (f) => {
+      f.source.driver.modified = true;
+    },
+    (f) => {
+      f.inputs.sourceDriverFiles['scripts/lib.mjs'] = '0'.repeat(64);
+    },
+    (f) => {
+      f.inputs.scopeFiles['scripts/journal-evidence.mjs'] = '0'.repeat(64);
+    },
+    (f) => {
+      delete f.inputs.scopeFiles['go.sum'];
+    },
+    (f) => {
+      f.inputs.scopeFiles['internal/launcher/new.go'] = 'a'.repeat(64);
+    },
+    (f) => {
+      delete f.inputs.scopeFiles['internal/launcher/entrypoint.go'];
+    },
+    (f) => {
+      f.inputs.scopeFiles['renamed.go'] = f.inputs.scopeFiles['main.go'];
+      delete f.inputs.scopeFiles['main.go'];
+    },
+    (f) => {
+      f.inputs.rawReports.online.sha256 = '0'.repeat(64);
+    },
+    (f) => {
+      f.inputs.rawReports.online.value.mode = 'offline';
+    },
+    (f) => {
+      f.inputs.rawReports.online.value.status = 'failed';
+    },
+    (f) => {
+      f.source.scenarios.online.status = 'unknown';
+    },
+    (f) => {
+      f.source.scenarios.online.status = 'failed';
+    },
+    (f) => {
+      delete f.source.scenarios.workerUpgrade;
+    },
+    (f) => {
+      f.source.scenarios.offline.checkpointStorage.lifecycle.permanentlyPurged = false;
+    },
+    (f) => {
+      f.source.scenarios.online.reuse = {};
+    },
+  ];
+  for (const change of changes) {
+    const f = reuseFixture();
+    change(f);
+    assert.throws(() => validateMacWorkerReuse(f.source, f.report, f.inputs));
+  }
+});
 
 test('the actual worker recovery projection retains SDK identity and protocol independently from Runner protocol', () => {
   const f = fixture();

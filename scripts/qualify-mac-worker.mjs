@@ -28,8 +28,13 @@ import {
   macWorkerRecoverySummary,
   macWorkerScope,
   macWorkerServiceCleanupAction,
-  macWorkerStorageSummary,
+  macWorkerScenarioSummary,
+  packageScenarioDrivers,
+  packageScenarioNames,
+  packageGoSources,
   readMacWorkerIdentity,
+  validateMacWorkerReuse,
+  validateMacWorkerReuseFixture,
   validateMacWorkerReport,
 } from './mac-worker-evidence.mjs';
 
@@ -39,6 +44,7 @@ if (args.includes('--help')) {
 node scripts/qualify-mac-worker.mjs --packages ABSOLUTE_DIR | --version vX.Y.Z-alpha.N
   --baseline vX.Y.Z-alpha.N --docker-binary ABSOLUTE_FILE --docker-socket ABSOLUTE_SOCKET
   --engine-profile NAME [--output ABSOLUTE_NEW_JSON]
+  [--reuse-report ABSOLUTE_ORIGINAL_JSON --reuse-directory ABSOLUTE_ORIGINAL_CAMPAIGN]
 No enrolled configuration is read. Existing services/VMs and the global Docker context are unchanged.
 Package installation, native-local and worker upgrades, checkpoint interruption and Store reconstruction are separate recorded scenarios.`);
   process.exit(0);
@@ -54,6 +60,8 @@ for (let i = 0; i < args.length; i += 2) {
       '--docker-socket',
       '--engine-profile',
       '--output',
+      '--reuse-report',
+      '--reuse-directory',
     ].includes(args[i]) &&
       args[i + 1] &&
       !args[i + 1].startsWith('--'),
@@ -72,9 +80,16 @@ for (const name of [
   '--docker-binary',
   '--docker-socket',
   '--output',
+  '--reuse-report',
+  '--reuse-directory',
 ])
   if (options[name])
     assert.ok(path.isAbsolute(options[name]), `${name} must be absolute.`);
+assert.equal(
+  Boolean(options['--reuse-report']),
+  Boolean(options['--reuse-directory']),
+  'Use --reuse-report and --reuse-directory together.',
+);
 assert.ok(options['--docker-binary'] && options['--docker-socket']);
 assert.match(
   options['--engine-profile'] ?? '',
@@ -263,7 +278,190 @@ async function verifyFile(directory, item) {
   );
 }
 
+let reusedCases;
+let reusedRaw;
+
+async function readReuseProof(file) {
+  const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const before = await handle.stat();
+    assert.ok(
+      before.isFile() &&
+        before.uid === process.getuid() &&
+        before.nlink === 1 &&
+        !(before.mode & 0o077) &&
+        before.size > 0 &&
+        before.size <= 16 << 20,
+      'Reuse evidence must be bounded private owned JSON.',
+    );
+    const bytes = await handle.readFile();
+    const after = await handle.stat();
+    assert.equal(bytes.length, before.size);
+    assert.equal(after.size, before.size);
+    assert.equal(after.mtimeMs, before.mtimeMs);
+    assert.equal(after.ctimeMs, before.ctimeMs);
+    return {
+      value: JSON.parse(bytes.toString('utf8')),
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
+async function prepareReuse() {
+  const sourceFile = options['--reuse-report'];
+  if (!sourceFile) return;
+  const directory = await realpath(options['--reuse-directory']);
+  const info = await lstat(directory);
+  assert.ok(
+    info.isDirectory() && info.uid === process.getuid() && !(info.mode & 0o077),
+    'Reuse only an owned private campaign.',
+  );
+  const original = await readReuseProof(sourceFile);
+  const source = original.value;
+  assert.match(source.driver?.sourceCommit ?? '', /^[a-f0-9]{40}$/);
+  const sourceCommit = source.driver.sourceCommit;
+  assert.equal(
+    source.driver.sourceTree,
+    await git(['rev-parse', `${sourceCommit}^{tree}`]),
+  );
+  const gitFiles = async (names) =>
+    Object.fromEntries(
+      await Promise.all(
+        names.map(async (name) => {
+          assert.ok(
+            /^[a-zA-Z0-9._/-]+$/.test(name) &&
+              !name.startsWith('/') &&
+              name
+                .split('/')
+                .every((part) => part && part !== '.' && part !== '..'),
+            'Invalid original driver path.',
+          );
+          const { stdout } = await execute(
+            'git',
+            ['show', `${sourceCommit}:${name}`],
+            {
+              cwd: root,
+              encoding: 'buffer',
+              maxBuffer: 8 << 20,
+              timeout: 10_000,
+              killSignal: 'SIGKILL',
+            },
+          );
+          return [name, createHash('sha256').update(stdout).digest('hex')];
+        }),
+      ),
+    );
+  const sourceDriverFiles = await gitFiles(Object.keys(source.driver.files));
+  const scopeFiles = await gitFiles([
+    ...packageScenarioDrivers,
+    ...(await packageGoSources(root, sourceCommit)),
+  ]);
+  const rawReports = {};
+  reusedRaw = {};
+  for (const name of packageScenarioNames) {
+    const file = path.join(directory, `${name}.json`);
+    rawReports[name] = await readReuseProof(file);
+    reusedRaw[name] = rawReports[name].value;
+    await validateMacWorkerReuseFixture(
+      directory,
+      name,
+      reusedRaw[name].retainedFixtureDirectory,
+    );
+  }
+  reusedCases = validateMacWorkerReuse(source, report, {
+    sourceQualificationSHA256: original.sha256,
+    sourceDriverFiles,
+    scopeFiles,
+    rawReports,
+  });
+  assert.deepEqual(
+    await readMacWorkerIdentity(path.join(directory, 'packages')),
+    report.identity,
+    'Original package descriptors differ from the current immutable artifacts.',
+  );
+  for (const item of Object.values(
+    macWorkerArtifacts(
+      await read(path.join(directory, 'packages/runner-release.json')),
+      await read(path.join(directory, 'packages/server-release.json')),
+      await read(
+        path.join(directory, 'packages/checkpoint-worker-release.json'),
+      ),
+    ),
+  ))
+    await verifyFile(path.join(directory, 'packages'), item);
+  const online = reusedRaw.online;
+  const fixture = await realpath(online.retainedFixtureDirectory);
+  const executable = path.join(fixture, "relocated Runner's installation/camp");
+  assert.equal(await hashFile(executable), online.entrypointBinarySHA256);
+  const runnerCommand = async (args) =>
+    JSON.parse(
+      (
+        await execute(
+          executable,
+          [
+            'runner',
+            ...args,
+            '--data-dir',
+            path.join(fixture, "Runner's private data"),
+          ],
+          {
+            cwd: fixture,
+            env: { PATH: '/usr/bin:/bin', HOME: fixture, LANG: env.LANG },
+            maxBuffer: 8 << 20,
+            timeout: 90_000,
+            killSignal: 'SIGKILL',
+          },
+        )
+      ).stdout,
+    );
+  const status = await runnerCommand(['status', '--json']);
+  assert.equal(
+    macWorkerServiceCleanupAction(status),
+    'absent',
+    'Stop the retained fixture service explicitly before reuse.',
+  );
+  assert.equal(status.readiness?.ready, true);
+  assert.equal(status.installed?.state, 'recorded');
+  assert.equal(
+    status.installed.installation?.runtimeSHA256,
+    report.identity.packages.runtime.sha256,
+  );
+  const storage = await runnerCommand(['checkpoint', 'storage', '--json']);
+  assert.equal(storage.complete, true);
+  assert.equal(
+    storage.quiescent,
+    true,
+    'The retained fixture Runner or native jobs are still active.',
+  );
+  for (const name of packageScenarioNames) {
+    await copyFile(
+      path.join(directory, `${name}.json`),
+      path.join(campaign, `${name}.json`),
+      constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE,
+    );
+    assert.equal(
+      await hashFile(path.join(campaign, `${name}.json`)),
+      rawReports[name].sha256,
+    );
+  }
+  await copyFile(
+    sourceFile,
+    path.join(campaign, 'reuse-source-qualification.json'),
+    constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE,
+  );
+  assert.equal(
+    await hashFile(path.join(campaign, 'reuse-source-qualification.json')),
+    original.sha256,
+  );
+}
+
 async function scenario(name, mode, extra = {}) {
+  if (reusedCases) {
+    report.scenarios[name] = reusedCases[name];
+    return reusedRaw[name];
+  }
   const file = path.join(campaign, `${name}.json`);
   const fixture = path.join(campaign, `camp-release-${name}`);
   let passed = false;
@@ -341,38 +539,10 @@ async function scenario(name, mode, extra = {}) {
     }
   }
   const value = await read(file);
-  const fields = [
-    'status',
-    'mode',
-    'workspaceBackend',
-    'platform',
-    'architecture',
-    'version',
-    'sourceCommit',
-    'sdkVersion',
-    'buildId',
-    'archiveSHA256',
-    'entrypointBinarySHA256',
-    'model',
-    'checks',
-    'fromVersion',
-    'baselineWorkspaceBackend',
-    'runnerIdentityPreserved',
-    'journalPreserved',
-    'durableSourceReceiptPreserved',
-    'lostCompletionReplyRecovered',
-    'workerUpgrade',
-    'timings',
-  ];
-  report.scenarios[name] = {
-    ...Object.fromEntries(
-      fields
-        .filter((key) => value[key] !== undefined)
-        .map((key) => [key, value[key]]),
-    ),
-    checkpointStorage: macWorkerStorageSummary(value.checkpointStorage),
-    reportSHA256: await hashFile(file),
-  };
+  report.scenarios[name] = macWorkerScenarioSummary(
+    value,
+    await hashFile(file),
+  );
   return value;
 }
 
@@ -501,6 +671,8 @@ try {
         DOCKER_CONFIG: dockerHome,
       },
       maxBuffer: 1 << 20,
+      timeout: 10_000,
+      killSignal: 'SIGKILL',
     },
   );
   const engine = JSON.parse(info);
@@ -557,6 +729,36 @@ try {
         path.join(baselineDirectory, name),
         constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE,
       );
+  } else if (options['--reuse-directory']) {
+    const retained = path.join(
+      await realpath(options['--reuse-directory']),
+      'baseline',
+    );
+    const owner = await lstat(retained);
+    assert.ok(
+      owner.isDirectory() &&
+        owner.uid === process.getuid() &&
+        !(owner.mode & 0o077),
+    );
+    assert.equal(await realpath(retained), retained);
+    for (const name of [prior.filename, `${prior.filename}.sha256`]) {
+      const source = path.join(retained, name);
+      const file = await lstat(source);
+      assert.ok(
+        file.isFile() &&
+          file.uid === process.getuid() &&
+          file.nlink === 1 &&
+          !(file.mode & 0o077) &&
+          file.size > 0 &&
+          file.size <= (name === prior.filename ? prior.bytes : 4096),
+        'Retained baseline must contain private owned regular archive/checksum files.',
+      );
+      await copyFile(
+        source,
+        path.join(baselineDirectory, name),
+        constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE,
+      );
+    }
   } else {
     await download(baseline, prior.filename, baselineDirectory, prior.bytes);
     await download(
@@ -572,7 +774,16 @@ try {
     campSourceCommit: priorRunner.sourceCommit,
     reusedIdenticalArtifact: reusedImage,
   };
+  report.baselineAcquisition = {
+    metadata: 'fixed-public-release-checksums',
+    workerArchive: reusedImage
+      ? 'identical-current-package'
+      : options['--reuse-directory']
+        ? 'explicit-retained-campaign'
+        : 'fixed-public-download',
+  };
   await verifyFile(baselineDirectory, prior);
+  await prepareReuse();
   const online = await scenario('online', 'online');
   await scenario('offline', 'offline');
   const fixture = await realpath(online.retainedFixtureDirectory);
@@ -659,6 +870,8 @@ try {
   report.model = {
     paid: false,
     requests: 16,
+    executedRequests: reusedCases ? 2 : 16,
+    reusedRequests: reusedCases ? 14 : 0,
     kind: 'deterministic-local-provider',
   };
   assert.deepEqual(

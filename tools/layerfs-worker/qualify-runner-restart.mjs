@@ -24,6 +24,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { pathToFileURL, URL } from 'node:url';
 import { command, root, stop, waitFor } from '../../scripts/lib.mjs';
+import { configureRestartResource } from '../../scripts/runner-restart-resource.mjs';
 import { saveState } from './state.mjs';
 import { manifestDigest } from './tree.mjs';
 
@@ -263,20 +264,18 @@ try {
     runnerId: config.runnerId,
     revision: room.runnerRevision,
   }));
-  await api(`/api/resources/${room.resourceId}`, 'PATCH', {
-    environment: {
-      kind: 'command',
-      checks: [
-        {
-          name: 'native-byte-check',
-          arguments: [
-            'node',
-            '-e',
-            'if(require("fs").statSync("inflight.bin").size!==(16<<20))process.exit(1)',
-          ],
-        },
-      ],
-    },
+  await configureRestartResource(api, room.resourceId, {
+    kind: 'command',
+    checks: [
+      {
+        name: 'native-byte-check',
+        arguments: [
+          'node',
+          '-e',
+          'if(require("fs").statSync("inflight.bin").size!==(16<<20))process.exit(1)',
+        ],
+      },
+    ],
   });
   const operationDirectory = path.join(
     runnerData,
