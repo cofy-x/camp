@@ -24,7 +24,7 @@ func TestMacServiceSeparatesInstallationStartAndLogin(t *testing.T) {
 	}
 	var commands [][]string
 	loaded := false
-	manager := macRunnerService{domain: "gui/501", directory: directory, loginDirectory: t.TempDir(), loaded: func(context.Context, string) bool { return loaded }, command: func(_ context.Context, args ...string) error {
+	manager := macService{domain: "gui/501", directory: directory, loginDirectory: t.TempDir(), loaded: func(context.Context, string) bool { return loaded }, command: func(_ context.Context, args ...string) error {
 		commands = append(commands, append([]string(nil), args...))
 		if args[0] == "bootstrap" {
 			loaded = true
@@ -103,7 +103,7 @@ func TestMacServiceFindsRunnerStartedBeforeGuiLogin(t *testing.T) {
 	user := "user/501/" + macServiceLabel(directory)
 	active := map[string]bool{user: true}
 	var commands [][]string
-	manager := macRunnerService{domain: "gui/501", otherDomains: []string{"user/501"}, directory: directory, loginDirectory: t.TempDir(), loaded: func(_ context.Context, target string) bool { return active[target] }, command: func(_ context.Context, args ...string) error {
+	manager := macService{domain: "gui/501", otherDomains: []string{"user/501"}, directory: directory, loginDirectory: t.TempDir(), loaded: func(_ context.Context, target string) bool { return active[target] }, command: func(_ context.Context, args ...string) error {
 		commands = append(commands, args)
 		if args[0] == "bootout" {
 			delete(active, args[1])
@@ -139,7 +139,7 @@ func TestUncertainServiceLookupCannotChangeInstallationOrProcesses(t *testing.T)
 	for _, action := range []string{"install", "start", "stop", "remove", "enable-login", "disable-login"} {
 		t.Run(action, func(t *testing.T) {
 			directory, login := t.TempDir(), t.TempDir()
-			manager := macRunnerService{directory: directory, loginDirectory: login, domain: "gui/501", loaded: func(context.Context, string) bool { return false }, command: func(context.Context, ...string) error { t.Fatal("Uncertain lookup changed a process"); return nil }}
+			manager := macService{directory: directory, loginDirectory: login, domain: "gui/501", loaded: func(context.Context, string) bool { return false }, command: func(context.Context, ...string) error { t.Fatal("Uncertain lookup changed a process"); return nil }}
 			if err := manager.apply(context.Background(), "install", "/private/camp"); err != nil {
 				t.Fatal(err)
 			}
@@ -170,7 +170,7 @@ func TestShutdownProbeExpiryCannotConfirmStopOrAuthorizeRemoval(t *testing.T) {
 	for _, legacy := range []bool{false, true} {
 		t.Run(map[bool]string{true: "legacy-probe", false: "error-aware-probe"}[legacy], func(t *testing.T) {
 			directory, login := t.TempDir(), t.TempDir()
-			manager := macRunnerService{directory: directory, loginDirectory: login, domain: "gui/501", loaded: func(context.Context, string) bool { return false }, command: func(context.Context, ...string) error { return nil }}
+			manager := macService{directory: directory, loginDirectory: login, domain: "gui/501", loaded: func(context.Context, string) bool { return false }, command: func(context.Context, ...string) error { return nil }}
 			if err := manager.apply(context.Background(), "install", "/private/camp"); err != nil {
 				t.Fatal(err)
 			}
@@ -214,7 +214,7 @@ func TestShutdownProbeExpiryCannotConfirmStopOrAuthorizeRemoval(t *testing.T) {
 func TestShutdownUnknownAfterBootoutPreservesInstallation(t *testing.T) {
 	directory := t.TempDir()
 	stopping := false
-	manager := macRunnerService{directory: directory, loginDirectory: t.TempDir(), domain: "gui/501", loaded: func(context.Context, string) bool { return false }, command: func(context.Context, ...string) error { return nil }}
+	manager := macService{directory: directory, loginDirectory: t.TempDir(), domain: "gui/501", loaded: func(context.Context, string) bool { return false }, command: func(context.Context, ...string) error { return nil }}
 	if err := manager.apply(context.Background(), "install", "/private/camp"); err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestShutdownUnknownAfterBootoutPreservesInstallation(t *testing.T) {
 func TestExpiredDeadlineReturningFalseDoesNotConfirmShutdown(t *testing.T) {
 	directory := t.TempDir()
 	stopping := false
-	manager := macRunnerService{directory: directory, loginDirectory: t.TempDir(), domain: "gui/501", loaded: func(context.Context, string) bool { return false }, command: func(context.Context, ...string) error { return nil }}
+	manager := macService{directory: directory, loginDirectory: t.TempDir(), domain: "gui/501", loaded: func(context.Context, string) bool { return false }, command: func(context.Context, ...string) error { return nil }}
 	if err := manager.apply(context.Background(), "install", "/private/camp"); err != nil {
 		t.Fatal(err)
 	}

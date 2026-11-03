@@ -89,7 +89,7 @@ func TestServerServiceSharesLifecycleWithoutRunnerIdentity(t *testing.T) {
 	}
 	var commands [][]string
 	active := false
-	manager := macRunnerService{role: "server", domain: "gui/501", directory: directory, loginDirectory: t.TempDir(), arguments: []string{"service", "run", "--data-dir", directory}, loaded: func(context.Context, string) bool { return active }, command: func(_ context.Context, args ...string) error {
+	manager := macService{role: "server", domain: "gui/501", directory: directory, loginDirectory: t.TempDir(), arguments: []string{"service", "run", "--data-dir", directory}, loaded: func(context.Context, string) bool { return active }, command: func(_ context.Context, args ...string) error {
 		commands = append(commands, args)
 		if args[0] == "bootstrap" {
 			active = true
@@ -139,7 +139,7 @@ func TestRejectedServerInstallationPreservesSettingsAndAllowsValidRetry(t *testi
 	if err = os.Chmod(directory, 0700); err != nil {
 		t.Fatal(err)
 	}
-	manager := macRunnerService{role: "server", directory: directory, domain: "gui/501", loginDirectory: t.TempDir(), arguments: []string{"service", "run", "--data-dir", directory}, loaded: func(context.Context, string) bool { return false }, command: func(context.Context, ...string) error {
+	manager := macService{role: "server", directory: directory, domain: "gui/501", loginDirectory: t.TempDir(), arguments: []string{"service", "run", "--data-dir", directory}, loaded: func(context.Context, string) bool { return false }, command: func(context.Context, ...string) error {
 		t.Fatal("Installation unexpectedly started service")
 		return nil
 	}}

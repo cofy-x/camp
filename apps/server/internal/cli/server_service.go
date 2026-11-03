@@ -149,7 +149,7 @@ func validateServerServiceConfig(config serverServiceConfig, directory string) e
 	return nil
 }
 
-func installServerService(ctx context.Context, manager macRunnerService, config serverServiceConfig, binary string) error {
+func installServerService(ctx context.Context, manager macService, config serverServiceConfig, binary string) error {
 	if err := validateServerServiceConfig(config, manager.directory); err != nil {
 		return err
 	}
@@ -296,7 +296,7 @@ func runServerService(ctx context.Context, args []string, output io.Writer, _ st
 	if err != nil {
 		return err
 	}
-	manager := macRunnerService{role: "server", domain: macServiceDomain(ctx), otherDomains: []string{"gui/" + strconv.Itoa(os.Geteuid()), "user/" + strconv.Itoa(os.Geteuid())}, directory: directory, loginDirectory: filepath.Join(home, "Library", "LaunchAgents"), arguments: []string{"service", "run", "--data-dir", directory}, lookup: lookupMacService, command: func(ctx context.Context, args ...string) error {
+	manager := macService{role: "server", domain: macServiceDomain(ctx), otherDomains: []string{"gui/" + strconv.Itoa(os.Geteuid()), "user/" + strconv.Itoa(os.Geteuid())}, directory: directory, loginDirectory: filepath.Join(home, "Library", "LaunchAgents"), arguments: []string{"service", "run", "--data-dir", directory}, lookup: lookupMacService, command: func(ctx context.Context, args ...string) error {
 		cmd := exec.CommandContext(ctx, "/bin/launchctl", args...)
 		cmd.Stdout, cmd.Stderr = output, output
 		return cmd.Run()

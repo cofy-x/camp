@@ -39,7 +39,7 @@ func TestMacServerServiceActualLaunchdAndRetainedData(t *testing.T) {
 	if err := writeServerServiceConfig(directory, config); err != nil {
 		t.Fatal(err)
 	}
-	manager := macRunnerService{role: "server", domain: macServiceDomain(ctx), directory: directory, loginDirectory: filepath.Join(root, "login-fixture"), arguments: []string{"service", "run", "--data-dir", directory}, lookup: lookupMacService, command: func(ctx context.Context, args ...string) error {
+	manager := macService{role: "server", domain: macServiceDomain(ctx), directory: directory, loginDirectory: filepath.Join(root, "login-fixture"), arguments: []string{"service", "run", "--data-dir", directory}, lookup: lookupMacService, command: func(ctx context.Context, args ...string) error {
 		output, err := exec.CommandContext(ctx, "/bin/launchctl", args...).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("launchctl: %w %s", err, output)
