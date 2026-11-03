@@ -68,25 +68,15 @@ func promptRunnerSetup(input io.Reader, output io.Writer, location runnerSetupLo
 	if err != nil {
 		return location, err
 	}
-	previous, loadErr := daemon.LoadConfig(location.directory)
-	if loadErr != nil && !errors.Is(loadErr, os.ErrNotExist) {
-		return location, loadErr
+	saved, err := savedRunnerSetupLocation(location)
+	if err != nil {
+		return location, err
 	}
-	if loadErr == nil && (previous.RunnerID != "" || previous.PendingToken != "") {
-		if location.server != "" && strings.TrimRight(location.server, "/") != previous.ServerURL {
-			return location, errors.New("This private directory belongs to another Camp Server; choose its saved connection or a different data directory")
-		}
-		if location.name != "" && location.name != previous.Name {
-			return location, errors.New("This private directory already has a Runner identity; rename the Runner in Camp instead of replacing its setup name")
-		}
-		if location.server == "" {
-			location.server = previous.ServerURL
-		}
-		if location.name == "" {
-			location.name = previous.Name
-		}
-		fmt.Fprintln(output, "Using saved connection for", previous.Name, "at", previous.ServerURL)
+	if saved.server != "" && saved.name != "" && (saved.server != location.server || saved.name != location.name) {
+		fmt.Fprintln(output, "Using saved connection for", saved.name, "at", saved.server)
 	}
+	location = saved
+
 	if location.server == "" {
 		location.server, err = runnerPrompt(input, output, "Camp Server URL", "")
 		if err != nil {
@@ -142,4 +132,34 @@ func runnerPrompt(input io.Reader, output io.Writer, label, fallback string) (st
 		}
 		fmt.Fprintln(output, "Enter a value to continue.")
 	}
+}
+
+// Repeated noninteractive setup uses the same saved connection as the terminal
+// flow. Explicit conflicting names/Servers never replace an existing identity.
+func savedRunnerSetupLocation(location runnerSetupLocation) (runnerSetupLocation, error) {
+	var err error
+	location.directory, err = filepath.Abs(location.directory)
+	if err != nil {
+		return location, err
+	}
+	previous, loadErr := daemon.LoadConfig(location.directory)
+	if errors.Is(loadErr, os.ErrNotExist) {
+		return location, nil
+	}
+	if loadErr != nil {
+		return location, loadErr
+	}
+	if location.server != "" && strings.TrimRight(location.server, "/") != previous.ServerURL {
+		return location, errors.New("This private directory belongs to another Camp Server; choose its saved connection or a different data directory")
+	}
+	if location.name != "" && location.name != previous.Name {
+		return location, errors.New("This private directory already has a Runner identity; rename the Runner in Camp instead of replacing its setup name")
+	}
+	if location.server == "" {
+		location.server = previous.ServerURL
+	}
+	if location.name == "" {
+		location.name = previous.Name
+	}
+	return location, nil
 }

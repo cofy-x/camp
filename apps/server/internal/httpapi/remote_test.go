@@ -219,3 +219,24 @@ func TestStorageAdvisoryReachesBrowserWithoutHostOrCleanupAuthority(t *testing.T
 		}
 	}
 }
+
+func TestRunnerInstallationProvenanceIsAllowlistedAndBounded(t *testing.T) {
+	valid := `{"executor":"native","ready":true,"installation":{"version":"v0.1.0-alpha.10","sourceCommit":"` + strings.Repeat("a", 40) + `","runtimeSHA256":"` + strings.Repeat("b", 64) + `","privatePath":"/private/credential","credential":"must-not-leak"}}`
+	value := runnerForBrowser(storage.Runner{Capabilities: json.RawMessage(valid)}, false)
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value.Capabilities.Installation == nil || value.Capabilities.Installation.Version != "v0.1.0-alpha.10" {
+		t.Fatal("Reported installation was lost", string(data))
+	}
+	for _, private := range []string{"privatePath", "/private/credential", "must-not-leak"} {
+		if strings.Contains(string(data), private) {
+			t.Fatal("Nested private installation field leaked", string(data))
+		}
+	}
+	malformed := strings.ReplaceAll(valid, "v0.1.0-alpha.10", "v1/private-path")
+	if got := runnerForBrowser(storage.Runner{Capabilities: json.RawMessage(malformed)}, false); got.Capabilities.Installation != nil {
+		t.Fatal("Malformed installation metadata reached browser")
+	}
+}

@@ -26,9 +26,7 @@ func TestMacBackgroundServiceActualLaunchd(t *testing.T) {
 		t.Fatalf("child build: %s %v", output, err)
 	}
 	domain := macServiceDomain(ctx)
-	manager := macRunnerService{domain: domain, directory: directory, loginDirectory: t.TempDir(), loaded: func(ctx context.Context, target string) bool {
-		return exec.CommandContext(ctx, "/bin/launchctl", "print", target).Run() == nil
-	}, command: func(ctx context.Context, args ...string) error {
+	manager := macService{domain: domain, directory: directory, loginDirectory: t.TempDir(), lookup: lookupMacService, command: func(ctx context.Context, args ...string) error {
 		output, err := exec.CommandContext(ctx, "/bin/launchctl", args...).CombinedOutput()
 		if err != nil {
 			t.Logf("launchctl %v: %s", args, output)
@@ -80,7 +78,7 @@ func TestMacBackgroundServiceActualLaunchd(t *testing.T) {
 	if string(wait("service-stopped")) != "graceful" {
 		t.Fatal("stop did not signal graceful shutdown")
 	}
-	if manager.loaded(ctx, domain+"/"+macServiceLabel(directory)) {
+	if loaded, err := manager.isLoaded(ctx, domain+"/"+macServiceLabel(directory)); err != nil || loaded {
 		t.Fatal("stopped service remained loaded")
 	}
 }

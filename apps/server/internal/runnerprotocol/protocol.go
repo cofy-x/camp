@@ -20,6 +20,7 @@ type ReadinessReport struct {
 }
 
 type Capabilities struct {
+	Installation      *Installation    `json:"installation,omitempty"`
 	TaskInputsVersion int              `json:"taskInputsVersion,omitempty"`
 	Storage           *StorageHealth   `json:"storage,omitempty"`
 	Platform          string           `json:"platform,omitempty"`
@@ -34,6 +35,14 @@ type Capabilities struct {
 	Fingerprint       string           `json:"fingerprint"`
 	DSHVersion        string           `json:"dshVersion,omitempty"`
 	LayerFSVersion    string           `json:"layerfsVersion,omitempty"`
+}
+
+// Installation identifies the immutable package reported by a trusted Runner.
+// It is diagnostic provenance, not execution authority or remote attestation.
+type Installation struct {
+	Version       string `json:"version"`
+	SourceCommit  string `json:"sourceCommit"`
+	RuntimeSHA256 string `json:"runtimeSHA256"`
 }
 type Source struct {
 	ID        string `json:"id"`

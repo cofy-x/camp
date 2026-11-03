@@ -46,6 +46,7 @@ type Config struct {
 	DataDir           string                `json:"-"`
 	Native            nativeexecutor.Config `json:"-"`
 	NativeUnavailable string                `json:"-"`
+	Installation      *p.Installation       `json:"-"`
 }
 
 func validateSources(sources map[string]string) error {
@@ -375,4 +376,68 @@ func SaveToolRoots(config Config, roots []string) error {
 		return err
 	}
 	return saveConfig(current)
+}
+
+// SaveSources replaces only an explicitly selected source map while execution
+// is stopped. It preserves enrollment, grants, journals and runtime settings.
+func SaveSources(config Config, sources map[string]string) error {
+	if err := validateSources(sources); err != nil {
+		return err
+	}
+	lock, err := execution.AcquireLock(config.DataDir)
+	if err != nil {
+		return err
+	}
+	if lock != nil {
+		defer lock.Close()
+	}
+	current, err := LoadConfig(config.DataDir)
+	if err != nil {
+		return err
+	}
+	if current.RunnerID != config.RunnerID || current.StorageID != config.StorageID || current.RegistrationID != config.RegistrationID {
+		return errors.New("Runner identity changed while updating source aliases")
+	}
+	canonical, err := ResolveSources(current.DataDir, sources)
+	if err != nil {
+		return err
+	}
+	current.Sources = canonical
+	return saveConfig(current)
+}
+
+// ResolveSources validates an explicit replacement before setup writes any
+// settings; SaveSources repeats it under the stopped-owner lock.
+func ResolveSources(directory string, sources map[string]string) (map[string]string, error) {
+	if err := validateSources(sources); err != nil {
+		return nil, err
+	}
+	canonical := make(map[string]string, len(sources))
+	private, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		return nil, err
+	}
+	for alias, directory := range sources {
+		if !filepath.IsAbs(directory) {
+			return nil, errors.New("Source paths must be absolute directories")
+		}
+		resolved, err := filepath.EvalSymlinks(directory)
+		if err != nil {
+			return nil, fmt.Errorf("Source %s is unavailable: %w", alias, err)
+		}
+		info, err := os.Stat(resolved)
+		if err != nil || !info.IsDir() {
+			return nil, fmt.Errorf("Source %s must be an existing directory", alias)
+		}
+		if sourceContains(resolved, private) || sourceContains(private, resolved) {
+			return nil, errors.New("Source directories must not contain or belong to private Runner storage")
+		}
+		canonical[alias] = resolved
+	}
+	return canonical, nil
+}
+
+func sourceContains(parent, child string) bool {
+	relative, err := filepath.Rel(parent, child)
+	return err == nil && (relative == "." || filepath.IsLocal(relative))
 }

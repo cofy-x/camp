@@ -61,6 +61,12 @@ jobs:
         env:
           CAMP_TEST_DSH_RUNTIME: ${{ github.workspace }}/tools/dsh-runtime
         run: go test -race -count=1 -timeout=240s -v ./apps/server/internal/nativeexecutor
+      - name: Check native reconnection, revocation and crash recovery without replay
+        shell: bash
+        env:
+          CAMP_TEST_DSH_RUNTIME: ${{ github.workspace }}/tools/dsh-runtime
+          CAMP_TEST_SANDBOX_HELPER: ${{ github.workspace }}/dist/native-mac/camp-sandbox
+        run: go test -race -count=1 -timeout=240s -json ./apps/server/internal/remoteruns -run '^TestRemoteNative(ControlReconnectAndCancellation|AgentRevocationStopsActiveModel|ServerRestartInterruptsModelStream|DaemonSIGKILLRecovery)$' | tee dist/native-mac/recovery.jsonl
       - name: Measure native local workspace and checkpoint cost
         env:
           CAMP_TEST_DSH_RUNTIME: ${{ github.workspace }}/tools/dsh-runtime

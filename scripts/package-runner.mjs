@@ -346,7 +346,12 @@ try {
     schema: 1,
     platform: runtimePlatform,
     protocolVersion,
-    ...(identity.published ? { releaseVersion: identity.version } : {}),
+    ...(identity.published
+      ? {
+          releaseVersion: identity.version,
+          sourceCommit: identity.sourceCommit,
+        }
+      : {}),
     sha256: runtimeSHA,
     manifestSHA256: await hash(path.join(destination, 'manifest.json')),
     bytes: (await lstat(runtimeArchive)).size,

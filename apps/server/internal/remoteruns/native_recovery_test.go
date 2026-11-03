@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,9 +26,21 @@ import (
 func nativeRecoveryConfig(t *testing.T) nativeexecutor.Config {
 	t.Helper()
 	layerRuntime, dshRuntime := os.Getenv("CAMP_TEST_LAYERFS_RUNTIME"), os.Getenv("CAMP_TEST_DSH_RUNTIME")
-	if layerRuntime == "" || dshRuntime == "" {
-		t.Skip("Set CAMP_TEST_LAYERFS_RUNTIME and CAMP_TEST_DSH_RUNTIME for Linux native recovery")
+	if dshRuntime == "" {
+		t.Skip("Set CAMP_TEST_DSH_RUNTIME for actual native recovery")
 	}
+	if runtime.GOOS == "darwin" {
+		if runtime.GOARCH != "arm64" {
+			t.Skip("Mac native recovery requires Apple Silicon; Intel Mac supports Server only")
+		}
+	} else if runtime.GOOS == "linux" {
+		if layerRuntime == "" {
+			t.Skip("Set CAMP_TEST_LAYERFS_RUNTIME for Linux native recovery")
+		}
+	} else {
+		t.Skip("Native recovery requires a supported Linux or Apple Silicon Mac host")
+	}
+
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +53,11 @@ func nativeRecoveryConfig(t *testing.T) nativeexecutor.Config {
 			t.Fatalf("build sandbox: %v %s", err, output)
 		}
 	}
-	return nativeexecutor.Config{RuntimeDir: dshRuntime, LayerFSRuntimeDir: layerRuntime, DockerSocket: os.Getenv("CAMP_TEST_DOCKER_SOCKET"), SandboxHelper: helper, NodePath: node}
+	config := nativeexecutor.Config{RuntimeDir: dshRuntime, LayerFSRuntimeDir: layerRuntime, DockerSocket: os.Getenv("CAMP_TEST_DOCKER_SOCKET"), SandboxHelper: helper, NodePath: node}
+	if runtime.GOOS == "darwin" {
+		config.WorkspaceBackend = "native-local"
+	}
+	return config
 }
 
 type holdingProvider struct {
@@ -125,6 +142,7 @@ func TestRemoteNativeControlReconnectAndCancellation(t *testing.T) {
 	if err != nil || attempt.ModelInFlight || attempt.Phase != "finished" {
 		t.Fatal(attempt, err)
 	}
+	t.Logf("Actual %s/%s control reconnect and cancellation: deterministic provider calls=%d; no replay/publication", runtime.GOOS, runtime.GOARCH, provider.calls.Load())
 }
 
 func TestRemoteNativeAgentRevocationStopsActiveModel(t *testing.T) {
@@ -153,6 +171,7 @@ func TestRemoteNativeAgentRevocationStopsActiveModel(t *testing.T) {
 	if err != nil || !attempt.CancelRequested || attempt.ModelInFlight {
 		t.Fatal("revoked attempt retained model authority", attempt, err)
 	}
+	t.Logf("Actual %s/%s active Agent revocation: deterministic provider calls=%d; no replay/publication", runtime.GOOS, runtime.GOARCH, provider.calls.Load())
 }
 
 func TestRemoteNativeServerRestartInterruptsModelStream(t *testing.T) {
@@ -187,6 +206,7 @@ func TestRemoteNativeServerRestartInterruptsModelStream(t *testing.T) {
 	if err != nil || len(runs) != 1 {
 		t.Fatal(runs, err)
 	}
+	t.Logf("Actual %s/%s Server restart and Runner reconnect: deterministic provider calls=%d; no replay/publication", runtime.GOOS, runtime.GOARCH, provider.calls.Load())
 }
 
 func TestRemoteNativeDaemonSIGKILLRecovery(t *testing.T) {
@@ -242,8 +262,8 @@ func TestRemoteNativeDaemonSIGKILLRecovery(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("SIGKILL did not reap the daemon")
 	}
-	// Bubblewrap retains the directory flock until its parent-death shutdown
-	// completes. Reaping the daemon does not wait for those inherited descriptors.
+	// Native command owners retain the directory flock through parent-death
+	// cleanup. Reaping the daemon does not prove inherited descriptors closed.
 	remoteEventually(t, 15*time.Second, "killed native owner retained the Runner directory lock", func() bool {
 		lock, err := execution.AcquireLock(config.DataDir)
 		if err != nil {
@@ -256,8 +276,8 @@ func TestRemoteNativeDaemonSIGKILLRecovery(t *testing.T) {
 		}
 		return true
 	})
-	// The restarted native runner must reconcile the previous LayerFS/Docker
-	// ownership before advertising execution readiness or replaying any delivery.
+	// The restarted native runner must reconcile its platform's owned process
+	// and workspace state before advertising readiness or reconciling delivery.
 	restarted := h.start(t, config)
 	finished := h.finished(t, run.ID)
 	if finished.Status != "interrupted" || finished.Published {
@@ -275,15 +295,31 @@ func TestRemoteNativeDaemonSIGKILLRecovery(t *testing.T) {
 	if err = json.Unmarshal(registered.Capabilities, &capabilities); err != nil || capabilities["ready"] != true {
 		t.Fatal("native recovery did not confirm cleanup", capabilities, err)
 	}
-	entries, err := os.ReadFile("/proc/self/mountinfo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, line := range strings.Split(string(entries), "\n") {
-		if strings.Contains(line, config.DataDir) && strings.Contains(line, finished.AttemptID) {
-			t.Fatal("killed attempt retained a mount after native recovery")
+	if runtime.GOOS == "linux" {
+		entries, err := os.ReadFile("/proc/self/mountinfo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(string(entries), "\n") {
+			if strings.Contains(line, config.DataDir) && strings.Contains(line, finished.AttemptID) {
+				t.Fatal("killed attempt retained a mount after native recovery")
+			}
+		}
+	} else {
+		if capabilities["workspace"] != "native-local" || capabilities["sandbox"] != "seatbelt" || capabilities["checkpoint"] != "local-capture" {
+			t.Fatal("Mac recovery did not use the qualified native-local boundary", capabilities)
+		}
+		active, err := os.ReadDir(filepath.Join(config.DataDir, "native-workspaces"))
+		if err != nil || len(active) != 0 {
+			t.Fatal("Killed Mac attempt retained an active native workspace", len(active), err)
+		}
+		retained, err := os.ReadDir(filepath.Join(config.DataDir, "native-recovery"))
+		if err != nil || len(retained) == 0 {
+			t.Fatal("Mac recovery discarded the interrupted native working tree", err)
 		}
 	}
+	t.Logf("Actual %s/%s native Runner SIGKILL/restart: interrupted, cleanup ready, no publication, deterministic provider calls=%d", runtime.GOOS, runtime.GOARCH, provider.calls.Load())
+
 }
 
 func TestRemoteDaemonProcessHelper(t *testing.T) {

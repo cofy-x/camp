@@ -15,6 +15,7 @@ import (
 func (a *API) EnableRemote(manager *remoteruns.Manager) { a.remote = manager }
 
 type runnerCapabilitiesView struct {
+	Installation   *runnerprotocol.Installation    `json:"installation,omitempty"`
 	Platform       string                          `json:"platform,omitempty"`
 	Workspace      string                          `json:"workspace,omitempty"`
 	Sandbox        string                          `json:"sandbox,omitempty"`
@@ -52,6 +53,9 @@ type browserRunner struct {
 func runnerForBrowser(runner storage.Runner, online bool) browserRunner {
 	var capabilities runnerCapabilitiesView
 	_ = json.Unmarshal(runner.Capabilities, &capabilities)
+	if runnerprotocol.ValidateInstallation(capabilities.Installation) != nil {
+		capabilities.Installation = nil
+	}
 	return browserRunner{OwnerUserID: runner.OwnerUserID, TeamShared: runner.TeamShared, ID: runner.ID, Name: runner.Name, Enabled: runner.Enabled,
 		Revoked: runner.Revoked, Online: online, LastSeenAt: runner.LastSeenAt,
 		Runtime: runner.Runtime, Slots: runner.Slots, Capabilities: capabilities}

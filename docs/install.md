@@ -94,7 +94,12 @@ For automation, supply all connection fields and a private code file; explicit `
   --data-dir /private/camp-runner --code-file /private/connect-code
 ./camp runner run --data-dir /private/camp-runner
 ./camp runner status --data-dir /private/camp-runner
+./camp runner status --data-dir /private/camp-runner --json
 ```
+
+`runner status` provides a concise local view; scripts select `--json`. Configured workspace, recorded package verification, observed execution and service installation/running/login state are separate facts. Ordinary status checks the identity-bound installation receipt and manifest identity, without hashing every runtime payload again. Setup and `run` retain complete runtime verification. Older packages without complete provenance remain unknown rather than acquiring a guessed source/version.
+
+Readiness is `recorded` when its Runner/storage/configuration binding matches but no fresh execution observation confirms it. It is `current` only when a recent execution observation agrees with that fingerprint; legacy records or changed identities, settings or runtimes remain `historical`. Historical checks never establish a currently running or execution-ready Runner. Startup records a new disconnected boot before its native self-test, so an earlier successful boot cannot stand in for that check.
 
 For a new Runner, setup checks the supported platform, execution account and basic host prerequisites before reading the connection code or registering. It then saves registration, downloads the compiled-in runtime version/digest/size from GitHub Releases, validates archive/files/links, loads the fixed image on Linux and performs isolated file/write/export/cleanup self-tests. It uses no model call. Public downloads use a separate client with no Camp credential or private Server CA configuration, allowing only HTTPS redirects within GitHub's release services. Failures identify a controlled DNS, TLS, connection, timeout, cancellation, redirect or interrupted-transfer class without exposing signed URLs or transport credentials. Setup announces cache checks, transfer/copy, archive verification, extraction, file validation, image preparation where required, and the model-free self-test before each phase starts. Longer phases report bounded activity, processed bytes or entries and elapsed time; phase completion records its own duration. CLI and browser sizes use MiB, separating compressed transfer from unpacked file bytes. Download completion does not mean setup is complete. A verified installed cache skips transfer/extraction; complete saved downloads are verified before reuse, and partial transfers resume without replacing registration. Runtime extraction stages privately and publishes its verified cache atomically. Changed digests and unverified native files cannot become executable dependencies. `run` checks the installation but never installs or upgrades it.
 
@@ -167,6 +172,25 @@ Only `cleanup plan --action purge --batch BATCH_ID`, followed by `cleanup apply 
 
 ## Choose operation mode
 
+### Mac Server background operation
+
+Foreground `camp` remains available. To manage a Mac Server separately from its Runner:
+
+```sh
+camp service install --data-dir /private/camp --addr 127.0.0.1:3001
+camp service start --data-dir /private/camp
+camp service status --data-dir /private/camp --json
+camp service enable-login --data-dir /private/camp
+```
+
+Installation saves the resolved listener, TLS paths, import policy and selected private environment-file path without copying model credentials. Configure models in Settings or the private Server environment file; an interactive shell's model variables are not a persistent service configuration. The managed job uses a restricted environment and the same Server startup and data-directory lock as foreground execution. Installation starts nothing; login startup is a separate choice.
+
+Use `stop`, `disable-login` and `remove` with the same directory. Removal preserves team data. A failure remains stopped until explicitly started. Stop before reinstalling from an upgraded package or relocating a stopped backup; reinstall records the new absolute executable/data paths. Server and Runner services have distinct owned labels. Service status distinguishes installed, loaded, running and login-enabled states; an uncertain observation is not a confirmed stop.
+
+Mac Server and Runner services retain private logs under their respective data directories. Each output stream retains at most three 10 MiB payload files, including the current file, plus a stable private coordination file. A second opener cannot trim or rotate the active stream; coordination files remain in place across rotations. Rotation does not expire team data or checkpoint history. Existing Runner service installations adopt bounded logging when explicitly reinstalled from the new package.
+
+### Runner background operation
+
 Foreground `run` is enough. On systemd hosts an operator can separately choose:
 
 ```sh
@@ -185,7 +209,22 @@ For retained qualification of an operator's Apple Silicon Mac and approved toolc
 
 Back in Camp, distinguish **installed, connected, execution ready, model configured and first task succeeded**. Run First Task explicitly creates/shares an owned Agent and requests model-backed file work on the chosen Room. Self-test and fixture success cannot substitute for recorded native task success. Configure Agent targets, grants and personal/team defaults in Agents/Runners; no machine choice is needed for each ordinary message.
 
-An operator can add `--source notes=/absolute/notes` during initial setup. Repeating setup accepts identical source flags but rejects a different source map. To change an existing Runner's sources, stop it, preserve a private backup of `daemon.json`, edit only its `sources` map from aliases to absolute directories, then restart with the same data directory. Keep identity, credentials and journal unchanged. Library selects the alias, captures a new Room snapshot and never writes back to that directory. Quiesce edits when capture must be consistent. See [source-import boundaries](architecture.md#file-and-publication-ownership).
+An operator can add `--source notes=/absolute/notes` during initial setup. Inspect the local allowlisted settings without exposing enrollment credentials:
+
+```sh
+camp runner config show --data-dir /private/camp-runner
+camp runner config show --data-dir /private/camp-runner --json
+```
+
+These local views include authorized source paths and tool grants; browser Runner views contain source aliases and reported capabilities instead. Repeated setup reuses the saved Server, name and executor, without reading another connection code. Stop the Runner before explicitly replacing its complete source map or revoking every alias:
+
+```sh
+camp runner setup --data-dir /private/camp-runner --replace-sources \
+  --source notes=/absolute/notes --source project=/absolute/project
+camp runner setup --data-dir /private/camp-runner --clear-sources
+```
+
+Omitting source flags retains the saved map. `--replace-sources` requires at least one `--source`; `--clear-sources` cannot be combined with either. Replacements resolve existing absolute directories and refuse private Runner storage or its ancestors. The stopped-owner lock and registration checks preserve identity, credentials, journal and unrelated settings; no manual credential-file edit is required. Changed authority makes older checks historical until qualified again. Library selects an alias, captures a new Room snapshot and never writes back to that directory. Previously captured immutable files remain retained after an alias changes. Quiesce host edits when capture must be consistent; see [source-import boundaries](architecture.md#file-and-publication-ownership).
 
 ## Data, upgrades and backup
 
