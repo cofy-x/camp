@@ -258,6 +258,8 @@ test('Getting Ready guides model, Runner and task setup without starting work', 
   stage = 'runner';
   await selectPanel(page, 'readiness', 'Getting Ready');
   await expect(next.getByRole('heading')).toHaveText('Connect a Runner');
+  await expect(next).toContainText('supported Mac or Linux machine');
+  await expect(next).not.toContainText('Mac can run the Server');
   await next
     .getByRole('button', { name: 'Connect Runner…', exact: true })
     .click();

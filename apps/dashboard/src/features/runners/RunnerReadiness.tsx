@@ -1,48 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, Select } from '@cofy-x/camp-platinum';
 import { useAccount } from '../../team/AuthContext';
 import { useTeam } from '../../team/TeamContext';
-import {
-  receiptKey,
-  readSessionReceipt,
-  writeSessionReceipt,
-} from '../../shared/sessionReceipt';
 import { workspaceApi, type Room } from '../workspace/api';
 import type { Runner } from './api';
 import { RunnerStorage } from './RunnerStorage';
+import { useFirstTask } from './useFirstTask';
 
-interface FirstTaskReceipt {
-  id: string;
-  agentId: string;
-  roomId: string;
-}
-
-function isFirstTaskReceipt(value: unknown): value is FirstTaskReceipt {
-  if (!value || typeof value !== 'object') return false;
-  const record = value as Partial<FirstTaskReceipt>;
-  return (
-    typeof record.id === 'string' &&
-    typeof record.agentId === 'string' &&
-    typeof record.roomId === 'string'
-  );
-}
-
-export function RunnerReadiness({ runner }: { runner: Runner }) {
+export function RunnerReadiness({
+  runner,
+  active,
+  getActivationRevision,
+}: {
+  runner: Runner;
+  active: boolean;
+  getActivationRevision: () => number;
+}) {
   const team = useTeam();
   const { user } = useAccount();
-  const key = receiptKey(user.id, 'runner-first-task', runner.id);
-  const [savedRequest] = useState(() =>
-    readSessionReceipt(key, isFirstTaskReceipt),
-  );
+  const task = useFirstTask(runner, active, getActivationRevision);
   const [open, setOpen] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [roomId, setRoomId] = useState(savedRequest?.roomId ?? '');
-  const [pending, setPending] = useState(false);
-  const [lockedRoomId, setLockedRoomId] = useState(savedRequest?.roomId ?? '');
-  const [error, setError] = useState('');
-  const request = useRef(
-    savedRequest ?? { id: crypto.randomUUID(), agentId: '', roomId: '' },
-  );
+  const [roomId, setRoomId] = useState(task.receipt.roomId);
+  const [roomsError, setRoomsError] = useState('');
+  const { pending, error: taskError } = task;
+  const error = taskError || roomsError;
+  const lockedRoomId = task.receipt.roomId;
   const readiness = runner.capabilities.readiness;
   const native =
     runner.runtime === 'native' && runner.capabilities.executor !== 'fixture';
@@ -55,81 +38,24 @@ export function RunnerReadiness({ runner }: { runner: Runner }) {
     runner.capabilities.ready &&
     runner.modelConfigured;
   useEffect(() => {
-    if (!open) return;
+    if (!open || !active) return;
     const controller = new AbortController();
     void workspaceApi
       .rooms(controller.signal)
       .then(({ rooms }) => {
         if (controller.signal.aborted) return;
         setRooms(rooms);
+        setRoomsError('');
         setRoomId((current) => current || rooms[0]?.id || '');
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted)
-          setError(
+          setRoomsError(
             error instanceof Error ? error.message : 'Could not load Rooms.',
           );
       });
     return () => controller.abort();
-  }, [open]);
-
-  async function firstTask() {
-    if (!roomId || pending) return;
-    setPending(true);
-    setError('');
-    try {
-      const attempt = request.current;
-      if (!attempt.roomId) attempt.roomId = roomId;
-      writeSessionReceipt(key, attempt);
-      setLockedRoomId(attempt.roomId);
-      // A known handle lets an uncertain create response recover the same Agent.
-      const handle = `runner-check-${attempt.id.replaceAll('-', '')}`;
-      if (!attempt.agentId) {
-        const { agents } = await workspaceApi.agents();
-        const existing = agents.find(
-          (agent) => agent.handle === handle && agent.ownerUserId === user.id,
-        );
-        const agent =
-          existing ||
-          (
-            await workspaceApi.saveAgent({
-              name: `${runner.name.slice(0, 70)} Assistant`,
-              handle,
-              icon: 'agent',
-              instructions:
-                'Complete the requested file task and read the result back to verify it.',
-              access: 'write',
-              enabled: true,
-              preferredRunnerId: runner.id,
-            })
-          ).agent;
-        attempt.agentId = agent.id;
-        writeSessionReceipt(key, attempt);
-      }
-      await workspaceApi.membership(attempt.roomId, attempt.agentId, true);
-      const filename = `camp-first-task-${attempt.id.slice(0, 8)}.md`;
-      const { runs } = await workspaceApi.send(attempt.roomId, {
-        requestId: attempt.id,
-        recipientAgentIds: [attempt.agentId],
-        content: `Create ${filename} with the heading "Camp is ready" and one sentence saying this file was created on the Runner. Read the file back using a tool and confirm its exact content. Do not change any other files.`,
-      });
-      team.refresh();
-      await team.navigate({
-        app: 'workspace',
-        roomId: attempt.roomId,
-        runId: runs[0]?.id,
-      });
-      setOpen(false);
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : 'The first task could not be started.',
-      );
-    } finally {
-      setPending(false);
-    }
-  }
+  }, [open, active]);
 
   if (!native) return null;
   return (
@@ -158,7 +84,7 @@ export function RunnerReadiness({ runner }: { runner: Runner }) {
                     ))}
                 </ul>
               )}
-              <p>Check the Runner on its Linux machine, then refresh here.</p>
+              <p>Check the Runner on its host machine, then refresh here.</p>
             </div>
           ) : !runner.modelConfigured ? (
             <div className="camp-runner-next-step">
@@ -194,7 +120,13 @@ export function RunnerReadiness({ runner }: { runner: Runner }) {
                 <p>The task will wait for this Runner to reconnect.</p>
               )}
               {!open && (
-                <Button primary onClick={() => setOpen(true)}>
+                <Button
+                  primary
+                  onClick={() => {
+                    task.resume();
+                    setOpen(true);
+                  }}
+                >
                   Run First Task…
                 </Button>
               )}
@@ -218,7 +150,7 @@ export function RunnerReadiness({ runner }: { runner: Runner }) {
           className="camp-runner-first-task"
           onSubmit={(event) => {
             event.preventDefault();
-            void firstTask();
+            void task.start(roomId);
           }}
         >
           <Select
@@ -254,18 +186,46 @@ export function RunnerReadiness({ runner }: { runner: Runner }) {
             <Button
               primary
               type="submit"
-              disabled={pending || !roomId || !canTest}
+              disabled={
+                pending ||
+                !roomId ||
+                (task.receipt.phase !== 'admitted' && !canTest)
+              }
             >
               {pending
                 ? 'Starting…'
-                : lockedRoomId
-                  ? 'Retry First Task'
-                  : 'Run First Task'}
+                : task.receipt.phase === 'admitted'
+                  ? 'Open Task'
+                  : lockedRoomId
+                    ? 'Retry First Task'
+                    : 'Run First Task'}
             </Button>
+            {task.receipt.runId && !task.finished && (
+              <Button
+                type="button"
+                disabled={pending}
+                onClick={() => void task.check()}
+              >
+                Check Task Status
+              </Button>
+            )}
+            {(task.receipt.phase === 'rejected' || task.finished) && (
+              <Button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  if (task.restart()) setRoomId('');
+                }}
+              >
+                Start Another Sample
+              </Button>
+            )}
             <Button
               type="button"
-              disabled={pending}
-              onClick={() => setOpen(false)}
+              onClick={() => {
+                task.dismiss();
+                setOpen(false);
+              }}
             >
               Back
             </Button>

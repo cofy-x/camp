@@ -51,6 +51,10 @@ async function mockRunners(page: Page) {
   await page.route('**/api/runner-installation', (route) =>
     route.fulfill({
       json: {
+        platforms: [
+          { id: 'linux-amd64', name: 'Ubuntu 24.04 amd64' },
+          { id: 'darwin-arm64', name: 'macOS 15+ Apple Silicon' },
+        ],
         target: 'linux-amd64',
         platform: 'Ubuntu 24.04 amd64',
         available: false,
@@ -115,14 +119,24 @@ async function selectRunner(page: Page, runner: Runner) {
   ).toBeVisible();
 }
 
-async function connectRunner(page: Page) {
+async function connectRunner(page: Page, platform = 'linux-amd64') {
   await runnerApp(page)
     .getByRole('button', { name: 'Connect Runner…', exact: true })
     .click();
-  return runnerApp(page).getByRole('region', {
+  const panel = runnerApp(page).getByRole('region', {
     name: 'Connect Runner',
     exact: true,
   });
+  if (
+    platform &&
+    (await panel
+      .getByLabel('Runner platform', { exact: true })
+      .inputValue()) === ''
+  )
+    await panel
+      .getByLabel('Runner platform', { exact: true })
+      .selectOption(platform);
+  return panel;
 }
 
 async function openImport(page: Page) {
@@ -426,6 +440,10 @@ test('Connect Runner uses the fixed public release and exposes offline verificat
   await page.route('**/api/runner-installation', (route) =>
     route.fulfill({
       json: {
+        platforms: [
+          { id: 'linux-amd64', name: 'Ubuntu 24.04 amd64' },
+          { id: 'darwin-arm64', name: 'macOS 15+ Apple Silicon' },
+        ],
         target: 'linux-amd64',
         platform: 'Ubuntu 24.04 amd64',
         version: 'v0.1.0-alpha.1',
@@ -493,6 +511,10 @@ test('Connect Runner distinguishes the small installer from runtime downloads an
   await page.route('**/api/runner-installation', (route) =>
     route.fulfill({
       json: {
+        platforms: [
+          { id: 'linux-amd64', name: 'Ubuntu 24.04 amd64' },
+          { id: 'darwin-arm64', name: 'macOS 15+ Apple Silicon' },
+        ],
         target: 'linux-amd64',
         platform: 'Ubuntu 24.04 amd64',
         version: 'v0.1.0-alpha.1',
@@ -1424,4 +1446,579 @@ test('checkpoint storage advisories preserve execution readiness and stay read-o
   );
   expect(writes).toBe(0);
   await page.unrouteAll({ behavior: 'wait' });
+});
+
+test('Connect Runner requires an explicit choice from the Server catalog', async ({
+  page,
+}) => {
+  await mockRunners(page);
+  await page.route('**/api/runner-installation*', (route) =>
+    route.fulfill({
+      json: {
+        ...platformPackage(
+          new URL(route.request().url()).searchParams.get('platform') ??
+            'linux-amd64',
+        ),
+        platforms: [{ id: 'darwin-arm64', name: 'Apple Silicon Mac' }],
+      },
+    }),
+  );
+  await signIn(page);
+  await openApp(page, 'Runners');
+  const panel = await connectRunner(page, '');
+  const platform = panel.getByLabel('Runner platform', { exact: true });
+  await expect(platform).toHaveValue('');
+  await expect(panel.getByRole('link', { name: /Download for/ })).toHaveCount(
+    0,
+  );
+  await expect(
+    platform.getByRole('option', { name: 'Ubuntu 24.04 amd64', exact: true }),
+  ).toHaveCount(0);
+  await platform.selectOption('darwin-arm64');
+  await expect(
+    panel.getByRole('link', { name: /Download for Mac/ }),
+  ).toBeVisible();
+  await runnerApp(page)
+    .getByRole('button', { name: 'Back to Runners', exact: true })
+    .click();
+  await connectRunner(page, '');
+  await expect(platform).toHaveValue('darwin-arm64');
+});
+
+test('Hybrid Mac diagnostics show actual adapters and reported installation provenance', async ({
+  page,
+}, info) => {
+  await mockRunners(page);
+  const mac: Runner = {
+    ...runners[0],
+    name: 'Hybrid Studio',
+    online: true,
+    capabilities: {
+      executor: 'native',
+      ready: false,
+      reason: 'Checkpoint worker needs attention.',
+      platform: 'darwin/arm64',
+      workspace: 'native-layerfs-worker',
+      sandbox: 'seatbelt',
+      checkpoint: 'layerfs-disposable+native-capture',
+      layerfsVersion: '1.1.0',
+      installation: {
+        version: 'v0.1.0-test',
+        sourceCommit: 'a'.repeat(40),
+        runtimeSHA256: 'b'.repeat(64),
+      },
+    },
+  };
+  await page.route('**/api/runners', (r) =>
+    r.fulfill({ json: { runners: [mac] } }),
+  );
+  await signIn(page);
+  await openApp(page, 'Runners');
+  const detail = runnerDetail(page);
+  await expect(detail).toContainText('Check the Runner on its host machine');
+  await expect(detail).not.toContainText('Linux machine');
+  await detail.getByRole('tab', { name: 'Diagnostics', exact: true }).click();
+  await expect(detail).toContainText('Mac native');
+  await expect(detail).toContainText('Native directory with LayerFS worker');
+  await expect(detail).toContainText('LayerFS checkpoint and native capture');
+  await expect(detail).toContainText('1.1.0');
+  await expect(detail).toContainText('v0.1.0-test');
+  await expect(detail).toContainText('a'.repeat(40));
+  await expect(detail).not.toContainText('native-layerfs-worker');
+  if (['chromium', 'touch'].includes(info.project.name))
+    await runnerApp(page).screenshot({
+      path: info.outputPath('runners-hybrid-diagnostics.png'),
+    });
+});
+
+async function firstTaskScene(page: Page, name: string) {
+  await mockRunners(page);
+  await signIn(page);
+  const room = await createRoom(page, name);
+  const { user } = await (await page.request.get('/api/auth/status')).json();
+  const machines = ['a', 'b'].map((id) => ({
+    ...runners[0],
+    id: `mac-${id}`,
+    name: `Mac ${id.toUpperCase()}`,
+    ownerUserId: user.id,
+    online: true,
+    modelConfigured: true,
+    capabilities: {
+      executor: 'native' as const,
+      ready: true,
+      workspace: 'native-local',
+      sandbox: 'seatbelt',
+    },
+  }));
+  await page.route('**/api/runners', (r) =>
+    r.fulfill({ json: { runners: machines } }),
+  );
+  const agents: Agent[] = [];
+  const sends: Record<string, unknown>[] = [];
+  const shares: string[] = [];
+  await page.route('**/api/agents', (r) => {
+    if (r.request().method() === 'GET') return r.fulfill({ json: { agents } });
+    const body = r.request().postDataJSON();
+    const agent = {
+      ...body,
+      id: `sample-agent-${agents.length}`,
+      ownerUserId: user.id,
+      revision: 1,
+      createdAt: '',
+      updatedAt: '',
+    };
+    agents.push(agent);
+    return r.fulfill({ json: { agent } });
+  });
+  await page.route(`**/api/rooms/${room.id}/members/*`, (r) => {
+    shares.push(r.request().url());
+    return r.fulfill({ json: { ok: true } });
+  });
+  await page.route(`**/api/rooms/${room.id}/messages`, (r) => {
+    if (r.request().method() !== 'POST') return r.continue();
+    sends.push(r.request().postDataJSON());
+    return r.fulfill({
+      json: { runs: [{ id: 'sample-run', roomId: room.id }] },
+    });
+  });
+  await openApp(page, 'Runners');
+
+  async function openSample() {
+    const opener = runnerDetail(page).getByRole('button', {
+      name: 'Run First Task…',
+      exact: true,
+    });
+    const form = runnerDetail(page).locator('form.camp-runner-first-task');
+    if (!(await form.isVisible())) await opener.click();
+    if (await form.getByLabel('Room', { exact: true }).isEnabled())
+      await form.getByLabel('Room', { exact: true }).selectOption(room.id);
+    return form;
+  }
+
+  return { room, machines, agents, sends, shares, openSample };
+}
+
+function deferred() {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
+test('Late sample preparation cannot share or navigate after switching Runners', async ({
+  page,
+}, info) => {
+  const scene = await firstTaskScene(
+    page,
+    `sample-switch-${info.project.name}`,
+  );
+  const arrived = deferred(),
+    release = deferred();
+  await page.route('**/api/agents', async (route) => {
+    if (route.request().method() === 'GET')
+      return route.fulfill({ json: { agents: scene.agents } });
+    const body = route.request().postDataJSON();
+    const agent = {
+      ...body,
+      id: 'late-sample-agent',
+      revision: 1,
+      createdAt: '',
+      updatedAt: '',
+    };
+    const { user } = await (await page.request.get('/api/auth/status')).json();
+    scene.agents.push({ ...agent, ownerUserId: user.id });
+    arrived.release();
+    await release.promise;
+    return route.fulfill({ json: { agent } });
+  });
+  const form = await scene.openSample();
+  await form
+    .getByRole('button', { name: 'Run First Task', exact: true })
+    .click();
+  await arrived.promise;
+  await selectRunner(page, scene.machines[1]);
+  release.release();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Object.keys(sessionStorage)
+          .filter((key) => key.endsWith(':mac-a'))
+          .map((key) => JSON.parse(sessionStorage.getItem(key)!).value.agentId),
+      ),
+    )
+    .toContain('late-sample-agent');
+  await expect(
+    runnerDetail(page).getByRole('heading', { name: 'Mac B', exact: true }),
+  ).toBeVisible();
+  expect(scene.shares).toEqual([]);
+  expect(scene.sends).toEqual([]);
+  await selectRunner(page, scene.machines[0]);
+  const resumed = await scene.openSample();
+  await resumed
+    .getByRole('button', { name: 'Retry First Task', exact: true })
+    .click();
+  await expect.poll(() => scene.sends.length).toBe(1);
+  expect(scene.agents).toHaveLength(1);
+  expect(scene.shares).toHaveLength(1);
+});
+
+test('Closing a sample preserves an admitted late reply without reopening Workspace or sending again', async ({
+  page,
+}, info) => {
+  const scene = await firstTaskScene(page, `sample-close-${info.project.name}`);
+  const arrived = deferred(),
+    release = deferred();
+  await page.route(`**/api/rooms/${scene.room.id}/messages`, async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    scene.sends.push(route.request().postDataJSON());
+    arrived.release();
+    await release.promise;
+    return route.fulfill({
+      json: { runs: [{ id: 'retained-run', roomId: scene.room.id }] },
+    });
+  });
+  const form = await scene.openSample();
+  await form
+    .getByRole('button', { name: 'Run First Task', exact: true })
+    .click();
+  await arrived.promise;
+  await form.getByRole('button', { name: 'Back', exact: true }).click();
+  release.release();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Object.keys(sessionStorage)
+          .filter((key) => key.endsWith(':mac-a'))
+          .map((key) => JSON.parse(sessionStorage.getItem(key)!).value.phase),
+      ),
+    )
+    .toContain('admitted');
+  await expect(runnerApp(page)).toHaveClass(/is-active/);
+  await expect(form).toHaveCount(0);
+  await scene.openSample();
+  await expect(
+    runnerDetail(page).getByRole('button', { name: 'Open Task', exact: true }),
+  ).toBeVisible();
+  expect(scene.sends).toHaveLength(1);
+});
+
+test('A proven rejected sample can start fresh while an uncertain send keeps its original body and ID', async ({
+  page,
+}, info) => {
+  const scene = await firstTaskScene(
+    page,
+    `sample-recovery-${info.project.name}`,
+  );
+  let stage = 'rejected';
+  await page.route(`**/api/rooms/${scene.room.id}/messages`, (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    scene.sends.push(route.request().postDataJSON());
+    if (stage === 'uncertain') return route.abort();
+    return route.fulfill({
+      status: 403,
+      json: { code: 'forbidden', error: 'This Room is no longer writable.' },
+    });
+  });
+  let form = await scene.openSample();
+  await form
+    .getByRole('button', { name: 'Run First Task', exact: true })
+    .click();
+  await expect(runnerDetail(page).getByRole('alert')).toContainText(
+    'no longer writable',
+  );
+  await form
+    .getByRole('button', { name: 'Start Another Sample', exact: true })
+    .click();
+  await form.getByLabel('Room', { exact: true }).selectOption(scene.room.id);
+  stage = 'uncertain';
+  await form
+    .getByRole('button', { name: 'Run First Task', exact: true })
+    .click();
+  await expect(runnerDetail(page).getByRole('alert')).toBeVisible();
+  expect(scene.sends[1].requestId).not.toBe(scene.sends[0].requestId);
+  await expect(
+    form.getByRole('button', { name: 'Start Another Sample', exact: true }),
+  ).toHaveCount(0);
+  stage = 'rejected';
+  await page.reload();
+  await openApp(page, 'Runners');
+  form = await scene.openSample();
+  await form
+    .getByRole('button', { name: 'Retry First Task', exact: true })
+    .click();
+  await expect(runnerDetail(page).getByRole('alert')).toContainText(
+    'no longer writable',
+  );
+  await expect(
+    form.getByRole('button', { name: 'Start Another Sample', exact: true }),
+  ).toHaveCount(0);
+  expect(scene.sends[2]).toEqual(scene.sends[1]);
+  const archives = await page.evaluate(() =>
+    Object.keys(sessionStorage).filter((key) =>
+      key.includes('runner-first-task-history'),
+    ),
+  );
+  expect(archives).toHaveLength(1);
+});
+
+test('A known admitted sample requires an observed terminal Run before a new sample', async ({
+  page,
+}, info) => {
+  const scene = await firstTaskScene(
+    page,
+    `sample-terminal-${info.project.name}`,
+  );
+  const form = await scene.openSample();
+  await form
+    .getByRole('button', { name: 'Run First Task', exact: true })
+    .click();
+  await expect.poll(() => scene.sends.length).toBe(1);
+  await openApp(page, 'Runners');
+  await scene.openSample();
+  scene.machines[0].modelConfigured = false;
+  scene.machines[0].capabilities.ready = false;
+  await runnerApp(page)
+    .getByRole('button', { name: 'Refresh', exact: true })
+    .click();
+  await expect(runnerDetail(page)).toContainText('Needs attention');
+  await expect(
+    runnerDetail(page).getByRole('button', { name: 'Open Task', exact: true }),
+  ).toBeEnabled();
+  let status = 'running';
+  await page.route('**/api/runs/sample-run', (r) =>
+    r.fulfill({
+      json: { run: { id: 'sample-run', roomId: scene.room.id, status } },
+    }),
+  );
+  await runnerDetail(page)
+    .getByRole('button', { name: 'Check Task Status', exact: true })
+    .click();
+  await expect(runnerDetail(page).getByRole('alert')).toContainText(
+    'still active',
+  );
+  await expect(
+    runnerDetail(page).getByRole('button', {
+      name: 'Start Another Sample',
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  status = 'failed';
+  await runnerDetail(page)
+    .getByRole('button', { name: 'Check Task Status', exact: true })
+    .click();
+  await expect(
+    runnerDetail(page).getByRole('button', {
+      name: 'Start Another Sample',
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(scene.sends).toHaveLength(1);
+});
+
+test('A late diagnostic task lookup cannot replace a newer Runner selection', async ({
+  page,
+}, info) => {
+  const scene = await firstTaskScene(
+    page,
+    `diagnostic-selection-${info.project.name}`,
+  );
+  Object.assign(scene.machines[0], { earlierTaskRunId: 'earlier-run' });
+  await runnerApp(page)
+    .getByRole('button', { name: 'Refresh', exact: true })
+    .click();
+  await runnerDetail(page)
+    .getByRole('tab', { name: 'Diagnostics', exact: true })
+    .click();
+  const arrived = deferred(),
+    release = deferred();
+  await page.route('**/api/runs/earlier-run', async (route) => {
+    arrived.release();
+    await release.promise;
+    return route.fulfill({
+      json: { run: { id: 'earlier-run', roomId: scene.room.id } },
+    });
+  });
+  await runnerDetail(page)
+    .getByRole('button', { name: 'View Earlier Task', exact: true })
+    .click();
+  await arrived.promise;
+  await selectRunner(page, scene.machines[1]);
+  const completed = page.waitForResponse('**/api/runs/earlier-run');
+  release.release();
+  await completed;
+  await expect(runnerApp(page)).toHaveClass(/is-active/);
+  await expect(
+    runnerDetail(page).getByRole('heading', { name: 'Mac B', exact: true }),
+  ).toBeVisible();
+});
+
+test('Unavailable browser receipt storage blocks sample creation before any write', async ({
+  page,
+}, info) => {
+  const scene = await firstTaskScene(
+    page,
+    `sample-storage-${info.project.name}`,
+  );
+  const form = await scene.openSample();
+  await page.evaluate(() => {
+    Object.defineProperty(Storage.prototype, 'setItem', {
+      value() {
+        throw new DOMException('Storage is unavailable.', 'QuotaExceededError');
+      },
+    });
+  });
+  await form
+    .getByRole('button', { name: 'Run First Task', exact: true })
+    .click();
+  await expect(runnerDetail(page).getByRole('alert')).toContainText(
+    'could not retain this request',
+  );
+  expect(scene.agents).toEqual([]);
+  expect(scene.shares).toEqual([]);
+  expect(scene.sends).toEqual([]);
+});
+
+test('An old preparation reply cannot regress a reopened admitted sample receipt', async ({
+  page,
+}, info) => {
+  const scene = await firstTaskScene(
+    page,
+    `sample-reopen-${info.project.name}`,
+  );
+  const arrived = deferred(),
+    release = deferred();
+  await page.route('**/api/agents', async (route) => {
+    if (route.request().method() === 'GET')
+      return route.fulfill({ json: { agents: scene.agents } });
+    const body = route.request().postDataJSON();
+    const agent = {
+      ...body,
+      id: 'reopened-agent',
+      ownerUserId: scene.machines[0].ownerUserId,
+      revision: 1,
+      createdAt: '',
+      updatedAt: '',
+    };
+    scene.agents.push(agent);
+    arrived.release();
+    await release.promise;
+    return route.fulfill({ json: { agent } });
+  });
+  let form = await scene.openSample();
+  await form
+    .getByRole('button', { name: 'Run First Task', exact: true })
+    .click();
+  await arrived.promise;
+  await selectRunner(page, scene.machines[1]);
+  await selectRunner(page, scene.machines[0]);
+  form = await scene.openSample();
+  await form
+    .getByRole('button', { name: 'Retry First Task', exact: true })
+    .click();
+  await expect.poll(() => scene.sends.length).toBe(1);
+  const reply = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/agents') &&
+      response.request().method() === 'POST',
+  );
+  release.release();
+  await reply;
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  const receipt = await page.evaluate(() =>
+    Object.keys(sessionStorage)
+      .filter((key) => key.endsWith(':mac-a'))
+      .map((key) => JSON.parse(sessionStorage.getItem(key)!).value),
+  );
+  expect(receipt).toHaveLength(1);
+  expect(receipt[0]).toMatchObject({
+    phase: 'admitted',
+    runId: 'sample-run',
+    input: scene.sends[0],
+  });
+  expect(scene.agents).toHaveLength(1);
+  expect(scene.sends).toHaveLength(1);
+});
+
+test('An old admitted reply cannot replace an explicitly started newer sample', async ({
+  page,
+}, info) => {
+  const scene = await firstTaskScene(page, `sample-newer-${info.project.name}`);
+  const arrived = deferred(),
+    release = deferred();
+  await page.route(`**/api/rooms/${scene.room.id}/messages`, async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    scene.sends.push(route.request().postDataJSON());
+    if (scene.sends.length === 1) {
+      arrived.release();
+      await release.promise;
+    }
+    return route.fulfill({
+      json: { runs: [{ id: 'replayed-run', roomId: scene.room.id }] },
+    });
+  });
+  let form = await scene.openSample();
+  await form
+    .getByRole('button', { name: 'Run First Task', exact: true })
+    .click();
+  await arrived.promise;
+  await selectRunner(page, scene.machines[1]);
+  await selectRunner(page, scene.machines[0]);
+  form = await scene.openSample();
+  await form
+    .getByRole('button', { name: 'Retry First Task', exact: true })
+    .click();
+  await expect.poll(() => scene.sends.length).toBe(2);
+  expect(scene.sends[1]).toEqual(scene.sends[0]);
+  await openApp(page, 'Runners');
+  await scene.openSample();
+  await page.route('**/api/runs/replayed-run', (r) =>
+    r.fulfill({
+      json: {
+        run: { id: 'replayed-run', roomId: scene.room.id, status: 'failed' },
+      },
+    }),
+  );
+  await runnerDetail(page)
+    .getByRole('button', { name: 'Check Task Status', exact: true })
+    .click();
+  await runnerDetail(page)
+    .getByRole('button', { name: 'Start Another Sample', exact: true })
+    .click();
+  const reply = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/rooms/${scene.room.id}/messages`) &&
+      response.request().method() === 'POST',
+  );
+  release.release();
+  await reply;
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  const receipt = await page.evaluate(() =>
+    Object.keys(sessionStorage)
+      .filter((key) => key.endsWith(':mac-a'))
+      .map((key) => JSON.parse(sessionStorage.getItem(key)!).value),
+  );
+  expect(receipt).toHaveLength(1);
+  expect(receipt[0].id).not.toBe(scene.sends[0].requestId);
+  expect(receipt[0].phase).toBe('preparing');
+  const earlier = await page.evaluate(() =>
+    Object.keys(sessionStorage)
+      .filter((key) => key.includes('runner-first-task-late-result'))
+      .map((key) => JSON.parse(sessionStorage.getItem(key)!).value),
+  );
+  expect(
+    earlier.some(
+      (value) => value.phase === 'admitted' && value.runId === 'replayed-run',
+    ),
+  ).toBe(true);
 });

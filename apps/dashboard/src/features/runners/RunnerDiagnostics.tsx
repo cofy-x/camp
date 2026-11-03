@@ -1,17 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
 import { useAccount } from '../../team/AuthContext';
 import { useTeam } from '../../team/TeamContext';
 import { workspaceApi } from '../workspace/api';
 import { runnersApi, type Runner, type RunnerSource } from './api';
-import { runnerRuntime } from './presentation';
+import { runnerAdapters, runnerRuntime } from './presentation';
 import { RunnerStorage } from './RunnerStorage';
 
 function observedAt(value?: string) {
   return value ? new Date(value).toLocaleString() : 'Not reported';
 }
 
-export function RunnerDiagnostics({ runner }: { runner: Runner }) {
+export function RunnerDiagnostics({
+  runner,
+  getActivationRevision,
+}: {
+  runner: Runner;
+  getActivationRevision: () => number;
+}) {
   const team = useTeam();
   const { user } = useAccount();
   const manage = user.role === 'admin' || runner.ownerUserId === user.id;
@@ -19,7 +25,36 @@ export function RunnerDiagnostics({ runner }: { runner: Runner }) {
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
   const readiness = runner.capabilities.readiness;
+  const adapters = runnerAdapters(runner);
   const observedRunId = runner.firstTaskRunId || runner.earlierTaskRunId;
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  async function openObservedTask() {
+    if (!observedRunId) return;
+    const activation = getActivationRevision();
+    try {
+      const { run } = await workspaceApi.run(observedRunId);
+      if (!mounted.current || getActivationRevision() !== activation) return;
+      await team.navigate({
+        app: 'workspace',
+        roomId: run.roomId,
+        runId: run.id,
+      });
+    } catch (error) {
+      if (mounted.current && getActivationRevision() === activation)
+        setError(
+          error instanceof Error ? error.message : 'Could not open this task.',
+        );
+    }
+  }
+
   useEffect(() => {
     if (!manage) return;
     const controller = new AbortController();
@@ -54,37 +89,19 @@ export function RunnerDiagnostics({ runner }: { runner: Runner }) {
         {runner.capabilities.workspace && (
           <>
             <dt>Workspace</dt>
-            <dd>
-              {runner.capabilities.workspace === 'native-local'
-                ? 'Native local directory'
-                : runner.capabilities.workspace === 'layerfs'
-                  ? 'LayerFS'
-                  : runner.capabilities.workspace}
-            </dd>
+            <dd>{adapters.workspace}</dd>
           </>
         )}
         {runner.capabilities.sandbox && (
           <>
             <dt>Isolation</dt>
-            <dd>
-              {runner.capabilities.sandbox === 'seatbelt'
-                ? 'Seatbelt'
-                : runner.capabilities.sandbox === 'linux-container'
-                  ? 'Linux container'
-                  : runner.capabilities.sandbox}
-            </dd>
+            <dd>{adapters.sandbox}</dd>
           </>
         )}
         {runner.capabilities.checkpoint && (
           <>
             <dt>Checkpoint</dt>
-            <dd>
-              {runner.capabilities.checkpoint === 'local-capture'
-                ? 'Sealed local capture'
-                : runner.capabilities.checkpoint === 'layerfs'
-                  ? 'LayerFS'
-                  : runner.capabilities.checkpoint}
-            </dd>
+            <dd>{adapters.checkpoint}</dd>
           </>
         )}
         <dt>Execution slots</dt>
@@ -101,14 +118,34 @@ export function RunnerDiagnostics({ runner }: { runner: Runner }) {
             <dd>{runner.capabilities.dshVersion}</dd>
           </>
         )}
-        {(runner.capabilities.workspace === 'layerfs' ||
-          runner.capabilities.checkpoint === 'layerfs') &&
-          runner.capabilities.layerfsVersion && (
-            <>
-              <dt>LayerFS</dt>
-              <dd>{runner.capabilities.layerfsVersion}</dd>
-            </>
-          )}
+        {adapters.layerfsVersion && (
+          <>
+            <dt>LayerFS</dt>
+            <dd>{adapters.layerfsVersion}</dd>
+          </>
+        )}
+        {runner.capabilities.installation?.version && (
+          <>
+            <dt>Reported release</dt>
+            <dd>{runner.capabilities.installation.version}</dd>
+          </>
+        )}
+        {runner.capabilities.installation?.sourceCommit && (
+          <>
+            <dt>Source commit</dt>
+            <dd>
+              <code>{runner.capabilities.installation.sourceCommit}</code>
+            </dd>
+          </>
+        )}
+        {runner.capabilities.installation?.runtimeSHA256 && (
+          <>
+            <dt>Runtime digest</dt>
+            <dd>
+              <code>{runner.capabilities.installation.runtimeSHA256}</code>
+            </dd>
+          </>
+        )}
       </dl>
       {readiness && (
         <section className="camp-runner-section" aria-label="Execution checks">
@@ -140,26 +177,7 @@ export function RunnerDiagnostics({ runner }: { runner: Runner }) {
                 : 'Not yet verified by completed work.'}
           </p>
           {observedRunId && (
-            <Button
-              onClick={() =>
-                void workspaceApi
-                  .run(observedRunId)
-                  .then(({ run }) =>
-                    team.navigate({
-                      app: 'workspace',
-                      roomId: run.roomId,
-                      runId: run.id,
-                    }),
-                  )
-                  .catch((error: unknown) =>
-                    setError(
-                      error instanceof Error
-                        ? error.message
-                        : 'Could not open this task.',
-                    ),
-                  )
-              }
-            >
+            <Button onClick={() => void openObservedTask()}>
               {runner.firstTaskRunId
                 ? 'View Successful Task'
                 : 'View Earlier Task'}

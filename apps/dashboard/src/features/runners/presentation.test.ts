@@ -6,6 +6,7 @@ import {
   runnerQueueMessage,
   runnerSetupCommand,
   runnerRuntime,
+  runnerAdapters,
   runnerStatus,
 } from './presentation';
 
@@ -95,6 +96,51 @@ describe('remote execution facts', () => {
         },
       }),
     ).toBe('Linux native');
+  });
+  it('recognizes hybrid Mac facts and only displays an applicable reported LayerFS version', () => {
+    const hybrid: Runner = {
+      ...runner,
+      runtime: 'native',
+      capabilities: {
+        executor: 'native',
+        workspace: 'native-layerfs-worker',
+        sandbox: 'seatbelt',
+        checkpoint: 'layerfs-disposable+native-capture',
+        layerfsVersion: '1.1.0',
+      },
+    };
+    expect(runnerRuntime(hybrid)).toBe('Mac native');
+    expect(runnerAdapters(hybrid)).toEqual({
+      workspace: 'Native directory with LayerFS worker',
+      sandbox: 'Seatbelt',
+      checkpoint: 'LayerFS checkpoint and native capture',
+      layerfsVersion: '1.1.0',
+    });
+    expect(
+      runnerAdapters({
+        ...hybrid,
+        capabilities: {
+          workspace: 'native-local',
+          checkpoint: 'local-capture',
+          layerfsVersion: 'legacy',
+        },
+      }).layerfsVersion,
+    ).toBeUndefined();
+    expect(
+      runnerAdapters({
+        ...hybrid,
+        capabilities: { workspace: 'future-workspace' },
+      }),
+    ).toMatchObject({
+      workspace: 'Unrecognized adapter',
+      layerfsVersion: undefined,
+    });
+    expect(runnerAdapters({ ...hybrid, capabilities: {} })).toEqual({
+      workspace: '',
+      sandbox: '',
+      checkpoint: '',
+      layerfsVersion: undefined,
+    });
   });
 });
 
