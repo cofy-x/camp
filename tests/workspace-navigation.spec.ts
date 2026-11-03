@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createRoom, signIn, workspace } from './team-helpers';
+import { randomUUID } from 'node:crypto';
+import { createRoom, mutate, signIn, workspace } from './team-helpers';
+import type { Message } from '../apps/dashboard/src/features/workspace/api';
 import { watchPageErrors } from './page-errors';
 
 const errors = new WeakMap<Page, ReturnType<typeof watchPageErrors>>();
@@ -234,6 +236,110 @@ test('Room selection waits for draft storage and keeps the current Room when sav
     await expect(secondInput).toHaveValue(
       'Do not lose this draft when storage fails.',
     );
+  } finally {
+    release();
+    await page.unroute('**/api/me/drafts/conversation');
+  }
+});
+
+test('source navigation saves input typed during the lookup before changing conversations', async ({
+  page,
+}, testInfo) => {
+  const room = await createRoom(page, `source-draft-${testInfo.project.name}`);
+  const rootResponse = await mutate(page, `/rooms/${room.id}/messages`, {
+    requestId: randomUUID(),
+    content: 'The thread containing the original source.',
+    postOnly: true,
+  });
+  expect(rootResponse.ok()).toBe(true);
+  const { message: root } = (await rootResponse.json()) as { message: Message };
+  const sourceResponse = await mutate(page, `/rooms/${room.id}/messages`, {
+    requestId: randomUUID(),
+    content: 'Original threaded discussion.',
+    threadRootId: root.id,
+    postOnly: true,
+  });
+  expect(sourceResponse.ok()).toBe(true);
+  const { message: source } = (await sourceResponse.json()) as {
+    message: Message;
+  };
+  const linkedResponse = await mutate(page, `/rooms/${room.id}/messages`, {
+    requestId: randomUUID(),
+    content: 'See the original discussion.',
+    references: [{ kind: 'message', messageId: source.id }],
+    postOnly: true,
+  });
+  expect(linkedResponse.ok()).toBe(true);
+  const { message: linked } = (await linkedResponse.json()) as {
+    message: Message;
+  };
+  await errors.get(page)!.reload();
+  const win = workspace(page);
+  const reference = win
+    .locator(`[data-message-id="${linked.id}"]`)
+    .getByRole('region', { name: 'Message references', exact: true });
+  await reference.locator('summary').click();
+  let requested = false;
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(
+    `**/api/rooms/${room.id}/messages/${source.id}`,
+    async (route) => {
+      requested = true;
+      await held;
+      await route.fulfill({ json: { message: source } });
+    },
+  );
+  try {
+    await reference
+      .getByRole('button', { name: 'Open source', exact: true })
+      .click();
+    await expect.poll(() => requested).toBe(true);
+    await page.route('**/api/me/drafts/conversation', (route) =>
+      route.request().method() === 'PUT'
+        ? route.fulfill({
+            status: 503,
+            json: { error: 'Keep the new draft until storage recovers.' },
+          })
+        : route.fallback(),
+    );
+    const input = win.getByRole('textbox', {
+      name: `Message ${room.name}`,
+      exact: true,
+    });
+    const text = 'Typed while the source lookup was still pending.';
+    await input.fill(text);
+    release();
+    await expect(win.getByRole('alert')).toContainText(
+      'Keep the new draft until storage recovers.',
+    );
+    await expect(input).toHaveValue(text);
+    await expect(
+      win.getByRole('form', { name: 'Thread composer', exact: true }),
+    ).toHaveCount(0);
+    await page.unroute('**/api/me/drafts/conversation');
+    await win
+      .getByRole('button', { name: 'Compare Private Drafts', exact: true })
+      .click();
+    await win
+      .getByRole('button', { name: 'Save My Draft', exact: true })
+      .click();
+    await expect(win.getByRole('alert')).toHaveCount(0);
+    await reference
+      .getByRole('button', { name: 'Open source', exact: true })
+      .click();
+    await expect(
+      win.getByRole('form', { name: 'Thread composer', exact: true }),
+    ).toBeVisible();
+    const saved = await page.request.get(
+      `/api/me/drafts/conversation?key=${encodeURIComponent(`${room.id}:room`)}`,
+    );
+    // The successful second navigation saves the original Room's draft before
+    // entering the source Thread; no shared message is sent.
+    expect(saved.ok()).toBe(true);
+    expect(JSON.stringify(await saved.json())).toContain(text);
   } finally {
     release();
     await page.unroute('**/api/me/drafts/conversation');

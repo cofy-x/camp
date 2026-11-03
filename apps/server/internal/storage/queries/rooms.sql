@@ -118,5 +118,11 @@ UPDATE rooms SET last_message_seq=? WHERE id=?;
 SELECT m.* FROM messages m
 WHERE m.room_id=@room_id AND (COALESCE(m.thread_root_id,'')=@thread_root_id OR m.id=@thread_root_id)
 AND m.seq>@after_seq AND m.seq<=@through_seq
-AND NOT EXISTS (SELECT 1 FROM task_inputs i WHERE i.id=m.id AND i.task_id=@task_id AND i.seq>@input_through)
+AND NOT EXISTS (SELECT 1 FROM task_inputs i WHERE i.message_id=m.id AND i.task_id=@task_id AND i.seq>@input_through)
+AND NOT EXISTS (
+ SELECT 1 FROM task_inputs copy JOIN task_inputs pending
+ ON pending.task_id=@task_id AND pending.source_event_id=copy.source_event_id
+ AND pending.part_index=copy.part_index AND pending.seq>@input_through
+ WHERE copy.message_id=m.id AND copy.source_event_id<>''
+)
 ORDER BY m.seq DESC LIMIT 100;

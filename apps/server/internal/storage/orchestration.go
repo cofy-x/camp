@@ -60,6 +60,35 @@ func admissionParticipant(agent Agent, runner string) orchestration.Participant 
 	return orchestration.Participant{AgentID: agent.ID, AgentRevision: agent.Revision, RunnerID: runner, Access: agent.Access}
 }
 
+func taskMandate(t CollaborationTask, work orchestration.Work) orchestration.Mandate {
+	mandate := orchestration.Mandate{Work: work, RequestedByUserID: t.RequestedByUserID, ResourceID: t.ResourceID, BaseCommit: t.BaseSharedCommit, Participants: []orchestration.Participant{}, MaxRounds: t.MaxTurns, MaxModelRequests: t.MaxModelRequests, MaxTokens: t.Budget.MaxTokens, MaxSteps: t.Budget.MaxSteps, TimeoutSeconds: t.Budget.TimeoutSeconds}
+	for _, p := range t.Participants {
+		mandate.Participants = append(mandate.Participants, admissionParticipant(p.Agent, p.RunnerID))
+	}
+	return mandate
+}
+
+func recordAutomationTaskAdmission(ctx context.Context, q *sqlgen.Queries, t CollaborationTask, candidate orchestration.Candidate) error {
+	if !validText(candidate.ID, 128, false) || len(candidate.Events) < 1 || len(candidate.Events) > 20 {
+		return problem("invalid_task", "The automatic admission requires a frozen assessment and source evidence.")
+	}
+	sources := make([]string, 0, len(candidate.Events))
+	for _, source := range candidate.Events {
+		sources = append(sources, source.ID)
+	}
+	identity, err := json.Marshal([]string{"automation", candidate.ID, t.ID})
+	if err != nil {
+		return err
+	}
+	work := orchestration.Work{Kind: "task", ID: t.ID, Revision: t.Revision}
+	record := orchestration.Record{
+		Trigger:  orchestration.Trigger{Source: "task", EventID: remoteHash(identity), Kind: orchestration.TaskStart, ActorKind: "system", ActorID: "automation", RoomID: t.RoomID, ThreadRootID: t.ThreadRootID, MessageID: t.OriginMessageID, TaskID: t.ID, SourceEventID: t.SourceEventID, Automation: &orchestration.AutomationRef{PolicyID: candidate.Policy.ID, PolicyRevision: candidate.Policy.Revision, EvaluationID: candidate.ID, SourceEventIDs: sources}, InputRevision: t.InputRevision, OccurredAt: t.UpdatedAt},
+		Decision: orchestration.Decision{PolicyVersion: orchestration.AutomationPolicyVersion, Outcome: "accept", Reason: "automation_policy", RecipientAgentIDs: []string{}, Work: []orchestration.Work{work}},
+		Mandates: []orchestration.Mandate{taskMandate(t, work)},
+	}
+	return recordOrchestration(ctx, q, record)
+}
+
 // recordTaskAdmission runs after the task's own permission/state checks. Task
 // requests, not arbitrary Thread messages, are its explicit input subscription.
 func recordTaskAdmission(ctx context.Context, q *sqlgen.Queries, t CollaborationTask, kind orchestration.Kind, request orchestration.RequestRef, messageID string) error {
@@ -75,14 +104,32 @@ func recordTaskAdmission(ctx context.Context, q *sqlgen.Queries, t Collaboration
 	decision.Work = append(decision.Work, work)
 	record := orchestration.Record{Trigger: orchestration.Trigger{Source: "task", EventID: remoteHash(identity), Kind: kind, ActorKind: "user", ActorID: actorID(ctx), RoomID: t.RoomID, ThreadRootID: t.ThreadRootID, MessageID: messageID, TaskID: t.ID, Request: &request, InputRevision: t.InputRevision, OccurredAt: t.UpdatedAt}, Decision: decision, Mandates: []orchestration.Mandate{}}
 	if kind == orchestration.TaskStart || kind == orchestration.TaskContinue {
-		mandate := orchestration.Mandate{Work: work, RequestedByUserID: t.RequestedByUserID, ResourceID: t.ResourceID, BaseCommit: t.BaseSharedCommit, Participants: []orchestration.Participant{}, MaxRounds: t.MaxTurns, MaxModelRequests: t.MaxModelRequests, MaxTokens: t.Budget.MaxTokens, MaxSteps: t.Budget.MaxSteps, TimeoutSeconds: t.Budget.TimeoutSeconds}
-		for _, p := range t.Participants {
-			mandate.Participants = append(mandate.Participants, admissionParticipant(p.Agent, p.RunnerID))
-		}
-		record.Mandates = append(record.Mandates, mandate)
+		record.Mandates = append(record.Mandates, taskMandate(t, work))
 	}
 	record.Trigger.SourceEventID = t.SourceEventID
-	return recordOrchestration(ctx, q, record)
+	if err = recordOrchestration(ctx, q, record); err != nil {
+		return err
+	}
+	actor, authenticated := UserFromContext(ctx)
+	if !authenticated {
+		return nil
+	}
+	status := map[string]string{"accept": "accepted", "context": "context", "ignore": "ignored", "stop": "stopped"}[decision.Outcome]
+	if messageID == "" {
+		messageID = t.OriginMessageID
+	}
+	// Explicit commands are canonical facts, never pending automatic candidates.
+	// Their readable source remains the original request receipt and task.
+	source := orchestration.SourceEvent{ID: "task:" + record.Trigger.EventID, RoomID: t.RoomID, SourceID: "task", ThreadKey: t.RoomID + ":" + t.ThreadRootID, Kind: string(kind), ActorID: actor.ID, ActorLogin: actor.Name, ActorKind: "user", MessageID: messageID, TaskID: t.ID, Request: &request, OccurredAt: t.UpdatedAt, Status: status, Reason: decision.Reason}
+	raw, err := json.Marshal(source)
+	if err != nil {
+		return err
+	}
+	source.Seq, err = q.InsertAutomationEvent(ctx, sqlgen.InsertAutomationEventParams{ID: source.ID, RoomID: source.RoomID, SourceID: source.SourceID, ThreadKey: source.ThreadKey, Kind: source.Kind, ActorID: source.ActorID, ActorKind: source.ActorKind, MessageID: source.MessageID, Status: source.Status, Value: string(raw)})
+	if err != nil {
+		return err
+	}
+	return updateAutomationEvent(ctx, q, source)
 }
 
 type OrchestrationPage struct {

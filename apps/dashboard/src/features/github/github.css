@@ -9,25 +9,26 @@
 .github-panel strong {
   overflow-wrap: anywhere;
 }
-.github-panel form,
-.github-panel form label {
+:is(.github-panel, .github-sources) form,
+:is(.github-panel, .github-sources) form label {
   display: flex;
   flex-direction: column;
   gap: 7px;
 }
-.github-panel form {
+:is(.github-panel, .github-sources) form {
   margin-block: 10px;
   max-width: 640px;
 }
-.github-panel input:not([type='checkbox']):not([type='radio']),
-.github-panel textarea {
+:is(.github-panel, .github-sources)
+  input:not([type='checkbox']):not([type='radio']),
+:is(.github-panel, .github-sources) textarea {
   width: 100%;
   box-sizing: border-box;
 }
-.github-panel details {
+:is(.github-panel, .github-sources) details {
   margin-block: 12px;
 }
-.github-panel summary {
+:is(.github-panel, .github-sources) summary {
   cursor: pointer;
 }
 .github-event-list,

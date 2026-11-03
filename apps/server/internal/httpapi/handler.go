@@ -15,22 +15,23 @@ import (
 )
 
 type API struct {
-	settings       SettingsService
-	webhookSecrets *configuration.WebhookSecrets
-	hooks          *http.ServeMux
-	importPolicy   configuration.ImportPolicy
-	library        *library.Service
-	team           *team.Service
-	authOrigins    map[string]bool
-	publicOrigin   string
-	authLimiter    authLimiter
-	store          *storage.Store
-	logger         *slog.Logger
-	rooms          RoomService
-	remote         *remoteruns.Manager
-	handler        http.Handler
-	streams        context.Context
-	stopStreams    context.CancelFunc
+	settings           SettingsService
+	webhookSecrets     *configuration.WebhookSecrets
+	commentCredentials *configuration.GitHubCredentials
+	hooks              *http.ServeMux
+	importPolicy       configuration.ImportPolicy
+	library            *library.Service
+	team               *team.Service
+	authOrigins        map[string]bool
+	publicOrigin       string
+	authLimiter        authLimiter
+	store              *storage.Store
+	logger             *slog.Logger
+	rooms              RoomService
+	remote             *remoteruns.Manager
+	handler            http.Handler
+	streams            context.Context
+	stopStreams        context.CancelFunc
 }
 
 func New(store *storage.Store, logger *slog.Logger, managers ...RoomService) *API {
@@ -45,6 +46,7 @@ func New(store *storage.Store, logger *slog.Logger, managers ...RoomService) *AP
 	mux := http.NewServeMux()
 	a.roomRoutes(mux)
 	a.orchestrationRoutes(mux)
+	a.automationRoutes(mux)
 	a.taskRoutes(mux)
 	a.githubRoutes(mux)
 	a.runnerInstallationRoutes(mux)

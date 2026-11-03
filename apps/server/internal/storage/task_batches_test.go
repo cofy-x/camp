@@ -132,7 +132,7 @@ func TestTaskBatchEscapingFiltersPendingHistoryBeforeLimitAndGatesOldRunner(t *t
 	}
 	found := false
 	for _, m := range messages {
-		if m.ID == inputs[0].ID {
+		if m.ID == inputs[0].MessageID {
 			found = true
 		}
 		if m.TaskID == task.ID && strings.HasPrefix(m.Content, "1 ") {

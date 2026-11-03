@@ -101,7 +101,7 @@ func TestTaskInputLogConcurrentAppendAndReceiptFrontier(t *testing.T) {
 		t.Fatal(inputs, err)
 	}
 	for i, input := range inputs {
-		message, err := s.GetMessage(ctx, input.ID)
+		message, err := s.GetMessage(ctx, input.MessageID)
 		if err != nil || input.Seq != int64(i+1) || message.TaskID != task.ID || message.Content != input.Content || message.AuthorUserID != input.AuthorUserID || message.CreatedAt != input.CreatedAt {
 			t.Fatal("log/message identity diverged", input, message, err)
 		}

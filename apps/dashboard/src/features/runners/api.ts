@@ -51,6 +51,7 @@ export interface Runner {
     slots?: number;
     dshVersion?: string;
     layerfsVersion?: string;
+    taskInputsVersion?: number;
   };
 }
 

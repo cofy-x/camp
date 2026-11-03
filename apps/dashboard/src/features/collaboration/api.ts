@@ -7,6 +7,9 @@ export interface Task {
   threadRootId: string;
   originMessageId: string;
   sourceEventId?: string;
+  automationPolicyId?: string;
+  automationPolicyRevision?: number;
+  automationScope?: string;
   resourceId: string;
   requestedByUserId: string;
   goal: string;
@@ -48,6 +51,8 @@ export interface Task {
     options: string[];
     answer: string;
     answeredByUserId: string;
+    answerSourceEventId?: string;
+    answeredByExternalActorId?: string;
   };
   createdAt: string;
   updatedAt: string;
@@ -55,11 +60,16 @@ export interface Task {
 
 export interface TaskInput {
   id: string;
+  messageId?: string;
   seq: number;
   authorUserId: string;
   authorName: string;
   content: string;
   createdAt: string;
+  sourceEventId?: string;
+  authorKind?: string;
+  externalActorId?: string;
+  partIndex?: number;
 }
 
 export interface TaskInputPage {

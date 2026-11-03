@@ -11,7 +11,10 @@ SELECT snapshot FROM collaboration_tasks WHERE status NOT IN ('completed','cance
 -- name: ListTaskRuns :many
 SELECT snapshot FROM runs WHERE json_extract(snapshot,'$.taskId')=? ORDER BY created_at,id;
 -- name: InsertTaskInput :exec
-INSERT INTO task_inputs(id,task_id,seq,content_bytes,value) VALUES(?,?,?,?,?);
+INSERT INTO task_inputs(id,task_id,message_id,source_event_id,part_index,seq,content_bytes,value)
+VALUES(sqlc.arg(id),sqlc.arg(task_id),coalesce(nullif(sqlc.arg(message_id),''),sqlc.arg(id)),sqlc.arg(source_event_id),sqlc.arg(part_index),sqlc.arg(seq),sqlc.arg(content_bytes),sqlc.arg(value));
+-- name: GetTaskInputDelivery :one
+SELECT value FROM task_inputs WHERE task_id=? AND source_event_id=? AND part_index=?;
 -- name: TaskInputRange :many
 SELECT value FROM task_inputs WHERE task_id=sqlc.arg(task_id) AND seq>sqlc.arg(after_seq) AND seq<=sqlc.arg(through_seq) ORDER BY seq LIMIT sqlc.arg(page_limit);
 -- name: TaskRunsPage :many
