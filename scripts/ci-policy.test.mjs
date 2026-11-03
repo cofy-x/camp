@@ -70,10 +70,10 @@ test('native recovery retains failure evidence without masking the test exit', a
     ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script],
     {
       cwd: directory,
-      env: { ...process.env, PATH: `${directory}:/usr/bin:/bin` },
+      env: { PATH: `${directory}:/usr/bin:/bin`, LANG: 'C.UTF-8' },
     },
   );
-  assert.equal(result.status, 7);
+  assert.equal(result.status, 7, result.stderr?.toString());
   assert.equal(
     await readFile(
       path.join(directory, 'dist/native-mac/recovery.jsonl'),
