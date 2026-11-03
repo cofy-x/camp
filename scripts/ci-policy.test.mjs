@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
@@ -43,6 +43,44 @@ test('native/checkpoint workflows have one caller classification and retain expl
     assert(text.includes('  workflow_dispatch:'));
     assert(!text.includes('  pull_request:'));
   }
+});
+
+test('native recovery retains failure evidence without masking the test exit', async (t) => {
+  const workflow = await readFile(
+    new URL('../.github/workflows/native-mac.yml', import.meta.url),
+    'utf8',
+  );
+  const step = workflow
+    .split(
+      '      - name: Check native reconnection, revocation and crash recovery without replay\n',
+    )[1]
+    .split('      - name:')[0];
+  assert.match(step, /^        shell: bash$/m);
+  const script = step.match(/^        run: (.+)$/m)[1];
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'camp-native-gate-'));
+  t.after(() => rm(directory, { recursive: true }));
+  await mkdir(path.join(directory, 'dist/native-mac'), { recursive: true });
+  await writeFile(
+    path.join(directory, 'go'),
+    '#!/bin/sh\nprintf "controlled failure\\n"\nexit 7\n',
+    { mode: 0o700 },
+  );
+  const result = spawnSync(
+    'bash',
+    ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script],
+    {
+      cwd: directory,
+      env: { ...process.env, PATH: `${directory}:/usr/bin:/bin` },
+    },
+  );
+  assert.equal(result.status, 7);
+  assert.equal(
+    await readFile(
+      path.join(directory, 'dist/native-mac/recovery.jsonl'),
+      'utf8',
+    ),
+    'controlled failure\n',
+  );
 });
 
 test('the actual required Browser shell gate matches the fail-closed policy', async (t) => {
