@@ -7,6 +7,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { setTimeout as pause } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { createPublicWebhook } from './automation-public-webhook.mjs';
 import {
   client,
   normalizeOrigin,
@@ -28,7 +29,7 @@ export const limits = Object.freeze({
   githubComments: 8,
 });
 const usage =
-  'Usage: node scripts/verify-automation-real.mjs --allow-two-real-tasks ORIGIN ACCESS_JSON NATIVE_RUNNER_ID REPOSITORY NEW_REPORT_DIR';
+  'Usage: node scripts/verify-automation-real.mjs --allow-two-real-tasks ORIGIN ACCESS_JSON NATIVE_RUNNER_ID REPOSITORY NEW_REPORT_DIR [--public-webhook HTTPS_ORIGIN]';
 const expectedFile = '# Camp Event Acceptance\nAudience: Acceptance team.\n';
 const followupFile = '# Camp Follow-up\nIndependent task: yes.\n';
 const stoppedTasks = new Set(['completed', 'cancelled', 'interrupted']);
@@ -336,12 +337,22 @@ export function ghCommand(args, input) {
 }
 
 export async function main(args = process.argv.slice(2), dependencies = {}) {
-  check(args.length === 6 && args[0] === '--allow-two-real-tasks', usage);
+  check(
+    (args.length === 6 ||
+      (args.length === 8 && args[6] === '--public-webhook')) &&
+      args[0] === '--allow-two-real-tasks',
+    usage,
+  );
   check(
     process.env.NODE_TLS_REJECT_UNAUTHORIZED !== '0',
     'TLS certificate verification must remain enabled.',
   );
   const origin = normalizeOrigin(args[1]);
+  const publicOrigin = args.length === 8 ? normalizeOrigin(args[7]) : undefined;
+  check(
+    publicOrigin === undefined || new URL(publicOrigin).protocol === 'https:',
+    'The public webhook origin must use verified HTTPS.',
+  );
   const runnerId = id(args[3]);
   const repository = args[4];
   check(
@@ -358,6 +369,7 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
     origin,
     runnerId,
     repository,
+    ...(publicOrigin ? { publicOrigin } : {}),
   });
   const reportFile = path.join(reportDir, 'report.json');
   const report = {
@@ -369,8 +381,10 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
     status: 'preparing',
     stage: 'preflight',
     limits,
-    scope:
-      'Real GitHub objects and comments, real Server assessment and native DSH execution; ingress uses locally signed payloads reconstructed from actual GitHub API objects. Public webhook delivery, DNS and TLS deployment are not tested.',
+    ingressMode: publicOrigin ? 'github-public' : 'locally-signed',
+    scope: publicOrigin
+      ? 'GitHub-initiated HTTPS webhook deliveries, real Server assessment, native DSH execution and actual GitHub comments. The supplied temporary ingress is not production availability or whole-application public deployment qualification.'
+      : 'Real GitHub objects and comments, real Server assessment and native DSH execution; ingress uses locally signed payloads reconstructed from actual GitHub API objects. Public webhook delivery, DNS and TLS deployment are not tested.',
     checks: [],
     sourceEvents: [],
     tasks: [],
@@ -391,6 +405,7 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
   let githubRepository;
   let secret;
   let revokePolicy;
+  let publicWebhook;
 
   async function save() {
     const temporary = `${reportFile}.next`;
@@ -415,7 +430,7 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
     return receipt;
   }
 
-  async function ghAPI(route, method = 'GET', body) {
+  async function ghAPI(route, method = 'GET', body, allowEmpty = false) {
     const output = await gh(
       [
         'api',
@@ -432,6 +447,7 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
       ],
       body === undefined ? undefined : JSON.stringify(body),
     );
+    if (allowEmpty && output.trim() === '') return null;
     try {
       return JSON.parse(output);
     } catch {
@@ -466,13 +482,13 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
     );
   }
 
-  async function ghWrite(kind, route, body) {
+  async function ghWrite(kind, route, body, cost = {}) {
     await preflight();
     return ledger.execute(
       kind,
       { method: 'POST', route: `github:${route}`, body },
       () => ghAPI(route, 'POST', body),
-      { githubInputWrites: 1 },
+      { githubInputWrites: 1, ...(publicOrigin ? cost : {}) },
     );
   }
 
@@ -587,6 +603,14 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
         effectId: delivery.id,
       });
       await save();
+      if (publicWebhook) {
+        const echo = await ingress('issue_comment', actual);
+        const ignored = await eventState(echo.eventId, 'ignored');
+        check(
+          ignored.reason === 'own_output' && !ignored.evaluationId,
+          'An actual output webhook entered assessment.',
+        );
+      }
       return actual;
     });
   }
@@ -606,6 +630,7 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
 
   async function ingress(kind, object, cost = {}, original) {
     await preflight();
+    if (publicWebhook) return publicWebhook.receive(kind, object, original);
     const bytes = original?.bytes ?? JSON.stringify(payload(kind, object));
     const guid = original?.guid ?? randomUUID();
     const result = await ledger.execute(
@@ -840,8 +865,9 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
       'POST',
       {
         name: `Event automation acceptance ${tag}`,
-        description:
-          'Two finite native tasks with real GitHub comments and locally signed real-object ingress.',
+        description: publicOrigin
+          ? 'Two finite native tasks with GitHub-initiated HTTPS webhooks and actual GitHub comments.'
+          : 'Two finite native tasks with real GitHub comments and locally signed real-object ingress.',
       },
     );
     const roomId = (report.roomId = id(createdRoom.id));
@@ -927,11 +953,27 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
     policy = credential.policy;
     report.policyRevision = policy.revision;
     await save();
+    if (publicOrigin) {
+      publicWebhook = (dependencies.publicWebhook ?? createPublicWebhook)({
+        github: ghAPI,
+        ledger,
+        api,
+        report,
+        save,
+        wait,
+        preflight,
+        publicOrigin,
+        secret,
+      });
+      await publicWebhook.connect();
+      report.checks.push('github-initiated-https-ping');
+    }
     const firstRequest = `Please create event-acceptance.md. FIRST use camp_ask_person to ask who the audience should be, then wait for an answer. Do not write the file or finish before that answer. After the answer, use actual tools to write exactly these two lines with a final newline:\n${expectedFile}\nRead the file back and call camp_finish listing event-acceptance.md. The supplied audience must be confirmed by the answer, not assumed from the example bytes. Do not change other files.`;
     const createdIssue = await ghWrite(
       'github-create-issue',
       `repos/${repository}/issues`,
       { title: `Camp event acceptance ${tag}`, body: firstRequest },
+      { assessments: 1 },
     );
     check(
       Number.isSafeInteger(createdIssue.number) && createdIssue.number > 0,
@@ -963,11 +1005,12 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
       'Enabling Auto replayed an earlier observation.',
     );
     report.checks.push('auto-new-frontier-no-history-replay');
-    const createComment = async (kind, text) => {
+    const createComment = async (kind, text, cost = {}) => {
       const created = await ghWrite(
         kind,
         `repos/${repository}/issues/${issue.number}/comments`,
         { body: text },
+        cost,
       );
       check(
         Number.isSafeInteger(created.id) && created.id > 0,
@@ -993,6 +1036,7 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
     const start = await createComment(
       'github-request-first-task',
       `Start this previously observed work now as a new task. The earlier observation admitted no execution. Complete this request:\n\n${firstRequest}`,
+      { assessments: 1, tasks: 1 },
     );
     const admitted = await ingress('issue_comment', start, {
       assessments: 1,
@@ -1032,18 +1076,27 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
     report.checks.push(
       'external-answer-native-finish-checks-and-exact-publication',
     );
+    const beforeReplay = { ...report.counts };
     const replay = await ingress('issue_comment', start, {}, admitted);
     check(
       replay.duplicate === true && replay.eventId === admitted.eventId,
       'The original signed delivery did not replay its immutable receipt.',
     );
     await snapshotTasks(1);
-    const echo = await ingress('issue_comment', actualFinal);
-    const ignored = await eventState(echo.eventId, 'ignored');
     check(
-      ignored.reason === 'own_output' && !ignored.evaluationId,
-      'The actual native comment echo entered assessment.',
+      ['tasks', 'rounds', 'modelRequests', 'assessments'].every(
+        (key) => report.counts[key] === beforeReplay[key],
+      ),
+      'Redelivery created additional work or assessment.',
     );
+    if (!publicWebhook) {
+      const echo = await ingress('issue_comment', actualFinal);
+      const ignored = await eventState(echo.eventId, 'ignored');
+      check(
+        ignored.reason === 'own_output' && !ignored.evaluationId,
+        'The actual native comment echo entered assessment.',
+      );
+    }
     await snapshotTasks(1);
     report.checks.push(
       'delivery-guid-replay-and-actual-own-comment-no-new-work',
@@ -1057,6 +1110,7 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
     const followup = await createComment(
       'github-request-second-task',
       `New independent request after the earlier task completed: create only follow-up.md with exactly these two lines and a final newline:\n${followupFile}\nPreserve event-acceptance.md exactly. Do not repeat the earlier audience question. Use real tools, read the file back and finish with camp_finish listing follow-up.md.`,
+      { assessments: 1, tasks: 1 },
     );
     const followupAdmission = await ingress('issue_comment', followup, {
       assessments: 1,
@@ -1099,7 +1153,21 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
       'terminal-followup-new-task-new-allowance-old-task-unchanged',
       'actual-native-comment-receipts-and-fixed-counts',
     );
+    if (publicWebhook)
+      report.checks.push(
+        'all-three-actual-output-webhooks-ignored-without-assessment',
+      );
     const cleanup = await closeTestPolicy();
+    if (publicWebhook) {
+      report.cleanup.githubWebhook = await publicWebhook.close();
+      await save();
+      check(
+        report.cleanup.githubWebhook.disabled &&
+          report.cleanup.githubWebhook.durable,
+        'The temporary GitHub webhook could not be confirmed inactive.',
+      );
+      report.checks.push('temporary-github-webhook-disabled-and-read-back');
+    }
     check(
       cleanup.policyDisabled && cleanup.durable,
       'The temporary policy could not be confirmed disabled with a durable receipt. No cleanup mutation was retried.',
@@ -1128,6 +1196,14 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
         await closeTestPolicy();
       } catch {
         /* The private report retains all known source/Room identities. */
+      }
+      if (publicWebhook) {
+        try {
+          report.cleanup.githubWebhook = await publicWebhook.close();
+          await save();
+        } catch {
+          /* Policy and hook revocation are independent single attempts. */
+        }
       }
       try {
         const { tasks } = await api(
