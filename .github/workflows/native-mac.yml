@@ -108,6 +108,35 @@ jobs:
         run: node scripts/package-runner.mjs
       - name: Check complete online and offline installation concurrently
         run: node scripts/check-native-packages.mjs
+      - name: Profile complete sequential acceptance on the same host and packages
+        run: |
+          node --input-type=module <<'JS'
+          import { copyFile, writeFile } from 'node:fs/promises';
+          import { join } from 'node:path';
+          import { checkNativePackages } from './scripts/check-native-packages.mjs';
+          import { command, root } from './scripts/lib.mjs';
+          const output = join(root, 'dist/native-mac');
+          for (const mode of ['online', 'offline'])
+            await copyFile(join(root, `dist/smoke-${mode}.json`), join(output, `parallel-smoke-${mode}.json`));
+          let tail = Promise.resolve();
+          const scenarios = [];
+          const report = await checkNativePackages({
+            sourceCommit: process.env.GITHUB_SHA,
+            outputDirectory: join(output, 'sequential-profile'),
+            execute: (binary, args, options) => {
+              const task = tail.then(async () => {
+                const startedAt = new Date().toISOString();
+                const started = performance.now();
+                try { await command(binary, args, options); }
+                finally { scenarios.push({ mode: args[1], startedAt, finishedAt: new Date().toISOString(), elapsedMs: performance.now() - started }); }
+              });
+              tail = task.catch(() => {});
+              return task;
+            },
+          });
+          await writeFile(join(output, 'sequential-profile/scenarios.json'), JSON.stringify({ sourceCommit: process.env.GITHUB_SHA, status: report.status, elapsedMs: report.elapsedMs, scenarios }, null, 2) + '\n');
+          console.log(`Same-host sequential acceptance completed in ${(report.elapsedMs / 1000).toFixed(3)}s.`);
+          JS
       - name: Populate native build caches after complete authorized qualification
         if: ${{ success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.populate_build_cache)) && steps.build_cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
