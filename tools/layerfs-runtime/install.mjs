@@ -249,11 +249,26 @@ run('docker', [
   'build',
   '--build-arg',
   `BASE_IMAGE=${pin.baseImage}`,
+  '--build-arg',
+  `LAYERFS_COMMIT=${pin.commit}`,
   '--iidfile',
   path.join(build, 'image.id'),
   context,
 ]);
 const image = (await readFile(path.join(build, 'image.id'), 'utf8')).trim();
+const imageCommit = run(
+  'docker',
+  [
+    'image',
+    'inspect',
+    image,
+    '--format',
+    '{{index .Config.Labels "camp.layerfs.commit"}}',
+  ],
+  { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] },
+);
+if (imageCommit !== pin.commit)
+  throw new Error('The LayerFS image does not match the pinned SDK commit.');
 const sha256 = async (file) =>
   createHash('sha256')
     .update(await readFile(file))
