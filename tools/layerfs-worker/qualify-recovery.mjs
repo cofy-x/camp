@@ -149,13 +149,13 @@ try {
     confirmedUnchanged.workerReceipt.verifiedDigest,
     initial.binding.digest,
   );
-  const observed = await active.worker.request({
+  const unchangedObservation = await active.worker.request({
     op: 'qualification.inspect',
     args: { operationId: unchangedOperation },
   });
-  assert.deepEqual(observed.commits, interrupted.commits);
-  assert.equal(observed.namespace.generation, 2);
-  assert.equal(observed.namespace.pending, null);
+  assert.deepEqual(unchangedObservation.commits, interrupted.commits);
+  assert.equal(unchangedObservation.namespace.generation, 2);
+  assert.equal(unchangedObservation.namespace.pending, null);
   report.unchanged = {
     operationId: unchangedOperation,
     retained: retainedUnchanged,
