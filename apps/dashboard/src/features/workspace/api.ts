@@ -75,40 +75,6 @@ export interface ReferenceInput {
   resourceId?: string;
   commit?: string;
   path?: string;
-  documentId?: string;
-}
-
-export type DocumentStatus =
-  'queued' | 'extracting' | 'ready' | 'unreadable' | 'failed' | 'unavailable';
-
-export interface DocumentError {
-  code: string;
-  message: string;
-  retryable: boolean;
-}
-
-export interface DocumentSnapshot {
-  id: string;
-  format: 'pdf' | 'docx';
-  status: DocumentStatus;
-  sectionCount: number;
-  warnings: string[];
-  error?: DocumentError;
-}
-
-export interface ExtractedDocument {
-  id: string;
-  resourceId: string;
-  commit: string;
-  path: string;
-  format: 'pdf' | 'docx';
-  status: DocumentStatus;
-  extractorVersion: string;
-  sections: { id: string; label: string; text: string }[];
-  warnings: string[];
-  error?: DocumentError;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface Reference extends ReferenceInput {
@@ -127,7 +93,6 @@ export interface Reference extends ReferenceInput {
   published?: boolean;
   resultCommit?: string;
   checks?: string;
-  document?: DocumentSnapshot;
 }
 
 export interface Message {
@@ -390,19 +355,5 @@ export const workspaceApi = {
     ),
   fileURL: (resourceId: string, path: string, commit: string) =>
     `/api/resources/${id(resourceId)}/file?path=${id(path)}&commit=${id(commit)}`,
-  document: (documentId: string, signal?: AbortSignal) =>
-    request<{ document: ExtractedDocument }>(`/documents/${id(documentId)}`, {
-      signal,
-    }),
-  fileDocument: (
-    resourceId: string,
-    path: string,
-    commit: string,
-    signal?: AbortSignal,
-  ) =>
-    request<{ document: ExtractedDocument | null }>(
-      `/resources/${id(resourceId)}/document?path=${id(path)}&commit=${id(commit)}`,
-      { signal },
-    ),
   patchURL: (runId: string) => `/api/runs/${id(runId)}/patch`,
 };

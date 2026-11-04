@@ -254,6 +254,82 @@ it('pins reference identity through uncertain retries and never routes reference
   ).toBe('changed');
 });
 
+it('freezes only the selected file version and keeps receipt recovery independent of display metadata', async () => {
+  const { referenceInputs } = await import('./conversationState');
+  const reference = {
+    kind: 'file' as const,
+    resourceId: 'original-source',
+    commit: 'a'.repeat(40),
+    path: 'brief.md',
+    title: 'Customer brief',
+    origin: 'upload' as const,
+    size: 42,
+  };
+  const selected = referenceInputs([reference]);
+  expect(selected).toEqual([
+    {
+      kind: 'file',
+      resourceId: reference.resourceId,
+      commit: reference.commit,
+      path: reference.path,
+    },
+  ]);
+  const request = {
+    requestId: 'immutable-file-send',
+    content: 'Review this source.',
+    threadRootId: '',
+    references: selected,
+  };
+  expect(
+    retryForIntent(
+      JSON.stringify(request),
+      request.content,
+      '',
+      '[]',
+      '[]',
+      referenceInputs([
+        { ...reference, title: 'Updated display name', size: 84 },
+      ]),
+    ),
+  ).toEqual(request);
+  expect(
+    retryForIntent(
+      JSON.stringify(request),
+      request.content,
+      '',
+      '[]',
+      '[]',
+      referenceInputs([{ ...reference, commit: 'b'.repeat(40) }]),
+    ),
+  ).toBeNull();
+});
+
+it('an older receipt preserves a newer file-version selection and the current draft', async () => {
+  const { addDraftReferences, draftReferences, referenceInputs } =
+    await import('./conversationState');
+  const key = 'changed-file-version:thread';
+  const original = {
+    kind: 'file' as const,
+    resourceId: 'source',
+    commit: 'a'.repeat(40),
+    path: 'brief.md',
+    title: 'brief.md',
+  };
+  const newer = { ...original, commit: 'b'.repeat(40) };
+  const request = {
+    requestId: 'original-version',
+    content: 'Review the brief.',
+    references: referenceInputs([original]),
+  };
+  addDraftReferences(key, [newer]);
+  writeStored(`request:${key}`, JSON.stringify(request));
+  writeStored(`draft:${key}`, request.content);
+  acknowledgeDraft(key, request);
+  expect(readStored(`request:${key}`)).toBe('');
+  expect(readStored(`draft:${key}`)).toBe(request.content);
+  expect(draftReferences(key)).toEqual([newer]);
+});
+
 it('deduplicates references, rejects overflow atomically, and preserves newer handoff intent', async () => {
   const { addDraftReferences, draftReferences, referenceInputs } =
     await import('./conversationState');

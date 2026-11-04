@@ -14,18 +14,18 @@ func TestDiagnosticsRetainLastFailureAcrossSuccessAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := diagnostics.Record("pdf", "missing", "Reader is unavailable."); err != nil {
+	if err := diagnostics.Record("connection:model-1", "error", "Model connection is unavailable."); err != nil {
 		t.Fatal(err)
 	}
-	failed := diagnostics.Get("pdf")
-	if err := diagnostics.Record("pdf", "ready", "Reader extracted the expected fixture."); err != nil {
+	failed := diagnostics.Get("connection:model-1")
+	if err := diagnostics.Record("connection:model-1", "ready", "Model connection verification completed."); err != nil {
 		t.Fatal(err)
 	}
 	reopened, err := OpenDiagnostics(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := reopened.Get("pdf")
+	record := reopened.Get("connection:model-1")
 	if record.Status != "ready" || record.LastSuccessAt == "" || record.LastFailureAt != failed.CheckedAt || record.LastFailure != failed.Detail {
 		t.Fatalf("diagnostic history lost: %+v", record)
 	}
@@ -41,7 +41,7 @@ func TestModelRotationsKeepDiagnosticJournalBoundedAndReadable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := diagnostics.Record("document-pdf", "ready", "Reader verified."); err != nil {
+	if err := diagnostics.Record("execution", "ready", "Execution verification completed."); err != nil {
 		t.Fatal(err)
 	}
 	for i := range maxConnectionDiagnostics + 8 {
@@ -56,7 +56,7 @@ func TestModelRotationsKeepDiagnosticJournalBoundedAndReadable(t *testing.T) {
 	if err != nil {
 		t.Fatal("rotations made the next service startup unreadable", err)
 	}
-	if len(reopened.records) != maxConnectionDiagnostics+1 || reopened.Get("document-pdf").Status != "ready" || reopened.Get("connection:0").Status != "" || reopened.Get("connection:71").Status != "ready" {
+	if len(reopened.records) != maxConnectionDiagnostics+1 || reopened.Get("execution").Status != "ready" || reopened.Get("connection:0").Status != "" || reopened.Get("connection:71").Status != "ready" {
 		t.Fatal("rotation cache lost current or stable component diagnostics")
 	}
 }

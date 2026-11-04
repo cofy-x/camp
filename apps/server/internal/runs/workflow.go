@@ -71,7 +71,7 @@ func (m *Manager) execute(ctx context.Context, e *execution) {
 	}
 	var referencesDir string
 	if err == nil {
-		referencesDir, err = runinput.PrepareReferences(ctx, m.store, m.resources, input, dir)
+		referencesDir, err = runinput.PrepareReferences(ctx, m.resources, input, dir)
 	}
 	if referencesDir != "" {
 		defer os.RemoveAll(referencesDir)

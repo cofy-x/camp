@@ -44,11 +44,6 @@ func (s *Store) GetRoomUpload(ctx context.Context, room, requestID string) (Uplo
 		return UploadReceipt{}, err
 	}
 	ref := uploadReference(u, r.CurrentCommit)
-	if d, err := latestDocument(ctx, s.queries(), ref.ResourceID, ref.Commit, ref.Path); err != nil {
-		return UploadReceipt{}, err
-	} else if d != nil {
-		ref.Document = d.Summary()
-	}
 	return UploadReceipt{Reference: ref, SHA256: u.Sha256}, nil
 }
 
@@ -83,11 +78,6 @@ func (s *Store) ListRoomUploads(ctx context.Context, room, before string) ([]Ref
 			return nil, "", err
 		}
 		ref := uploadReference(row, r.CurrentCommit)
-		if d, err := latestDocument(ctx, s.queries(), ref.ResourceID, ref.Commit, ref.Path); err != nil {
-			return nil, "", err
-		} else if d != nil {
-			ref.Document = d.Summary()
-		}
 		out = append(out, ref)
 	}
 	return out, next, nil

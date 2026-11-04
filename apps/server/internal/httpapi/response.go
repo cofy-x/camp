@@ -57,12 +57,12 @@ func storageErrorStatus(code string) int {
 		return http.StatusConflict
 	case "invalid_wallpaper", "invalid_message",
 		"invalid_client", "invalid_layout", "invalid_run", "invalid_event",
-		"invalid_document", "invalid_room", "invalid_agent", "invalid_resource", "invalid_reference", "invalid_upload":
+		"invalid_room", "invalid_agent", "invalid_resource", "invalid_reference", "invalid_upload":
 		return http.StatusBadRequest
 	case "not_found":
 		return http.StatusNotFound
 	case "task_pagination_required", "task_finished", "task_busy", "task_budget_exhausted", "question_answered", "review_conflict", "review_finished", "name_conflict", "unavailable", "revision_conflict", "resource_busy",
-		"document_preparing", "document_busy", "document_finished", "run_finished", "request_conflict", "request_cancelled", "run_busy", "agent_unavailable", "resource_conflict",
+		"run_finished", "request_conflict", "request_cancelled", "run_busy", "agent_unavailable", "resource_conflict",
 		"runner_required", "runner_unavailable", "runner_revision_conflict", "runner_storage_changed", "source_unavailable", "runner_mismatch",
 		"attempt_conflict", "attempt_expired", "attempt_finished", "event_sequence_gap", "stale_attempt", "stale_connection", "stale_lease", "run_cancelled", "import_expired", "import_finished":
 		return http.StatusConflict

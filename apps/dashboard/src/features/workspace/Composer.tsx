@@ -21,8 +21,6 @@ import {
   readStored,
   requestForDraft,
   writeStored,
-  updateDraftDocument,
-  rememberReferenceIntent,
 } from './conversationState';
 import { References } from './References';
 import { UploadAttachments, useDraftUploads } from './UploadAttachments';
@@ -213,8 +211,6 @@ export function Composer({
     routingIntent,
     readStored(`routing:${key}`),
     submittedReferences,
-    references,
-    readStored(`reference-intent:${key}`),
   );
 
   async function send() {
@@ -253,7 +249,6 @@ export function Composer({
     writeStored(`sent-handoff:${key}`, handoff);
     writeStored(`routing:${key}`, routingIntent);
     writeStored(`request:${key}`, JSON.stringify(request));
-    if (!retry) rememberReferenceIntent(key, request.requestId, references);
     setPending(true);
     setError('');
     try {
@@ -411,9 +406,6 @@ export function Composer({
           references={references}
           resources={resources}
           onSource={onSource}
-          onDocumentChange={(reference, document) =>
-            updateDraftDocument(key, reference, document)
-          }
           onRemove={(index) =>
             writeStored(
               `references:${key}`,

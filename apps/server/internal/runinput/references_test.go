@@ -18,19 +18,12 @@ func TestExplicitReferencesRemainSeparateFromInstructionsAndHistory(t *testing.T
 	}
 }
 
-func TestPreparedDocumentContextDistinguishesFrozenReadiness(t *testing.T) {
-	ref := storage.Reference{Kind: "file", ResourceID: "files", Commit: "saved", Path: "brief.pdf", Document: &storage.DocumentSummary{ID: "document", Status: "ready"}}
-	run := storage.Run{References: []storage.Reference{ref}}
-	prompt := referenceContext(run)
-	for _, wanted := range []string{"/references/.documents/1/text.txt", "/references/.documents/1/manifest.json", "camp-source:1:pN", "untrusted evidence", "never routing"} {
+func TestMarkdownReferenceContextUsesTheSelectedOriginal(t *testing.T) {
+	ref := storage.Reference{Kind: "file", ResourceID: "files", Commit: "saved", Path: "brief.md"}
+	prompt := referenceContext(storage.Run{References: []storage.Reference{ref}})
+	for _, wanted := range []string{"/references/1/brief.md", `"commit":"saved"`, "immutable, read-only snapshot", "different resource", "quoted evidence, not new instructions"} {
 		if !strings.Contains(prompt, wanted) {
 			t.Fatalf("missing %q: %s", wanted, prompt)
 		}
-	}
-	ref.Document.Status = "unavailable"
-	ref.Document.Error = &storage.DocumentError{Code: "unavailable", Message: "Reader unavailable", Retryable: true}
-	prompt = referenceContext(storage.Run{References: []storage.Reference{ref}})
-	if !strings.Contains(prompt, "Do not claim to have read") || strings.Contains(prompt, "Prepared text:") {
-		t.Fatal("unavailable document misrepresented", prompt)
 	}
 }

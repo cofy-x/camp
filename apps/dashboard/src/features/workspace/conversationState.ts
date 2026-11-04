@@ -1,11 +1,4 @@
-import type {
-  Agent,
-  DocumentSnapshot,
-  Reference,
-  ReferenceInput,
-  SendInput,
-} from './api';
-import { documentPending } from './documents';
+import type { Agent, Reference, ReferenceInput, SendInput } from './api';
 
 let prefix = 'camp:rooms:anonymous:';
 const memory = new Map<string, string>();
@@ -114,11 +107,8 @@ export function acknowledgeDraft(key: string, request: SendInput) {
         (readStored(`routing:${key}`) || 'null') &&
       (!readStored(`handoff:${key}`) ||
         readStored(`sent-handoff:${key}`) === readStored(`handoff:${key}`)) &&
-      matchesRequestReferences(
-        draftReferences(key),
-        request,
-        readStored(`reference-intent:${key}`),
-      )
+      JSON.stringify(referenceInputs(draftReferences(key))) ===
+        JSON.stringify(request.references ?? [])
     ) {
       writeStored(`draft:${key}`, '');
       writeStored(`references:${key}`, '');
@@ -126,7 +116,6 @@ export function acknowledgeDraft(key: string, request: SendInput) {
       if (readStored(`sent-handoff:${key}`) === readStored(`handoff:${key}`))
         writeStored(`handoff:${key}`, '');
     }
-    writeStored(`reference-intent:${key}`, '');
   } catch {
     /* A newer or missing retry record belongs to its current composer. */
   }
@@ -151,8 +140,6 @@ export function retryForIntent(
   intent: string,
   previousIntent: string,
   references: ReferenceInput[] = [],
-  currentReferences?: Reference[],
-  savedReferenceIntent = '',
 ): SendInput | null {
   try {
     const request = JSON.parse(saved) as SendInput;
@@ -161,14 +148,7 @@ export function retryForIntent(
       request.content === content &&
       request.threadRootId === threadRootId &&
       intent === previousIntent &&
-      (currentReferences
-        ? matchesRequestReferences(
-            currentReferences,
-            request,
-            savedReferenceIntent,
-          )
-        : JSON.stringify(request.references ?? []) ===
-          JSON.stringify(references))
+      JSON.stringify(request.references ?? []) === JSON.stringify(references)
     )
       return request;
   } catch {
@@ -186,11 +166,6 @@ export function referenceInputs(references: Reference[]): ReferenceInput[] {
           resourceId: reference.resourceId,
           commit: reference.commit,
           path: reference.path,
-          ...(reference.document && !documentPending(reference.document.status)
-            ? { documentId: reference.document.id }
-            : !reference.document && reference.documentId
-              ? { documentId: reference.documentId }
-              : {}),
         },
   );
 }
@@ -217,36 +192,6 @@ export function referenceKey(reference: ReferenceInput): string {
   );
 }
 
-export function updateDraftDocument(
-  key: string,
-  reference: Reference,
-  document: DocumentSnapshot,
-) {
-  const references = draftReferences(key);
-  const index = references.findIndex(
-    (current) => referenceKey(current) === referenceKey(reference),
-  );
-  if (index < 0) return;
-  const current = references[index];
-  if (
-    (current.document?.id ?? current.documentId) !==
-      (reference.document?.id ?? reference.documentId) ||
-    (current.document?.id === document.id &&
-      !documentPending(current.document.status) &&
-      documentPending(document.status)) ||
-    JSON.stringify(current.document) === JSON.stringify(document)
-  )
-    return;
-  references[index] = {
-    ...current,
-    document,
-    ...(current.document?.id && current.document.id !== document.id
-      ? { documentId: document.id }
-      : {}),
-  };
-  writeStored(`references:${key}`, JSON.stringify(references));
-}
-
 export function addDraftReferences(key: string, references: Reference[]) {
   const current = draftReferences(key);
   const seen = new Set(current.map(referenceKey));
@@ -261,78 +206,4 @@ export function addDraftReferences(key: string, references: Reference[]) {
       'A message can include up to 8 references. Remove a reference before adding another.',
     );
   writeStored(`references:${key}`, JSON.stringify([...current, ...added]));
-}
-
-// An explicit file selection may replace its extraction, without duplicating
-// the original. Batch handoffs keep the user's existing draft choices.
-export function selectDraftReference(key: string, reference: Reference) {
-  const references = draftReferences(key);
-  const index = references.findIndex(
-    (item) => referenceKey(item) === referenceKey(reference),
-  );
-  const selected = reference.document
-    ? { ...reference, documentId: reference.document.id }
-    : reference;
-  if (index >= 0 && reference.document) {
-    references[index] = { ...references[index], ...selected };
-    writeStored(`references:${key}`, JSON.stringify(references));
-  } else addDraftReferences(key, [selected]);
-}
-
-function referenceIntent(reference: Reference) {
-  return {
-    source: referenceKey(reference),
-    artifact: reference.document?.id ?? reference.documentId,
-    selection: reference.documentId,
-  };
-}
-
-export function rememberReferenceIntent(
-  key: string,
-  requestId: string,
-  references: Reference[],
-) {
-  writeStored(
-    `reference-intent:${key}`,
-    JSON.stringify({
-      requestId,
-      references: references.map(referenceIntent),
-    }),
-  );
-}
-
-function matchesRequestReferences(
-  references: Reference[],
-  request: SendInput,
-  savedIntent: string,
-) {
-  try {
-    const intent = JSON.parse(savedIntent) as {
-      requestId: string;
-      references: ReturnType<typeof referenceIntent>[];
-    };
-    if (
-      intent.requestId === request.requestId &&
-      Array.isArray(intent.references)
-    ) {
-      return (
-        intent.references.length === references.length &&
-        references.every((reference, index) => {
-          const before = intent.references[index];
-          const current = referenceIntent(reference);
-          return (
-            before.source === current.source &&
-            before.selection === current.selection &&
-            (!before.artifact || before.artifact === current.artifact)
-          );
-        })
-      );
-    }
-  } catch {
-    // A missing intent record still requires the complete request to match.
-  }
-  return (
-    JSON.stringify(referenceInputs(references)) ===
-    JSON.stringify(request.references ?? [])
-  );
 }

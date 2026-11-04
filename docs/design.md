@@ -53,7 +53,7 @@ Use the [bundled pixel avatars](../apps/server/internal/avatars/catalog.json) co
 
 The composer names selected plus mentioned Agents once. **Post only** uses a discussion placeholder and keeps its no-execution consequence visible. Empty-Room starters prepare editable drafts, preserve existing text and never send. Upload, recipient and preview lists scroll within bounds so message input and Send remain visible in short windows. Preview buttons inside forms cannot submit them.
 
-Upload completion belongs to its original Room/Thread and never sends automatically. Markdown and plain text are the primary reading and editing formats. Other attachments keep their original download; do not offer parsing, retry or a waiting state for disabled PDF/DOCX preparation. Saved parsed history and its frozen citation locations remain readable. Citation labels come from saved evidence; a citation does not prove a claim.
+Upload completion belongs to its original Room/Thread and never sends automatically. Render Markdown directly and show readable UTF-8 files as source text. Other attachments offer the original download. File references identify the selected immutable version; they do not create a second parsed document or location scheme.
 
 Completed results lead with publication/capture/check facts, then exact-version files, then output. Errors remain visible. Deletion-only results retain changes and patch access. A file list does not prove successful capture; interrupted or partial check evidence cannot show Passed or remain Running after termination. Conversation and inspector use the same record interpretation.
 

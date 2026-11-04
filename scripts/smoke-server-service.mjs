@@ -179,10 +179,6 @@ async function api(path, options = {}, status = 200) {
   return response;
 }
 
-async function assertNoParserJobs() {
-  await assert.rejects(lstat(join(data, 'document-jobs')), { code: 'ENOENT' });
-}
-
 try {
   if (service) await service.install();
   await start();
@@ -203,11 +199,6 @@ try {
       false,
       'Plain Server work must not invent a Runner or model.',
     );
-    assert.ok(
-      readiness.components.every(
-        (component) => !component.id.startsWith('document-'),
-      ),
-    );
   }
   const { runners } = await (await api('/api/runners')).json();
   assert.equal(runners.length, 0);
@@ -219,8 +210,7 @@ try {
       Buffer.from('# Team guide\n\nKeep source material in Markdown.\n'),
     ],
     ['notes.txt', Buffer.from('Plain text remains readable.\n')],
-    ['original.pdf', Buffer.from('%PDF-opaque attachment fixture\n')],
-    ['original.docx', Buffer.from('PK opaque attachment fixture\n')],
+    ['attachment.bin', Buffer.from([0, 255, 128, 10, 65, 0, 66])],
   ]) {
     const form = new FormData();
     form.append('requestId', randomUUID());
@@ -231,33 +221,25 @@ try {
         body: form,
       })
     ).json();
-    assert.equal(
-      reference.document ?? null,
-      null,
-      'An upload started document preparation.',
-    );
+    assert.equal(Object.hasOwn(reference, 'document'), false);
     const endpoint = `/api/resources/${reference.resourceId}/file?path=${encodeURIComponent(reference.path)}&commit=${reference.commit}`;
     assert.deepEqual(
       Buffer.from(await (await api(endpoint)).arrayBuffer()),
       bytes,
     );
-    originals.push({ endpoint, bytes });
-    if (/\.(pdf|docx)$/.test(name)) {
-      await api(
-        `/api/resources/${reference.resourceId}/document`,
-        {
-          method: 'POST',
-          body: { commit: reference.commit, path: reference.path },
-        },
-        404,
-      );
-    }
+    originals.push({ endpoint, bytes, reference });
   }
-  await assertNoParserJobs();
+  const { reference } = originals[0];
+  await api(
+    `/api/resources/${reference.resourceId}/document?commit=${reference.commit}&path=${encodeURIComponent(reference.path)}`,
+    {},
+    404,
+  );
+  await api('/api/documents/retired-document', {}, 404);
   report.checks.push(
     'markdown-and-plaintext',
     'original-only-attachments-preserved',
-    'no-parser-readiness-or-jobs',
+    'retired-document-api-absent',
   );
   const { resource } = await (
     await api('/api/resources', {
@@ -291,8 +273,6 @@ try {
       saved.bytes,
     );
   }
-  await assertNoParserJobs();
-  report.parserJobsCreated = false;
   report.checks.push('restart-preserves-files');
   if (service) {
     await stopServer();

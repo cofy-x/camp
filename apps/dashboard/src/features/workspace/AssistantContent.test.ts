@@ -4,6 +4,20 @@ import { describe, expect, it } from 'vitest';
 import { AssistantContent } from './AssistantContent';
 
 describe('assistant Markdown', () => {
+  it('preserves ordinary file and web links while unsupported protocols remain plain text', () => {
+    const html = renderToStaticMarkup(
+      createElement(AssistantContent, {
+        content:
+          '[Guide](guide.md) [Website](https://example.com/guide) [Unsupported](private-file:7:section2)',
+      }),
+    );
+    expect(html).toContain('href="guide.md"');
+    expect(html).toContain('href="https://example.com/guide"');
+    expect(html).toContain('<span>Unsupported</span>');
+    expect(html).not.toContain('href="private-file:');
+    expect(html).not.toContain('<button');
+  });
+
   it('renders document tables with semantic headers, alignment and inline content', () => {
     const html = renderToStaticMarkup(
       createElement(AssistantContent, {

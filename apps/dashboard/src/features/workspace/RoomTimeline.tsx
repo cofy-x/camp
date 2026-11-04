@@ -11,7 +11,7 @@ import { IdentityAvatar } from '../identity/IdentityAvatar';
 import type { Agent, Message, Reference, Resource, Room, Run } from './api';
 import { isActiveRun, statusLabel, workspaceApi } from './api';
 import { AgentResult } from './AgentResult';
-import { CitedReply } from './CitedReply';
+import { AssistantContent } from './AssistantContent';
 import { Composer } from './Composer';
 import { References } from './References';
 import { WorkActivity } from './WorkActivity';
@@ -467,11 +467,7 @@ export function RoomTimeline({
                     onReference={onReference}
                   />
                 ) : message.authorKind === 'agent' ? (
-                  <CitedReply
-                    content={message.content}
-                    references={run?.references ?? []}
-                    onReference={onReference}
-                  />
+                  <AssistantContent content={message.content} />
                 ) : (
                   <p className="workspace-message-text">{message.content}</p>
                 )}

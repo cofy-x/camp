@@ -293,12 +293,12 @@ func TestInspectionIncludesCommittedWALWithoutCheckpointingSource(t *testing.T) 
 	if _, err = db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec(`INSERT INTO documents(id,resource_id,commit_id,path,extractor_version,status,snapshot,created_at,updated_at) SELECT ?,id,current_commit,'original.txt','fixture','ready',?,'now','now' FROM resources LIMIT 1`, strings.Repeat("d", 32), `{"id":"retained-document","sections":[{"text":"retained parser result"}]}`); err != nil {
+	if _, err = db.Exec(`INSERT INTO runners(id,name,credential_hash,storage_id,created_at,updated_at) VALUES(?,?,?,?,?,?)`, strings.Repeat("d", 32), "Retained Runner", strings.Repeat("e", 64), "retained-storage", "now", "now"); err != nil {
 		t.Fatal(err)
 	}
 	before := digestTree(t, root)
 	report, err := Inspect(context.Background(), root, false)
-	if err != nil || report.Catalog.Documents != 1 {
+	if err != nil || report.Catalog.Runners != 1 {
 		t.Fatal("The WAL reference state was lost", report, err)
 	}
 	after := digestTree(t, root)

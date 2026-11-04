@@ -84,6 +84,35 @@ func performUpload(t *testing.T, h http.Handler, r *http.Request, want int) *htt
 	return w
 }
 
+func TestOpaqueUploadHasOnlyAnImmutableOriginalReference(t *testing.T) {
+	h, _, room := uploadAPI(t)
+	original := []byte{0, 0xff, 0x80, 'C', 'a', 'm', 'p'}
+	w := performUpload(t, h, multipartUpload(t, "/api/rooms/"+room.ID+"/uploads", "opaque", "source.bin", original, nil), http.StatusOK)
+	var result struct {
+		Reference storage.Reference `json:"reference"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(w.Body.String(), `"document"`) {
+		t.Fatal("The attachment invented a derived document", w.Body)
+	}
+	ref := result.Reference
+	file := roomRequest(t, h, "GET", fmt.Sprintf("/api/resources/%s/file?commit=%s&path=source.bin", ref.ResourceID, ref.Commit), "")
+	if file.Code != http.StatusOK || !bytes.Equal(file.Body.Bytes(), original) {
+		t.Fatal("The original attachment bytes changed", file.Code)
+	}
+	for _, endpoint := range []string{"/api/resources/" + ref.ResourceID + "/document?commit=" + ref.Commit + "&path=source.bin", "/api/documents/removed"} {
+		if response := roomRequest(t, h, "GET", endpoint, ""); response.Code != http.StatusNotFound {
+			t.Fatal("A removed document endpoint is still exposed", endpoint, response.Code)
+		}
+	}
+	oldInput := fmt.Sprintf(`{"requestId":"removed-artifact","content":"Read the source","postOnly":true,"references":[{"kind":"file","resourceId":%q,"commit":%q,"path":"source.bin","documentId":"removed"}]}`, ref.ResourceID, ref.Commit)
+	if response := roomRequest(t, h, "POST", "/api/rooms/"+room.ID+"/messages", oldInput); response.Code != http.StatusBadRequest {
+		t.Fatal("An obsolete document selector was accepted", response.Code)
+	}
+}
+
 func TestUploadAPIReceiptRetryDownloadAndPostOnly(t *testing.T) {
 	h, store, room := uploadAPI(t)
 	path := "/api/rooms/" + room.ID + "/uploads"

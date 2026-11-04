@@ -3,8 +3,6 @@
 @import '../features/appearance/appearance.css';
 @import '../features/workspace/workspace.css';
 @import '../features/workspace/uploads.css';
-@import '../features/workspace/documents.css';
-@import '../features/workspace/citations.css';
 @import './app.css';
 
 @import '../team/team.css';
