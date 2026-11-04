@@ -19,7 +19,7 @@ Open `http://127.0.0.1:5173`. Vite proxies `/api` to Go on `127.0.0.1:3001`; res
 
 First startup writes `team-setup.token` inside that data directory. Enter it privately in the setup screen, create the administrator and configure Settings. Keep private model values in the ignored root `.env` with mode 600, using [.env.example](.env.example) as the key reference. See [configuration and budgets](docs/dsh.md#configuration-and-budgets).
 
-The Server requires Git for file storage. Discussion, Markdown and plain-text file work need no model or native execution runtime. Other attachments retain their original bytes; new PDF/DOCX text preparation is disabled. Agent execution requires a registered Runner; follow [source Runner setup](docs/dsh.md#source-runner-setup) or the [packaged installer](docs/install.md). [Installation](docs/install.md#supported-deployment) owns platform support and host prerequisites. No service starts automatically.
+The Server requires Git for file storage. Discussion, Markdown and plain-text file work need no model or native execution runtime. Markdown is rendered directly; other attachments retain their original bytes and readable UTF-8 files can be viewed as source. Agent execution requires a registered Runner; follow [source Runner setup](docs/dsh.md#source-runner-setup) or the [packaged installer](docs/install.md). [Installation](docs/install.md#supported-deployment) owns platform support and host prerequisites. No service starts automatically.
 
 ## Build
 

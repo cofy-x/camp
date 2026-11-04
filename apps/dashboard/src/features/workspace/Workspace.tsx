@@ -12,7 +12,6 @@ import {
   addDraftReferences,
   conversationKey,
   draftReferences,
-  selectDraftReference,
   writeStored,
 } from './conversationState';
 import { useWorkspace } from './useWorkspace';
@@ -105,7 +104,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
             `draft-seed:${key}`,
             JSON.stringify({ references: [intent.reference] }),
           );
-        selectDraftReference(key, intent.reference);
+        addDraftReferences(key, [intent.reference]);
       } catch (error) {
         setActionError(
           error instanceof Error ? error.message : 'Could not add this source.',
@@ -235,7 +234,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
         `draft-seed:${key}`,
         JSON.stringify({ references: [reference] }),
       );
-      selectDraftReference(key, reference);
+      addDraftReferences(key, [reference]);
       setActionError('');
       back();
     } catch (error) {

@@ -3,7 +3,6 @@ import { expect, test, type Page } from '@playwright/test';
 import type {
   Agent,
   Message,
-  Reference,
   Run,
 } from '../apps/dashboard/src/features/workspace/api';
 import { createRoom, mutate, openApp, signIn, workspace } from './team-helpers';
@@ -149,7 +148,7 @@ const longReply = [
       `Detailed consideration ${index + 1}: record the decision, its owner, and the evidence needed before delivery. Keep the source document available for the next reviewer.`,
   ),
   'The final recommendation remains part of the complete reply.',
-  '[Read the source](camp-source:1:p2)',
+  '[Read the source](https://example.com/review-guide)',
 ].join('\n\n');
 
 test('a delayed source lookup cannot close a newer Automation view or replace its draft', async ({
@@ -283,42 +282,10 @@ test('a delayed source lookup cannot close a newer Automation view or replace it
 test('a long completed reply keeps its files and checks ahead of expandable, intact Markdown and sources', async ({
   page,
 }, testInfo) => {
-  const documentId = `source-${randomUUID()}`;
-  const reference: Reference = {
-    kind: 'file',
-    title: 'brief.docx',
-    path: 'brief.docx',
-    resourceId: 'original-source',
-    commit: '3'.repeat(40),
-    document: {
-      id: documentId,
-      format: 'docx',
-      status: 'ready',
-      sectionCount: 2,
-      warnings: [],
-    },
-  };
-  await page.route(`**/api/documents/${documentId}`, (route) =>
+  await page.context().route('https://example.com/review-guide', (route) =>
     route.fulfill({
-      json: {
-        document: {
-          id: documentId,
-          resourceId: reference.resourceId,
-          commit: reference.commit,
-          path: reference.path,
-          format: 'docx',
-          status: 'ready',
-          sections: [
-            { id: 'p1', label: 'Paragraph 1', text: 'The original brief.' },
-            {
-              id: 'p2',
-              label: 'Paragraph 2',
-              text: 'Assign a named reviewer before delivery.',
-            },
-          ],
-          warnings: [],
-        },
-      },
+      contentType: 'text/plain',
+      body: 'A named reviewer confirms delivery.',
     }),
   );
   const { replies, runs, room, reload } = await completedWork(
@@ -328,7 +295,6 @@ test('a long completed reply keeps its files and checks ahead of expandable, int
       {
         content: longReply,
         run: {
-          references: [reference],
           published: true,
           files: [
             {
@@ -417,54 +383,30 @@ test('a long completed reply keeps its files and checks ahead of expandable, int
   await expect(disclosure).toHaveAttribute('open');
   await expect(toggle).toHaveText('Full reply');
   await expect(message.getByRole('table')).toContainText('Morgan');
-  const citation = message.getByRole('button', {
-    name: 'Open source brief.docx · Paragraph 2',
+  const source = message.getByRole('link', {
+    name: 'Read the source',
     exact: true,
   });
-  await citation.scrollIntoViewIfNeeded();
-  const point = await citation.boundingBox();
+  await source.scrollIntoViewIfNeeded();
+  const point = await source.boundingBox();
   expect(point).not.toBeNull();
   await page.mouse.move(
     point!.x + point!.width / 2,
     point!.y + point!.height / 2,
   );
   await page.mouse.down();
-  // Safari follows the OS mouse-down focus preference. Establish focus before
-  // checking that the desktop update preserves it in every browser.
-  await citation.focus();
-  // A desktop update between pointer down and up must preserve the link node,
-  // its focus and its pending click, including in Firefox.
+  // Preserve the actual Markdown link across a desktop update between pointer
+  // down and up, including Safari's OS-dependent mouse focus preference.
+  await source.focus();
   const viewport = page.viewportSize()!;
   await page.setViewportSize({ ...viewport, width: viewport.width - 1 });
-  await expect(citation).toBeFocused();
+  await expect(source).toBeFocused();
+  const opened = page.waitForEvent('popup');
   await page.mouse.up();
-  const source = message.getByRole('region', {
-    name: 'Cited source',
-    exact: true,
-  });
-  await expect(
-    source.getByRole('region', { name: 'Paragraph 2', exact: true }),
-  ).toContainText('Assign a named reviewer before delivery.');
-  await expect(
-    source.getByRole('link', { name: 'Download brief.docx', exact: true }),
-  ).toHaveAttribute('href', new RegExp(`commit=${reference.commit}`));
-  await expect(
-    source.getByText('Saved text · DOCX · 2 paragraphs', { exact: true }),
-  ).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath('citation-preview.png') });
-  await source
-    .getByRole('button', { name: 'Close source', exact: true })
-    .click();
-  await citation.focus();
-  await page.setViewportSize(viewport);
-  await expect(citation).toBeFocused();
-  await citation.press('Enter');
-  await expect(
-    source.getByRole('region', { name: 'Paragraph 2', exact: true }),
-  ).toContainText('Assign a named reviewer before delivery.');
-  await source
-    .getByRole('button', { name: 'Close source', exact: true })
-    .click();
+  const linked = await opened;
+  await expect(linked).toHaveURL('https://example.com/review-guide');
+  await linked.close();
+  await page.bringToFront();
   await collapse.focus();
   await collapse.press('Space');
   await expect(toggle).toBeFocused();
@@ -491,6 +433,10 @@ test('a long completed reply keeps its files and checks ahead of expandable, int
   await expect(
     preview.getByRole('link', { name: 'Download proposal.md', exact: true }),
   ).toHaveAttribute('href', new RegExp(`commit=${runs[0].resultCommit}`));
+  await page.screenshot({
+    path: testInfo.outputPath('markdown-file-preview.png'),
+  });
+  await page.setViewportSize(viewport);
   await expect(disclosure).not.toHaveAttribute('open');
   await reload();
   await expect(disclosure).not.toHaveAttribute('open');

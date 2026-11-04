@@ -42,7 +42,7 @@ func (m *Manager) buildInput(ctx context.Context, run storage.Run, a storage.Att
 	prompt, err := runinput.Conversation(ctx, m.store, run, conv)
 	var refs string
 	if err == nil {
-		refs, err = runinput.PrepareReferences(ctx, m.store, m.files, run, dir)
+		refs, err = runinput.PrepareReferences(ctx, m.files, run, dir)
 	}
 	defer func() {
 		if refs != "" {

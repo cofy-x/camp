@@ -127,19 +127,6 @@ type CollaborationTask struct {
 	UpdatedAt         string
 }
 
-type Document struct {
-	Seq              int64
-	ID               string
-	ResourceID       string
-	CommitID         string
-	Path             string
-	ExtractorVersion string
-	Status           string
-	Snapshot         string
-	CreatedAt        string
-	UpdatedAt        string
-}
-
 type GithubDelivery struct {
 	SourceID    string
 	DeliveryID  string

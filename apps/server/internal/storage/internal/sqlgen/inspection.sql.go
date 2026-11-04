@@ -84,7 +84,6 @@ SELECT resource_id,commit_id FROM (
  SELECT id AS resource_id,current_commit AS commit_id FROM resources
  UNION SELECT resource_id,commit_id FROM resource_publications
  UNION SELECT resource_id,previous_commit FROM resource_publications
- UNION SELECT resource_id,commit_id FROM documents
  UNION SELECT resource_id,submitted_commit FROM reviews
  UNION SELECT resource_id,delivered_commit FROM reviews
  UNION SELECT r.resource_id,e.commit_id FROM review_events e JOIN reviews r ON e.review_id=r.id
@@ -137,15 +136,13 @@ func (q *Queries) InspectionRevisions(ctx context.Context) ([]InspectionRevision
 }
 
 const inspectionTotals = `-- name: InspectionTotals :one
-SELECT (SELECT count(*) FROM documents) AS documents,
- (SELECT count(*) FROM task_inputs) AS task_inputs,
+SELECT (SELECT count(*) FROM task_inputs) AS task_inputs,
  (SELECT count(*) FROM runs) AS runs,
  (SELECT count(*) FROM collaboration_tasks) AS tasks,
  (SELECT count(*) FROM runners) AS runners
 `
 
 type InspectionTotalsRow struct {
-	Documents  int64
 	TaskInputs int64
 	Runs       int64
 	Tasks      int64
@@ -156,7 +153,6 @@ func (q *Queries) InspectionTotals(ctx context.Context) (InspectionTotalsRow, er
 	row := q.db.QueryRowContext(ctx, inspectionTotals)
 	var i InspectionTotalsRow
 	err := row.Scan(
-		&i.Documents,
 		&i.TaskInputs,
 		&i.Runs,
 		&i.Tasks,

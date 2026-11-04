@@ -3,9 +3,6 @@ import type { ComponentProps } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { Reference } from './api';
-import { resolveCitation } from './citations';
-import type { SourceCitation } from './citations';
 import './AssistantContent.css';
 
 function safeURL(value: string) {
@@ -19,10 +16,8 @@ function safeURL(value: string) {
 }
 
 const MarkdownContext = createContext<{
-  references: Reference[];
-  onCitation?: (citation: SourceCitation) => void;
   footnoteLabelId: string;
-}>({ references: [], footnoteLabelId: '' });
+}>({ footnoteLabelId: '' });
 
 function MarkdownLink({
   href,
@@ -31,19 +26,8 @@ function MarkdownLink({
   'aria-label': ariaLabel,
   'aria-describedby': ariaDescribedBy,
 }: ComponentProps<'a'>) {
-  const { references, onCitation, footnoteLabelId } =
-    useContext(MarkdownContext);
-  const citation = href && resolveCitation(href, references);
-  return citation && onCitation ? (
-    <button
-      type="button"
-      className="workspace-source-link"
-      aria-label={`Open source ${citation.label}`}
-      onClick={() => onCitation(citation)}
-    >
-      {citation.label}
-    </button>
-  ) : href ? (
+  const { footnoteLabelId } = useContext(MarkdownContext);
+  return href ? (
     <a
       href={href}
       id={id}
@@ -104,32 +88,18 @@ const markdownComponents: Components = {
   ),
 };
 
-export function AssistantContent({
-  content,
-  references = [],
-  onCitation,
-}: {
-  content: string;
-  references?: Reference[];
-  onCitation?: (citation: SourceCitation) => void;
-}) {
-  const documentId = useId();
-  const footnotePrefix = `camp-markdown-${documentId}-`;
+export function AssistantContent({ content }: { content: string }) {
+  const markdownId = useId();
+  const footnotePrefix = `camp-markdown-${markdownId}-`;
   const footnoteLabelId = `${footnotePrefix}footnotes`;
   return (
-    <MarkdownContext.Provider
-      value={{ references, onCitation, footnoteLabelId }}
-    >
+    <MarkdownContext.Provider value={{ footnoteLabelId }}>
       <div className="workspace-markdown">
         <ReactMarkdown
           skipHtml
           remarkPlugins={[remarkGfm]}
           remarkRehypeOptions={{ clobberPrefix: footnotePrefix }}
-          urlTransform={(value, key) =>
-            key === 'href' && onCitation && resolveCitation(value, references)
-              ? value
-              : safeURL(value)
-          }
+          urlTransform={safeURL}
           components={markdownComponents}
         >
           {content}

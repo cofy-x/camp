@@ -127,7 +127,6 @@ export function assertServerServiceReceipt(
   assert.equal(report.mode, 'service');
   assert.equal(report.cleanupConfirmed, true);
   assert.equal(report.retainedDataPreserved, true);
-  assert.equal(report.parserJobsCreated, false);
   assert.equal(report.modelRequests, 0);
   assert.equal(report.sourceModified, false);
   for (const [key, value] of Object.entries({
@@ -141,7 +140,7 @@ export function assertServerServiceReceipt(
   for (const check of [
     'markdown-and-plaintext',
     'original-only-attachments-preserved',
-    'no-parser-readiness-or-jobs',
+    'retired-document-api-absent',
     'allowlisted-server-directory-import-preserves-source',
     'restart-preserves-files',
     'packaged-server-launchd-lifecycle',

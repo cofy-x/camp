@@ -12,7 +12,7 @@ Runner discovers the selected local engine's volume directory through Docker's s
 
 The LayerFS local-volume backend requires privileged filesystem access. Docker group membership alone is insufficient. Use the same dedicated privileged account for setup, foreground operation and service installation. Linux native services require root-owned private storage and refuse another account's existing journal. Unprivileged/rootless Linux execution is unsupported. Treat the Runner operator as a trusted privileged host owner; tool containers receive no Docker control. Ubuntu policy may require an administrator-approved Bubblewrap profile.
 
-Server packages target Linux amd64 and macOS arm64/amd64. Server needs Git and private storage, without Node, Docker, DSH or LayerFS. Markdown and plain text support reading and editing. Other attachments preserve their original bytes; new PDF/DOCX preparation is disabled, while saved parsed results and historical citations remain readable. Controlled Server-host directory import uses the operator allowlist on Linux and Mac; ordinary Library imports select a Runner source alias. Browser access from Windows requires no CLI. Mac/Windows browser and Compose usage does not imply native Runner support.
+Server packages target Linux amd64 and macOS arm64/amd64. Server needs Git and private storage, without Node, Docker, DSH or LayerFS. Markdown supports document reading and editing. UTF-8 files can be viewed as source, and other attachments preserve their original bytes for download. Controlled Server-host directory import uses the operator allowlist on Linux and Mac; ordinary Library imports select a Runner source alias. Browser access from Windows requires no CLI. Mac/Windows browser and Compose usage does not imply native Runner support.
 
 ## Choose a version
 
@@ -240,7 +240,7 @@ Restore into an empty stopped directory using the matching release. Check Librar
 
 If startup reports a misplaced legacy Runner journal, stop that Runner and back up both the reported and destination journal files. Move any destination database/WAL aside first, then restore the exact reported database and any matching WAL together to the literal `journal.sqlite` and `journal.sqlite-wal` paths in its data directory. Move the misplaced files aside after recovery. Restart and confirm retained operation receipts before resuming work.
 
-Upgrade with a stopped backup and previous release retained. Verify the new release, repeat Runner setup against the same data, then start explicitly. Reinstall an existing service from the new release to update its launcher path. Existing Team data uses append-only migrations; schema downgrade requires the matching backup. Unsupported pre-Team development databases require a separate directory, not deletion or an invented compatibility migration. Never clear data on failure.
+Upgrade with a stopped backup and previous release retained. Verify the new release, repeat Runner setup against the same data, then start explicitly. Reinstall an existing service from the new release to update its launcher path. Existing Team data uses append-only migrations; schema downgrade requires the matching backup. The Markdown-only schema removes retired derived document snapshots. Uploaded originals, file versions and ordinary references remain intact; older document APIs and parsed-location links are removed. Unsupported pre-Team development databases require a separate directory, not deletion or an invented compatibility migration. Never clear data on failure.
 
 Use Server and Runner from the same release for the supported installation path. Protocol compatibility is an explicit handshake version: incompatible Runners stop with status 78 and do not replay work. Distribution-only changes do not bump that protocol. A protocol match is not a general cross-version data-upgrade guarantee; check the named baseline, release evidence and migration notes before upgrading.
 
@@ -277,7 +277,7 @@ The retention policy is explicit:
 
 | Data | Lifetime |
 | --- | --- |
-| Registered Resource trees and all retained versions, uploaded originals, saved parsed results, messages/task inputs, drafts, review/publication history, receipts and private settings | Protected; maintenance never expires or rewrites them |
+| Registered Resource trees and all retained versions, uploaded originals, messages/task inputs, drafts, review/publication history, receipts and private settings | Protected; maintenance never expires or rewrites them |
 | Pending or active transfer/preparation directories, including source-import reservations | Protected until their durable lifecycle becomes terminal |
 | Unregistered Resource directories and unknown/terminal transfer copies | Eligible only for an exact stopped quarantine plan |
 | Runner identity/journal/session/checkpoint data | A separate Runner owner; use the existing `runner checkpoint storage` and cleanup commands |

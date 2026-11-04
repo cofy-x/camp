@@ -72,7 +72,7 @@ The append-only schema upgrade transactionally assigns missing avatars before se
 
 Selected plus mentioned joined Agents produce at most one Run each, with at most 16 distinct recipients including mentions. With neither, a message is discussion. `postOnly:true` suppresses Agent mentions and cannot accompany explicit recipients. Human mentions notify people. Agent/system output is not an admission source. Joining never replays history. Bodies allow 8192 UTF-8 bytes, up to 16 recipient IDs and 8 references; limits live in [room types](../apps/server/internal/storage/room_types.go) and the [admission policy](../apps/server/internal/orchestration/policy.go).
 
-Message references use `{kind:"message",messageId}` within the Room. File references can select any known team Resource revision; server resolves excerpts and identity. References may include `documentId` to pin an existing saved parsed artifact. Admission freezes actual author, references, Agent, Resource identity, environment, model revision and budget atomically. The writable baseline is selected when an ordinary writer acquires its lease; it need not equal an older evidence version.
+Message references use `{kind:"message",messageId}` within the Room. File references can select any known team Resource revision; server resolves excerpts and identity. Admission freezes actual author, references, Agent, Resource identity, environment, model revision and budget atomically. The writable baseline is selected when an ordinary writer acquires its lease; it need not equal an older evidence version.
 
 Idempotency is user × Room × requestId. Identical canonical intent replays the original receipt before route/configuration changes; changed intent returns 409 `request_conflict`. Preserve the exact body/ID after an uncertain response. `runnerRevision` is required when a team Agent uses the saved Room route; see [routing](#runners-and-source-snapshots).
 
@@ -186,25 +186,21 @@ Publications distinguish `edit`, `restore`, `agent`. Human checks are `not_run`;
 
 An unconfigured environment is `{}`. Configured environments have `kind:"node"` or `kind:"command"`; missing/null `checks` means no configured checks. A null update clears configuration. [Profile validation](../apps/server/internal/projectenv/profile.go) owns accepted fields/commands. Configuration presence does not prove runtime readiness. The environment update API cannot detect an unseen concurrent admin edit.
 
-## Uploads and documents
+## File uploads
 
 | Method | Path | Contract |
 | --- | --- | --- |
 | POST | `/api/rooms/:id/uploads` | Multipart `requestId` and one `file` → `{reference}` |
 | GET | `/api/rooms/:id/uploads?before=...` | `{references,nextCursor}` originals |
 | GET | `/api/rooms/:id/uploads/:requestId` | Actor-scoped `{reference}` receipt |
-| GET | `/api/resources/:id/document?commit=...&path=...` | Saved ready `{document}`, otherwise latest historical read view (null if absent) |
-| GET | `/api/documents/:id` | Saved artifact by ID; incomplete attempts have disabled read views |
 
 [Upload parsing](../apps/server/internal/httpapi/room_uploads.go) accepts exactly one unencoded requestId part (up to 128 bytes) and one file part with a safe raw basename. The file limit is the resource per-file bound above; extra multipart fields/parts fail. No archive extraction, host path or executable permissions are accepted. User × Room × upload ID binds filename and byte hash. Exact concurrent or lost-response retries converge; changed content conflicts. Upload and message request identities are separate, and uploading never starts Agent work or text preparation.
 
 Original Git storage precedes the Resource/receipt/event transaction. A failed registration compensates only its unregistered candidate, never a possibly committed original. Reload checks receipts, not a claim that browser File bytes survived. Removing a draft reference does not delete the saved original; late uploads stay with their original Room/Thread. No original-deletion or general retention UI is provided.
 
-Markdown and plain text are the primary document workflow. Camp does not parse new PDF/DOCX attachments. The document API only reads saved results; it does not enqueue or retry preparation. Other file types remain immutable original attachments.
+Markdown files are rendered directly. Readable UTF-8 files can be viewed as source; other files remain immutable original attachments. File references contain the Resource, exact commit and path, without a separate parsed-artifact identity.
 
-[Document storage](../apps/server/internal/storage/documents.go) retains saved results at their exact Resource/commit/path and artifact ID. Reads prefer an existing ready result over later incomplete attempts. Unfinished saved attempts appear as unavailable and non-retryable without rewriting stored rows or restarting processes. Original-only attachments do not block Agent admission; absence of prepared text never implies that the Agent has read the binary contents.
-
-Originals mount read-only at `/references/<index>/<path>`; existing ready text/manifests mount at `/references/.documents/<index>/`. Known locations in frozen ready artifacts retain interactive citations and their saved labels. Historical PDF locations are physical pages; DOCX locations are nonempty body/table-cell paragraphs, not printed pages. Citations help inspect a claim without proving it. Markdown exports do not turn Camp-specific source links into portable document hyperlinks. The [synthetic Markdown example](../examples/documents/README.md) supplies readable sources.
+Originals mount read-only at `/references/<index>/<path>`. Agents read the selected bytes through ordinary file tools; the Server does not create extracted text, manifests or document-specific citation locations. Selecting an opaque attachment does not establish that an Agent has read its contents. The [synthetic Markdown example](../examples/documents/README.md) supplies readable sources.
 
 ## Reviews and delivery
 

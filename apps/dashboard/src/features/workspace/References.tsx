@@ -1,29 +1,21 @@
 import { useCallback, useRef, useState } from 'react';
 import { Button, PixelIcon } from '@cofy-x/camp-platinum';
-import type { DocumentSnapshot, Reference, Resource, RunStatus } from './api';
+import type { Reference, Resource, RunStatus } from './api';
 import { statusLabel } from './api';
 import { FilePreview } from './FilePreview';
 import { attachmentSize } from './uploadState';
 import { referenceKey } from './conversationState';
-import {
-  documentFormat,
-  documentSnapshot,
-  documentStatusLabel,
-} from './documents';
-import { useDocumentPreview } from './useDocumentPreview';
 
 function ReferenceCard({
   reference,
   current,
   onSource,
   onRemove,
-  onDocumentChange,
 }: {
   reference: Reference;
   current?: string;
   onSource: (messageId: string) => void;
   onRemove?: () => void;
-  onDocumentChange?: (reference: Reference, document: DocumentSnapshot) => void;
 }) {
   const [open, setOpen] = useState(false);
   const evidence = useRef<HTMLDivElement>(null);
@@ -33,17 +25,6 @@ function ReferenceCard({
       ?.scrollIntoView({ block: 'nearest' });
   }, []);
   const file = reference.kind === 'file';
-  const loadDocument = Boolean(
-    onDocumentChange && file && documentFormat(reference.path),
-  );
-  const documentState = useDocumentPreview(
-    reference,
-    (document) => onDocumentChange?.(reference, document),
-    loadDocument,
-  );
-  const document = documentState.document
-    ? documentSnapshot(documentState.document)
-    : reference.document;
   const status = reference.sourceStatus
     ? (statusLabel[reference.sourceStatus as RunStatus] ??
       reference.sourceStatus)
@@ -67,13 +48,6 @@ function ReferenceCard({
             </small>
           )}
           {status && <small>{status}</small>}
-          {document ? (
-            <small>{documentStatusLabel(document)}</small>
-          ) : file && documentFormat(reference.path) ? (
-            <small>
-              {documentState.loading ? 'Loading saved text…' : 'Original only'}
-            </small>
-          ) : null}
         </summary>
         {open && (
           <div className="workspace-reference-evidence" ref={evidence}>
@@ -91,16 +65,7 @@ function ReferenceCard({
                     <strong>Shared files use a different version</strong>
                   </p>
                 )}
-                <FilePreview
-                  reference={reference}
-                  onReady={reveal}
-                  documentState={loadDocument ? documentState : undefined}
-                  onDocumentChange={
-                    onDocumentChange
-                      ? (document) => onDocumentChange(reference, document)
-                      : undefined
-                  }
-                />
+                <FilePreview reference={reference} onReady={reveal} />
                 <details>
                   <summary>Version details</summary>
                   <code>{reference.commit}</code>
@@ -156,14 +121,12 @@ export function References({
   resources,
   onSource,
   onRemove,
-  onDocumentChange,
   showLabel = true,
 }: {
   references: Reference[];
   resources: Resource[];
   onSource: (messageId: string) => void;
   onRemove?: (index: number) => void;
-  onDocumentChange?: (reference: Reference, document: DocumentSnapshot) => void;
   showLabel?: boolean;
 }) {
   if (!references.length) return null;
@@ -189,7 +152,6 @@ export function References({
           }
           onSource={onSource}
           onRemove={onRemove ? () => onRemove(index) : undefined}
-          onDocumentChange={onDocumentChange}
         />
       ))}
     </section>

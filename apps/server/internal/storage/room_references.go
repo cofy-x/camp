@@ -16,11 +16,11 @@ import (
 func validateReferenceInput(ref ReferenceInput) error {
 	switch ref.Kind {
 	case "message":
-		if !validText(ref.MessageID, 128, false) || ref.ResourceID != "" || ref.Commit != "" || ref.Path != "" || ref.DocumentID != "" {
+		if !validText(ref.MessageID, 128, false) || ref.ResourceID != "" || ref.Commit != "" || ref.Path != "" {
 			return problem("invalid_reference", "A message reference must identify only a message.")
 		}
 	case "file":
-		if ref.DocumentID != "" && !validText(ref.DocumentID, 128, false) || ref.MessageID != "" || !validText(ref.ResourceID, 128, false) || len(ref.Commit) != 40 || !commitValid(ref.Commit) || !validReferencePath(ref.Path) {
+		if ref.MessageID != "" || !validText(ref.ResourceID, 128, false) || len(ref.Commit) != 40 || !commitValid(ref.Commit) || !validReferencePath(ref.Path) {
 			return problem("invalid_reference", "A file reference needs a resource, an exact 40-character revision, and a safe relative file path.")
 		}
 	default:
@@ -45,12 +45,10 @@ func validateReferencesInput(refs []ReferenceInput) error {
 		if err := validateReferenceInput(ref); err != nil {
 			return err
 		}
-		identity := ref
-		identity.DocumentID = ""
-		if seen[identity] {
+		if seen[ref] {
 			return problem("invalid_reference", "The same reference cannot be attached twice.")
 		}
-		seen[identity] = true
+		seen[ref] = true
 	}
 	return nil
 }
@@ -212,10 +210,6 @@ func snapshotReferences(ctx context.Context, q *sqlgen.Queries, room string, inp
 					return nil, err
 				}
 				referenceRunMetadata(&ref, run)
-			}
-			ref.Document, err = snapshotDocument(ctx, q, in)
-			if err != nil {
-				return nil, err
 			}
 		}
 		refs = append(refs, ref)

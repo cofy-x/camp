@@ -21,32 +21,30 @@ type ReferenceInput struct {
 	ResourceID string `json:"resourceId,omitempty"`
 	Commit     string `json:"commit,omitempty"`
 	Path       string `json:"path,omitempty"`
-	DocumentID string `json:"documentId,omitempty"`
 }
 
 type Reference struct {
-	SourceRunnerID   string           `json:"sourceRunnerId,omitempty"`
-	SourceImportID   string           `json:"sourceImportId,omitempty"`
-	UploadedByUserID string           `json:"uploadedByUserId,omitempty"`
-	Document         *DocumentSummary `json:"document,omitempty"`
-	Kind             string           `json:"kind"`
-	MessageID        string           `json:"messageId,omitempty"`
-	ResourceID       string           `json:"resourceId,omitempty"`
-	Commit           string           `json:"commit,omitempty"`
-	Path             string           `json:"path,omitempty"`
-	Title            string           `json:"title"`
-	Author           string           `json:"author,omitempty"`
-	Content          string           `json:"content,omitempty"`
-	CreatedAt        string           `json:"createdAt,omitempty"`
-	ThreadRootID     string           `json:"threadRootId,omitempty"`
-	Truncated        bool             `json:"truncated,omitempty"`
-	Size             *int             `json:"size,omitempty"`
-	Origin           string           `json:"origin,omitempty"`
-	SourceRunID      string           `json:"sourceRunId,omitempty"`
-	SourceStatus     string           `json:"sourceStatus,omitempty"`
-	Published        *bool            `json:"published,omitempty"`
-	ResultCommit     string           `json:"resultCommit,omitempty"`
-	Checks           string           `json:"checks,omitempty"`
+	SourceRunnerID   string `json:"sourceRunnerId,omitempty"`
+	SourceImportID   string `json:"sourceImportId,omitempty"`
+	UploadedByUserID string `json:"uploadedByUserId,omitempty"`
+	Kind             string `json:"kind"`
+	MessageID        string `json:"messageId,omitempty"`
+	ResourceID       string `json:"resourceId,omitempty"`
+	Commit           string `json:"commit,omitempty"`
+	Path             string `json:"path,omitempty"`
+	Title            string `json:"title"`
+	Author           string `json:"author,omitempty"`
+	Content          string `json:"content,omitempty"`
+	CreatedAt        string `json:"createdAt,omitempty"`
+	ThreadRootID     string `json:"threadRootId,omitempty"`
+	Truncated        bool   `json:"truncated,omitempty"`
+	Size             *int   `json:"size,omitempty"`
+	Origin           string `json:"origin,omitempty"`
+	SourceRunID      string `json:"sourceRunId,omitempty"`
+	SourceStatus     string `json:"sourceStatus,omitempty"`
+	Published        *bool  `json:"published,omitempty"`
+	ResultCommit     string `json:"resultCommit,omitempty"`
+	Checks           string `json:"checks,omitempty"`
 }
 
 type Agent struct {

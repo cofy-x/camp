@@ -5,7 +5,7 @@ import { isActiveRun, statusLabel, workspaceApi } from './api';
 import type { Message, Reference, Run, RunEvent } from './api';
 import { mergeEvents } from './events';
 import { summarizeActivity } from './activity';
-import { CitedReply } from './CitedReply';
+import { AssistantContent } from './AssistantContent';
 import { References } from './References';
 import { ResultFiles } from './ResultFiles';
 import { RunDiagnostics } from './RunDiagnostics';
@@ -328,11 +328,7 @@ export function RunInspector({
                       }
                     >
                       <summary>Agent reply</summary>
-                      <CitedReply
-                        content={reply.content}
-                        references={run.references ?? []}
-                        onReference={onReference}
-                      />
+                      <AssistantContent content={reply.content} />
                     </details>
                   )}
                   <details className="workspace-run-request">

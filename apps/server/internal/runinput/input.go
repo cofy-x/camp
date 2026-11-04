@@ -15,11 +15,6 @@ type ConversationReader interface {
 	ListAgents(context.Context) ([]storage.Agent, error)
 }
 
-// DocumentReader resolves the prepared document pinned by an admitted reference.
-type DocumentReader interface {
-	GetDocument(context.Context, string) (storage.Document, error)
-}
-
 // FileReader reads an exact immutable version; it cannot publish working files.
 type FileReader interface {
 	ReadFile(context.Context, string, string, string) ([]byte, error)

@@ -1,114 +1,13 @@
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
-import type { DocumentSnapshot, Reference } from './api';
+import type { Reference } from './api';
 import { workspaceApi } from './api';
 import { AssistantContent } from './AssistantContent';
-import { DocumentPreview } from './DocumentPreview';
-import { documentFormat, documentSnapshot } from './documents';
-import { useDocumentPreview } from './useDocumentPreview';
-import type { DocumentPreviewState } from './useDocumentPreview';
 
 const previewLimit = 65536;
 
 // Always load the selected immutable version, never the current resource pointer.
 export function FilePreview({
-  reference,
-  onReference,
-  onReady,
-  initialSection,
-  onDocumentChange,
-  documentState,
-  onEditableChange,
-}: {
-  reference: Reference;
-  onReference?: (reference: Reference) => void;
-  onReady?: () => void;
-  initialSection?: string;
-  onDocumentChange?: (document: DocumentSnapshot) => void;
-  documentState?: DocumentPreviewState;
-  onEditableChange?: (editable: boolean) => void;
-}) {
-  const format = documentFormat(reference.path);
-  return format ? (
-    <DocumentFilePreview
-      key={`${reference.resourceId}:${reference.commit}:${reference.path}`}
-      reference={reference}
-      onReference={onReference}
-      onReady={onReady}
-      initialSection={initialSection}
-      onDocumentChange={onDocumentChange}
-      documentState={documentState}
-    />
-  ) : (
-    <TextFilePreview
-      reference={reference}
-      onReference={onReference}
-      onReady={onReady}
-      onEditableChange={onEditableChange}
-    />
-  );
-}
-
-function DocumentFilePreview({
-  reference,
-  onReference,
-  onReady,
-  initialSection,
-  onDocumentChange,
-  documentState,
-}: {
-  reference: Reference;
-  onReference?: (reference: Reference) => void;
-  onReady?: () => void;
-  initialSection?: string;
-  onDocumentChange?: (document: DocumentSnapshot) => void;
-  documentState?: DocumentPreviewState;
-}) {
-  const localState = useDocumentPreview(
-    reference,
-    onDocumentChange,
-    !documentState,
-  );
-  const state = documentState ?? localState;
-  const document = state.document
-    ? documentSnapshot(state.document)
-    : reference.document;
-  return (
-    <section
-      className="workspace-file-preview"
-      aria-label={`Preview ${reference.path}`}
-    >
-      <div className="workspace-preview-actions">
-        <a
-          href={workspaceApi.fileURL(
-            reference.resourceId!,
-            reference.path!,
-            reference.commit!,
-          )}
-          download={reference.path?.split('/').at(-1)}
-        >
-          Download {reference.path?.split('/').at(-1)}
-        </a>
-        {onReference && (
-          <Button
-            type="button"
-            onClick={() => onReference({ ...reference, document })}
-          >
-            Use as reference
-          </Button>
-        )}
-      </div>
-      <DocumentPreview
-        reference={reference}
-        initialSection={initialSection}
-        state={state}
-        onReady={onReady}
-      />
-    </section>
-  );
-}
-
-function TextFilePreview({
   reference,
   onReference,
   onReady,
@@ -195,10 +94,7 @@ function TextFilePreview({
           </Button>
         </p>
       ) : binary ? (
-        <p>
-          This file has no text preview. Download the original, or attach a
-          Markdown or plain-text copy for Agents to read.
-        </p>
+        <p>This file has no text preview. Download the original file.</p>
       ) : content === null ? (
         <p role="status">Loading file…</p>
       ) : (

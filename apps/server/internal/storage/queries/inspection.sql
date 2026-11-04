@@ -7,8 +7,7 @@ SELECT resource_key FROM source_imports ORDER BY resource_key LIMIT 100001;
 -- name: InspectionTransfers :many
 SELECT id,status FROM run_attempts UNION ALL SELECT id,status FROM source_imports LIMIT 100001;
 -- name: InspectionTotals :one
-SELECT (SELECT count(*) FROM documents) AS documents,
- (SELECT count(*) FROM task_inputs) AS task_inputs,
+SELECT (SELECT count(*) FROM task_inputs) AS task_inputs,
  (SELECT count(*) FROM runs) AS runs,
  (SELECT count(*) FROM collaboration_tasks) AS tasks,
  (SELECT count(*) FROM runners) AS runners;
@@ -17,7 +16,6 @@ SELECT resource_id,commit_id FROM (
  SELECT id AS resource_id,current_commit AS commit_id FROM resources
  UNION SELECT resource_id,commit_id FROM resource_publications
  UNION SELECT resource_id,previous_commit FROM resource_publications
- UNION SELECT resource_id,commit_id FROM documents
  UNION SELECT resource_id,submitted_commit FROM reviews
  UNION SELECT resource_id,delivered_commit FROM reviews
  UNION SELECT r.resource_id,e.commit_id FROM review_events e JOIN reviews r ON e.review_id=r.id

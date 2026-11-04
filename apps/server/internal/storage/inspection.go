@@ -23,7 +23,6 @@ type InspectionCatalog struct {
 	Resources map[string][]string `json:"-"`
 	Reserved  map[string]bool     `json:"-"`
 	Transfers map[string]string   `json:"-"`
-	Documents int64               `json:"documents"`
 	Inputs    int64               `json:"inputs"`
 	Runs      int64               `json:"runs"`
 	Tasks     int64               `json:"tasks"`
@@ -142,7 +141,7 @@ func ReadInspectionCatalog(ctx context.Context, filename string) (out Inspection
 	if err != nil {
 		return out, err
 	}
-	out.Documents, out.Inputs, out.Runs, out.Tasks, out.Runners = totals.Documents, totals.TaskInputs, totals.Runs, totals.Tasks, totals.Runners
+	out.Inputs, out.Runs, out.Tasks, out.Runners = totals.TaskInputs, totals.Runs, totals.Tasks, totals.Runners
 	return out, nil
 }
 

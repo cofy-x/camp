@@ -1,32 +1,18 @@
 import { useRef, useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
 import type { Message, Reference, Run } from './api';
-import { CitedReply } from './CitedReply';
+import { AssistantContent } from './AssistantContent';
 import { readStored, writeStored } from './conversationState';
 import { ResultFiles } from './ResultFiles';
 import { runChecksLabel, runFilesLabel } from './runPresentation';
 
-function AgentReply({
-  message,
-  references,
-  onReference,
-}: {
-  message: Message;
-  references: Reference[];
-  onReference: (reference: Reference) => void;
-}) {
+function AgentReply({ message }: { message: Message }) {
   const key = `reply-expanded:${message.id}`;
   const [expanded, setExpanded] = useState(() => readStored(key) === 'true');
   const summary = useRef<HTMLElement>(null);
   const long =
     message.content.length > 800 || message.content.split('\n').length > 12;
-  const reply = (
-    <CitedReply
-      content={message.content}
-      references={references}
-      onReference={onReference}
-    />
-  );
+  const reply = <AssistantContent content={message.content} />;
   if (!long) return <div className="workspace-agent-reply-inline">{reply}</div>;
 
   function remember(open: boolean) {
@@ -87,11 +73,7 @@ export function AgentResult({
       </div>
       {run.error && <p className="app-error">{run.error}</p>}
       <ResultFiles run={run} onReference={onReference} />
-      <AgentReply
-        message={message}
-        references={run.references ?? []}
-        onReference={onReference}
-      />
+      <AgentReply message={message} />
     </section>
   );
 }

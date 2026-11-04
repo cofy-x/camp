@@ -211,7 +211,7 @@ func TestRemoteInputPreparationMeasurements(t *testing.T) {
 			var references string
 			measure("references", func() error {
 				var err error
-				references, err = runinput.PrepareReferences(h.ctx, h.store, m.files, run, directory)
+				references, err = runinput.PrepareReferences(h.ctx, m.files, run, directory)
 				return err
 			})
 			measure("referenceArchive", func() error {
