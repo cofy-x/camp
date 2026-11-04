@@ -348,6 +348,15 @@ func extractRuntimeProgress(ctx context.Context, input io.Reader, directory stri
 }
 
 func extractRuntimeIO(ctx context.Context, input io.Reader, directory string, expectedBytes int64, platform string, progress *installPhase, concurrency int) (err error) {
+	return extractRuntimeSynced(ctx, input, directory, expectedBytes, platform, progress, concurrency, runtimeStagingSync{syncRuntimeEntry, syncRuntimeStage})
+}
+
+type runtimeStagingSync struct {
+	entry func(*os.File) error
+	stage func(string) error
+}
+
+func extractRuntimeSynced(ctx context.Context, input io.Reader, directory string, expectedBytes int64, platform string, progress *installPhase, concurrency int, sync runtimeStagingSync) (err error) {
 	group := newRuntimeIO(ctx, concurrency)
 	ctx = group.ctx
 	defer group.finish(&err)
@@ -411,7 +420,7 @@ func extractRuntimeIO(ctx context.Context, input io.Reader, directory string, ex
 				group.release()
 				return errors.Join(copyErr, file.Close())
 			}
-			group.start(func() error { return errors.Join(file.Sync(), file.Close()) })
+			group.start(func() error { return errors.Join(sync.entry(file), file.Close()) })
 			unpacked += n
 		case tar.TypeSymlink:
 			resolved := path.Clean(path.Join(path.Dir(name), header.Linkname))
@@ -438,7 +447,7 @@ func extractRuntimeIO(ctx context.Context, input io.Reader, directory string, ex
 			return err
 		}
 	}
-	return filepath.WalkDir(directory, func(name string, entry os.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(directory, func(name string, entry os.DirEntry, walkErr error) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -453,7 +462,20 @@ func extractRuntimeIO(ctx context.Context, input io.Reader, directory string, ex
 			if err != nil {
 				return err
 			}
-			return errors.Join(file.Sync(), file.Close())
+			return errors.Join(sync.entry(file), file.Close())
 		})
 	})
+	if err != nil {
+		return err
+	}
+	if err := group.wait(); err != nil {
+		return err
+	}
+	// No staging write is admitted after this barrier. On Darwin the per-entry
+	// fsyncs submit every file and directory before one full device-cache flush.
+	// Verification is read-only; atomic rename and parent Sync remain separate.
+	if err := sync.stage(directory); err != nil {
+		return err
+	}
+	return ctx.Err()
 }
