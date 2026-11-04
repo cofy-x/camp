@@ -58,6 +58,7 @@ const config = {
   docker: socket,
   dockerBinary,
   installation: path.join(runtime, 'installed.json'),
+  qualification: true,
   runnerId: 'controlled-recovery-runner',
   storageId: 'controlled-recovery-storage',
 };
