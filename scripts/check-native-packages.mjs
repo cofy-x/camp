@@ -50,53 +50,66 @@ export async function checkNativePackages({
     version: descriptor.version || 'dev',
     sourceCommit: descriptor.sourceCommit || '',
   };
-  const report = { schema: 1, sourceCommit, status: 'running', scenarios: [] };
+  const report = {
+    schema: 1,
+    sourceCommit,
+    execution: 'sequential',
+    status: 'running',
+    scenarios: [],
+  };
   const output = join(outputDirectory, 'package-timings.json');
   await writeFile(output, `${JSON.stringify(report, null, 2)}\n`);
   const started = performance.now();
-  const results = await Promise.allSettled(
-    ['online', 'offline'].map(async (mode) => {
-      const filename = join(packageDirectory, `smoke-${mode}.json`);
-      await rm(filename, { force: true });
-      const scenario = { mode, status: 'failed', elapsedMs: 0 };
-      report.scenarios.push(scenario);
-      const begin = performance.now();
-      console.log(`Native package ${mode}: started.`);
-      try {
-        await execute(
-          process.execPath,
-          [join(root, 'scripts/smoke-bundle.mjs'), mode],
-          {
-            env: {
-              ...process.env,
-              CAMP_SMOKE_SETUP_ONLY: '',
-              CAMP_TEST_WORKSPACE_BACKEND: '',
-              CAMP_SMOKE_RUNNER_BINARY: '',
-              CAMP_SMOKE_SERVER_BINARY: '',
-              CAMP_SMOKE_PACKAGE_DIRECTORY: resolve(packageDirectory),
-              CAMP_SMOKE_FIXTURE_DIRECTORY: join(fixtures, mode),
-              CAMP_SMOKE_REPORT: filename,
-            },
+  const runScenario = async (mode) => {
+    const filename = join(packageDirectory, `smoke-${mode}.json`);
+    await rm(filename, { force: true });
+    const scenario = { mode, status: 'failed', elapsedMs: 0 };
+    report.scenarios.push(scenario);
+    const begin = performance.now();
+    console.log(`Native package ${mode}: started.`);
+    try {
+      await execute(
+        process.execPath,
+        [join(root, 'scripts/smoke-bundle.mjs'), mode],
+        {
+          env: {
+            ...process.env,
+            CAMP_SMOKE_SETUP_ONLY: '',
+            CAMP_TEST_WORKSPACE_BACKEND: '',
+            CAMP_SMOKE_RUNNER_BINARY: '',
+            CAMP_SMOKE_SERVER_BINARY: '',
+            CAMP_SMOKE_PACKAGE_DIRECTORY: resolve(packageDirectory),
+            CAMP_SMOKE_FIXTURE_DIRECTORY: join(fixtures, mode),
+            CAMP_SMOKE_REPORT: filename,
           },
+        },
+      );
+      const evidence = JSON.parse(await readFile(filename, 'utf8'));
+      verifyRunnerInstallationReport(evidence, identity, platform, mode);
+      assert.ok(Array.isArray(evidence.checks));
+      for (const check of nativePackageChecks)
+        assert.ok(
+          evidence.checks.includes(check),
+          `Missing ${mode} evidence: ${check}`,
         );
-        const evidence = JSON.parse(await readFile(filename, 'utf8'));
-        verifyRunnerInstallationReport(evidence, identity, platform, mode);
-        assert.ok(Array.isArray(evidence.checks));
-        for (const check of nativePackageChecks)
-          assert.ok(
-            evidence.checks.includes(check),
-            `Missing ${mode} evidence: ${check}`,
-          );
-        assert.notEqual(evidence.cleanupConfirmed, false);
-        scenario.status = 'passed';
-      } finally {
-        scenario.elapsedMs = performance.now() - begin;
-        console.log(
-          `Native package ${mode}: ${scenario.status} in ${(scenario.elapsedMs / 1000).toFixed(3)}s.`,
-        );
-      }
-    }),
-  );
+      assert.notEqual(evidence.cleanupConfirmed, false);
+      scenario.status = 'passed';
+    } finally {
+      scenario.elapsedMs = performance.now() - begin;
+      console.log(
+        `Native package ${mode}: ${scenario.status} in ${(scenario.elapsedMs / 1000).toFixed(3)}s.`,
+      );
+    }
+  };
+  const results = [];
+  for (const mode of ['online', 'offline']) {
+    try {
+      await runScenario(mode);
+      results.push({ status: 'fulfilled' });
+    } catch (reason) {
+      results.push({ status: 'rejected', reason });
+    }
+  }
   const errors = results
     .filter((result) => result.status === 'rejected')
     .map((result) => result.reason);

@@ -426,7 +426,7 @@ test('build caches permit automatic main and explicit manual writes, while PRs a
   );
 });
 
-test('Mac build caches retain both hosts, forced native execution and complete parallel package acceptance', async () => {
+test('Mac build caches retain both hosts, forced native execution and complete package acceptance', async () => {
   const workflow = await readFile(
     new URL('../.github/workflows/native-mac.yml', import.meta.url),
     'utf8',
@@ -439,7 +439,7 @@ test('Mac build caches retain both hosts, forced native execution and complete p
     'Check actual native DSH, capture, continuation and collaboration',
     "Check the operator's retained local qualification command",
     'Build complete native Runner packages',
-    'Check complete online and offline installation concurrently',
+    'Check complete online and offline installation',
   ]) {
     const block = workflow
       .split(`      - name: ${name}\n`)[1]

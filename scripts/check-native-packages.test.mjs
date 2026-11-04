@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { setImmediate as yieldTurn } from 'node:timers/promises';
 import {
   checkNativePackages,
   nativePackageChecks,
@@ -51,15 +52,12 @@ async function fixture(t) {
 }
 
 test(
-  'both complete package scenarios start concurrently with isolated fixtures and matching evidence',
+  'both complete package scenarios run sequentially with isolated fixtures and matching evidence',
   { timeout: 30000 },
   async (t) => {
     const { options, evidence } = await fixture(t);
     const entered = [];
-    let bothStarted;
-    const barrier = new Promise((resolve) => {
-      bothStarted = resolve;
-    });
+    let active = 0;
     const report = await checkNativePackages({
       ...options,
       execute: async (binary, args, { env }) => {
@@ -74,13 +72,20 @@ test(
         assert.equal(env.CAMP_SMOKE_SETUP_ONLY, '');
         assert.equal(env.CAMP_TEST_WORKSPACE_BACKEND, '');
         assert.equal(env.CAMP_SMOKE_RUNNER_BINARY, '');
-        if (entered.length === 2) bothStarted();
-        await barrier;
+        active++;
+        assert.equal(
+          active,
+          1,
+          'Native acceptance must avoid concurrent resource contention.',
+        );
+        await yieldTurn();
         await mkdir(env.CAMP_SMOKE_FIXTURE_DIRECTORY);
         await writeFile(env.CAMP_SMOKE_REPORT, JSON.stringify(evidence(mode)));
         await rm(env.CAMP_SMOKE_FIXTURE_DIRECTORY, { recursive: true });
+        active--;
       },
     });
+    assert.equal(report.execution, 'sequential');
     assert.equal(report.status, 'passed');
     assert.equal(new Set(entered.map((item) => item.fixture)).size, 2);
     assert.deepEqual(entered.map((item) => item.mode).sort(), [

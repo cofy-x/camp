@@ -106,7 +106,7 @@ jobs:
         env:
           CAMP_RUNTIME_ARCHIVE_CACHE: ${{ github.workspace }}/.data/native-runtime-compression
         run: node scripts/package-runner.mjs
-      - name: Check complete online and offline installation concurrently
+      - name: Check complete online and offline installation
         run: node scripts/check-native-packages.mjs
       - name: Populate native build caches after complete authorized qualification
         if: ${{ success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.populate_build_cache)) && steps.build_cache.outputs.cache-hit != 'true' }}
