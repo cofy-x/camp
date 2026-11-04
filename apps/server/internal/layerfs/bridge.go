@@ -26,6 +26,7 @@ type BridgeConfig struct {
 	RunnerID        string `json:"runnerId,omitempty"`
 	StorageID       string `json:"storageId,omitempty"`
 	DockerBinary    string `json:"dockerBinary,omitempty"`
+	SyncHelper      string `json:"syncHelper,omitempty"`
 	Node            string `json:"-"`
 	RuntimeDir      string `json:"-"`
 	DataRoot        string `json:"dataRoot"`

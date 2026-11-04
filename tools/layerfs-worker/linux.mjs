@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { Buffer } from 'node:buffer';
-import { createHash, randomUUID } from 'node:crypto';
-import { chmod, lstat, mkdir, open, readFile, statfs } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { chmod, lstat, mkdir, readFile, statfs } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import process from 'node:process';
@@ -19,7 +19,8 @@ import {
 import { captureWireBytes, writeBytes } from './protocol.mjs';
 import { failure, readState, saveState } from './state.mjs';
 import { LIMITS, manifestDigest, validateManifest } from './tree.mjs';
-import { blobIndex, encodeCapture, receiveCapture } from './transfer.mjs';
+import { encodeCapture, receiveCapture } from './transfer.mjs';
+import { missingBlobs } from './cache.mjs';
 import {
   drainResources,
   releaseResource,
@@ -458,29 +459,8 @@ export class LinuxWorker {
       (await this.head(namespace.branch)) !== namespace.head
     )
       throw failure('Conflict', 'Generation or parent checkpoint is stale.');
-    const wanted = [];
     const cacheStarted = performance.now();
-    for (const [digest, length] of blobIndex(manifest)) {
-      const file = path.join(this.cache, 'blobs', digest);
-      let valid = false;
-      try {
-        const info = await lstat(file);
-        if (info.isFile() && info.size === length) {
-          const opened = await open(file, 'r'),
-            hasher = createHash('sha256');
-          try {
-            for await (const chunk of opened.createReadStream())
-              hasher.update(chunk);
-            valid = hasher.digest('hex') === digest;
-          } finally {
-            await opened.close();
-          }
-        }
-      } catch {
-        /* Missing or corrupt cache bytes are transferred again before apply. */
-      }
-      if (!valid) wanted.push(digest);
-    }
+    const wanted = await missingBlobs(path.join(this.cache, 'blobs'), manifest);
     const receipt = {
       schema: 1,
       binding,
@@ -488,6 +468,7 @@ export class LinuxWorker {
       manifest,
       wanted,
       cacheValidationMs: performance.now() - cacheStarted,
+      cacheValidationConcurrency: 8,
       branch: `c-${binding.operationId.replaceAll('-', '')}`,
       parentBranch: namespace.branch,
       disposable: true,
@@ -624,9 +605,14 @@ export class LinuxWorker {
         'Conflict',
         'The checkpoint head changed before independent readback.',
       );
+    const mounting = performance.now();
     const reader = await this.mounted(receipt.branch);
+    receipt.readbackMountMs = performance.now() - mounting;
     const verified = await this.runHelper(reader, 'scan');
+    receipt.readbackScanMs = verified.metrics.scanMs;
+    const releasing = performance.now();
     await this.release(reader);
+    receipt.readbackReleaseMs = performance.now() - releasing;
     if (reader.cost) receipt.readbackResources = reader.cost;
     if (
       verified.digest !== receipt.binding.digest ||

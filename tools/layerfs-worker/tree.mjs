@@ -298,7 +298,7 @@ export class CaptureBlobs {
   }
 }
 
-async function eachConcurrent(items, action, concurrency = 8) {
+export async function eachConcurrent(items, action, concurrency = 8) {
   let cursor = 0,
     failed;
   const run = async () => {
@@ -793,7 +793,9 @@ export async function loadCapture(root) {
 // Build every exact destination name first. On APFS this catches case and
 // canonical-Unicode aliases using the destination filesystem itself, before
 // file bytes or links are installed. Only a new, private staging tree is used.
-export async function restoreTree(capture, parent) {
+export async function restoreTree(capture, parent, { syncTree } = {}) {
+  if (syncTree !== undefined && typeof syncTree !== 'function')
+    throw failure('InvalidInput', 'Use a staging synchronization function.');
   const started = performance.now();
   const manifest = validateManifest(capture.manifest);
   if (capture.digest !== manifestDigest(manifest))
@@ -831,7 +833,7 @@ export async function restoreTree(capture, parent) {
               ).bytesWritten;
           }
           await output.chmod(row.mode);
-          await output.sync();
+          if (!syncTree) await output.sync();
         } finally {
           await output.close();
         }
@@ -851,6 +853,11 @@ export async function restoreTree(capture, parent) {
       if (row.type === 'directory')
         await chmod(path.join(root, row.path), row.mode);
     await chmod(root, manifest.rootMode);
+    const synchronizing = performance.now();
+    // All writes and descriptors have drained. The trusted platform adapter
+    // synchronizes every file/directory before its one full staging barrier.
+    if (syncTree) await syncTree(root);
+    const stagingSyncMs = performance.now() - synchronizing;
     const verified = await scanTree(root);
     if (verified.digest !== capture.digest)
       throw failure(
@@ -858,10 +865,13 @@ export async function restoreTree(capture, parent) {
         'Restored working tree does not match the sealed capture.',
       );
     await syncDirectory(root);
+    await syncDirectory(parent);
     return {
       root,
       restoreMs: performance.now() - started,
       readbackMs: verified.metrics.scanMs,
+      stagingSyncMs,
+      synchronization: syncTree ? 'staged-full-sync' : 'per-entry-full-sync',
     };
   } catch (error) {
     // Retain the capture and rejected staging tree for diagnosis. Never touch a

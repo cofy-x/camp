@@ -378,6 +378,7 @@ function fixture() {
         'client.mjs',
         'checkpoint.mjs',
         'tree.mjs',
+        'sync.mjs',
         'administration.mjs',
         'home.mjs',
         'state.mjs',

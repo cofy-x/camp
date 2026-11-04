@@ -14,6 +14,7 @@ import {
 } from './tree.mjs';
 
 const HEADER_LIMIT = LIMITS.manifestBytes + (32 << 20);
+export const TRANSFER_CHUNK_BYTES = 256 << 10;
 
 export function blobIndex(manifest) {
   const index = new Map();
@@ -67,6 +68,9 @@ export async function* encodeCapture(
   yield prefix;
   yield header;
   const blobs = await CaptureBlobs.open(capture);
+  let pending = Buffer.allocUnsafe(TRANSFER_CHUNK_BYTES),
+    used = 0;
+  metrics.payloadChunks = 0;
   try {
     for (const digest of wanted) {
       for await (const chunk of blobs.read({
@@ -75,8 +79,25 @@ export async function* encodeCapture(
       })) {
         metrics.wireBytes += chunk.length;
         metrics.payloadBytes += chunk.length;
-        yield chunk;
+        // Blob boundaries are already fixed by the validated header. Batch raw
+        // bytes without changing framing, hashes, ordering or backpressure.
+        for (let offset = 0; offset < chunk.length;) {
+          const size = Math.min(chunk.length - offset, pending.length - used);
+          chunk.copy(pending, used, offset, offset + size);
+          used += size;
+          offset += size;
+          if (used === pending.length) {
+            metrics.payloadChunks++;
+            yield pending;
+            pending = Buffer.allocUnsafe(TRANSFER_CHUNK_BYTES);
+            used = 0;
+          }
+        }
       }
+    }
+    if (used) {
+      metrics.payloadChunks++;
+      yield pending.subarray(0, used);
     }
   } finally {
     await blobs.close();

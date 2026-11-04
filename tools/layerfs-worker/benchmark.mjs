@@ -22,6 +22,7 @@ import {
   benchmarkRoundsComplete,
   boundedJSON,
   excludedPackageArms,
+  excludedCheckpointArms,
   packageBenchmarkInputs,
   verifyBenchmarkArchives,
   verifyBenchmarkRuntime,
@@ -29,6 +30,7 @@ import {
   verifyPackageEngine,
   verifySetupOnlyReport,
 } from './benchmark-inputs.mjs';
+import { selectSourceEngine, requireSourceEngine } from './source-engine.mjs';
 
 const { values } = parseArgs({
   options: {
@@ -42,6 +44,8 @@ const { values } = parseArgs({
     'docker-socket': { type: 'string' },
     'engine-profile': { type: 'string' },
     'setup-series': { type: 'string' },
+    'checkpoint-only': { type: 'boolean', default: false },
+    'sync-helper': { type: 'string' },
   },
   strict: true,
 });
@@ -52,6 +56,7 @@ node tools/layerfs-worker/benchmark.mjs --output-base ABSOLUTE_PRIVATE_PARENT
 Package mode: --qualification ABSOLUTE_JSON --online-report ABSOLUTE_JSON
   --docker-binary ABSOLUTE_FILE --docker-socket ABSOLUTE_SOCKET --engine-profile NAME
 Optional offline setup series: --packages ABSOLUTE_DIR --setup-series native-local|layerfs-worker|both
+Source focus: --checkpoint-only --sync-helper ABSOLUTE_HELPER with explicit Docker binary/socket/profile
 --smoke is one text round only; source mode retains the existing upstream SDK comparison.\n`);
   process.exit(0);
 }
@@ -67,7 +72,7 @@ await mkdir(parent, { recursive: true, mode: 0o700 });
 const root = await realpath(
   await mkdtemp(path.join(parent, 'mac-worker-benchmark-')),
 );
-if (inputs)
+if (inputs || options.checkpointOnly)
   for (
     let directory = path.dirname(root);
     ;
@@ -93,6 +98,14 @@ const driverNames = [
   'tools/layerfs-worker/benchmark-run.mjs',
   'tools/layerfs-worker/benchmark-inputs.mjs',
   'tools/layerfs-worker/tree.mjs',
+  'tools/layerfs-worker/sync.mjs',
+  'tools/layerfs-worker/checkpoint.mjs',
+  'tools/layerfs-worker/client.mjs',
+  'tools/layerfs-worker/contracts.mjs',
+  'tools/layerfs-worker/home.mjs',
+  'tools/layerfs-worker/references.mjs',
+  'tools/layerfs-worker/transfer.mjs',
+  'tools/layerfs-worker/source-engine.mjs',
   'tools/layerfs-worker/state.mjs',
   'tools/layerfs-worker/wire-proxy.mjs',
   'tools/layerfs-worker/upstream-comparison.mjs',
@@ -121,7 +134,10 @@ const report = {
     ? 'one-round text harness preflight only'
     : options.packaged
       ? 'three-round exact packaged worker and full-tree local comparison; separately verified source native-local Prepare/publication'
-      : 'three-round source Mac four-workload comparison',
+      : options.checkpointOnly
+        ? 'three-round source checkpoint/full-tree comparison; no upstream SDK or archived-package acceptance'
+        : 'three-round source Mac four-workload comparison',
+  ...(options.checkpointOnly ? { excludedArms: excludedCheckpointArms } : {}),
   policy:
     'All samples retained; OS/image caches not flushed, existing VM/services unchanged. Fresh client/worker/owned Store per round. Shared seal is added to each arm explicitly; source native production has its separately recorded process scope.',
   ...(inputs
@@ -144,6 +160,7 @@ let packageFile, packageFileSHA256;
 const environment = { PATH: process.env.PATH, HOME: root, LANG: 'C.UTF-8' };
 const node = inputs?.node || process.execPath;
 let socket = inputs?.socket;
+let sourceEngine, sourceEngineID;
 
 async function verifyFixtures(fixtures) {
   const { scanTree } = await import(
@@ -340,7 +357,23 @@ async function setupSeries() {
 }
 
 try {
-  if (!inputs)
+  if (options.checkpointOnly) {
+    sourceEngine = await selectSourceEngine({
+      dockerBinary: values['docker-binary'],
+      dockerSocket: values['docker-socket'],
+    });
+    const observed = requireSourceEngine(sourceEngine);
+    sourceEngineID = observed.ID;
+    socket = sourceEngine.proof.socket;
+    report.sourceEngine = {
+      id: sourceEngineID,
+      profile: values['engine-profile'],
+      proof: sourceEngine.proof,
+    };
+    report.sourceInstallationSHA256 = await hashFile(
+      path.join(import.meta.dirname, 'installed.json'),
+    );
+  } else if (!inputs)
     socket = execFileSync(
       'docker',
       ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'],
@@ -355,7 +388,7 @@ try {
     files: await driverFiles(),
     node: process.versions.node,
   };
-  if (inputs) {
+  if (inputs || options.checkpointOnly) {
     assert.equal(
       report.driver.modified,
       false,
@@ -373,6 +406,8 @@ try {
         `go version go${(await readFile(path.join(sourceRoot, 'go.mod'), 'utf8')).match(/^go (\S+)$/m)[1]} `,
       ),
     );
+  }
+  if (inputs) {
     const dockerHome = path.join(root, 'docker-client');
     await mkdir(dockerHome, { mode: 0o700 });
     await writeFile(path.join(dockerHome, 'config.json'), '{}\n', {
@@ -414,6 +449,20 @@ try {
           cwd: sourceRoot,
           env: {
             ...environment,
+            ...(!inputs &&
+            (values['sync-helper'] || process.env.CAMP_TEST_SANDBOX_HELPER)
+              ? {
+                  CAMP_TEST_SANDBOX_HELPER:
+                    values['sync-helper'] ||
+                    process.env.CAMP_TEST_SANDBOX_HELPER,
+                }
+              : {}),
+            ...(options.checkpointOnly
+              ? {
+                  CAMP_MAC_CHECKPOINT_ONLY: '1',
+                  CAMP_MAC_CHECKPOINT_DOCKER_BINARY: values['docker-binary'],
+                }
+              : {}),
             ...(inputs
               ? {
                   CAMP_MAC_BENCHMARK_PACKAGE_INPUTS: packageFile,
@@ -445,6 +494,7 @@ try {
   );
   const fixtures = benchmarkRoundsComplete(rounds, {
     packaged: options.packaged,
+    checkpointOnly: options.checkpointOnly,
     smoke: values.smoke,
     root,
   });
@@ -472,6 +522,21 @@ try {
 } catch (error) {
   report.error = { code: error.code, message: error.message };
 } finally {
+  if (options.checkpointOnly && report.driver) {
+    try {
+      requireSourceEngine(sourceEngine, sourceEngineID);
+      assert.equal(
+        await hashFile(path.join(import.meta.dirname, 'installed.json')),
+        report.sourceInstallationSHA256,
+      );
+      assert.equal(git(['rev-parse', 'HEAD']), report.driver.sourceCommit);
+      assert.equal(git(['status', '--porcelain']), '');
+      assert.deepEqual(await driverFiles(), report.driver.files);
+    } catch (error) {
+      report.inputError = { message: error.message };
+      report.passed = false;
+    }
+  }
   try {
     if (inputs) {
       await verifyBenchmarkRuntime(

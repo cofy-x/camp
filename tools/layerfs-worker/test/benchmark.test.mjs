@@ -26,6 +26,7 @@ import {
   benchmarkSetupComplete,
   checkpointPhases,
   excludedPackageArms,
+  excludedCheckpointArms,
   onlineBenchmarkFixture,
   packageArms,
   sampleBenchmarkDiagnostic,
@@ -121,6 +122,7 @@ function round(iteration, packaged = true) {
 test('package benchmark requires complete explicit inputs and preserves existing source mode', async () => {
   assert.deepEqual(benchmarkOptions({}), {
     packaged: false,
+    checkpointOnly: false,
     explicitEngine: false,
     rounds: 3,
     setupSeries: 'none',
@@ -157,6 +159,45 @@ test('package benchmark requires complete explicit inputs and preserves existing
     { env: {}, timeout: 10000 },
   );
   assert.match(result.stdout, /--qualification/);
+});
+
+test('focused source campaigns require an explicit engine/helper and retain complete tuples without claiming package acceptance', () => {
+  const focused = {
+    'checkpoint-only': true,
+    'sync-helper': '/private/helper',
+    'docker-binary': '/private/docker',
+    'docker-socket': '/private/docker.sock',
+    'engine-profile': 'orbstack',
+    'output-base': root,
+  };
+  assert.equal(benchmarkOptions(focused).checkpointOnly, true);
+  assert.throws(() => benchmarkOptions({ ...options, ...focused }));
+  for (const key of [
+    'sync-helper',
+    'docker-binary',
+    'docker-socket',
+    'engine-profile',
+    'output-base',
+  ]) {
+    const partial = { ...focused };
+    delete partial[key];
+    assert.throws(() => benchmarkOptions(partial));
+  }
+  const measured = round(1);
+  measured.scope = 'source-checkpoint-only';
+  measured.excludedArms = excludedCheckpointArms;
+  measured.synchronization = { policy: 'staged-full-sync', helperSHA256: hash };
+  benchmarkRoundCoverage(measured, { checkpointOnly: true, root });
+  const missing = JSON.parse(JSON.stringify(measured));
+  missing.observations.pop();
+  assert.throws(() =>
+    benchmarkRoundCoverage(missing, { checkpointOnly: true, root }),
+  );
+  const mislabeled = JSON.parse(JSON.stringify(measured));
+  mislabeled.packageIdentity = {};
+  assert.throws(() =>
+    benchmarkRoundCoverage(mislabeled, { checkpointOnly: true, root }),
+  );
 });
 
 test('retained online fixture is selected only through its exact qualified report bytes and package identity', () => {

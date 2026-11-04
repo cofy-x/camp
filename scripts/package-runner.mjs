@@ -149,6 +149,7 @@ try {
       'administration.mjs',
       'manage.mjs',
       'tree.mjs',
+      'sync.mjs',
       'transfer.mjs',
       'protocol.mjs',
       'pin.json',

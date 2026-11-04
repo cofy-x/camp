@@ -9,6 +9,7 @@ import { uuidPattern } from './contracts.mjs';
 import { failure, readState, saveState } from './state.mjs';
 import { encodeCapture } from './transfer.mjs';
 import { loadCapture, restoreTree } from './tree.mjs';
+import { treeSynchronizer } from './sync.mjs';
 
 const within = (root, file) => {
   const relative = path.relative(root, file);
@@ -131,7 +132,9 @@ export async function administer(config) {
     return {
       kind: 'retained-native-restoration',
       source: describe(record),
-      ...(await restoreTree(capture, parent)),
+      ...(await restoreTree(capture, parent, {
+        syncTree: treeSynchronizer(config.syncHelper),
+      })),
       currentWorkerVerified: false,
       published: false,
       modelRequests: 0,
@@ -166,6 +169,7 @@ export async function administer(config) {
         installation: config.installation,
       });
       const checkpoints = new MacCheckpoints({
+        syncTree: treeSynchronizer(config.syncHelper),
         root: path.join(epochRoot, 'checkpoints'),
         captureBase: home,
         worker,
@@ -252,6 +256,7 @@ export async function administer(config) {
   });
   try {
     const checkpoints = new MacCheckpoints({
+      syncTree: treeSynchronizer(config.syncHelper),
       root: path.join(root, 'checkpoints'),
       captureBase: home,
       worker,
@@ -336,6 +341,7 @@ async function observeReconstruction(config, home) {
   let result;
   try {
     const manager = new MacCheckpoints({
+      syncTree: treeSynchronizer(config.syncHelper),
       root: path.join(root, 'checkpoints'),
       captureBase: home,
       worker,
