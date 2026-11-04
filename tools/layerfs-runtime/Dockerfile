@@ -9,6 +9,7 @@ COPY --chmod=0555 export.mjs /opt/camp/layerfs/export.mjs
 ENV LD_LIBRARY_PATH=/usr/local/lib/camp
 ENV COREPACK_ENABLE_NETWORK=0
 ARG LAYERFS_COMMIT
-RUN test "$(/usr/local/bin/node --version)" = "v24.16.0" && test "$(/usr/local/bin/pnpm --version)" = "12.11.2"
+RUN chmod -R a+rX /opt/camp/pnpm
+RUN test "$(/usr/local/bin/node --version)" = "v24.16.0" && test "$(/usr/bin/setpriv --reuid=501 --regid=20 --clear-groups /usr/local/bin/pnpm --version)" = "12.11.2"
 RUN /usr/bin/setpriv --reuid=501 --regid=20 --clear-groups /usr/local/bin/node --check /opt/camp/layerfs/export.mjs
 LABEL camp.runtime="layerfs" camp.layerfs.commit="${LAYERFS_COMMIT}"
