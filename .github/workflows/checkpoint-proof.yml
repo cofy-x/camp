@@ -2,7 +2,16 @@ name: LayerFS checkpoint qualification
 
 on:
   workflow_call:
+    inputs:
+      populate_build_cache:
+        type: boolean
+        default: false
   workflow_dispatch:
+    inputs:
+      populate_build_cache:
+        description: Populate this branch's build cache after manual qualification
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -33,22 +42,54 @@ jobs:
       - name: Resolve the local Docker socket
         id: socket
         run: node scripts/release-docker-socket.mjs
-      - name: Build the pinned runtime and qualify public checkpoint operations
+      - name: Prepare an isolated proof checkout at a stable build-cache path
         id: proof
+        run: |
+          build="$RUNNER_TEMP/camp-checkpoint-proof"
+          test ! -e "$build"
+          git clone --no-hardlinks "$GITHUB_WORKSPACE" "$build"
+          printf 'path=%s\n' "$build" >> "$GITHUB_OUTPUT"
+          printf 'image=%s-%s\n' "$ImageOS" "$ImageVersion" >> "$GITHUB_OUTPUT"
+      - name: Restore only the pinned runtime build cache
+        id: runtime_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.proof.outputs.path }}/tools/layerfs-runtime/node_modules/.camp-layerfs/source
+            ${{ steps.proof.outputs.path }}/tools/layerfs-runtime/node_modules/.camp-layerfs/build/cargo
+            ${{ steps.proof.outputs.path }}/tools/layerfs-runtime/node_modules/.camp-layerfs/build/rustup
+            ${{ steps.proof.outputs.path }}/tools/layerfs-runtime/node_modules/.camp-layerfs/build/checkout
+          key: checkpoint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.proof.outputs.image }}-${{ hashFiles('.node-version', 'Makefile', '.github/workflows/checkpoint-proof.yml', 'tools/layerfs-runtime/**', 'tools/project-runtime/package.json', 'tools/project-runtime/pnpm-lock.yaml') }}
+      - name: Build the pinned runtime and qualify public checkpoint operations
         env:
           CAMP_TEST_DOCKER_SOCKET: ${{ steps.socket.outputs.path }}
+          PROOF_CHECKOUT: ${{ steps.proof.outputs.path }}
         run: |
-          build="/tmp/camp-checkpoint-proof-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          printf 'path=%s\n' "$build" >> "$GITHUB_OUTPUT"
-          git clone --no-hardlinks "$GITHUB_WORKSPACE" "$build"
-          sudo chown -R root:root "$build"
-          cd "$build"
+          sudo chown -R root:root "$PROOF_CHECKOUT"
+          cd "$PROOF_CHECKOUT"
           sudo env PATH="$PATH" HOME=/root DOCKER_HOST="$DOCKER_HOST" \
             make install-project-runtime install-layerfs
           sudo env PATH="$PATH" HOME=/root DOCKER_HOST="$DOCKER_HOST" \
             CAMP_TEST_DOCKER_SOCKET="$CAMP_TEST_DOCKER_SOCKET" \
             node tools/layerfs-runtime/hybrid/probe.mjs dist/checkpoint-proof.json
           sudo chown "$(id -u):$(id -g)" dist/checkpoint-proof.json
+      - name: Return build-cache ownership to the cache action
+        if: ${{ always() && steps.proof.outcome == 'success' }}
+        env:
+          PROOF_CHECKOUT: ${{ steps.proof.outputs.path }}
+        run: |
+          cache="$PROOF_CHECKOUT/tools/layerfs-runtime/node_modules/.camp-layerfs"
+          if [ -d "$cache" ]; then sudo chown -R "$(id -u):$(id -g)" "$cache"; fi
+      - name: Populate the pinned cache after successful authorized qualification
+        if: ${{ success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.populate_build_cache)) && steps.runtime_cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.proof.outputs.path }}/tools/layerfs-runtime/node_modules/.camp-layerfs/source
+            ${{ steps.proof.outputs.path }}/tools/layerfs-runtime/node_modules/.camp-layerfs/build/cargo
+            ${{ steps.proof.outputs.path }}/tools/layerfs-runtime/node_modules/.camp-layerfs/build/rustup
+            ${{ steps.proof.outputs.path }}/tools/layerfs-runtime/node_modules/.camp-layerfs/build/checkout
+          key: ${{ steps.runtime_cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

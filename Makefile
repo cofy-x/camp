@@ -3,6 +3,8 @@ GO ?= go
 GOFMT ?= gofmt
 E2E_ARGS ?= --project=chromium
 E2E_INSTALL_ARGS ?= chromium
+REMOTE_ARGS ?=
+GO_TEST_SHARD ?=
 
 .PHONY: help install dev build build-dashboard build-go test test-go test-go-race test-js check-docs typecheck format format-go format-check format-check-go lint lint-go lint-fix lint-fix-format generate generate-check test-e2e smoke-production clean
 
@@ -68,6 +70,10 @@ test-go: generate-check
 test-go-race: generate-check
 	$(GO) test -race ./...
 
+.PHONY: test-go-shard
+test-go-shard:
+	GO="$(GO)" node scripts/test-go-shard.mjs --shard "$(GO_TEST_SHARD)"
+
 check-docs:
 	$(PNPM) run check:docs
 
@@ -121,7 +127,7 @@ remote-dev:
 	node scripts/remote.mjs up
 
 test-remote:
-	node scripts/remote.mjs test
+	node scripts/remote.mjs test $(REMOTE_ARGS)
 
 test-remote-native:
 	node scripts/remote.mjs native

@@ -21,6 +21,8 @@ The bridge discovers the selected engine's data directory through the public Doc
 
 Startup cleanup queries the public Docker volume API with exact Store/home labels instead of engine-wide disk/image inventory. This keeps unrelated host inventory outside cleanup's output budget. Project removal still uses the public LayerFS runtime API; orphan removal rechecks exact ownership and asks Docker to delete without force. Missing/ambiguous ownership or in-use volumes stop cleanup rather than pruning another Runner's state.
 
+Checkpoint CI restores only the pinned source/build output, Cargo dependencies, the private Rust toolchain and the private bare source checkout at a stable temporary path. The key includes the hosted image, architecture and owned build inputs. Successful main pushes populate this cache automatically; maintainers can explicitly opt in during [manual branch qualification](../../CONTRIBUTING.md#checks). PRs only read caches. Every hit still runs the installer, recreates `installed.json` and the local Docker image, and executes the complete checkpoint proof with fresh data. Installation reports, runtime homes, journals and proof results are never cached.
+
 ## Boundary and lifetime
 
 Go owns the SDK process, the private runtime home, Run records, resource locks, execution admission, cancellation, export validation, and authoritative result publication. The bridge uses only the public `@layerfs/agent`, `@layerfs/backend`, and `@layerfs/runtime` entrypoints. LayerFS owns its disposable Store, Sandbox, mounted Workspace, and checkpoints.

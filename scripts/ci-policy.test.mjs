@@ -103,45 +103,55 @@ test('required Source, Browser and Fixture shell gates reject failed, cancelled 
       .join('\n');
     for (const required of ['true', 'false', '', 'unknown'])
       for (const result of ['success', 'failure', 'cancelled', 'skipped', ''])
-        for (const classification of [
-          'success',
-          'failure',
-          'cancelled',
-          'skipped',
-          '',
-        ]) {
-          const execution = spawnSync(
-            'bash',
-            ['--noprofile', '--norc', '-e', '-c', script],
-            {
-              env: {
-                PATH: '/usr/bin:/bin',
-                LANG: 'C.UTF-8',
-                DOCS_ONLY: required,
-                REQUIRED: required,
-                RESULT: result,
-                CLASSIFICATION_RESULT: classification,
-                GITHUB_STEP_SUMMARY: path.join(tmp, 'summary'),
+        for (const secondary of id === 'fixture'
+          ? ['']
+          : ['success', 'failure', 'cancelled', 'skipped', ''])
+          for (const classification of [
+            'success',
+            'failure',
+            'cancelled',
+            'skipped',
+            '',
+          ]) {
+            const execution = spawnSync(
+              'bash',
+              ['--noprofile', '--norc', '-e', '-c', script],
+              {
+                env: {
+                  PATH: '/usr/bin:/bin',
+                  LANG: 'C.UTF-8',
+                  DOCS_ONLY: required,
+                  REQUIRED: required,
+                  RESULT: result,
+                  GO_RESULT: secondary,
+                  EVIDENCE_RESULT: secondary,
+                  CLASSIFICATION_RESULT: classification,
+                  GITHUB_STEP_SUMMARY: path.join(tmp, 'summary'),
+                },
               },
-            },
-          );
-          const expected =
-            id === 'source'
-              ? ['true', 'false'].includes(required) &&
-                gateDecision('true', result, classification).passed
-              : gateDecision(required, result, classification).passed;
-          assert.equal(
-            execution.status === 0,
-            expected,
-            JSON.stringify({
-              id,
-              required,
-              result,
-              classification,
-              stderr: execution.stderr?.toString(),
-            }),
-          );
-        }
+            );
+            const expected =
+              id === 'source'
+                ? ['true', 'false'].includes(required) &&
+                  gateDecision('true', result, classification).passed &&
+                  secondary === (required === 'true' ? 'skipped' : 'success')
+                : gateDecision(required, result, classification).passed &&
+                  (id === 'fixture' ||
+                    secondary ===
+                      (required === 'true' ? 'success' : 'skipped'));
+            assert.equal(
+              execution.status === 0,
+              expected,
+              JSON.stringify({
+                id,
+                required,
+                result,
+                classification,
+                secondary,
+                stderr: execution.stderr?.toString(),
+              }),
+            );
+          }
   }
 });
 
@@ -150,7 +160,12 @@ test('long source and fixture jobs are cancelable while protected gates remain s
     new URL('../.github/workflows/ci.yml', import.meta.url),
     'utf8',
   );
-  for (const id of ['source_checks', 'fixture_checks']) {
+  for (const id of [
+    'source_checks',
+    'source_go',
+    'browser_evidence',
+    'fixture_checks',
+  ]) {
     const block = workflowJob(workflow, id);
     const header = block.split('    steps:\n')[0];
     assert.match(header, /!cancelled\(\)/);
@@ -159,11 +174,12 @@ test('long source and fixture jobs are cancelable while protected gates remain s
   }
   for (const [id, execution] of [
     ['source', 'source_checks'],
+    ['browser', 'browser_project'],
     ['fixture', 'fixture_checks'],
   ]) {
     const block = workflowJob(workflow, id);
     assert.match(block, /timeout-minutes: 5/);
-    assert.ok(block.includes(`needs: [changes, ${execution}]`));
+    assert.ok(block.includes(`needs: [changes, ${execution}`));
     assert.ok(block.includes('RESULT: ${{ needs.' + execution + '.result }}'));
     assert.doesNotMatch(block, /uses:|make |go |npx |docker /);
     assert.equal((block.match(/- name:/g) || []).length, 1);
@@ -171,7 +187,8 @@ test('long source and fixture jobs are cancelable while protected gates remain s
   const source = workflowJob(workflow, 'source_checks');
   for (const command of [
     'make typecheck lint format-check',
-    'make test-go-race test-js',
+    'make generate-check',
+    'make test-js',
     'make build smoke-production',
     'node scripts/smoke-upgrade.mjs',
     'make check-docs',
@@ -181,7 +198,15 @@ test('long source and fixture jobs are cancelable while protected gates remain s
   ])
     assert.ok(source.includes(command), command);
   assert.ok(source.includes("needs.changes.outputs.docs == 'true'"));
-  assert.ok(source.includes("needs.changes.outputs.docs != 'true'"));
+  assert.ok(source.includes('["static", "sql", "javascript", "production"]'));
+  const go = workflowJob(workflow, 'source_go');
+  assert.ok(go.includes('shard: [1, 2]'));
+  assert.ok(go.includes('make test-go-shard GO_TEST_SHARD="$GO_TEST_SHARD"'));
+  assert.ok(
+    workflowJob(workflow, 'source').includes(
+      'GO_RESULT: ${{ needs.source_go.result }}',
+    ),
+  );
   const fixture = workflowJob(workflow, 'fixture_checks');
   assert.ok(
     fixture
@@ -265,4 +290,138 @@ test('portable Mac source policy drives the real command path and propagates fai
   assert(block.includes("inputs.validation-stage == 'release'"));
   assert(block.includes('node scripts/check-portable-go.mjs'));
   assert(block.includes('test-js'));
+});
+
+test('browser sharding keeps all projects, strict evidence uploads and a separate required verifier', async () => {
+  const workflow = await readFile(
+    new URL('../.github/workflows/ci.yml', import.meta.url),
+    'utf8',
+  );
+  const browser = workflowJob(workflow, 'browser_project');
+  assert.ok(browser.includes('project: [chromium, firefox, webkit, touch]'));
+  assert.ok(browser.includes('shard: [1, 2]'));
+  assert.ok(browser.includes('fail-fast: false'));
+  assert.ok(
+    browser.includes('--project=$BROWSER_PROJECT --shard=$BROWSER_SHARD'),
+  );
+  assert.doesNotMatch(browser, /--grep|--pass-with-no-tests/);
+  assert.equal((browser.match(/if-no-files-found: error/g) ?? []).length, 3);
+  assert.equal((browser.match(/success' && hashFiles/g) ?? []).length, 3);
+  const verifier = workflowJob(workflow, 'browser_evidence');
+  assert.ok(verifier.includes("needs.browser_project.result == 'success'"));
+  assert.ok(verifier.includes('actions: read'));
+  assert.ok(verifier.includes('node scripts/check-browser-shards.mjs'));
+  const gate = workflowJob(workflow, 'browser');
+  assert.ok(
+    gate.includes('needs: [changes, browser_project, browser_evidence]'),
+  );
+  assert.ok(gate.includes('test "$EVIDENCE_RESULT" = success'));
+  assert.ok(gate.includes('test "$EVIDENCE_RESULT" = skipped'));
+});
+
+test('checkpoint caches build inputs only and always requalifies, while fixture caches retain full recovery', async () => {
+  const checkpoint = await readFile(
+    new URL('../.github/workflows/checkpoint-proof.yml', import.meta.url),
+    'utf8',
+  );
+  const build = checkpoint
+    .split(
+      '      - name: Build the pinned runtime and qualify public checkpoint operations\n',
+    )[1]
+    .split('      - name:')[0];
+  assert.doesNotMatch(build, /\n\s+if:|cache-hit/);
+  assert.ok(build.includes('make install-project-runtime install-layerfs'));
+  assert.ok(
+    build.includes(
+      'node tools/layerfs-runtime/hybrid/probe.mjs dist/checkpoint-proof.json',
+    ),
+  );
+  for (const name of [
+    'source',
+    'build/cargo',
+    'build/rustup',
+    'build/checkout',
+  ])
+    assert.equal(
+      checkpoint.split(`.camp-layerfs/${name}\n`).length - 1,
+      2,
+      name,
+    );
+  const cached = checkpoint
+    .split('uses: actions/cache/')
+    .slice(1)
+    .map((block) => block.split('      - name:')[0].split('      - uses:')[0])
+    .join('\n');
+  assert.doesNotMatch(cached, /installed\.json|\/\.data|\/dist/);
+  assert.ok(checkpoint.includes('"$RUNNER_TEMP/camp-checkpoint-proof"'));
+  assert.ok(
+    checkpoint.includes(
+      "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+    ),
+  );
+  assert.ok(
+    checkpoint.includes(
+      "hashFiles('.node-version', 'Makefile', '.github/workflows/checkpoint-proof.yml', 'tools/layerfs-runtime/**'",
+    ),
+  );
+  assert.ok(checkpoint.includes('Return build-cache ownership'));
+  const workflow = await readFile(
+    new URL('../.github/workflows/ci.yml', import.meta.url),
+    'utf8',
+  );
+  const fixture = workflowJob(workflow, 'fixture_checks');
+  assert.ok(fixture.includes('load: true'));
+  assert.ok(
+    fixture.includes(
+      "CACHE_WRITE: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.populate_build_cache) }}",
+    ),
+  );
+  assert.ok(fixture.includes("DOCKER_BUILD_RECORD_UPLOAD: 'false'"));
+  assert.ok(fixture.includes('make test-remote REMOTE_ARGS=--skip-build'));
+  assert.ok(
+    fixture.includes('node --test tools/remote-dev/cache-plan.test.mjs'),
+  );
+});
+
+test('build caches permit automatic main and explicit manual writes, while PRs and release callers remain read-only', async () => {
+  const workflow = await readFile(
+    new URL('../.github/workflows/ci.yml', import.meta.url),
+    'utf8',
+  );
+  const expression = workflowJob(workflow, 'fixture_checks').match(
+    /CACHE_WRITE: \$\{\{ (.+) \}\}/,
+  )[1];
+  const permits = new Function('github', 'inputs', `return ${expression};`);
+  for (const event_name of [
+    'push',
+    'pull_request',
+    'workflow_dispatch',
+    'workflow_call',
+  ])
+    for (const ref of [
+      'refs/heads/main',
+      'refs/heads/feature',
+      'refs/pull/1/merge',
+    ])
+      for (const populate_build_cache of [false, true])
+        assert.equal(
+          permits({ event_name, ref }, { populate_build_cache }),
+          (event_name === 'push' && ref === 'refs/heads/main') ||
+            (event_name === 'workflow_dispatch' && populate_build_cache),
+          `${event_name} ${ref} ${populate_build_cache}`,
+        );
+  const checkpoint = await readFile(
+    new URL('../.github/workflows/checkpoint-proof.yml', import.meta.url),
+    'utf8',
+  );
+  assert.ok(checkpoint.includes(expression));
+  assert.ok(
+    workflowJob(workflow, 'checkpoint').includes(
+      "populate_build_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.populate_build_cache || false }}",
+    ),
+  );
+  assert.match(
+    workflow,
+    /workflow_dispatch:\n {4}inputs:\n {6}populate_build_cache:[\s\S]+?type: boolean\n {8}default: false/,
+  );
 });
