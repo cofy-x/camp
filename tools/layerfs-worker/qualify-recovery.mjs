@@ -12,6 +12,7 @@ import {
 import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+import { qualifyExportRelease } from './qualify-export-release.mjs';
 
 const runtime = process.env.CAMP_TEST_LAYERFS_WORKER_RUNTIME
   ? path.resolve(process.env.CAMP_TEST_LAYERFS_WORKER_RUNTIME)
@@ -174,6 +175,13 @@ try {
   report.checks.push(
     'The new Store restores actual checkpoint content while original identity, journal, captures, old receipts and pre-existing destination files remain unchanged.',
   );
+  report.exportRelease = await qualifyExportRelease({
+    runtime,
+    root,
+    source,
+    socket,
+    dockerBinary,
+  });
   report.passed = true;
 } catch (error) {
   report.error = {

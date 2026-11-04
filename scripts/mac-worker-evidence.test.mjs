@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import {
   chmod,
+  link,
   mkdir,
   mkdtemp,
   readFile,
@@ -18,6 +19,8 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import {
   digestJSON,
+  copyMacWorkerBaseline,
+  verifyMacWorkerArchive,
   macWorkerIdentity,
   macWorkerRecoverySummary,
   macWorkerScope,
@@ -34,6 +37,67 @@ import {
   validateMacWorkerReuse,
   validateMacWorkerReuseFixture,
 } from './mac-worker-evidence.mjs';
+
+async function baselineCacheFixture(t) {
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), 'camp-baseline-cache-')),
+  );
+  await chmod(root, 0o700);
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const cache = join(root, 'cache'),
+    destination = join(root, 'destination');
+  await mkdir(cache, { mode: 0o700 });
+  await mkdir(destination, { mode: 0o700 });
+  const content = Buffer.from('fixed baseline bytes');
+  const sha256 = createHash('sha256').update(content).digest('hex');
+  const item = {
+    filename: `camp-layerfs-worker-linux-arm64-${sha256}.tar.gz`,
+    sha256,
+    bytes: content.length,
+  };
+  await writeFile(join(cache, item.filename), content, { mode: 0o600 });
+  await writeFile(
+    join(cache, item.filename + '.sha256'),
+    `${sha256}  ${item.filename}\n`,
+    { mode: 0o600 },
+  );
+  return { root, cache, destination, content, item };
+}
+
+test('explicit baseline cache supplies only fully verified immutable artifact bytes', async (t) => {
+  const f = await baselineCacheFixture(t);
+  await copyMacWorkerBaseline(f.cache, f.destination, f.item);
+  await verifyMacWorkerArchive(f.destination, f.item);
+  assert.deepEqual(
+    await readFile(join(f.destination, f.item.filename)),
+    f.content,
+  );
+  assert.deepEqual(await readFile(join(f.cache, f.item.filename)), f.content);
+  await assert.rejects(copyMacWorkerBaseline(f.cache, f.destination, f.item), {
+    code: 'EEXIST',
+  });
+});
+
+test('baseline cache rejects corruption, aliases, shared files and incomplete downloads', async (t) => {
+  for (const kind of ['corrupt', 'short', 'symlink', 'hardlink', 'public'])
+    await t.test(kind, async (t) => {
+      const f = await baselineCacheFixture(t),
+        source = join(f.cache, f.item.filename);
+      if (kind === 'corrupt')
+        await writeFile(source, Buffer.alloc(f.content.length, 0x78));
+      if (kind === 'short') await writeFile(source, 'partial');
+      if (kind === 'symlink') {
+        await rm(source);
+        await writeFile(join(f.root, 'outside'), f.content);
+        await symlink(join(f.root, 'outside'), source);
+      }
+      if (kind === 'hardlink') await link(source, join(f.root, 'shared'));
+      if (kind === 'public') await chmod(source, 0o644);
+      await assert.rejects(
+        copyMacWorkerBaseline(f.cache, f.destination, f.item),
+      );
+    });
+});
 
 test('the package campaign requires an explicit baseline before host or engine activity', async () => {
   await assert.rejects(
@@ -402,6 +466,17 @@ function fixture() {
     passed: true,
     modelRequests: 0,
     workerDrainConfirmed: true,
+    exportRelease: {
+      passed: true,
+      modelRequests: 0,
+      delayConfirmed: true,
+      unknownRejected: true,
+      receivedCaptureRetained: true,
+      releaseJournalRetained: true,
+      reopenRefusedWithoutReplay: true,
+      controlledSandboxStopped: true,
+      recoveredNewEpoch: true,
+    },
     worker: {
       protocol: 1,
       image,
@@ -836,6 +911,26 @@ test('a changed worker image requires retained explicit reconstruction evidence'
     .concat('checkpoint-reconstruction-history-blocks-cleanup');
   validateMacWorkerReport(f.report, f.identity);
   u.reconstruction.resultDigest = 'e'.repeat(64);
+  assert.throws(() => validateMacWorkerReport(f.report, f.identity));
+});
+
+test('exact worker acceptance requires the delayed and failed export release proof', () => {
+  for (const key of [
+    'passed',
+    'delayConfirmed',
+    'unknownRejected',
+    'receivedCaptureRetained',
+    'releaseJournalRetained',
+    'reopenRefusedWithoutReplay',
+    'controlledSandboxStopped',
+    'recoveredNewEpoch',
+  ]) {
+    const f = fixture();
+    delete f.report.scenarios.recovery.exportRelease[key];
+    assert.throws(() => validateMacWorkerReport(f.report, f.identity));
+  }
+  const f = fixture();
+  f.report.scenarios.recovery.exportRelease.modelRequests = 1;
   assert.throws(() => validateMacWorkerReport(f.report, f.identity));
 });
 
