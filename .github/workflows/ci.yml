@@ -460,6 +460,8 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.native == 'true' }}
     uses: ./.github/workflows/native-mac.yml
+    with:
+      populate_build_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.populate_build_cache || false }}
 
   checkpoint:
     needs: changes

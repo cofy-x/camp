@@ -2,7 +2,16 @@ name: Native Mac qualification
 
 on:
   workflow_call:
+    inputs:
+      populate_build_cache:
+        type: boolean
+        default: false
   workflow_dispatch:
+    inputs:
+      populate_build_cache:
+        description: Populate this branch's build caches after complete qualification
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -27,6 +36,21 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Resolve actual native build inputs and compiler cache
+        id: build_inputs
+        run: node scripts/mac-build-cache.mjs
+      - name: Restore pinned dependencies and verified runtime compression inputs
+        id: build_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.build_inputs.outputs.go-cache }}
+            tools/seatbelt-runtime/node_modules
+            tools/dsh-runtime/node_modules
+            tools/project-runtime/node_modules
+            .data/native-runtime-compression
+          key: ${{ steps.build_inputs.outputs.key }}
+          restore-keys: ${{ steps.build_inputs.outputs.prefix }}-
       - name: Install the pinned qualification package without scripts
         run: npx --yes pnpm@12.11.2 --dir tools/seatbelt-runtime install --frozen-lockfile --ignore-scripts
       - name: Check actual read and network boundaries
@@ -74,12 +98,27 @@ jobs:
         run: go test -count=1 -timeout=240s -v ./apps/server/internal/nativeexecutor -run '^TestNativeLocalCheckpointMeasurements$'
       - name: Check the operator's retained local qualification command
         run: node scripts/qualify-native-mac.mjs --tool-root "$(go env GOROOT)" --command 'go version'
-      - name: Build and relocate the complete native Runner packages
-        run: |
-          make install build
-          node scripts/package-runner.mjs
-          node scripts/smoke-bundle.mjs online
-          node scripts/smoke-bundle.mjs offline
+      - name: Install pinned Server build dependencies
+        run: make install
+      - name: Build the embedded Server and native helper
+        run: make build
+      - name: Build complete native Runner packages
+        env:
+          CAMP_RUNTIME_ARCHIVE_CACHE: ${{ github.workspace }}/.data/native-runtime-compression
+        run: node scripts/package-runner.mjs
+      - name: Check complete online and offline installation concurrently
+        run: node scripts/check-native-packages.mjs
+      - name: Populate native build caches after complete authorized qualification
+        if: ${{ success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.populate_build_cache)) && steps.build_cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.build_inputs.outputs.go-cache }}
+            tools/seatbelt-runtime/node_modules
+            tools/dsh-runtime/node_modules
+            tools/project-runtime/node_modules
+            .data/native-runtime-compression
+          key: ${{ steps.build_cache.outputs.cache-primary-key }}
       - name: Retain native installation evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

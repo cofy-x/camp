@@ -425,3 +425,53 @@ test('build caches permit automatic main and explicit manual writes, while PRs a
     /workflow_dispatch:\n {4}inputs:\n {6}populate_build_cache:[\s\S]+?type: boolean\n {8}default: false/,
   );
 });
+
+test('Mac build caches retain both hosts, forced native execution and complete parallel package acceptance', async () => {
+  const workflow = await readFile(
+    new URL('../.github/workflows/native-mac.yml', import.meta.url),
+    'utf8',
+  );
+  assert.ok(workflow.includes('host: [macos-15, macos-26]'));
+  assert.ok(workflow.includes('fail-fast: false'));
+  for (const name of [
+    'Check actual read and network boundaries',
+    'Check native command lifecycle and cleanup receipts',
+    'Check actual native DSH, capture, continuation and collaboration',
+    "Check the operator's retained local qualification command",
+    'Build complete native Runner packages',
+    'Check complete online and offline installation concurrently',
+  ]) {
+    const block = workflow
+      .split(`      - name: ${name}\n`)[1]
+      ?.split('      - name:')[0];
+    assert.ok(block, name);
+    assert.doesNotMatch(block, /cache-hit|\n {8}if:/);
+  }
+  const tests = workflow
+    .split('\n')
+    .filter((line) => /run: go test/.test(line));
+  assert.equal(tests.length, 8);
+  assert.ok(tests.every((line) => line.includes('-count=1')));
+  assert.ok(workflow.includes('node scripts/check-native-packages.mjs'));
+  assert.ok(workflow.includes('path: dist/native-mac/'));
+  const paths = workflow
+    .split('          path: |\n')[1]
+    .split('          key:')[0];
+  assert.ok(paths.includes('outputs.go-cache'));
+  assert.ok(paths.includes('.data/native-runtime-compression'));
+  assert.doesNotMatch(paths, /dist\/|installed\.json|journals|readiness/);
+  assert.ok(
+    workflow.includes(
+      "(github.event_name == 'workflow_dispatch' && inputs.populate_build_cache)",
+    ),
+  );
+  const caller = await readFile(
+    new URL('../.github/workflows/ci.yml', import.meta.url),
+    'utf8',
+  );
+  assert.ok(
+    workflowJob(caller, 'native').includes(
+      "populate_build_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.populate_build_cache || false }}",
+    ),
+  );
+});
