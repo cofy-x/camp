@@ -422,6 +422,6 @@ test('build caches permit automatic main and explicit manual writes, while PRs a
   );
   assert.match(
     workflow,
-    /workflow_dispatch:\n    inputs:\n      populate_build_cache:[\s\S]+?type: boolean\n        default: false/,
+    /workflow_dispatch:\n {4}inputs:\n {6}populate_build_cache:[\s\S]+?type: boolean\n {8}default: false/,
   );
 });
