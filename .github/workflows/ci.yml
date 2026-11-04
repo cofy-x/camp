@@ -51,11 +51,15 @@ jobs:
           retention-days: 14
 
   source_checks:
-    name: Source checks
+    name: Source checks / ${{ matrix.check }}
     needs: changes
     if: ${{ !cancelled() && needs.changes.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        check: ${{ fromJSON(needs.changes.outputs.docs == 'true' && '["documentation"]' || '["static", "sql", "javascript", "production"]') }}
     steps:
       - name: Require successful classification
         env:
@@ -68,47 +72,78 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
-      - if: ${{ needs.changes.outputs.docs != 'true' }}
+      - if: ${{ matrix.check != 'documentation' }}
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - name: Install Linux test prerequisites
-        if: ${{ needs.changes.outputs.docs != 'true' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends bubblewrap
       - name: Install pinned dependencies
-        if: ${{ needs.changes.outputs.docs != 'true' }}
+        if: ${{ matrix.check != 'documentation' }}
         run: make install
-      - name: Check types, lint and formatting
-        if: ${{ needs.changes.outputs.docs != 'true' }}
-        run: make typecheck lint format-check
-      - name: Check generated SQL and run unit tests
-        if: ${{ needs.changes.outputs.docs != 'true' }}
-        run: make test-go-race test-js
+      - name: Check types, lint, formatting and workflows
+        if: ${{ matrix.check == 'static' }}
+        run: |
+          make typecheck lint format-check
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Check generated SQL
+        if: ${{ matrix.check == 'sql' }}
+        run: make generate-check
+      - name: Run script and frontend unit tests
+        if: ${{ matrix.check == 'javascript' }}
+        run: make test-js
       - name: Check embedded production build
-        if: ${{ needs.changes.outputs.docs != 'true' }}
+        if: ${{ matrix.check == 'production' }}
         run: |
           make build smoke-production
           node scripts/smoke-upgrade.mjs
-      - name: Check GitHub workflows
-        if: ${{ needs.changes.outputs.docs != 'true' }}
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
       - name: Check documentation and instruction changes
-        if: ${{ needs.changes.outputs.docs == 'true' }}
+        if: ${{ matrix.check == 'documentation' }}
         run: |
           npx --yes pnpm@12.11.2 install --frozen-lockfile --ignore-scripts
           make check-docs
           npx --yes pnpm@12.11.2 exec prettier --check '**/*.md'
       - name: Record governance review requirement
-        if: ${{ needs.changes.outputs.governance == 'true' }}
+        if: ${{ needs.changes.outputs.governance == 'true' && (matrix.check == 'static' || matrix.check == 'documentation') }}
         run: echo 'Instruction/process behavior requires PR review; passing documentation checks is not approval.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Check tracked files remain unchanged
+        run: git diff --exit-code
+
+  source_go:
+    name: Go tests / ${{ matrix.shard }}/2
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.docs != 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install Linux test prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap
+      - name: Install pinned dependencies
+        run: make install
+      - name: Run every assigned Go test, example and fuzz seed with race detection
+        env:
+          GO_TEST_SHARD: ${{ matrix.shard }}/2
+        run: make test-go-shard GO_TEST_SHARD="$GO_TEST_SHARD"
       - name: Check tracked files remain unchanged
         run: git diff --exit-code
 
   source:
     name: Source
-    needs: [changes, source_checks]
+    needs: [changes, source_checks, source_go]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -117,22 +152,27 @@ jobs:
         env:
           DOCS_ONLY: ${{ needs.changes.outputs.docs }}
           RESULT: ${{ needs.source_checks.result }}
+          GO_RESULT: ${{ needs.source_go.result }}
           CLASSIFICATION_RESULT: ${{ needs.changes.result }}
         run: |
           test "$CLASSIFICATION_RESULT" = success
           test "$DOCS_ONLY" = true || test "$DOCS_ONLY" = false
           test "$RESULT" = success
-          echo "Source documentation-only=$DOCS_ONLY, result=$RESULT" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$DOCS_ONLY" = true ]; then test "$GO_RESULT" = skipped;
+          else test "$GO_RESULT" = success; fi
+          echo "Source documentation-only=$DOCS_ONLY, result=$RESULT, go=$GO_RESULT" >> "$GITHUB_STEP_SUMMARY"
 
   browser_project:
     needs: changes
     if: ${{ needs.changes.outputs.browser == 'true' }}
-    name: Browser / ${{ matrix.project }}
+    name: Browser / ${{ matrix.project }} / ${{ matrix.shard }}/2
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
+        project: [chromium, firefox, webkit, touch]
+        shard: [1, 2]
         include:
           - project: chromium
             engine: chromium
@@ -160,12 +200,13 @@ jobs:
         env:
           BROWSER_PROJECT: ${{ matrix.project }}
           BROWSER_ENGINE: ${{ matrix.engine }}
+          BROWSER_SHARD: ${{ matrix.shard }}/2
         run: >-
           make test-e2e
           E2E_INSTALL_ARGS="--with-deps $BROWSER_ENGINE"
-          E2E_ARGS="--project=$BROWSER_PROJECT"
+          E2E_ARGS="--project=$BROWSER_PROJECT --shard=$BROWSER_SHARD"
       - name: Retain radio keyboard evidence
-        if: ${{ steps.browser_tests.outcome == 'success' }}
+        if: ${{ steps.browser_tests.outcome == 'success' && hashFiles('test-results/**/avatar-keyboard-*.png') != '' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: radio-keyboard-${{ matrix.project }}-${{ github.run_attempt }}
@@ -173,7 +214,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Retain Markdown file preview evidence
-        if: ${{ steps.browser_tests.outcome == 'success' }}
+        if: ${{ steps.browser_tests.outcome == 'success' && hashFiles('test-results/**/markdown-file-preview.png') != '' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: markdown-file-preview-${{ matrix.project }}-${{ github.run_attempt }}
@@ -181,7 +222,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Retain review navigation evidence
-        if: ${{ steps.browser_tests.outcome == 'success' }}
+        if: ${{ steps.browser_tests.outcome == 'success' && hashFiles('test-results/**/review-navigation-after-cancel.png', 'test-results/**/review-navigation-after-receipt-recovery.png') != '' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: review-navigation-${{ matrix.project }}-${{ github.run_attempt }}
@@ -194,15 +235,37 @@ jobs:
         if: ${{ failure() && steps.browser_tests.outcome == 'failure' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: browser-failure-${{ matrix.project }}-${{ github.run_attempt }}
+          name: browser-failure-${{ matrix.project }}-${{ matrix.shard }}-${{ github.run_attempt }}
           path: |
             playwright-report/
             test-results/
           retention-days: 7
 
+  browser_evidence:
+    name: Browser evidence
+    needs: [changes, browser_project]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.browser == 'true' && needs.browser_project.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Require each shard and exactly one upload of every project evidence type
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/check-browser-shards.mjs
+
   browser:
     name: Browser
-    needs: [changes, browser_project]
+    needs: [changes, browser_project, browser_evidence]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -211,11 +274,16 @@ jobs:
         env:
           REQUIRED: ${{ needs.changes.outputs.browser }}
           RESULT: ${{ needs.browser_project.result }}
+          EVIDENCE_RESULT: ${{ needs.browser_evidence.result }}
           CLASSIFICATION_RESULT: ${{ needs.changes.result }}
         run: |
           test "$CLASSIFICATION_RESULT" = success
-          if [ "$REQUIRED" = true ]; then test "$RESULT" = success;
-          elif [ "$REQUIRED" = false ]; then test "$RESULT" = skipped;
+          if [ "$REQUIRED" = true ]; then
+            test "$RESULT" = success
+            test "$EVIDENCE_RESULT" = success
+          elif [ "$REQUIRED" = false ]; then
+            test "$RESULT" = skipped
+            test "$EVIDENCE_RESULT" = skipped
           else exit 1; fi
           echo "Browser required=$REQUIRED, result=$RESULT" >> "$GITHUB_STEP_SUMMARY"
 
@@ -225,6 +293,9 @@ jobs:
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.fixture == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
     env:
       CAMP_REMOTE_PROJECT: camp-remote-ci
     steps:
@@ -247,9 +318,28 @@ jobs:
       - name: Check Docker Compose
         if: ${{ needs.changes.outputs.fixture == 'true' }}
         run: docker compose version
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          version: v0.36.0
+          driver-opts: image=moby/buildkit:v0.34.2
+          cache-binary: false
+      - name: Check cache configuration against actual Compose image tags
+        run: node --test tools/remote-dev/cache-plan.test.mjs
+      - name: Build all fixture images with bounded main-branch caches
+        uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
+        env:
+          COMPOSE_PROJECT_NAME: ${{ env.CAMP_REMOTE_PROJECT }}
+          CACHE_WRITE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          DOCKER_BUILD_RECORD_UPLOAD: 'false'
+        with:
+          source: .
+          files: |
+            compose.remote.yml
+            .github/fixture-cache.hcl
+          load: true
       - name: Check protocol, business flow and recovery
         if: ${{ needs.changes.outputs.fixture == 'true' }}
-        run: make test-remote
+        run: make test-remote REMOTE_ARGS=--skip-build
       - name: Remove this test project's containers and volumes
         if: ${{ always() && needs.changes.outputs.fixture == 'true' }}
         timeout-minutes: 5
