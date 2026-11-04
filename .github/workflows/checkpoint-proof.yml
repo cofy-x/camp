@@ -2,7 +2,16 @@ name: LayerFS checkpoint qualification
 
 on:
   workflow_call:
+    inputs:
+      populate_build_cache:
+        type: boolean
+        default: false
   workflow_dispatch:
+    inputs:
+      populate_build_cache:
+        description: Populate this branch's build cache after manual qualification
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -71,8 +80,8 @@ jobs:
         run: |
           cache="$PROOF_CHECKOUT/tools/layerfs-runtime/node_modules/.camp-layerfs"
           if [ -d "$cache" ]; then sudo chown -R "$(id -u):$(id -g)" "$cache"; fi
-      - name: Populate the pinned cache only after successful main qualification
-        if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.runtime_cache.outputs.cache-hit != 'true' }}
+      - name: Populate the pinned cache after successful authorized qualification
+        if: ${{ success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.populate_build_cache)) && steps.runtime_cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |

@@ -1,4 +1,5 @@
-// Two bounded scopes; only main updates them. PRs still build and test on misses.
+// Two bounded scopes; main and explicit manual qualification may update them.
+// PRs only read caches and still build and test on misses.
 variable "CACHE_WRITE" {
   default = "false"
 }

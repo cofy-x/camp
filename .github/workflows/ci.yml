@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      populate_build_cache:
+        description: Populate this branch's build caches during manual qualification
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       validation-stage:
@@ -329,7 +334,7 @@ jobs:
         uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
         env:
           COMPOSE_PROJECT_NAME: ${{ env.CAMP_REMOTE_PROJECT }}
-          CACHE_WRITE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          CACHE_WRITE: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.populate_build_cache) }}
           DOCKER_BUILD_RECORD_UPLOAD: 'false'
         with:
           source: .
@@ -460,3 +465,5 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.checkpoint == 'true' }}
     uses: ./.github/workflows/checkpoint-proof.yml
+    with:
+      populate_build_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.populate_build_cache || false }}

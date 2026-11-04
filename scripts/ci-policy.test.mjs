@@ -373,12 +373,55 @@ test('checkpoint caches build inputs only and always requalifies, while fixture 
   assert.ok(fixture.includes('load: true'));
   assert.ok(
     fixture.includes(
-      "CACHE_WRITE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}",
+      "CACHE_WRITE: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.populate_build_cache) }}",
     ),
   );
   assert.ok(fixture.includes("DOCKER_BUILD_RECORD_UPLOAD: 'false'"));
   assert.ok(fixture.includes('make test-remote REMOTE_ARGS=--skip-build'));
   assert.ok(
     fixture.includes('node --test tools/remote-dev/cache-plan.test.mjs'),
+  );
+});
+
+test('build caches permit automatic main and explicit manual writes, while PRs and release callers remain read-only', async () => {
+  const workflow = await readFile(
+    new URL('../.github/workflows/ci.yml', import.meta.url),
+    'utf8',
+  );
+  const expression = workflowJob(workflow, 'fixture_checks').match(
+    /CACHE_WRITE: \$\{\{ (.+) \}\}/,
+  )[1];
+  const permits = new Function('github', 'inputs', `return ${expression};`);
+  for (const event_name of [
+    'push',
+    'pull_request',
+    'workflow_dispatch',
+    'workflow_call',
+  ])
+    for (const ref of [
+      'refs/heads/main',
+      'refs/heads/feature',
+      'refs/pull/1/merge',
+    ])
+      for (const populate_build_cache of [false, true])
+        assert.equal(
+          permits({ event_name, ref }, { populate_build_cache }),
+          (event_name === 'push' && ref === 'refs/heads/main') ||
+            (event_name === 'workflow_dispatch' && populate_build_cache),
+          `${event_name} ${ref} ${populate_build_cache}`,
+        );
+  const checkpoint = await readFile(
+    new URL('../.github/workflows/checkpoint-proof.yml', import.meta.url),
+    'utf8',
+  );
+  assert.ok(checkpoint.includes(expression));
+  assert.ok(
+    workflowJob(workflow, 'checkpoint').includes(
+      "populate_build_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.populate_build_cache || false }}",
+    ),
+  );
+  assert.match(
+    workflow,
+    /workflow_dispatch:\n    inputs:\n      populate_build_cache:[\s\S]+?type: boolean\n        default: false/,
   );
 });
