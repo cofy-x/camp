@@ -55,6 +55,15 @@ test('administrative release records completion before dropping owned resources'
   assert.deepEqual(f.events, ['unmount', 'close']);
   assert.equal(f.owner.mounts.size, 0);
   assert.equal((await f.records())[0].state, 'released');
+  const calls = (await f.records())[0].calls;
+  for (const name of ['unmountMs', 'closeMs']) {
+    assert.ok(Number.isFinite(calls[name]) && calls[name] >= 0);
+    assert.equal(f.resource.releaseMetrics[name], calls[name]);
+  }
+  assert.ok(f.resource.releaseMetrics.journalMs >= 0);
+  assert.ok(
+    f.resource.releaseMetrics.totalMs >= calls.unmountMs + calls.closeMs,
+  );
   await requireReleased(f.owner.config.home);
   await drainResources(f.owner);
   assert.deepEqual(f.events, [
@@ -74,6 +83,8 @@ for (const phase of ['unmount', 'close'])
     assert.equal(record.state, 'unknown');
     assert.equal(record.failedPhase, `${phase}-dispatched`);
     assert.equal(record.error.code, 'Docker');
+    assert.ok(Number.isFinite(record.calls[`${phase}Ms`]));
+    assert.equal(f.resource.releaseMetrics, undefined);
     assert.equal(record.sandbox, f.resource.sandbox);
     await assert.rejects(requireReleased(f.owner.config.home), {
       code: 'Unknown',

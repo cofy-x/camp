@@ -55,6 +55,10 @@ Persist distinguishable preparation, upload completion, mutation/Commit dispatch
 
 Reconciliation observes public history/readback with the matching operation, generation, digest, parent and Store identity; conflicting bodies/parents fail. A local receipt alone cannot establish current state after restart/Store loss. An unchanged snapshot can advance its generation receipt with the same head, without inventing a Commit. Otherwise retain captures/receipts and block required checkpoint publication until explicit recovery. Reconstruction uses a new Store/operation, preserving old uncertainty and lineage.
 
+An unchanged complete snapshot still seals and hashes the native tree, validates every requested cache blob and validates its upload. When its digest and expected parent match the current namespace, the worker records a readback intent against the retained parent branch. It skips the redundant operation branch, apply mount/scan and release, then performs a fresh independent mount, complete content/metadata/link readback, confirmed release and head check before advancing that generation. No earlier readback or timestamp cache authorizes success. An interrupted readback can resume only that same read-only operation against its frozen parent; it cannot replay a mutation. Existing fork-based receipts remain readable without migration.
+
+Private release records retain bounded monotonic timings for sampling, public SDK unmount and Sandbox close, including failed calls. Successful operation receipts also separate journal writes and complete release wall time. These timings attribute cost; they do not establish release, Store durability or a particular Docker stop cause. SDK acknowledgements and the retained unknown-release gate remain authoritative. Qualification sampling is included in complete wall time and reported separately from SDK calls.
+
 Qualification covers interrupted upload, apply failure, lost Commit reply, worker/Runner restart and Store loss without resetting another Runner or home. [Actual Mac qualification](#actual-mac-qualification) owns the remaining fault/fixture matrix.
 
 ## Transport, installation and permissions

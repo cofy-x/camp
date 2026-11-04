@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { failure, readState, saveState } from './state.mjs';
 
 export async function requireReleased(home, uncertain = false) {
@@ -23,6 +24,9 @@ export async function releaseResource(owner, resource, sample) {
   if (resource.releaseAttempted)
     throw failure('Unknown', 'Administrative release is already uncertain.');
   resource.releaseAttempted = true;
+  const started = performance.now();
+  const calls = {};
+  let journalMs = 0;
   const record = {
     schema: 1,
     id: randomUUID(),
@@ -34,28 +38,44 @@ export async function releaseResource(owner, resource, sample) {
     purpose: resource.purpose,
     operationId: resource.operationId,
     state: 'release-dispatched',
+    calls,
   };
   const file = path.join(owner.config.home, 'releases', `${record.id}.json`);
   const phase = async (state) => {
-    record.state = state;
-    record.observedAt = new Date().toISOString();
-    await saveState(file, record);
-    if (!owner.releaseUncertain)
-      await saveState(path.join(owner.config.home, 'release-state.json'), {
-        schema: 1,
-        id: record.id,
-        worker: record.worker,
-        storeId: record.storeId,
-        state,
-        observedAt: record.observedAt,
-      });
+    const writing = performance.now();
+    try {
+      record.state = state;
+      record.observedAt = new Date().toISOString();
+      await saveState(file, record);
+      if (!owner.releaseUncertain)
+        await saveState(path.join(owner.config.home, 'release-state.json'), {
+          schema: 1,
+          id: record.id,
+          worker: record.worker,
+          storeId: record.storeId,
+          state,
+          observedAt: record.observedAt,
+        });
+    } finally {
+      journalMs += performance.now() - writing;
+    }
+  };
+  const measured = async (name, action) => {
+    const dispatched = performance.now();
+    try {
+      return await action();
+    } finally {
+      calls[name] = performance.now() - dispatched;
+    }
   };
   try {
     await phase('release-dispatched');
-    await sample?.();
+    if (sample) await measured('sampleMs', sample);
     if (resource.workspace) {
       await phase('unmount-dispatched');
-      await owner.client.workspace.unmount(resource.workspace);
+      await measured('unmountMs', () =>
+        owner.client.workspace.unmount(resource.workspace),
+      );
     }
     await phase('close-dispatched');
     if (
@@ -63,8 +83,15 @@ export async function releaseResource(owner, resource, sample) {
       owner.takeFault('export-release-failure')
     )
       throw failure('Docker', 'Controlled export release failure.');
-    await owner.client.sandbox.close(resource.sandbox);
+    await measured('closeMs', () =>
+      owner.client.sandbox.close(resource.sandbox),
+    );
     await phase('released');
+    resource.releaseMetrics = {
+      ...calls,
+      journalMs,
+      totalMs: performance.now() - started,
+    };
     owner.mounts.delete(resource);
   } catch (error) {
     record.failedPhase = record.state;
