@@ -65,7 +65,24 @@ else {
   await mkdir(checkout, { mode: 0o700 });
   for (const command of [
     ['-C', checkout, 'init', '--bare', '--quiet'],
-    ['-C', checkout, 'fetch', '--depth=1', layerfs.repository, layerfs.commit],
+    ['-C', checkout, 'config', 'remote.origin.url', layerfs.repository],
+    ['-C', checkout, 'config', 'remote.origin.promisor', 'true'],
+    [
+      '-C',
+      checkout,
+      'config',
+      'remote.origin.partialclonefilter',
+      'blob:limit=10m',
+    ],
+    [
+      '-C',
+      checkout,
+      'fetch',
+      '--depth=1',
+      '--filter=blob:limit=10m',
+      'origin',
+      layerfs.commit,
+    ],
   ]) {
     const child = spawn('git', command, { stdio: 'inherit' });
     await wait(child);
