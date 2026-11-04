@@ -752,6 +752,9 @@ test('a disabled reviewer can be reassigned and a cancelled version can be revie
     )
     .toBe(1);
   await page.unrouteAll({ behavior: 'wait' });
+  await expect(
+    detail(page).getByRole('heading', { name: title, exact: true }),
+  ).toBeVisible();
   const reviews = await (
     await page.request.get(`/api/reviews?roomId=${room.id}`)
   ).json();
@@ -850,20 +853,45 @@ test('a disabled reviewer can be reassigned and a cancelled version can be revie
     .click();
   await request.getByLabel('Title', { exact: true }).fill(`${title} restarted`);
   await request.getByLabel('Reviewer', { exact: true }).selectOption(owner.id);
-  await request
-    .getByRole('button', { name: 'Request Review', exact: true })
-    .click();
-  await expect
-    .poll(
-      async () =>
-        (
-          await (
-            await page.request.get(`/api/reviews?roomId=${room.id}`)
-          ).json()
-        ).reviews.length,
-    )
-    .toBe(2);
-  await openReview(page, `${title} restarted`);
+  let releaseCreated = () => {};
+  const createdResponse = new Promise<void>((resolve) => {
+    releaseCreated = resolve;
+  });
+  // Server acceptance precedes private receipt persistence and navigation.
+  // Keep the response pending so API visibility cannot stand in for the UI.
+  await page.route(`**/api/rooms/${room.id}/reviews`, async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    const response = await route.fetch();
+    expect(response.ok()).toBeTruthy();
+    await createdResponse;
+    await route.fulfill({ response });
+  });
+  try {
+    await request
+      .getByRole('button', { name: 'Request Review', exact: true })
+      .click();
+    await expect
+      .poll(
+        async () =>
+          (
+            await (
+              await page.request.get(`/api/reviews?roomId=${room.id}`)
+            ).json()
+          ).reviews.length,
+      )
+      .toBe(2);
+    await expect(request.getByLabel('Title', { exact: true })).toBeDisabled();
+    releaseCreated();
+    await expect(
+      detail(page).getByRole('heading', {
+        name: `${title} restarted`,
+        exact: true,
+      }),
+    ).toBeVisible();
+  } finally {
+    releaseCreated();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
   await expect(detail(page)).toContainText('In Review');
   await expect(detail(page)).not.toContainText(
     'The assigned reviewer is disabled.',
