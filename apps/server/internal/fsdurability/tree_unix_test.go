@@ -140,16 +140,26 @@ func TestTreeRefusesUnsupportedEntriesAndRootAliases(t *testing.T) {
 	}
 }
 
-func TestTreeDetectsReplacementBeforeFinalBarrier(t *testing.T) {
+func TestTreeDetectsFileMutationDuringSynchronization(t *testing.T) {
 	root := fixture(t)
 	var replaced atomic.Bool
 	err := syncTree(context.Background(), root, func(file *os.File) error {
-		if replaced.CompareAndSwap(false, true) {
-			return os.WriteFile(filepath.Join(root, "new-file"), []byte("late write"), 0600)
+		info, err := file.Stat()
+		if err != nil {
+			return err
+		}
+		original, err := os.Stat(filepath.Join(root, "a"))
+		if err != nil {
+			return err
+		}
+		if os.SameFile(info, original) && replaced.CompareAndSwap(false, true) {
+			// Changing length is observable on filesystems whose directory
+			// timestamps can remain unchanged within one clock tick.
+			return os.WriteFile(filepath.Join(root, "a"), []byte("changed after the pinned witness"), 0600)
 		}
 		return Entry(file)
 	}, func(*os.File) error { t.Error("changed tree reached final barrier"); return nil })
 	if err == nil {
-		t.Fatal("late namespace mutation became confirmed synchronization")
+		t.Fatal("file mutation became confirmed synchronization")
 	}
 }

@@ -59,14 +59,18 @@ test('a failed staging barrier retains the capture and rejected tree without ret
 
 test('independent readback rejects a changed tree even after a successful synchronization callback', async (t) => {
   const { root, capture } = await fixture(t);
-  await assert.rejects(
-    restoreTree(capture, path.join(root, 'results'), {
-      syncTree: async (directory) => {
-        await writeFile(path.join(directory, 'file'), 'wrong bytes');
-      },
-    }),
-    { code: 'Mismatch' },
-  );
+  for (const mutation of ['bytes', 'membership'])
+    await assert.rejects(
+      restoreTree(capture, path.join(root, `results-${mutation}`), {
+        syncTree: async (directory) => {
+          await writeFile(
+            path.join(directory, mutation === 'bytes' ? 'file' : 'unexpected'),
+            'wrong bytes',
+          );
+        },
+      }),
+      { code: 'Mismatch' },
+    );
 });
 
 test('a selected helper never silently falls back on missing, failed or incompatible completion', async (t) => {
