@@ -225,6 +225,7 @@ export class LinuxWorker {
     this.bootId = randomUUID();
   }
   async assertStore() {
+    await requireReleased(this.config.home, this.releaseUncertain);
     const info = await lstat(this.storePath, { bigint: true }).catch(() => {
       throw failure(
         'LostStore',
@@ -795,6 +796,7 @@ export class LinuxWorker {
       throw failure('Unknown', 'An unverified operation cannot be restored.');
     const resource = await this.mounted(receipt.branch);
     resource.purpose = 'export';
+    resource.operationId = operationId;
     const scanned = await this.runHelper(resource, 'scan');
     if (
       scanned.digest !== receipt.binding.digest ||

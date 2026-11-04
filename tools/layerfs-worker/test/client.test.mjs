@@ -48,18 +48,20 @@ async function fixture(t, kind) {
     protocol: 1,
     sourceCommit: 'test-sdk',
   };
-  let release, transferred;
+  let release, transferred, transferFailed;
   const gate = new Promise((resolve) => {
     release = resolve;
   });
-  const bodySent = new Promise((resolve) => {
+  const bodySent = new Promise((resolve, reject) => {
     transferred = resolve;
+    transferFailed = reject;
   });
+  bodySent.catch(() => {});
   const client = new WorkerClient({
     home,
     child,
     status,
-    timeoutMs: kind === 'timeout' ? 1000 : 5000,
+    timeoutMs: kind === 'timeout' ? 3000 : 5000,
     input: new ByteReader(incoming),
   });
   client.finished = Promise.resolve(kind === 'eof' ? 1 : 0);
@@ -100,7 +102,7 @@ async function fixture(t, kind) {
       });
     }
   })();
-  server.catch(() => {});
+  server.catch(transferFailed);
   t.after(async () => {
     release();
     outgoing.destroy();
@@ -192,3 +194,21 @@ for (const kind of ['eof', 'wrong-id', 'wrong-store', 'timeout'])
       );
     }
   });
+
+test('failure evidence I/O errors cannot turn an uncertain drain into success or a known outcome', async (t) => {
+  const f = await fixture(t, 'eof');
+  await writeFile(path.join(f.home, 'failures'), 'controlled non-directory');
+  const operation = assert.rejects(
+    f.client.export('original-operation', path.join(f.home, 'readback')),
+    { code: 'Unknown' },
+  );
+  await f.bodySent;
+  f.release();
+  await operation;
+  await assert.rejects(
+    f.client.close(),
+    (error) =>
+      error.code === 'Unknown' &&
+      error.message.includes('evidence could not be saved'),
+  );
+});

@@ -342,6 +342,7 @@ export function macWorkerRecoverySummary(recovery, reportSHA256) {
           'releaseJournalRetained',
           'reopenRefusedWithoutReplay',
           'controlledSandboxStopped',
+          'recoveredNewEpoch',
         ].map((name) => [name, recovery.exportRelease[name]]),
       ),
     worker: Object.fromEntries(
@@ -742,6 +743,7 @@ export function validateMacWorkerReport(report, expected) {
     'releaseJournalRetained',
     'reopenRefusedWithoutReplay',
     'controlledSandboxStopped',
+    'recoveredNewEpoch',
   ])
     assert.equal(
       recovery.exportRelease?.[field],

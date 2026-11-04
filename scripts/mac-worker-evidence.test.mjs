@@ -411,6 +411,7 @@ function fixture() {
       releaseJournalRetained: true,
       reopenRefusedWithoutReplay: true,
       controlledSandboxStopped: true,
+      recoveredNewEpoch: true,
     },
     worker: {
       protocol: 1,
@@ -858,6 +859,7 @@ test('exact worker acceptance requires the delayed and failed export release pro
     'releaseJournalRetained',
     'reopenRefusedWithoutReplay',
     'controlledSandboxStopped',
+    'recoveredNewEpoch',
   ]) {
     const f = fixture();
     delete f.report.scenarios.recovery.exportRelease[key];

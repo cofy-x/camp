@@ -437,25 +437,30 @@ export class WorkerClient {
   }
   async close() {
     const retainDrainFailure = async () => {
-      await saveState(
-        path.join(this.home, 'failures', `${randomUUID()}.json`),
-        {
-          schema: 1,
-          state: 'unknown',
-          phase: 'drain',
-          observedAt: new Date().toISOString(),
-          failedRequest: this.failedRequest,
-          diagnostic: this.diagnostic?.slice(-8192),
-        },
-      );
+      try {
+        await saveState(
+          path.join(this.home, 'failures', `${randomUUID()}.json`),
+          {
+            schema: 1,
+            state: 'unknown',
+            phase: 'drain',
+            observedAt: new Date().toISOString(),
+            failedRequest: this.failedRequest,
+            diagnostic: this.diagnostic?.slice(-8192),
+          },
+        );
+      } catch (error) {
+        return ` Drain evidence could not be saved: ${String(error.code ?? 'Unknown').slice(0, 128)}.`;
+      }
+      return '';
     };
     if (this.closed) {
       const code = await this.finished;
       if (code !== 0) {
-        await retainDrainFailure();
+        const note = await retainDrainFailure();
         throw failure(
           'Unknown',
-          `The worker exited without a clean drain confirmation: ${this.diagnostic ?? ''}`,
+          `The worker exited without a clean drain confirmation: ${this.diagnostic ?? ''}${note}`,
         );
       }
       return;
@@ -479,10 +484,10 @@ export class WorkerClient {
         }),
       ]);
       if (code !== 0) {
-        await retainDrainFailure();
+        const note = await retainDrainFailure();
         throw failure(
           'Unknown',
-          `The worker did not shut down cleanly: ${this.diagnostic ?? ''}`,
+          `The worker did not shut down cleanly: ${this.diagnostic ?? ''}${note}`,
         );
       }
     } finally {

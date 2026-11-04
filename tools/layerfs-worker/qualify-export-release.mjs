@@ -18,17 +18,23 @@ export async function qualifyExportRelease({
 }) {
   const load = (name) => import(pathToFileURL(path.join(runtime, name)).href);
   const { WorkerClient } = await load('client.mjs');
-  const { MacCheckpoints } = await load('checkpoint.mjs');
+  const { openHome } = await load('home.mjs');
+  const { administer } = await load('administration.mjs');
+  const { scanTree } = await load('tree.mjs');
   const { saveState } = await load('state.mjs');
   const directory = path.join(root, 'export-release');
   await mkdir(directory, { mode: 0o700 });
-  const home = path.join(directory, 'worker');
-  const options = {
-    home,
-    socket,
+  const logicalHome = path.join(directory, 'layerfs-worker');
+  await mkdir(logicalHome, { mode: 0o700 });
+  const config = {
+    dataRoot: directory,
+    home: logicalHome,
+    docker: socket,
     dockerBinary,
     installation: path.join(runtime, 'installed.json'),
     qualification: true,
+    runnerId: 'export-release-runner',
+    storageId: 'export-release-storage',
   };
   const report = {
     passed: false,
@@ -38,15 +44,20 @@ export async function qualifyExportRelease({
   };
   let worker;
   let originalError;
+  let drainError;
   let faultConfirmed = false;
   try {
-    worker = await WorkerClient.open(options);
-    const checkpoints = new MacCheckpoints({
-      root: path.join(directory, 'checkpoints'),
-      worker,
-      runnerId: 'export-release-runner',
-      storageId: 'export-release-storage',
-    });
+    const active = await openHome(config);
+    worker = active.worker;
+    const checkpoints = active.checkpoints;
+    const home = worker.home;
+    const options = {
+      home,
+      socket,
+      dockerBinary,
+      installation: config.installation,
+      qualification: true,
+    };
     const initial = await checkpoints.checkpoint(
       source,
       createHash('sha256').update('export-release-workspace').digest('hex'),
@@ -153,6 +164,7 @@ export async function qualifyExportRelease({
       'Controlled export release failure.',
     );
     assert.equal(evidence.release.storeId, worker.status.storeId);
+    assert.equal(evidence.release.operationId, initial.binding.operationId);
     await assert.rejects(WorkerClient.open(options), { code: 'Unknown' });
     assert.deepEqual(
       inspectRelease(),
@@ -188,13 +200,40 @@ export async function qualifyExportRelease({
     assert.equal(stopped.State.Running, false);
     assert.deepEqual(inspectRelease(), evidence);
     report.controlledSandboxStopped = true;
+    const recovered = await administer({
+      ...config,
+      action: 'reconstruct',
+      operationId: initial.binding.operationId,
+    });
+    assert.notEqual(recovered.result.storeId, initial.binding.storeId);
+    assert.notEqual(recovered.result.operationId, initial.binding.operationId);
+    assert.equal(recovered.result.digest, initial.binding.digest);
+    const next = await openHome(config);
+    try {
+      const restored = await next.checkpoints.restore(
+        recovered.result.operationId,
+        parent,
+      );
+      assert.equal(
+        (await scanTree(restored.root)).digest,
+        initial.binding.digest,
+      );
+    } finally {
+      await next.worker.close();
+    }
+    assert.deepEqual(inspectRelease(), evidence);
+    assert.deepEqual(
+      await readFile(path.join(initial.captureRoot, 'receipt.json')),
+      originalReceipt,
+    );
+    report.recoveredNewEpoch = true;
+    report.recovery = recovered.result;
     report.passed = true;
   } catch (error) {
     originalError = error;
     report.error = { code: error.code, message: error.message };
     throw error;
   } finally {
-    let drainError;
     if (worker && !faultConfirmed)
       try {
         await worker.close();
@@ -204,7 +243,7 @@ export async function qualifyExportRelease({
         if (!originalError) drainError = error;
       }
     await saveState(path.join(directory, 'report.json'), report);
-    if (drainError) throw drainError;
   }
+  if (drainError) throw drainError;
   return report;
 }

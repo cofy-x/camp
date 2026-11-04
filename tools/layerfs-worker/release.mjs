@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { failure, readState, saveState } from './state.mjs';
 
-export async function requireReleased(home) {
+export async function requireReleased(home, uncertain = false) {
+  if (uncertain)
+    throw failure(
+      'Unknown',
+      'Administrative release is uncertain for this worker.',
+    );
   const state = await readState(path.join(home, 'release-state.json'));
   if (state && (state.schema !== 1 || state.state !== 'released'))
     throw failure(
@@ -26,6 +31,8 @@ export async function releaseResource(owner, resource, sample) {
     sandbox: resource.sandbox,
     container: resource.container,
     workspace: resource.workspace,
+    purpose: resource.purpose,
+    operationId: resource.operationId,
     state: 'release-dispatched',
   };
   const file = path.join(owner.config.home, 'releases', `${record.id}.json`);

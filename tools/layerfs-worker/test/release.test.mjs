@@ -110,3 +110,11 @@ test('later resource cleanup cannot clear an earlier uncertain release', async (
     'unknown',
   ]);
 });
+
+test('a live worker cannot resume from an uncertain release even with a clean marker', async (t) => {
+  const f = await fixture(t);
+  await f.owner.release(f.resource);
+  await assert.rejects(requireReleased(f.owner.config.home, true), {
+    code: 'Unknown',
+  });
+});
