@@ -11,6 +11,18 @@ process.stdout.on('error', () => {});
 let worker,
   request,
   streaming = false;
+const diagnostic = (error, phase) =>
+  process.stderr.write(
+    JSON.stringify({
+      kind: 'camp-worker-failure',
+      request: request?.id,
+      operation: request?.op,
+      streamed: streaming,
+      phase,
+      code: String(error.code ?? 'Unknown').slice(0, 128),
+      message: String(error.message ?? error).slice(0, 2048),
+    }) + '\n',
+  );
 try {
   request = await readMessage(input);
   if (request.op !== 'open')
@@ -90,6 +102,7 @@ try {
     }
   }
 } catch (error) {
+  diagnostic(error, 'operation');
   if (!streaming)
     await writeMessage(process.stdout, {
       id: request?.id,
@@ -97,7 +110,8 @@ try {
     }).catch(() => {});
   process.exitCode = 1;
 } finally {
-  await worker?.close().catch(() => {
+  await worker?.close().catch((error) => {
+    diagnostic(error, 'drain');
     process.exitCode = 1;
   });
   process.stdin.destroy();

@@ -20,6 +20,11 @@ import { captureWireBytes, writeBytes } from './protocol.mjs';
 import { failure, readState, saveState } from './state.mjs';
 import { LIMITS, manifestDigest, validateManifest } from './tree.mjs';
 import { blobIndex, encodeCapture, receiveCapture } from './transfer.mjs';
+import {
+  drainResources,
+  releaseResource,
+  requireReleased,
+} from './release.mjs';
 
 const daemon = '/usr/local/bin/layerfs-daemon';
 const helper = '/opt/camp/layerfs/worker/helper.mjs';
@@ -63,6 +68,7 @@ export class LinuxWorker {
         'Conflict',
         'The worker image identity differs from the pinned installation.',
       );
+    await requireReleased(config.home);
     await chmod(config.home, 0o700);
     const filesystem = await statfs(config.home);
     if (![0x9123683e, 0xef53, 0x58465342].includes(filesystem.type))
@@ -303,17 +309,15 @@ export class LinuxWorker {
     return resource;
   }
   async release(resource) {
-    if (this.config.qualification && resource.container)
-      resource.cost = docker([
-        'exec',
-        resource.container,
-        'node',
-        '/opt/camp/layerfs/worker/cost.mjs',
-      ]);
-    if (resource.workspace)
-      await this.client.workspace.unmount(resource.workspace);
-    await this.client.sandbox.close(resource.sandbox);
-    this.mounts.delete(resource);
+    return releaseResource(this, resource, () => {
+      if (this.config.qualification && resource.container)
+        resource.cost = docker([
+          'exec',
+          resource.container,
+          'node',
+          '/opt/camp/layerfs/worker/cost.mjs',
+        ]);
+    });
   }
   command(resource, operation, digest = '', previous = '', faultCount = '') {
     return spawn(
@@ -790,6 +794,7 @@ export class LinuxWorker {
     if (receipt.state !== 'verified')
       throw failure('Unknown', 'An unverified operation cannot be restored.');
     const resource = await this.mounted(receipt.branch);
+    resource.purpose = 'export';
     const scanned = await this.runHelper(resource, 'scan');
     if (
       scanned.digest !== receipt.binding.digest ||
@@ -817,6 +822,7 @@ export class LinuxWorker {
     await respond({ receipt, binaryBytes: captureWireBytes(capture) });
     for await (const chunk of child.stdout) await writeBytes(output, chunk);
     const code = await ended;
+    if (this.takeFault('export-delay-release')) await pause(2000);
     await this.release(resource);
     if (code !== 0)
       throw failure(
@@ -825,20 +831,7 @@ export class LinuxWorker {
       );
   }
   async close() {
-    const errors = [];
-    for (const resource of this.mounts)
-      try {
-        await this.release(resource);
-      } catch (error) {
-        errors.push(error);
-      }
-    await this.client.close();
-    await this.runtime.close();
-    if (errors.length)
-      throw failure(
-        'Unknown',
-        'Some administrative mounts remain retained after shutdown.',
-      );
+    return drainResources(this);
   }
   armFault({ point }) {
     if (
@@ -849,6 +842,8 @@ export class LinuxWorker {
         'after-commit-before-receipt',
         'drop-commit-reply',
         'delay-commit-reply',
+        'export-release-failure',
+        'export-delay-release',
       ].includes(point)
     )
       throw failure(

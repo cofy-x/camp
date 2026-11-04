@@ -290,7 +290,16 @@ export class WorkerClient {
   constructor(fields) {
     Object.assign(this, fields);
   }
-  async request(request, { binary, receive, beforeDispatch } = {}) {
+  async request(
+    request,
+    {
+      binary,
+      receive,
+      beforeDispatch,
+      completeExport = false,
+      retainedCapture,
+    } = {},
+  ) {
     if (this.closed || this.busy || this.uncertain)
       throw failure(
         'Unavailable',
@@ -299,22 +308,47 @@ export class WorkerClient {
     this.busy = true;
     const id = randomUUID();
     let timer;
+    let phase = 'dispatch';
     const operation = async () => {
       await beforeDispatch?.();
       await writeMessage(this.child.stdin, { id, ...request });
       if (binary)
         for await (const chunk of binary)
           await writeBytes(this.child.stdin, chunk);
+      phase = 'response';
       const response = await readMessage(this.input);
-      if (response.id !== id)
+      if (response?.id !== id)
         throw failure(
           'Protocol',
           'Worker response identity differs from its request.',
         );
       if (response.error)
         throw failure(response.error.code, response.error.message);
-      if (receive) return receive(response.value, this.input);
-      return response.value;
+      phase = 'receive';
+      const value = receive
+        ? await receive(response.value, this.input)
+        : response.value;
+      if (completeExport) {
+        // The serialized worker reads status only after export, helper exit and
+        // release settle. Keep the same admission lock and deadline across both
+        // messages; complete bytes alone never confirm a successful export.
+        phase = 'export-release';
+        const barrier = randomUUID();
+        await writeMessage(this.child.stdin, { id: barrier, op: 'status' });
+        const completion = await readMessage(this.input);
+        if (completion?.id !== barrier || completion.error)
+          throw failure(
+            'Protocol',
+            'The worker did not acknowledge export release.',
+          );
+        for (const field of ['storeId', 'image', 'protocol', 'sourceCommit'])
+          if (completion.value?.[field] !== this.status[field])
+            throw failure(
+              'Protocol',
+              'The worker identity changed before export release completed.',
+            );
+      }
+      return value;
     };
     try {
       return await Promise.race([
@@ -335,15 +369,38 @@ export class WorkerClient {
       ]);
     } catch (error) {
       if (
+        this.uncertain ||
+        (completeExport && phase === 'export-release') ||
         ['Truncated', 'EPIPE', 'ERR_STREAM_DESTROYED', 'Protocol'].includes(
           error.code,
         )
       ) {
         this.uncertain = true;
-        throw failure(
+        const outcome = failure(
           'Unknown',
-          'The worker connection ended after dispatch; retain the snapshot and observe the operation before further work.',
+          `Worker ${request.op} did not confirm ${phase}; retain the snapshot and observe the operation before further work.`,
         );
+        this.failedRequest = { id, operation: request.op, phase };
+        try {
+          await saveState(path.join(this.home, 'failures', `${id}.json`), {
+            schema: 1,
+            request: id,
+            operation: request.op,
+            operationId: request.args?.operationId,
+            phase,
+            state: 'unknown',
+            retainedCapture,
+            observedAt: new Date().toISOString(),
+            error: {
+              code: String(error.code ?? 'Unknown').slice(0, 128),
+              message: String(error.message).slice(0, 2048),
+            },
+            diagnostic: this.diagnostic?.slice(-8192),
+          });
+        } catch (recordError) {
+          outcome.message += ` Failure evidence could not be saved: ${String(recordError.code ?? 'Unknown').slice(0, 128)}.`;
+        }
+        throw outcome;
       }
       throw error;
     } finally {
@@ -365,6 +422,8 @@ export class WorkerClient {
     return this.request(
       { op: 'export', args: { operationId } },
       {
+        completeExport: true,
+        retainedCapture: destination,
         receive: async (value, reader) => {
           const captured = await receiveCapture(
             body(reader, value.binaryBytes),
@@ -377,13 +436,28 @@ export class WorkerClient {
     );
   }
   async close() {
+    const retainDrainFailure = async () => {
+      await saveState(
+        path.join(this.home, 'failures', `${randomUUID()}.json`),
+        {
+          schema: 1,
+          state: 'unknown',
+          phase: 'drain',
+          observedAt: new Date().toISOString(),
+          failedRequest: this.failedRequest,
+          diagnostic: this.diagnostic?.slice(-8192),
+        },
+      );
+    };
     if (this.closed) {
       const code = await this.finished;
-      if (code !== 0)
+      if (code !== 0) {
+        await retainDrainFailure();
         throw failure(
           'Unknown',
-          'The worker exited without a clean drain confirmation.',
+          `The worker exited without a clean drain confirmation: ${this.diagnostic ?? ''}`,
         );
+      }
       return;
     }
     this.child.stdin.end();
@@ -404,11 +478,13 @@ export class WorkerClient {
           );
         }),
       ]);
-      if (code !== 0)
+      if (code !== 0) {
+        await retainDrainFailure();
         throw failure(
           'Unknown',
           `The worker did not shut down cleanly: ${this.diagnostic ?? ''}`,
         );
+      }
     } finally {
       clearTimeout(timer);
     }

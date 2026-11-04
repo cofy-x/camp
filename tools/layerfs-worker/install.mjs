@@ -190,6 +190,7 @@ for (const file of [
   'tree.mjs',
   'transfer.mjs',
   'protocol.mjs',
+  'release.mjs',
   'apply.mjs',
   'helper.mjs',
   'linux.mjs',

@@ -45,6 +45,7 @@ export const qualificationDrivers = [
   'scripts/lib.mjs',
   'tools/layerfs-worker/qualify-runner-restart.mjs',
   'tools/layerfs-worker/qualify-recovery.mjs',
+  'tools/layerfs-worker/qualify-export-release.mjs',
   'tools/layerfs-worker/tree.mjs',
   'tools/layerfs-worker/contracts.mjs',
   'tools/layerfs-worker/state.mjs',
@@ -329,6 +330,20 @@ export function macWorkerRecoverySummary(recovery, reportSHA256) {
     passed: recovery.passed,
     modelRequests: recovery.modelRequests,
     workerDrainConfirmed: recovery.workerDrainConfirmed,
+    exportRelease:
+      recovery.exportRelease &&
+      Object.fromEntries(
+        [
+          'passed',
+          'modelRequests',
+          'delayConfirmed',
+          'unknownRejected',
+          'receivedCaptureRetained',
+          'releaseJournalRetained',
+          'reopenRefusedWithoutReplay',
+          'controlledSandboxStopped',
+        ].map((name) => [name, recovery.exportRelease[name]]),
+      ),
     worker: Object.fromEntries(
       [
         'protocol',
@@ -718,6 +733,21 @@ export function validateMacWorkerReport(report, expected) {
   assert.equal(recovery?.passed, true);
   assert.equal(recovery.modelRequests, 0);
   assert.equal(recovery.workerDrainConfirmed, true);
+  assert.equal(recovery.exportRelease?.modelRequests, 0);
+  for (const field of [
+    'passed',
+    'delayConfirmed',
+    'unknownRejected',
+    'receivedCaptureRetained',
+    'releaseJournalRetained',
+    'reopenRefusedWithoutReplay',
+    'controlledSandboxStopped',
+  ])
+    assert.equal(
+      recovery.exportRelease?.[field],
+      true,
+      `Missing export release proof: ${field}`,
+    );
   assert.equal(recovery.worker?.protocol, 1);
   assert.equal(recovery.worker?.image, identity.worker.image);
   assert.equal(recovery.worker?.sourceCommit, identity.worker.sdkCommit);

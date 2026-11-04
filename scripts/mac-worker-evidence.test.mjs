@@ -402,6 +402,16 @@ function fixture() {
     passed: true,
     modelRequests: 0,
     workerDrainConfirmed: true,
+    exportRelease: {
+      passed: true,
+      modelRequests: 0,
+      delayConfirmed: true,
+      unknownRejected: true,
+      receivedCaptureRetained: true,
+      releaseJournalRetained: true,
+      reopenRefusedWithoutReplay: true,
+      controlledSandboxStopped: true,
+    },
     worker: {
       protocol: 1,
       image,
@@ -836,6 +846,25 @@ test('a changed worker image requires retained explicit reconstruction evidence'
     .concat('checkpoint-reconstruction-history-blocks-cleanup');
   validateMacWorkerReport(f.report, f.identity);
   u.reconstruction.resultDigest = 'e'.repeat(64);
+  assert.throws(() => validateMacWorkerReport(f.report, f.identity));
+});
+
+test('exact worker acceptance requires the delayed and failed export release proof', () => {
+  for (const key of [
+    'passed',
+    'delayConfirmed',
+    'unknownRejected',
+    'receivedCaptureRetained',
+    'releaseJournalRetained',
+    'reopenRefusedWithoutReplay',
+    'controlledSandboxStopped',
+  ]) {
+    const f = fixture();
+    delete f.report.scenarios.recovery.exportRelease[key];
+    assert.throws(() => validateMacWorkerReport(f.report, f.identity));
+  }
+  const f = fixture();
+  f.report.scenarios.recovery.exportRelease.modelRequests = 1;
   assert.throws(() => validateMacWorkerReport(f.report, f.identity));
 });
 
