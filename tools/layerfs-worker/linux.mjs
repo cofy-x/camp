@@ -7,8 +7,6 @@ import os from 'node:os';
 import process from 'node:process';
 import { performance } from 'node:perf_hooks';
 import { setTimeout as pause } from 'node:timers/promises';
-import { LayerFS } from '/opt/camp/layerfs/api/agent/src/index.js';
-import { LayerFSRuntime } from '/opt/camp/layerfs/api/runtime/src/index.js';
 import { neededBlobs } from './apply.mjs';
 import {
   digestPattern,
@@ -79,6 +77,10 @@ export class LinuxWorker {
       );
     const file = path.join(config.home, 'worker.json');
     let state = await readState(file);
+    const [{ LayerFS }, { LayerFSRuntime }] = await Promise.all([
+      import('/opt/camp/layerfs/api/agent/src/index.js'),
+      import('/opt/camp/layerfs/api/runtime/src/index.js'),
+    ]);
     const runtime = await LayerFSRuntime.open({
       home: config.home,
       image: config.image,
@@ -517,12 +519,34 @@ export class LinuxWorker {
       namespace.pending !== operationId ||
       namespace.generation + 1 !== binding.generation ||
       namespace.head !== binding.parentCheckpoint ||
+      namespace.branch !== receipt.parentBranch ||
       (await this.head(namespace.branch)) !== binding.parentCheckpoint
     )
       throw failure(
         'Conflict',
         'The operation no longer names the current generation and parent.',
       );
+    // A complete fresh seal and validated upload already bind this digest.
+    // Re-read the existing immutable parent rather than constructing a second
+    // copy merely to discover the same tree. No cached readback authorizes it.
+    if (namespace.digest === binding.digest) {
+      receipt.branch = namespace.branch;
+      receipt.checkpoint = { kind: 'UpToDate', head: namespace.head };
+      receipt.mutationSkipped = 'unchanged-snapshot';
+      receipt.state = 'unchanged-readback-dispatched';
+      await saveState(this.operationFile(operationId), receipt);
+      try {
+        if (this.takeFault('before-unchanged-readback')) process.exit(74);
+        return await this.verify(receipt, namespace);
+      } catch (error) {
+        receipt.error = {
+          code: error.code ?? 'Unknown',
+          message: error.message,
+        };
+        await saveState(this.operationFile(operationId), receipt);
+        throw error;
+      }
+    }
     const capture = {
       root: this.cache,
       manifest: receipt.manifest,
@@ -544,6 +568,8 @@ export class LinuxWorker {
     receipt.state = 'fork-acknowledged';
     await saveState(this.operationFile(operationId), receipt);
     const resource = await this.mounted(receipt.branch);
+    resource.purpose = 'apply';
+    resource.operationId = operationId;
     receipt.state = 'apply-dispatched';
     receipt.sandbox = resource.sandbox;
     receipt.workspace = resource.workspace;
@@ -566,30 +592,27 @@ export class LinuxWorker {
           'InjectedBeforeCommit',
           'Controlled interruption after apply and before Commit.',
         );
-      if (namespace.digest === binding.digest)
-        receipt.checkpoint = { kind: 'UpToDate', head: namespace.head };
-      else {
-        receipt.state = 'commit-dispatched';
-        await saveState(this.operationFile(operationId), receipt);
-        const started = performance.now();
-        receipt.checkpoint = await this.client.workspace.commit(
-          resource.workspace,
-          `camp:${binding.operationId}:${binding.generation}:${binding.digest}`,
+      receipt.state = 'commit-dispatched';
+      await saveState(this.operationFile(operationId), receipt);
+      const started = performance.now();
+      receipt.checkpoint = await this.client.workspace.commit(
+        resource.workspace,
+        `camp:${binding.operationId}:${binding.generation}:${binding.digest}`,
+      );
+      if (this.takeFault('after-commit-before-receipt')) process.exit(72);
+      receipt.commitMs = performance.now() - started;
+      if (
+        !['Committed', 'UpToDate'].includes(receipt.checkpoint.kind) ||
+        !checkpointPattern.test(receipt.checkpoint.head ?? '')
+      )
+        throw failure(
+          'Unknown',
+          'LayerFS returned no acknowledged checkpoint identity.',
         );
-        if (this.takeFault('after-commit-before-receipt')) process.exit(72);
-        receipt.commitMs = performance.now() - started;
-        if (
-          !['Committed', 'UpToDate'].includes(receipt.checkpoint.kind) ||
-          !checkpointPattern.test(receipt.checkpoint.head ?? '')
-        )
-          throw failure(
-            'Unknown',
-            'LayerFS returned no acknowledged checkpoint identity.',
-          );
-      }
       receipt.state = 'commit-acknowledged';
       await saveState(this.operationFile(operationId), receipt);
       await this.release(resource);
+      receipt.applyRelease = resource.releaseMetrics;
       if (resource.cost) receipt.applyResources = resource.cost;
       return await this.verify(receipt, namespace);
     } catch (error) {
@@ -607,12 +630,18 @@ export class LinuxWorker {
       );
     const mounting = performance.now();
     const reader = await this.mounted(receipt.branch);
+    reader.purpose =
+      receipt.mutationSkipped === 'unchanged-snapshot'
+        ? 'unchanged-readback'
+        : 'readback';
+    reader.operationId = receipt.binding.operationId;
     receipt.readbackMountMs = performance.now() - mounting;
     const verified = await this.runHelper(reader, 'scan');
     receipt.readbackScanMs = verified.metrics.scanMs;
     const releasing = performance.now();
     await this.release(reader);
     receipt.readbackReleaseMs = performance.now() - releasing;
+    receipt.readbackRelease = reader.releaseMetrics;
     if (reader.cost) receipt.readbackResources = reader.cost;
     if (
       verified.digest !== receipt.binding.digest ||
@@ -657,6 +686,23 @@ export class LinuxWorker {
     const namespace = await readState(
       this.namespaceFile(receipt.binding.workspaceId),
     );
+    if (receipt.state === 'unchanged-readback-dispatched') {
+      if (
+        namespace.pending !== operationId ||
+        namespace.generation + 1 !== receipt.binding.generation ||
+        namespace.head !== receipt.binding.parentCheckpoint ||
+        namespace.digest !== receipt.binding.digest ||
+        namespace.branch !== receipt.parentBranch ||
+        receipt.branch !== namespace.branch ||
+        receipt.checkpoint?.kind !== 'UpToDate' ||
+        receipt.checkpoint.head !== namespace.head
+      )
+        throw failure(
+          'Conflict',
+          'The unchanged readback no longer names its frozen parent.',
+        );
+      return this.verify(receipt, namespace);
+    }
     if (receipt.state === 'verified') {
       if ((await this.head(receipt.branch)) !== receipt.checkpoint.head)
         throw failure(
@@ -827,6 +873,7 @@ export class LinuxWorker {
       ![
         'apply-failure',
         'before-commit',
+        'before-unchanged-readback',
         'after-commit-before-receipt',
         'drop-commit-reply',
         'delay-commit-reply',

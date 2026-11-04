@@ -58,6 +58,7 @@ const config = {
   docker: socket,
   dockerBinary,
   installation: path.join(runtime, 'installed.json'),
+  qualification: true,
   runnerId: 'controlled-recovery-runner',
   storageId: 'controlled-recovery-storage',
 };
@@ -91,6 +92,80 @@ try {
   );
   report.initial = initial.binding;
   report.worker = active.worker.status;
+  await active.worker.request({
+    op: 'qualification.fault',
+    args: { point: 'before-unchanged-readback' },
+  });
+  let unchangedOperation;
+  try {
+    await active.checkpoints.checkpoint(
+      source,
+      initial.binding.workspaceId,
+      'unchanged-interrupted',
+      { quiescent: true },
+    );
+    assert.fail('The unchanged readback interruption did not occur.');
+  } catch (error) {
+    assert.equal(error.code, 'Unknown');
+    unchangedOperation = error.operationId;
+    assert.ok(unchangedOperation);
+  }
+  assert.equal(await active.worker.finished, 74);
+  await assert.rejects(active.worker.close(), { code: 'Unknown' });
+  const retainedUnchanged =
+    await active.checkpoints.operation(unchangedOperation);
+  assert.equal(retainedUnchanged.state, 'commit-dispatched');
+  assert.notEqual(retainedUnchanged.captureRoot, initial.captureRoot);
+  assert.equal(
+    (await scanTree(source)).digest,
+    retainedUnchanged.binding.digest,
+  );
+  active = await openHome(config);
+  const interrupted = await active.worker.request({
+    op: 'qualification.inspect',
+    args: { operationId: unchangedOperation },
+  });
+  assert.equal(interrupted.receipt.state, 'unchanged-readback-dispatched');
+  assert.equal(interrupted.receipt.branch, interrupted.receipt.parentBranch);
+  assert.equal(interrupted.head, initial.workerReceipt.checkpoint.head);
+  await assert.rejects(
+    active.worker.request({
+      op: 'commit',
+      args: { operationId: unchangedOperation },
+    }),
+    { code: 'Unknown' },
+  );
+  const confirmedUnchanged =
+    await active.checkpoints.observe(unchangedOperation);
+  assert.equal(confirmedUnchanged.state, 'confirmed');
+  assert.equal(
+    confirmedUnchanged.workerReceipt.mutationSkipped,
+    'unchanged-snapshot',
+  );
+  assert.equal(
+    confirmedUnchanged.workerReceipt.checkpoint.head,
+    initial.workerReceipt.checkpoint.head,
+  );
+  assert.equal(
+    confirmedUnchanged.workerReceipt.verifiedDigest,
+    initial.binding.digest,
+  );
+  const unchangedObservation = await active.worker.request({
+    op: 'qualification.inspect',
+    args: { operationId: unchangedOperation },
+  });
+  assert.deepEqual(unchangedObservation.commits, interrupted.commits);
+  assert.equal(unchangedObservation.namespace.generation, 2);
+  assert.equal(unchangedObservation.namespace.pending, null);
+  report.unchanged = {
+    operationId: unchangedOperation,
+    retained: retainedUnchanged,
+    confirmed: confirmedUnchanged,
+    commitsUnchanged: true,
+  };
+  report.checks.push(
+    'A worker exit before unchanged readback retains the fresh seal and request ID; restart performs only a fresh independent readback with confirmed release, advances the generation once and creates no Commit or branch.',
+  );
   const volume = active.worker.status.volume;
   const owned = active.worker.docker(['volume', 'inspect', volume])[0];
   assert.equal(owned.Labels['layerfs.role'], 'store');
