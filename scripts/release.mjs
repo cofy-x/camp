@@ -190,10 +190,16 @@ export async function treeBytes(directory) {
   return bytes;
 }
 
-export async function archiveTree(directory) {
+export async function archiveTree(directory, { cacheDirectory } = {}) {
   const filename = `${directory}.tar.gz`;
   await rm(filename, { force: true });
-  await command(go, ['run', './tools/release-archive', directory, filename]);
+  await command(go, [
+    'run',
+    './tools/release-archive',
+    ...(cacheDirectory ? ['-cache-dir', cacheDirectory] : []),
+    directory,
+    filename,
+  ]);
   return {
     filename: basename(filename),
     sha256: await hashFile(filename),

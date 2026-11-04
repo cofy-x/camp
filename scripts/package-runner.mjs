@@ -319,7 +319,9 @@ try {
   );
   await rm(destination, { recursive: true, force: true });
   await rename(staging, destination);
-  await archiveTree(destination);
+  await archiveTree(destination, {
+    cacheDirectory: process.env.CAMP_RUNTIME_ARCHIVE_CACHE,
+  });
   const archive = `${destination}.tar.gz`;
   const runtimeSHA = await hash(archive);
   const runtimeName = `camp-runtime-${target}-${runtimeSHA}.tar.gz`;
