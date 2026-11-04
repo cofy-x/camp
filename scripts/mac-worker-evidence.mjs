@@ -1,14 +1,86 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { lstat, readFile, realpath } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { copyFile, lstat, readFile, realpath } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
-import { validVersion } from './release.mjs';
+import { hashFile, validVersion } from './release.mjs';
 
 export const macWorkerScope = 'actual-mac-packaged-layerfs-worker';
 const sha = /^[a-f0-9]{64}$/;
 const commit = /^[a-f0-9]{40}$/;
+
+export async function verifyMacWorkerArchive(directory, item) {
+  assert.equal(basename(item.filename), item.filename);
+  assert.match(item.sha256, sha);
+  const file = join(directory, item.filename),
+    info = await lstat(file);
+  assert.ok(
+    info.isFile() &&
+      info.size === item.bytes &&
+      info.size > 0 &&
+      info.size <= 2 ** 31,
+  );
+  assert.equal(await hashFile(file), item.sha256);
+  assert.equal(
+    await readFile(`${file}.sha256`, 'utf8'),
+    `${item.sha256}  ${item.filename}\n`,
+  );
+}
+
+// Cache is data, not qualification evidence. Fresh public metadata fixes the
+// expected digest; the staged copy is fully verified once before any use.
+export async function copyMacWorkerBaseline(cache, destination, item) {
+  assert.equal(
+    await realpath(cache),
+    cache,
+    'Use a canonical baseline cache path.',
+  );
+  const owner = await lstat(cache);
+  assert.ok(
+    owner.isDirectory() &&
+      owner.uid === process.getuid() &&
+      !(owner.mode & 0o077),
+  );
+  assert.match(item.sha256, sha);
+  assert.equal(
+    item.filename,
+    `camp-layerfs-worker-linux-arm64-${item.sha256}.tar.gz`,
+  );
+  assert.ok(
+    Number.isSafeInteger(item.bytes) && item.bytes > 0 && item.bytes <= 2 ** 31,
+  );
+  for (const name of [item.filename, `${item.filename}.sha256`]) {
+    const source = join(cache, name),
+      before = await lstat(source, { bigint: true });
+    assert.ok(
+      before.isFile() &&
+        before.uid === BigInt(process.getuid()) &&
+        before.nlink === 1n &&
+        !(before.mode & 0o077n),
+    );
+    assert.ok(
+      name === item.filename
+        ? before.size === BigInt(item.bytes)
+        : before.size > 0n && before.size <= 4096n,
+    );
+    await copyFile(
+      source,
+      join(destination, name),
+      constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE,
+    );
+    const after = await lstat(source, { bigint: true });
+    for (const field of ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'])
+      assert.equal(
+        after[field],
+        before[field],
+        'Baseline cache changed while copying.',
+      );
+  }
+  await verifyMacWorkerArchive(destination, item);
+}
+
 export const packageScenarioNames = [
   'online',
   'offline',

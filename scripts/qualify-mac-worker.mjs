@@ -23,6 +23,8 @@ import { hashFile, validVersion } from './release.mjs';
 import { httpProxyEnvironment } from './upgrade.mjs';
 import {
   digestJSON,
+  copyMacWorkerBaseline,
+  verifyMacWorkerArchive,
   driverFiles,
   macWorkerArtifacts,
   macWorkerRecoverySummary,
@@ -44,6 +46,7 @@ if (args.includes('--help')) {
 node scripts/qualify-mac-worker.mjs --packages ABSOLUTE_DIR | --version vX.Y.Z-alpha.N
   --baseline vX.Y.Z-alpha.N --docker-binary ABSOLUTE_FILE --docker-socket ABSOLUTE_SOCKET
   --engine-profile NAME [--output ABSOLUTE_NEW_JSON]
+  [--baseline-cache ABSOLUTE_PRIVATE_ARCHIVE_DIRECTORY]
   [--reuse-report ABSOLUTE_ORIGINAL_JSON --reuse-directory ABSOLUTE_ORIGINAL_CAMPAIGN]
 No enrolled configuration is read. Existing services/VMs and the global Docker context are unchanged.
 Package installation, native-local and worker upgrades, checkpoint interruption and Store reconstruction are separate recorded scenarios.`);
@@ -60,6 +63,7 @@ for (let i = 0; i < args.length; i += 2) {
       '--docker-socket',
       '--engine-profile',
       '--output',
+      '--baseline-cache',
       '--reuse-report',
       '--reuse-directory',
     ].includes(args[i]) &&
@@ -80,6 +84,7 @@ for (const name of [
   '--docker-binary',
   '--docker-socket',
   '--output',
+  '--baseline-cache',
   '--reuse-report',
   '--reuse-directory',
 ])
@@ -260,23 +265,7 @@ async function metadata(version, directory, names) {
   }
 }
 
-async function verifyFile(directory, item) {
-  assert.equal(path.basename(item.filename), item.filename);
-  assert.match(item.sha256, sha);
-  const file = path.join(directory, item.filename),
-    info = await lstat(file);
-  assert.ok(
-    info.isFile() &&
-      info.size === item.bytes &&
-      info.size > 0 &&
-      info.size <= 2 ** 31,
-  );
-  assert.equal(await hashFile(file), item.sha256);
-  assert.equal(
-    await readFile(`${file}.sha256`, 'utf8'),
-    `${item.sha256}  ${item.filename}\n`,
-  );
-}
+const verifyFile = verifyMacWorkerArchive;
 
 let reusedCases;
 let reusedRaw;
@@ -722,6 +711,7 @@ try {
     priorWorker.image === report.identity.worker.image &&
     priorWorker.sourceCommit === report.identity.worker.sdkCommit &&
     priorWorker.buildId === report.identity.worker.buildId;
+  let baselineVerified = false;
   if (reusedImage) {
     for (const name of [prior.filename, `${prior.filename}.sha256`])
       await copyFile(
@@ -729,36 +719,12 @@ try {
         path.join(baselineDirectory, name),
         constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE,
       );
-  } else if (options['--reuse-directory']) {
-    const retained = path.join(
-      await realpath(options['--reuse-directory']),
-      'baseline',
-    );
-    const owner = await lstat(retained);
-    assert.ok(
-      owner.isDirectory() &&
-        owner.uid === process.getuid() &&
-        !(owner.mode & 0o077),
-    );
-    assert.equal(await realpath(retained), retained);
-    for (const name of [prior.filename, `${prior.filename}.sha256`]) {
-      const source = path.join(retained, name);
-      const file = await lstat(source);
-      assert.ok(
-        file.isFile() &&
-          file.uid === process.getuid() &&
-          file.nlink === 1 &&
-          !(file.mode & 0o077) &&
-          file.size > 0 &&
-          file.size <= (name === prior.filename ? prior.bytes : 4096),
-        'Retained baseline must contain private owned regular archive/checksum files.',
-      );
-      await copyFile(
-        source,
-        path.join(baselineDirectory, name),
-        constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE,
-      );
-    }
+  } else if (options['--baseline-cache'] || options['--reuse-directory']) {
+    const retained =
+      options['--baseline-cache'] ??
+      path.join(await realpath(options['--reuse-directory']), 'baseline');
+    await copyMacWorkerBaseline(retained, baselineDirectory, prior);
+    baselineVerified = true;
   } else {
     await download(baseline, prior.filename, baselineDirectory, prior.bytes);
     await download(
@@ -778,11 +744,13 @@ try {
     metadata: 'fixed-public-release-checksums',
     workerArchive: reusedImage
       ? 'identical-current-package'
-      : options['--reuse-directory']
-        ? 'explicit-retained-campaign'
-        : 'fixed-public-download',
+      : options['--baseline-cache']
+        ? 'explicit-verified-baseline-cache'
+        : options['--reuse-directory']
+          ? 'explicit-retained-campaign'
+          : 'fixed-public-download',
   };
-  await verifyFile(baselineDirectory, prior);
+  if (!baselineVerified) await verifyFile(baselineDirectory, prior);
   await prepareReuse();
   const online = await scenario('online', 'online');
   await scenario('offline', 'offline');
