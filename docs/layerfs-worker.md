@@ -14,6 +14,10 @@ Reuse an explicitly selected, qualified native ARM64 engine. An existing qualifi
 
 The [provisioning boundary](#linux-environment-provisioning) and [current follow-up ownership](architecture.md#checkpoint-cost-and-retention) govern future VM/lifecycle and performance work.
 
+Small-file cost is governed by synchronization, transport and administrative lifecycle as well as the SDK Commit. Raw payloads coalesce into at most 256 KiB chunks without changing the manifest or wire format. Temporary Linux helper captures use the existing small-file pack; the shared content cache retains its format and fully rehashes requested blobs with at most eight workers on every preparation. No timestamp-only or cross-operation integrity result substitutes for content validation.
+
+Packaged Mac restoration uses the verified `camp-sandbox` staging synchronizer. After all writes and handles drain, it pins the private root, synchronizes every regular file and directory with at most eight workers without following links, then performs one full device-cache flush. It rejects entry changes, cancellation and synchronization failure. Independent complete manifest readback and final root/parent metadata synchronization still precede success. The helper has no snapshot, Store, process-execution or publication authority. Its parent holds stdin open; parent loss cancels admission. A selected missing or incompatible helper fails without fallback. Source probes that omit the helper retain per-file full synchronization and report that policy explicitly.
+
 ## Scope and ownership
 
 Agent commands and configured checks run natively on Mac ARM64 under Camp's existing Seatbelt policy and kernel-observed process owner. A separate Linux worker owns only LayerFS administration, workspace mirroring and checkpoint receipts. It is not a second Runner and receives no model credentials, enrollment authority, leases or Server publication authority.

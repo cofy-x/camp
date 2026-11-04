@@ -234,7 +234,11 @@ receipts, Runner identity and journal. No action publishes to Camp Server.`)
 	if dockerErr != nil && action != "status" && !fromNative {
 		return dockerErr
 	}
-	parameters := map[string]any{"action": action, "dataRoot": directory, "home": filepath.Join(directory, "layerfs-worker"), "runnerId": config.RunnerID, "storageId": config.StorageID, "docker": config.DockerSocket, "dockerBinary": docker, "installation": filepath.Join(workerRuntime, "installed.json"), "operationId": operation, "parent": parent, "fromNative": fromNative, "recoveryId": recovery}
+	syncHelper, err := filepath.Abs(native.SandboxHelper)
+	if err != nil {
+		return err
+	}
+	parameters := map[string]any{"action": action, "syncHelper": syncHelper, "dataRoot": directory, "home": filepath.Join(directory, "layerfs-worker"), "runnerId": config.RunnerID, "storageId": config.StorageID, "docker": config.DockerSocket, "dockerBinary": docker, "installation": filepath.Join(workerRuntime, "installed.json"), "operationId": operation, "parent": parent, "fromNative": fromNative, "recoveryId": recovery}
 	input, err := json.Marshal(parameters)
 	if err != nil {
 		return err

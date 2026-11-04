@@ -20,6 +20,7 @@ export class MacCheckpoints {
     worker,
     runnerId,
     storageId,
+    syncTree,
     captureBase = path.dirname(path.resolve(root)),
   }) {
     Object.assign(this, {
@@ -27,6 +28,7 @@ export class MacCheckpoints {
       worker,
       runnerId,
       storageId,
+      syncTree,
       captureBase: path.resolve(captureBase),
     });
   }
@@ -263,7 +265,9 @@ export class MacCheckpoints {
       sourceOperation: operationId,
       digest: capture.digest,
     });
-    const restored = await restoreTree(capture, parent);
+    const restored = await restoreTree(capture, parent, {
+      syncTree: this.syncTree,
+    });
     return { ...restored, transfer: capture.metrics };
   }
   async retained(operationId) {
@@ -357,6 +361,7 @@ export class MacCheckpoints {
     const restored = await restoreTree(
       derived,
       path.join(this.root, 'publication'),
+      { syncTree: this.syncTree },
     );
     return {
       directory: restored.root,

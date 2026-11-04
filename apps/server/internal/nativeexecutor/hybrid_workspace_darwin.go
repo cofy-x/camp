@@ -65,7 +65,7 @@ func openHybridWorkspace(ctx context.Context, config Config) (workspace.Provider
 	if storageID == "" {
 		storageID = "selftest-" + digest(workerRoot)[:24]
 	}
-	bridge, err := layerfs.OpenBridge(ctx, layerfs.BridgeConfig{Mode: "checkpoint-worker", Node: config.NodePath, RuntimeDir: workerRuntime, DataRoot: workerRoot, Home: filepath.Join(workerRoot, "layerfs-worker"), Docker: config.DockerSocket, DockerBinary: dockerBinary, Installation: filepath.Join(workerRuntime, "installed.json"), RunnerID: runnerID, StorageID: storageID})
+	bridge, err := layerfs.OpenBridge(ctx, layerfs.BridgeConfig{Mode: "checkpoint-worker", Node: config.NodePath, RuntimeDir: workerRuntime, DataRoot: workerRoot, Home: filepath.Join(workerRoot, "layerfs-worker"), Docker: config.DockerSocket, DockerBinary: dockerBinary, SyncHelper: config.SandboxHelper, Installation: filepath.Join(workerRuntime, "installed.json"), RunnerID: runnerID, StorageID: storageID})
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func openHybridWorkspace(ctx context.Context, config Config) (workspace.Provider
 	}
 	hash := sha256.New()
 	_, _ = fmt.Fprintf(hash, "%s\x00camp-mac-worker-v1\x00%s\x00%s\x00%s", native.Fingerprint(), observed.StoreID, observed.Image, observed.SourceCommit)
-	for _, name := range []string{"bridge.mjs", "checkpoint.mjs", "client.mjs", "contracts.mjs", "home.mjs", "protocol.mjs", "state.mjs", "transfer.mjs", "tree.mjs"} {
+	for _, name := range []string{"bridge.mjs", "checkpoint.mjs", "client.mjs", "contracts.mjs", "home.mjs", "protocol.mjs", "state.mjs", "sync.mjs", "transfer.mjs", "tree.mjs"} {
 		data, readErr := os.ReadFile(filepath.Join(workerRuntime, name))
 		if readErr != nil {
 			_ = bridge.Close()

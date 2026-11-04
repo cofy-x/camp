@@ -100,6 +100,7 @@ export const packageScenarioDrivers = [
   'scripts/upgrade.mjs',
   'scripts/upgrade-proxy.mjs',
   'tools/layerfs-worker/tree.mjs',
+  'tools/layerfs-worker/sync.mjs',
   'tools/layerfs-worker/contracts.mjs',
   'tools/layerfs-worker/state.mjs',
 ];
@@ -119,6 +120,7 @@ export const qualificationDrivers = [
   'tools/layerfs-worker/qualify-recovery.mjs',
   'tools/layerfs-worker/qualify-export-release.mjs',
   'tools/layerfs-worker/tree.mjs',
+  'tools/layerfs-worker/sync.mjs',
   'tools/layerfs-worker/contracts.mjs',
   'tools/layerfs-worker/state.mjs',
   'scripts/release.mjs',
@@ -371,6 +373,7 @@ export function macWorkerIdentity(runner, server, worker, manifest) {
     'client.mjs',
     'checkpoint.mjs',
     'tree.mjs',
+    'sync.mjs',
     'administration.mjs',
     'home.mjs',
     'state.mjs',

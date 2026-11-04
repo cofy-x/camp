@@ -25,6 +25,13 @@ export const excludedPackageArms = [
       'The host upstream SDK/build context is not shipped in the qualified runtime; source-only comparison is excluded.',
   },
 ];
+export const excludedCheckpointArms = [
+  {
+    arm: 'upstream',
+    reason:
+      'Explicit source checkpoint focus; upstream SDK transport and archived-package acceptance are outside this campaign.',
+  },
+];
 const sha = /^[a-f0-9]{64}$/;
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const inside = (parent, child) => child.startsWith(`${parent}${path.sep}`);
@@ -62,6 +69,7 @@ function manifestTarget(name, symlinks) {
 }
 
 export function benchmarkOptions(values) {
+  const checkpointOnly = values['checkpoint-only'] === true;
   const packaged = Boolean(
     values.qualification ||
     values['online-report'] ||
@@ -75,6 +83,7 @@ export function benchmarkOptions(values) {
     'packages',
     'docker-binary',
     'docker-socket',
+    'sync-helper',
   ])
     if (values[key])
       assert.ok(path.isAbsolute(values[key]), `--${key} must be absolute.`);
@@ -105,8 +114,23 @@ export function benchmarkOptions(values) {
     );
   if (explicitEngine)
     assert.ok(
-      packaged,
-      'Explicit engine options require package mode; source mode retains its existing configuration.',
+      packaged || checkpointOnly,
+      'Explicit engine options require package mode or explicit --checkpoint-only source scope.',
+    );
+  if (checkpointOnly) {
+    assert.ok(
+      !packaged,
+      'Source checkpoint focus is distinct from archived-package qualification.',
+    );
+    assert.ok(
+      explicitEngine && values['sync-helper'] && values['output-base'],
+      'Source checkpoint focus requires explicit engine, helper and private report paths.',
+    );
+  }
+  if (values['sync-helper'])
+    assert.ok(
+      !packaged,
+      'Package mode derives its verified helper from the archive.',
     );
   const setupSeries = values['setup-series'] || 'none';
   assert.ok(
@@ -119,6 +143,7 @@ export function benchmarkOptions(values) {
     );
   return {
     packaged,
+    checkpointOnly,
     explicitEngine,
     rounds: values.smoke ? 1 : 3,
     setupSeries,
@@ -549,7 +574,10 @@ export async function sampleBenchmarkDiagnostic(row, field, sample) {
   }
 }
 
-export function benchmarkRoundCoverage(round, { packaged, smoke, root }) {
+export function benchmarkRoundCoverage(
+  round,
+  { packaged, checkpointOnly = false, smoke, root },
+) {
   assert.equal(round.schema, 1);
   assert.equal(round.passed, true);
   assert.ok(
@@ -559,7 +587,15 @@ export function benchmarkRoundCoverage(round, { packaged, smoke, root }) {
   );
   assert.ok(!round.error && !round.closeError);
   const names = smoke ? workloads.slice(0, 1) : workloads;
-  const arms = packaged ? packageArms : [...packageArms, 'upstream'];
+  const arms =
+    packaged || checkpointOnly ? packageArms : [...packageArms, 'upstream'];
+  if (checkpointOnly) {
+    assert.equal(round.scope, 'source-checkpoint-only');
+    assert.deepEqual(round.excludedArms, excludedCheckpointArms);
+    assert.equal(round.synchronization?.policy, 'staged-full-sync');
+    assert.match(round.synchronization.helperSHA256, sha);
+    assert.equal(round.packageIdentity, undefined);
+  }
   const expected = new Set();
   for (const workload of names) {
     expected.add(

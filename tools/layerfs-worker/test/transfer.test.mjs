@@ -13,7 +13,11 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
 import { captureTree, restoreTree } from '../tree.mjs';
-import { encodeCapture, receiveCapture } from '../transfer.mjs';
+import {
+  encodeCapture,
+  receiveCapture,
+  TRANSFER_CHUNK_BYTES,
+} from '../transfer.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'camp-transfer-'));
@@ -26,6 +30,52 @@ async function fixture(t) {
   const captured = await captureTree(source, path.join(root, 'captures'));
   return { root, captured };
 }
+
+test('many small blobs share bounded raw payload chunks without losing hash or framing checks', async (t) => {
+  const { root } = await fixture(t);
+  const source = path.join(root, 'many-small');
+  await mkdir(source);
+  await Promise.all(
+    Array.from({ length: 1024 }, (_, index) =>
+      writeFile(
+        path.join(source, `file-${String(index).padStart(4, '0')}`),
+        Buffer.alloc(128, index % 251),
+      ),
+    ),
+  );
+  const capture = await captureTree(source, path.join(root, 'small-captures'));
+  const chunks = [],
+    metrics = {};
+  for await (const chunk of encodeCapture(capture, undefined, metrics))
+    chunks.push(chunk);
+  assert.ok(chunks.length < 10, 'small files caused per-blob pipe writes');
+  assert.equal(metrics.payloadChunks, chunks.length - 2);
+  assert.ok(
+    chunks.slice(2).every((chunk) => chunk.length <= TRANSFER_CHUNK_BYTES),
+  );
+  const destination = path.join(root, 'small-received');
+  const received = await receiveCapture(Readable.from(chunks), destination, {
+    digest: capture.digest,
+    smallFilePack: true,
+  });
+  const restored = await restoreTree(
+    { root: destination, ...received },
+    path.join(root, 'small-restored'),
+  );
+  assert.deepEqual(
+    await readFile(path.join(restored.root, 'file-0007')),
+    Buffer.alloc(128, 7),
+  );
+  const corrupt = Buffer.concat(chunks);
+  corrupt[corrupt.length - 1] ^= 1;
+  await assert.rejects(
+    receiveCapture(Readable.from([corrupt]), path.join(root, 'small-corrupt'), {
+      digest: capture.digest,
+      smallFilePack: true,
+    }),
+    { code: 'Corrupt' },
+  );
+});
 
 test('raw transfer preserves exact bytes with bounded chunks and actual byte accounting', async (t) => {
   const { root, captured } = await fixture(t);

@@ -6,6 +6,7 @@ import {
   chmod,
   link,
   mkdir,
+  readFile,
   rename,
   rm,
   symlink,
@@ -22,6 +23,7 @@ import { stop } from '../../scripts/lib.mjs';
 import {
   boundedJSON,
   excludedPackageArms,
+  excludedCheckpointArms,
   packageArms,
   sampleBenchmarkDiagnostic,
   verifyBenchmarkRuntime,
@@ -30,6 +32,7 @@ import {
 } from './benchmark-inputs.mjs';
 
 let inputs;
+const checkpointOnly = process.env.CAMP_MAC_CHECKPOINT_ONLY === '1';
 if (process.env.CAMP_MAC_BENCHMARK_PACKAGE_INPUTS) {
   const input = await boundedJSON(
     process.env.CAMP_MAC_BENCHMARK_PACKAGE_INPUTS,
@@ -48,9 +51,13 @@ const { WorkerClient } = await loadController('client.mjs');
 const { CaptureBlobs, captureTree, restoreTree } =
   await loadController('tree.mjs');
 const { receiveCapture } = await loadController('transfer.mjs');
-const { openUpstream, measureCodec } = inputs
-  ? {}
-  : await import('./upstream-comparison.mjs');
+const { treeSynchronizer } = await loadController('sync.mjs');
+const syncHelper = inputs
+  ? path.join(inputs.runtime, 'bin/camp-sandbox')
+  : process.env.CAMP_TEST_SANDBOX_HELPER;
+const treeOptions = { syncTree: treeSynchronizer(syncHelper) };
+const { openUpstream, measureCodec } =
+  inputs || checkpointOnly ? {} : await import('./upstream-comparison.mjs');
 
 const [base, engineSocket, number] = process.argv.slice(2),
   iteration = Number(number);
@@ -62,6 +69,19 @@ const report = {
   observations: [],
   nativeFixtures: [],
   passed: false,
+  ...(checkpointOnly
+    ? { scope: 'source-checkpoint-only', excludedArms: excludedCheckpointArms }
+    : {}),
+  synchronization: {
+    policy: syncHelper ? 'staged-full-sync' : 'per-entry-full-sync',
+    ...(syncHelper
+      ? {
+          helperSHA256: createHash('sha256')
+            .update(await readFile(syncHelper))
+            .digest('hex'),
+        }
+      : {}),
+  },
   ...(inputs
     ? { packageIdentity: inputs.identity, excludedArms: excludedPackageArms }
     : {}),
@@ -365,7 +385,7 @@ async function upstreamRestore(branch, capture) {
     assert.equal(await end, 0);
     return { root: destination, ...returned };
   });
-  return restoreTree(restored, path.join(root, 'restores'));
+  return restoreTree(restored, path.join(root, 'restores'), treeOptions);
 }
 
 try {
@@ -383,6 +403,9 @@ try {
     home: path.join(root, 'worker'),
     socket: ready.socket,
     qualification: true,
+    ...(checkpointOnly
+      ? { dockerBinary: process.env.CAMP_MAC_CHECKPOINT_DOCKER_BINARY }
+      : {}),
     ...(inputs
       ? { installation: inputs.installation, dockerBinary: inputs.dockerBinary }
       : {}),
@@ -392,12 +415,13 @@ try {
   report.engine = worker.engine;
   report.coldWorkerProcessMs = performance.now() - opening;
   report.sdkWorkerStartupMs = worker.startupMs;
-  if (!inputs) {
+  if (!inputs && !checkpointOnly) {
     upstream = await openUpstream(worker, root);
     report.upstreamStartupMs = upstream.startupMs;
     report.upstreamTransport = upstream.transport;
   }
   const checkpoints = new MacCheckpoints({
+    ...treeOptions,
     root: path.join(root, 'checkpoints'),
     worker,
     runnerId: 'controlled-benchmark-runner',
@@ -441,6 +465,7 @@ try {
         const input = await restoreTree(
           initialCapture,
           path.join(root, 'delta-sources'),
+          treeOptions,
         );
         source = input.root;
         await delta(source);
@@ -470,7 +495,8 @@ try {
         digest: frozen.digest,
         inputCaptureMetrics: frozen.metrics,
       });
-      const arms = inputs ? packageArms : [...packageArms, 'upstream'];
+      const arms =
+        inputs || checkpointOnly ? packageArms : [...packageArms, 'upstream'];
       const offset = (iteration - 1) % arms.length;
       const order = [...arms.slice(offset), ...arms.slice(0, offset)];
       for (const arm of order) {
@@ -592,7 +618,7 @@ try {
           phase: 'restore',
           expectedDigest,
         },
-        () => restoreTree(retained, path.join(root, 'restores')),
+        () => restoreTree(retained, path.join(root, 'restores'), treeOptions),
       ).catch(() => {});
       await measured(
         {
@@ -601,7 +627,7 @@ try {
           phase: 'fork',
           expectedDigest,
         },
-        () => restoreTree(retained, path.join(root, 'restores')),
+        () => restoreTree(retained, path.join(root, 'restores'), treeOptions),
       ).catch(() => {});
       if (previous) {
         await measured(
@@ -617,7 +643,7 @@ try {
             return { branch: fork, readback };
           },
         ).catch(() => {});
-      } else if (!inputs) {
+      } else if (!inputs && !checkpointOnly) {
         for (const phase of ['restore', 'fork'])
           await measured(
             { workload, arm: 'upstream', phase, expectedDigest },
@@ -631,7 +657,8 @@ try {
     }
   }
   const expected =
-    (process.argv.includes('smoke') ? 1 : 4) * (inputs ? 17 : 23);
+    (process.argv.includes('smoke') ? 1 : 4) *
+    (inputs || checkpointOnly ? 17 : 23);
   report.expectedObservations = expected;
   report.passed =
     report.observations.length === expected &&
@@ -702,6 +729,22 @@ try {
     }
   }
   report.host.loadAtEnd = os.loadavg();
+  if (syncHelper) {
+    try {
+      assert.equal(
+        createHash('sha256')
+          .update(await readFile(syncHelper))
+          .digest('hex'),
+        report.synchronization.helperSHA256,
+      );
+    } catch (error) {
+      report.closeError = {
+        owner: 'synchronization-helper',
+        message: error.message,
+      };
+      report.passed = false;
+    }
+  }
   report.host.freeMemoryAtEnd = os.freemem();
   try {
     report.sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], {

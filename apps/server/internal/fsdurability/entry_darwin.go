@@ -1,4 +1,4 @@
-package cli
+package fsdurability
 
 import (
 	"errors"
@@ -6,9 +6,9 @@ import (
 	"syscall"
 )
 
-// fsync each staging entry without flushing the entire device cache per file.
-// syncRuntimeStage supplies the full flush after all bounded I/O has drained.
-func syncRuntimeEntry(file *os.File) error {
+// Entry submits this file's data and metadata without a drive-wide cache flush.
+// Stage must follow all entries, including directories, after their handles close.
+func Entry(file *os.File) error {
 	connection, err := file.SyscallConn()
 	if err != nil {
 		return err

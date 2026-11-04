@@ -5,10 +5,12 @@ import { MacCheckpoints, resolveCapture } from './checkpoint.mjs';
 import { uuidPattern } from './contracts.mjs';
 import { failure, readState } from './state.mjs';
 import { selectedEpoch } from './references.mjs';
+import { treeSynchronizer } from './sync.mjs';
 
 export { selectedEpoch } from './references.mjs';
 
 export async function openHome(config) {
+  const syncTree = treeSynchronizer(config.syncHelper);
   const selected = await selectedEpoch(config.home);
   const worker = await WorkerClient.open({
     home: path.join(selected.root, 'control'),
@@ -30,6 +32,7 @@ export async function openHome(config) {
     worker,
     runnerId: config.runnerId,
     storageId: config.storageId,
+    syncTree,
   });
   return { ...selected, worker, checkpoints };
 }

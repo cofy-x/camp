@@ -4,6 +4,8 @@ This document covers the Linux x86_64 container operations of `cmd/camp-sandbox`
 
 ## Protocol
 
+The executable also exposes the trusted `sync-staging-tree ABSOLUTE_DIRECTORY` mode for private checkpoint staging, separately from tool requests below. The owning caller must finish all writers and keep stdin open. The helper never spawns processes, follows symlinks or changes bytes/modes. It bounds traversal to the complete-tree profile and uses at most eight synchronization workers, closes admitted handles, and performs a final full flush on the pinned root. Parent loss, signals, changed entries or I/O failures prevent confirmation. Its small JSON completion does not validate a manifest or authorize publication; the [checkpoint adapter](../../../../docs/layerfs-worker.md) owns independent readback and recovery. Source installation and Mac restoration share the platform entry/barrier implementation in `fsdurability`.
+
 Use `camp-sandbox request` with one JSON request on stdin and close stdin after the request. Small requests may instead use `request <base64-json>`; large file writes must use stdin because operating systems limit command argument sizes. Requests and NDJSON response types are defined in `protocol.go`.
 
 The trusted host supplies `roots.workspace` and optional `roots.references`. Tool paths always use `/workspace` or `/references`. The host serializes all file operations and commands for a Run. Shell strings are not rewritten; the container must expose `/workspace` as the working mount or a root-owned alias.

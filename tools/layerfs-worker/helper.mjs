@@ -24,19 +24,23 @@ try {
     if (operation === 'apply') {
       const captured = await receiveCapture(process.stdin, temporary, {
         digest,
+        smallFilePack: true,
       });
       process.stdout.write(
-        JSON.stringify(
-          await applyTree(
+        JSON.stringify({
+          ...(await applyTree(
             directory,
             previous,
             { root: temporary, ...captured },
             faultCount === '1' ? { failAfter: 1 } : {},
-          ),
-        ),
+          )),
+          inputReceive: captured.metrics,
+        }),
       );
     } else {
-      const captured = await captureTree(directory, temporary);
+      const captured = await captureTree(directory, temporary, {
+        smallFilePack: true,
+      });
       if (captured.digest !== digest)
         throw new Error('Exported tree differs from the confirmed checkpoint.');
       for await (const chunk of encodeCapture(captured))

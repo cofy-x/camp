@@ -185,6 +185,7 @@ for (const file of ['Dockerfile', 'seal.mjs'])
 await mkdir(path.join(context, 'worker'));
 for (const file of [
   'state.mjs',
+  'cache.mjs',
   'cost.mjs',
   'contracts.mjs',
   'tree.mjs',
