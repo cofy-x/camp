@@ -37,6 +37,7 @@ export function StartCollaboration({
   threadId,
   onStarted,
   onClose,
+  showHeading = true,
   sourceEvent,
   availability,
 }: {
@@ -45,6 +46,7 @@ export function StartCollaboration({
   threadId: string;
   onStarted: (task: Task) => void;
   onClose: () => void;
+  showHeading?: boolean;
   sourceEvent?: { id: string; title: string; url?: string };
   availability?: Pick<WorkspaceStatus, 'available' | 'reason'>;
 }) {
@@ -151,12 +153,11 @@ export function StartCollaboration({
       className="workspace-panel collaboration-panel collaboration-start"
       aria-label="Start collaboration"
     >
-      <div className="workspace-panel-heading">
-        <h2>Start collaboration</h2>
-        <Button disabled={pending} onClick={onClose}>
-          Back
-        </Button>
-      </div>
+      {showHeading && (
+        <div className="workspace-panel-heading">
+          <h2>Start collaboration</h2>
+        </div>
+      )}
       <form
         className="collaboration-form"
         onSubmit={(event) => {

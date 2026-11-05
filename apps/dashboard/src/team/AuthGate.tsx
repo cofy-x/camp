@@ -136,13 +136,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
         </div>
         {!loading && (
           <>
-            <p>
-              {setup
-                ? 'Create the first administrator account. Your team’s rooms, agents, and files will live here.'
-                : invite
-                  ? 'Create your account to join the conversation. Everyone on your team shares the rooms.'
-                  : 'A shared place for people and agents to do useful work.'}
-            </p>
+            {(setup || invite) && (
+              <p>
+                {setup
+                  ? 'Create the first administrator account. Your team’s rooms, agents, and files will live here.'
+                  : 'Create your account to join the conversation. Everyone on your team shares the rooms.'}
+              </p>
+            )}
             {setup && (
               <label>
                 Team name

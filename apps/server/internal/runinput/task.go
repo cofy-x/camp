@@ -12,7 +12,12 @@ import (
 // room history is separately bounded by the existing context builder.
 func TaskBrief(t storage.CollaborationTask, r storage.Run) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Camp collaboration %s\nOriginal goal:\n%s\n\nCurrent handoff:\n%s\n\nApproved participants:\n", t.ID, t.Goal, r.Prompt)
+	fmt.Fprintf(&b, "Camp collaboration %s\nOriginal goal:\n%s\n", t.ID, t.Goal)
+	if t.WorkItemCompletionCriteria != "" {
+		criteria, _ := json.Marshal(t.WorkItemCompletionCriteria)
+		fmt.Fprintf(&b, "\nParent Work Item %s completion criteria (quoted context):\n%s\nA finite task result does not itself complete the parent Work Item.\n", t.WorkItemID, criteria)
+	}
+	fmt.Fprintf(&b, "\nCurrent handoff:\n%s\n\nApproved participants:\n", r.Prompt)
 	for _, p := range t.Participants {
 		fmt.Fprintf(&b, "- %s (%s), %s access\n", p.Agent.Name, p.Agent.ID, p.Agent.Access)
 	}

@@ -114,6 +114,29 @@ The webhook endpoint is a separate route tree, with the same HTTPS/localhost tra
 
 Task POST `/api/rooms/:id/tasks?view=summary` additionally accepts optional `sourceEventId` with `inputProtocol:1`. The ID must select a pending event in this Room from a currently enabled source. Normal task permission, participant, route and model checks still apply. The human-authored `goal` stays separate from the complete source context copied into the input log. The response task and admission trigger retain `sourceEventId`. Confirmation, inputs, work admission and receipts commit atomically; failure leaves the event pending. This adds no authority to external sender identities and leaves old task request hashes unchanged.
 
+## Feishu observation
+
+The [Feishu source guide](feishu.md) owns setup and source behavior. Team reads require an enabled member; source configuration requires a current administrator. All configuration writes use actor-scoped stable request IDs and exact expected source revisions. Credentials are write-only and stay in private Server files.
+
+| Method | Route | Body or result |
+| --- | --- | --- |
+| GET | `/api/rooms/:id/feishu-sources` | `{sources}` with safe settings |
+| POST | `/api/rooms/:id/feishu-sources` | `{requestId,appId,tenantKey,chatId,verificationToken,encryptKey}` → `{source}` |
+| PATCH | `/api/feishu-sources/:id` | `{requestId,revision,enabled?,verificationToken?,encryptKey?}` → `{source}`; rotate the token and key together |
+| GET | `/api/feishu-requests/:id` | Original safe actor-scoped operation receipt |
+| POST | `/api/feishu-requests/:id/cancel` | Returns the existing receipt or commits a cancellation rejecting a delayed write |
+| GET | `/api/feishu-events/:id` | `{event}` with immutable normalized text and external identities |
+| GET | `/api/feishu-events/:id/payload` | Exact encrypted original, downloaded as JSON |
+| POST | `/api/hooks/feishu/:id` | Encrypted Feishu delivery or encrypted URL verification challenge; webhook authentication only |
+
+A source is permanently scoped to `appId`, receiving `tenantKey` and `chatId`. Only one source for that scope can be enabled within a Room; up to 32 retained Feishu sources are supported. Identifiers use at most 96 ASCII letters, digits, underscores or hyphens. A new source or explicit replacement is required for a different scope. Secret pairs contain 16–256 bytes per value and never appear in safe source, event or request-receipt JSON.
+
+Ordinary webhook requests require one JSON content type and one each of `X-Lark-Request-Timestamp`, `X-Lark-Request-Nonce` and `X-Lark-Signature`. Signatures compare SHA-256(timestamp + nonce + EncryptKey + exact body) in constant time. Encryption is AES-256-CBC with SHA-256(EncryptKey), a prefixed 16-byte IV and PKCS#7 padding. The decrypted v2 `header.token` must also match. An encrypted `url_verification` challenge authenticates its top-level token and can omit signature headers; no event or execution is created for a handshake. Cookie, Origin and Authorization headers are rejected. Public ingress requires HTTPS except loopback HTTP.
+
+The raw encrypted body is bounded at 1 MiB; normalized text at 64 KiB. Human text `im.message.receive_v1` events can enter the existing automation policy path. Unsupported events and nonhuman/nontext messages are retained as ignored evidence. App, receiving tenant and message chat are checked against source scope inside the same transaction that records the immutable original, receipt, canonical event and any subscribed inputs. The current credential reference and enabled state are rechecked there. Event-ID conflicts reject changed content; re-encryption and an equivalent delivery with another event ID deduplicate.
+
+Canonical Activity items add `feishu:{eventId,appId,tenantKey,chatId,messageId?,threadId?,actorOpenId?}`. Its `eventId` locates the Camp Feishu event and encrypted original. Legacy `externalEventId` stays reserved for GitHub observations. Feishu allowed actors use `senderTenantKey:openId`, preserving external sender identity independently of the receiving tenant and Camp members; policy sender fields allow up to 256 bytes, including the complete pair of 96-byte identifiers. Feishu source policies do not permit external answers or comments. This adapter sends no external messages.
+
 ## Event automation
 
 The [event architecture](architecture.md#event-automation) owns durable intake, assessment and authority; [GitHub automation](github.md#automated-work-and-replies) owns setup and external reply recovery. Reads require an enabled member and start no model work. Policies and comment credentials require a current administrator. Subscription and delivery commands require the task requester or administrator. All writes require a stable actor-scoped `requestId`; changed reuse conflicts, and `/automation-requests/:requestId` returns the original safe receipt after an uncertain response.
@@ -123,7 +146,8 @@ The [event architecture](architecture.md#event-automation) owns durable intake, 
 | GET | `/api/rooms/:id/automation-policies` | `{policies}` with safe policy revisions and credential-configured status |
 | PUT | `/api/rooms/:id/automation-policies/:source` | `{requestId,revision,enabled,mode,rules,allowedActorIds,participantAgentIds,firstAgentId,maxTurns,maxModelRequests,dailyEvaluations,dailyTasks,allowAnswers,allowComments}` → `{policy}` |
 | GET | `/api/rooms/:id/automation-events?direction=desc&sourceId=room&limit=20` | `{items,through,nextAfter,nextBefore,hasMore}`; recent Activity with bounded previews; ascending `after` traversal remains supported |
-| GET | `/api/automation-evaluations/:id` | Safe frozen policy, event/task metadata, recorded assessment and model revision; read-only |
+| GET | `/api/automation-evaluations/:id` | Safe frozen policy, event/task metadata, Work Item/memory context, assessment and model revision; bounded read-only previews |
+| GET | `/api/automation-evaluations/:id/context/:kind?after=0&limit=10` | `{items,nextAfter,hasMore,total,contextLimited?}`; exact frozen `work-items` or `memories` |
 | GET | `/api/automation-requests/:requestId` | `{kind,policy?,subscription?,delivery?}`, scoped to the authenticated actor |
 | POST | `/api/automation-requests/:requestId/cancel` | Returns the original receipt if committed, otherwise a durable `cancelled` receipt that prevents a late write |
 | GET | `/api/tasks/:id/subscriptions` | `{subscriptions}` |
@@ -132,6 +156,8 @@ The [event architecture](architecture.md#event-automation) owns durable intake, 
 | POST | `/api/automation-deliveries/:id/reconcile` | `{requestId,revision}` → `{delivery}`; requests read-only reconciliation |
 | POST | `/api/automation-deliveries/:id/resend` | `{requestId,revision}` → `{delivery}`; explicitly permits another send |
 | PUT | `/api/github-sources/:id/comment-credential` | `{requestId,revision,token,actorId}` → safe policy receipt; token is write-only |
+
+The evaluation view returns whole frozen `workItems` and `memories` with `totalWorkItems`, `totalMemories`, `workItemsOmitted` and `memoriesOmitted`; its encoded response including the newline stays within 128 KiB. Context paging reads the original stored candidate arrays rather than current Work Items or memory heads. `after` is the count already read, starting at zero; carry `nextAfter` until `hasMore:false`. It may equal the frozen array length, and cannot exceed it. Pages contain at most ten whole snapshots and 128 KiB of encoded JSON including its newline. Unknown kinds, negative or duplicate indexes, and oversized limits return `invalid_page` (400). A single oversized retained record fails explicitly rather than being shortened. Work Item status, recent task/decision excerpts, Action status and memory revision/content remain exactly as frozen, including their explicit context-limit indicators. Source bodies stay at their owning event endpoint; credentials and execution configuration are excluded. These reads do not request a model or admit work.
 
 Activity defaults to the original ascending sequence order when `direction` is omitted or `asc`: use exclusive `after` (default zero) and carry `through` plus `nextAfter`. For recent events, use `direction=desc`, omit `before` and `through` on the first request, then carry its `through` frontier and exclusive `nextBefore` as `before` to load older events. `before` must be positive and no greater than `through`; first-page omission includes the event at `through`. Descending reads reject `after`, ascending reads reject `before`, and the unused next cursor is `null`. Omitting `through` captures the current Room frontier; new arrivals are excluded from subsequent frozen pages. Refreshing or changing the source starts a new traversal. Optional `sourceId` filters matching rows before ordering/limiting: empty means all sources, `room` and `task` select built-in sources, and a retained GitHub source ID must belong to the Room. Disabled source history remains readable. Invalid or duplicate cursor, order or source parameters return `invalid_page` (400).
 
@@ -146,6 +172,63 @@ Subscription inputs are context under the task's existing grant. They do not ans
 GitHub answers require an enabled Auto policy, `allowAnswers`, an allowed human actor, the exact current `/camp answer <questionId> <answer>` command and a matching followed Thread. They can only continue the current unanswered question within the remaining finite grant. Invalid, stale or ambiguous commands authorize no work.
 
 Delivery pages retain complete bodies, default to at most 20 items and cap encoded responses at 320 KiB; their opaque cursor is bound to the task. Delivery states are `pending`, `sending`, `sent`, `unknown`, `reconcile`, `failed`, `blocked` and `withdrawn`. Stale questions and cancelled tasks withdraw queued sends without making another POST; `withdrawn:true` also stays set during any later read-only reconciliation. Withdrawal does not assert that an earlier uncertain send had no effect. Historical unknown attempts allow reconciliation but never another POST. Recovery commands compare delivery revision and operate only on recoverable states. `attempts` retains each frozen actor, dispatch revision/time when captured, and its `sending`, `sent`, `failed` or `unknown` outcome; dispatch records alone do not prove a POST succeeded. `receipts` retains deduplicated confirmed comment IDs, actors and canonical URLs. `receiptScanLimited:true` means the retained/scanned evidence may omit matching comments. Neither array exposes private credential references. A delivery allows at most 32 dispatch attempts and retains up to 32 confirmed receipts. Unknown sends are reconciled by exact marker/body and any recorded dispatch actor, without another POST; absence is still unknown. Explicit resend can create a duplicate and requires that consequence in the UI. Comment credentials use the policy revision and remain in private Server files; responses and operation receipts omit the token and opaque file reference.
+
+## Work items
+
+All enabled team members can read Room matters and their evidence. The owner or a current administrator can change a matter. Mutations require a stable actor-scoped `requestId`; operation bodies retain their expected `revision` after uncertain responses. Exact replay returns the original receipt before current state, route or model readiness checks. Changed request content conflicts; cancellation commits a tombstone only when the original operation has not committed.
+
+| Method | Route | Body or result |
+| --- | --- | --- |
+| GET / POST | `/api/rooms/:id/work-items` | Page `{items,nextAfter,hasMore}` or create input → `{item}` |
+| GET | `/api/rooms/:id/work-item-defaults?policyId=...` | Advisory finite allowance, expiry and participants; starts no work |
+| GET | `/api/work-items/:id` | `{item}` with bounded detail previews |
+| POST | `/api/work-items/:id/decisions` | Versioned operation → `{item}` |
+| POST | `/api/work-items/:id/actions/:action` | Typed human intent → `{item}`; same revision and actor-scoped recovery |
+| GET | `/api/work-item-requests/:id` | Original actor-scoped `{item}` receipt |
+| POST | `/api/work-item-requests/:id/cancel` | `{cancelled}`; read the original receipt when false |
+| GET | `/api/automation-events/:id` | `{event}` with complete canonical source text and original-source references |
+
+[Work Item types](../apps/server/internal/orchestration/workitems.go) own fields. Creation requires `requestId` and `goal` (up to 8192 UTF-8 bytes). Optional `completionCriteria` selects criteria-based completion; omission sets `completionMode:"human"`, requiring human confirmation to close. Optional `dueAt` is a business date and grants no execution authority. `expiresAt` is the finite authorization expiry; `deadline` retains its compatibility meaning as the same expiry. An omitted expiry defaults to 30 days; a supplied expiry must be future RFC3339 within one year. The defaults read provides a server-owned proposal rather than a grant.
+
+Creation accepts up to 20 distinct same-Room `evidenceIds`, an optional owned Room `policyId` with `policyRevision`, `sourceEventId` or `messageId`, explicit `follow`, and explicit `start` with participants/first Agent. Recording alone starts no work. Source association, explicit conversation following, initial finite execution and the creation receipt commit together; a failure leaves no partial matter or task. Source identity and Room membership are rechecked inside the transaction. Exact replay returns the original receipt before later state checks.
+
+Default cumulative ceilings are 12 assessments, 4 tasks, 96 reserved model requests, 16 external dispatch attempts and 8 timer follow-ups. Maxima are 1000, 100, 9600, 1000 and 100 respectively; follow-ups alone may be zero. New source policies expose the same `itemBudget`; existing matters retain their own saved ceilings. Policy edits and daily resets do not refill matters.
+
+Typed actions are `start`, `answer`, `answer_continue`, `wait`, `complete`, `stop`, `delegate`, `attach`, `follow`, `unfollow` and `authorize`. They require `requestId` and the expected matter `revision`, plus action-specific fields. `comment` is optional; human answers use `content`. Audit records distinguish a supplied human statement from a deterministic operation description using `reasonSource`.
+
+`start` selects participants and the first Agent, creates a new finite task and reserves its entire request allowance. An active task's `answer` also supplies `taskId`, `taskRevision` and `questionId`; the original task owner validates the question and continues within its remaining grant, without adding allowance. A matter-level `answer` records the person's answer without starting execution; `answer_continue` explicitly admits a new finite task in the same transaction. `questionKind:"completion"` identifies an explicit human completion request; its affirmative action is `complete`, independently of the question's text. Ordinary questions use `questionKind:"judgment"`; no question omits the kind. `wait` requires `waitCondition` and optionally `resumeAt` before authorization expiry. `attach` associates a source without implicitly following it. `follow`/`unfollow` refer to an observed source conversation. `delegate` explicitly changes the binding using the current policy revision and records a new intake frontier; disabling delegation grants nothing. `authorize` changes cumulative ceilings covering all usage/reservations and optional future expiry, without starting work. Human `complete` records acceptance, while unresolved external actions still block completion.
+
+`stop` first records durable intent, retires pending waits/follow-ups and requests cancellation through the existing finite task lifecycle. The API projects `stopping` until cancellation settles, then `cancelled`. No new assessment, model request or external action is authorized during stopping. Historical SQL states and originals remain intact. Completed/cancelled matters cannot reopen. Invalid commands return `invalid_work_item` (400); stale revisions, finished matters and exhausted allowance return `revision_conflict`, `work_item_finished` or `work_budget_exhausted` (409).
+
+The compatibility `decisions` endpoint retains the advisory vocabulary and old receipt bodies, including explicit `request_judgment`, `ignore` and `evidence`. Ordinary UI actions use the typed routes. An advisory ignore only records a decision; it does not stop the matter.
+
+List pages use exclusive nonnegative `after` and at most 20 items. With `state=all|needs_attention|active|done`, filtering occurs before pagination and sequence order is descending; `nextAfter` is the last included sequence. Questions/attention from the active task count as needing attention, and stopping counts as active. Omitted `state` preserves the original ascending traversal. Duplicate or invalid state parameters fail with `invalid_page`.
+
+Detail previews contain at most 20 evidence/decision/task/timer/action records; `historyLimited:true` directs callers to complete history. `execution` presents the current/latest finite task, question and revision. `result` presents the latest saved task checkpoint or published Room version with summary, resource, commit and up to 20 changed-file entries; `filesLimited` directs readers to the exact-version Library. Deletions remain identified as changes. These read-only projections never enter the saved matter authorization or imply approval/delivery. Canonical events retain immutable facts while status fields reflect current processing. `workItemId` and `causationId` identify internal follow-up targets and their source fact, task, timer or Action receipt. Reading any of these endpoints starts no model work. Work Item task grants continue to use current Agent/Runner/Resource permissions, frozen task input frontiers and existing publication checks.
+
+## Work item history
+
+GET `/api/work-items/:id/history/:kind?cursor=...&limit=20` reads retained `evidence`, `decisions`, `tasks`, `timers` or `actions` beyond the bounded Work Item detail preview. It requires an enabled team member and returns `{items,nextCursor}`. Items retain each kind's complete record shape; evidence contains the original source event ID, and source originals remain available through their owning event endpoint. Reads admit no work and make no model request.
+
+The first page freezes its monotonically assigned record identity frontier. Carry its opaque `nextCursor` unchanged to load later records; an empty string marks the end. Cursors are bound to the exact Work Item and history kind. Later insertions are excluded until a fresh traversal, while task, timer and delivery status remains current. Pages return at most 20 whole records and 320 KiB of encoded JSON including its newline. A single oversized retained record fails explicitly rather than truncating it. Invalid, repeated or cross-item/kind cursor parameters return `invalid_page` (400).
+
+## Room memory
+
+Memory is Room-scoped, team-visible quoted evidence, never execution authority. Reads require a current enabled member. Creation records that member as author; supersession and retraction require the author or a current administrator. All writes carry actor-scoped stable request IDs. Exact replay returns the original response before later revision/provenance checks; changed reuse conflicts. Recovery reads expose only that actor's receipts, and cancellation either returns an already committed receipt or records a tombstone that rejects a late write.
+
+| Method | Route | Body or result |
+| --- | --- | --- |
+| GET | `/api/rooms/:id/memories?q=...&limit=10` | `{memories}`; current active revisions only |
+| POST | `/api/rooms/:id/memories` | `{requestId,revision:0,content,provenance}` → `{memory}` |
+| GET | `/api/memories/:id?revision=...` | `{memory}`; omitted revision selects current; a positive revision selects exact history |
+| PUT | `/api/memories/:id` | `{requestId,revision,content,provenance}` → `{memory}`; append a superseding revision |
+| POST | `/api/memories/:id/retract` | `{requestId,revision}` → `{memory}`; append a terminal retraction |
+| GET | `/api/memory-requests/:id` | `{kind,memory?}`; the original actor-scoped receipt |
+| POST | `/api/memory-requests/:id/cancel` | `{}` → the existing receipt or `{kind:"cancelled"}` |
+
+Content allows 8192 UTF-8 bytes. Provenance is exactly one of `{kind:"human_note"}`, `{kind:"message",messageId}`, `{kind:"source_event",sourceEventId}` or `{kind:"file",resourceId,commit,path}`. A note is explicitly human-authored. Messages/events and Resources must belong to the memory's Room; file commits are exact retained 40-character revisions, paths are safe relative files, and HTTP admission checks the saved file exists. Supersession preserves the original author and records the current editor separately. Revision mismatch or an attempted edit of retracted memory returns `revision_conflict` (409); retraction does not erase historical evidence or restart work.
+
+Query `q` allows at most 512 UTF-8 bytes and matches a case-insensitive ASCII substring (other Unicode text matches exactly under SQLite's built-in `lower`). Empty query lists recent active revisions. Limit defaults to 10 and is at most 20; whole results stop before the encoded `{memories}` response plus newline exceeds 64 KiB. Query and revision parameters may occur only once. Retrieval makes no model request, and retracted/superseded revisions are excluded from search. Exact lookup can still read historical revisions, with `current:false` for a superseded revision. Frozen assessment/Run snapshots retain exact memory IDs, revisions, content and provenance even after later edits; their content cannot widen execution authority.
 
 ## Runs and events
 

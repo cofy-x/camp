@@ -104,21 +104,11 @@
   gap: 7px;
 }
 .workspace-room-heading {
-  display: flex;
+  display: none;
   align-items: center;
   gap: 7px;
   flex: 1;
   min-width: 0;
-}
-.workspace-room-heading > .p9-pixel-icon {
-  flex-shrink: 0;
-}
-.workspace-room-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
 }
 .workspace-toolbar-actions {
   display: flex;
@@ -126,11 +116,11 @@
   justify-content: flex-end;
   gap: 6px;
   align-items: center;
+  width: 100%;
 }
 .workspace-toolbar-actions .workspace-room-actions {
   min-width: 28px;
-  width: 28px;
-  padding-inline: 0;
+  padding-inline: 8px;
 }
 .workspace-room-heading > .workspace-room-picker {
   display: none;
@@ -331,7 +321,7 @@
   align-items: center;
   font-size: 11px;
 }
-.workspace-work-heading > span {
+.workspace-work-status {
   flex: 1;
   color: #666;
 }
@@ -803,16 +793,13 @@
   border-bottom: 1px solid #d3b9aa;
 }
 .workspace-unavailable {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   font-size: 11px;
-  padding: 7px 12px;
-  background: #fff9df;
-  border-bottom: 1px solid #d4caab;
-}
-.workspace-unavailable summary {
-  cursor: pointer;
-}
-.workspace-unavailable p {
-  margin-bottom: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--p9-mid);
 }
 .workspace-app > .p9-status {
   display: flex;
@@ -881,14 +868,11 @@
     flex-wrap: wrap;
   }
   .workspace-room-heading {
+    display: flex;
     flex-basis: 100%;
   }
   .workspace-toolbar-actions {
     width: 100%;
-  }
-  .workspace-room-heading > .p9-pixel-icon,
-  .workspace-room-title {
-    display: none;
   }
   .workspace-toolbar-actions {
     gap: 4px;
@@ -898,7 +882,7 @@
   }
   .workspace-toolbar-actions .workspace-room-actions {
     margin-left: auto;
-    padding-inline: 0;
+    padding-inline: 6px;
   }
   .workspace-members {
     max-height: 85px;
@@ -1167,9 +1151,15 @@
   font-size: 11px;
   margin-bottom: 10px;
 }
-.workspace-preview-actions a {
-  color: var(--p9-highlight);
-  overflow-wrap: anywhere;
+.workspace-preview-actions > a.p9-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  color: var(--p9-text);
+  font-family: var(--p9-font);
+  text-decoration: none;
 }
 .workspace-preview-content {
   max-height: 360px;
@@ -1244,4 +1234,17 @@
   margin: 5px 0;
   font-size: 11px;
   overflow-wrap: anywhere;
+}
+
+.workspace-work-panel,
+.workspace-notes-panel {
+  display: flex;
+  flex-direction: column;
+}
+.workspace-work-panel > .work-items,
+.workspace-notes-panel > .work-items {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }

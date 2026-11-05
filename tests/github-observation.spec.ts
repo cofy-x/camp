@@ -2,7 +2,13 @@ import { createHmac, randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import type { GitHubSource } from '../apps/dashboard/src/features/github/api';
 import type { Task } from '../apps/dashboard/src/features/collaboration/api';
-import { createRoom, mutate, signIn, workspace } from './team-helpers';
+import {
+  openRoomMore,
+  createRoom,
+  mutate,
+  signIn,
+  workspace,
+} from './team-helpers';
 import { watchPageErrors } from './page-errors';
 
 const secret = 'private-synthetic-github-observation-secret';
@@ -11,12 +17,10 @@ const panel = (page: Page) =>
   workspace(page).getByRole('region', { name: 'GitHub events', exact: true });
 
 const settings = (page: Page) =>
-  workspace(page).getByRole('region', { name: 'Room automation', exact: true });
+  workspace(page).getByRole('region', { name: 'Room management', exact: true });
 
 async function openEvents(page: Page) {
-  await workspace(page)
-    .getByRole('button', { name: 'Automation', exact: true })
-    .click();
+  await openRoomMore(page, 'Activity…');
   await settings(page)
     .getByRole('tab', { name: 'Activity', exact: true })
     .click();
@@ -29,11 +33,9 @@ async function openEvents(page: Page) {
 }
 
 async function openSources(page: Page) {
-  await workspace(page)
-    .getByRole('button', { name: 'Automation', exact: true })
-    .click();
+  await openRoomMore(page, 'Activity…');
   await settings(page)
-    .getByRole('tab', { name: 'Settings', exact: true })
+    .getByRole('tab', { name: 'Sources & rules', exact: true })
     .click();
   const sources = settings(page).locator('details.github-sources');
   await expect(sources).toBeVisible();

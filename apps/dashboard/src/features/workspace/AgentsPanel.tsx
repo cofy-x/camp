@@ -22,6 +22,7 @@ export function AgentEditor({
   agent,
   room,
   agents,
+  showHeading = true,
   onSave,
   onClose,
   onPending,
@@ -29,6 +30,7 @@ export function AgentEditor({
   agent?: Agent;
   room?: Room;
   agents: Agent[];
+  showHeading?: boolean;
   onSave: (agent: Agent) => void;
   onClose: () => void;
   onPending: (pending: boolean) => void;
@@ -111,20 +113,24 @@ export function AgentEditor({
         void save();
       }}
     >
-      <div className="workspace-agent-editor-intro">
-        <h3>
-          {agent
-            ? `Edit ${agent.name}`
-            : room
-              ? `Add an agent to ${room.name}`
-              : 'Create your Agent'}
-        </h3>
-        {agent && (
-          <p className="workspace-description">
-            Changes apply in every Room this Agent joins.
-          </p>
-        )}
-      </div>
+      {(showHeading || agent) && (
+        <div className="workspace-agent-editor-intro">
+          {showHeading && (
+            <h3>
+              {agent
+                ? `Edit ${agent.name}`
+                : room
+                  ? `Add an agent to ${room.name}`
+                  : 'Create your Agent'}
+            </h3>
+          )}
+          {agent && (
+            <p className="workspace-description">
+              Changes apply in every Room this Agent joins.
+            </p>
+          )}
+        </div>
+      )}
       {!agent && (
         <fieldset className="workspace-agent-presets" disabled={pending}>
           <legend>Start with a role</legend>
@@ -384,7 +390,6 @@ export function AgentsPanel({
       aria-label="Room agents"
     >
       <div className="workspace-panel-heading">
-        <h2>Agents in {room.name}</h2>
         <div className="app-actions">
           {!editing && (
             <Button

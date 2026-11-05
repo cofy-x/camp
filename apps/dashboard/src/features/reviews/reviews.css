@@ -10,10 +10,6 @@
   flex-wrap: wrap;
   gap: 8px;
 }
-.camp-review-panel > .app-toolbar > strong {
-  flex: 1;
-  font-family: var(--p9-font);
-}
 .camp-review-body {
   flex: 1;
   min-height: 0;

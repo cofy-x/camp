@@ -67,10 +67,9 @@ async function register(page: Page, remote: Remote, name: string) {
   await expect(credential).toHaveCount(0);
   await panel.getByRole('button', { name: 'Open Runner', exact: true }).click();
   await expect(
-    app
-      .getByRole('region', { name: 'Runner details', exact: true })
-      .getByRole('heading', { name, exact: true }),
+    app.getByRole('region', { name: 'Runner details', exact: true }),
   ).toBeVisible();
+  await expect(app.locator('.p9-window-title')).toHaveText(`${name} — Runners`);
   return { ...daemon, runner: runner! };
 }
 
@@ -373,11 +372,10 @@ test('an offline source import can be recovered and cancelled, then its snapshot
   await panel
     .getByRole('button', { name: 'Import Another Snapshot', exact: true })
     .click();
-  const heading = panel.getByRole('heading', {
-    name: 'Import from Runner',
-    exact: true,
-  });
-  await expect(heading).toBeFocused();
+  await expect(library(page).locator('.p9-window-title')).toHaveText(
+    'Import from Runner — Library',
+  );
+  await expect(panel).toBeFocused();
   await expect(
     panel.getByLabel('Registered directory', { exact: true }),
   ).toBeEnabled();
@@ -473,7 +471,7 @@ test('an offline source import can be recovered and cancelled, then its snapshot
     .getByRole('button', { name: 'View Import', exact: true })
     .click();
   await expect(panel.getByRole('status')).toHaveText('Import cancelled');
-  await expect(heading).toBeFocused();
+  await expect(panel).toBeFocused();
   await expect
     .poll(() =>
       panel
@@ -482,7 +480,7 @@ test('an offline source import can be recovered and cancelled, then its snapshot
     )
     .toBe(0);
   await another.click();
-  await expect(heading).toBeFocused();
+  await expect(panel).toBeFocused();
   await expect(panel.getByLabel('New Room name', { exact: true })).toHaveValue(
     'Cancelled notes',
   );
@@ -500,7 +498,7 @@ test('an offline source import can be recovered and cancelled, then its snapshot
     .getByRole('button', { name: 'View Import', exact: true })
     .click();
   await expect(panel.getByRole('status')).toHaveText('Room created');
-  await expect(heading).toBeFocused();
+  await expect(panel).toBeFocused();
   await another.click();
   await expect(panel.getByLabel('Source Runner', { exact: true })).toHaveValue(
     a.runner.id,

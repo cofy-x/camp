@@ -62,6 +62,9 @@ async function selectPanel(page: Page, id: string, title: string) {
       .getByRole('navigation', { name: 'Settings sections' })
       .getByRole('button', { name: title, exact: true })
       .click();
+  await expect(settings(page).locator('.p9-window-title')).toHaveText(
+    `${title} — Settings`,
+  );
 }
 
 test('model details remain keyboard accessible while locked fields explain their source without exposing the key', async ({
@@ -93,6 +96,12 @@ test('model details remain keyboard accessible while locked fields explain their
   await openApp(page, 'Settings');
   await selectPanel(page, 'models', 'Models');
   const app = settings(page);
+  await expect(
+    app.getByRole('form', { name: 'Model settings', exact: true }),
+  ).toBeVisible();
+  await expect(
+    app.getByRole('heading', { name: 'Model Connection', exact: true }),
+  ).toHaveCount(0);
   const modelInput = app.getByLabel('Model', { exact: true });
   await expect(modelInput).toHaveValue(model.model);
   await expect(modelInput).toHaveAccessibleDescription('Team settings');
@@ -244,17 +253,35 @@ test('Getting Ready guides model, Runner and task setup without starting work', 
   const next = preparation(page).getByRole('region', {
     name: 'Next setup step',
   });
+  await expect(settings(page).locator('.p9-window-title')).toHaveText(
+    'Getting Ready — Settings',
+  );
+  await expect(
+    preparation(page).getByRole('heading', {
+      name: 'Getting Ready',
+      exact: true,
+    }),
+  ).toHaveCount(0);
   await expect(next.getByRole('heading')).toHaveText('Connect a model');
+  await expect(
+    preparation(page).getByRole('button', {
+      name: 'Model Settings',
+      exact: true,
+    }),
+  ).toHaveCount(0);
   await next
     .getByRole('button', { name: 'Configure Model…', exact: true })
     .focus();
   await page.keyboard.press('Enter');
   await expect(
-    settings(page).getByRole('heading', {
-      name: 'Model Connection',
+    settings(page).getByRole('group', {
+      name: 'Model connection',
       exact: true,
     }),
   ).toBeVisible();
+  await expect(settings(page).locator('.p9-window-title')).toHaveText(
+    'Models — Settings',
+  );
   stage = 'runner';
   await selectPanel(page, 'readiness', 'Getting Ready');
   await expect(next.getByRole('heading')).toHaveText('Connect a Runner');
@@ -272,6 +299,12 @@ test('Getting Ready guides model, Runner and task setup without starting work', 
     'Try your first Agent task',
   );
   await expect(next).toContainText('This makes a model request.');
+  await expect(
+    preparation(page).getByRole('button', {
+      name: 'Open Runners',
+      exact: true,
+    }),
+  ).toHaveCount(0);
   await next
     .getByRole('button', { name: 'Choose Runner…', exact: true })
     .click();
@@ -281,6 +314,15 @@ test('Getting Ready guides model, Runner and task setup without starting work', 
   stage = 'done';
   await openApp(page, 'Settings');
   await expect(next.getByRole('heading')).toHaveText('Start working');
+  await expect(
+    preparation(page).getByRole('button', {
+      name: 'Open Workspace',
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(
+    next.getByRole('button', { name: 'Start Working', exact: true }),
+  ).toBeEnabled();
   expect(mutations).toEqual([]);
 });
 
@@ -386,6 +428,18 @@ test('status refresh uses GET, keeps work available, and retains observations af
   await expect(preparation(page).getByRole('alert')).toContainText(
     'Status refresh failed. Previous observations are shown below.',
   );
+  await expect(
+    preparation(page).getByRole('button', {
+      name: 'Refresh Status',
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(
+    preparation(page).getByRole('button', {
+      name: 'Retry Status',
+      exact: true,
+    }),
+  ).toHaveCount(1);
   await expect(statusRow(page, 'Agent work')).toContainText('Available');
   await preparation(page)
     .getByText(/^Diagnostic details/)
@@ -467,11 +521,17 @@ test('status loading can be retried without running checks and refreshes after r
     }),
   ).toBeEnabled();
   await preparation(page)
-    .getByRole('button', { name: 'Model Settings', exact: true })
+    .getByRole('button', { name: 'Configure Model…', exact: true })
     .click();
   await expect(
-    settings(page).getByRole('heading', { name: 'Model Connection' }),
+    settings(page).getByRole('group', {
+      name: 'Model connection',
+      exact: true,
+    }),
   ).toBeVisible();
+  await expect(settings(page).locator('.p9-window-title')).toHaveText(
+    'Models — Settings',
+  );
   current = {
     ...observation,
     components: observation.components.map((item) =>

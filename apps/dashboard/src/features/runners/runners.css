@@ -12,9 +12,8 @@
 .camp-runners-toolbar {
   flex-shrink: 0;
 }
-.camp-runners-toolbar > strong {
-  margin-right: auto;
-  font-family: var(--p9-font);
+.camp-runners-toolbar > .p9-button:last-child {
+  margin-left: auto;
 }
 .camp-runners-main {
   display: flex;
@@ -56,22 +55,15 @@
   gap: 10px;
   margin-bottom: 18px;
 }
-.camp-runner-heading > div {
+.camp-runner-heading > p {
   flex: 1;
   min-width: 0;
+  margin: 0;
 }
 .camp-runner-heading > .p9-button {
   flex-shrink: 0;
 }
-.camp-runner-heading h2,
-.camp-runner-connect h2,
-.camp-runner-empty h2 {
-  margin: 0;
-  font: bold 16px/1.4 var(--p9-font);
-  overflow-wrap: anywhere;
-}
 .camp-runner-heading p {
-  margin: 4px 0 0;
   color: var(--p9-muted);
 }
 .camp-runner-detail h3,
@@ -171,9 +163,6 @@
   margin: 0 auto;
   padding: 20px;
 }
-.camp-runner-connect > h2 {
-  margin-bottom: 22px;
-}
 .camp-runner-connect > p {
   margin-top: 6px;
   margin-bottom: 22px;
@@ -250,12 +239,10 @@
   margin-top: 4px;
 }
 .camp-runner-empty {
-  width: 100%;
-  padding: 36px 24px;
-  text-align: center;
-}
-.camp-runner-empty h2 {
-  margin-top: 14px;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
 }
 .camp-runners-error {
   margin: 12px;
@@ -265,9 +252,6 @@
 }
 @container (max-width: 600px) {
   .camp-runners-body > .camp-runner-list {
-    display: none;
-  }
-  .camp-runners-toolbar > strong {
     display: none;
   }
   .camp-runners-toolbar {
@@ -289,9 +273,6 @@
   .camp-runner-heading {
     gap: 8px;
     margin-bottom: 16px;
-  }
-  .camp-runner-heading h2 {
-    font-size: 14px;
   }
   .camp-runner-facts {
     gap: 8px 12px;

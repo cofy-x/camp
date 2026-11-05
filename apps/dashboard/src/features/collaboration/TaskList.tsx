@@ -1,4 +1,4 @@
-import { Button } from '@cofy-x/camp-platinum';
+import { Button, PixelIcon } from '@cofy-x/camp-platinum';
 import { taskStatus, type Task } from './api';
 
 export function TaskList({
@@ -24,7 +24,6 @@ export function TaskList({
       aria-label="Collaborations"
     >
       <div className="workspace-panel-heading">
-        <h2>Collaborations</h2>
         <div className="app-actions">
           <Button primary onClick={onStart}>
             Start collaboration…
@@ -38,15 +37,10 @@ export function TaskList({
         </p>
       )}
       {loading && <p role="status">Loading collaborations…</p>}
-      {!loading && !tasks.length && (
-        <div className="collaboration-empty">
-          <h3>Give your Agents a shared goal</h3>
-          <p>
-            Choose the participants and let them take turns on a task draft.
-            They can ask for your input and continue while you are away.
-            Finished work returns here for review.
-          </p>
-          <p>Ordinary @ messages still request one Agent response.</p>
+      {!loading && !error && !tasks.length && (
+        <div className="camp-empty">
+          <PixelIcon name="document" size={32} />
+          <p>No collaborations yet.</p>
         </div>
       )}
       <ul className="collaboration-list">
@@ -87,19 +81,23 @@ export function TaskAttention({
       task.status,
     ),
   );
+  const linked = tasks.length > 0 && tasks.every((task) => task.workItemId);
   if (!tasks.length) return null;
   return (
     <section
       className="collaboration-attention"
-      aria-label="Collaboration updates"
+      aria-label={linked ? 'Work updates' : 'Collaboration updates'}
     >
       {attention.length ? (
         <>
           <strong>
-            {attention.length} collaboration{attention.length === 1 ? '' : 's'}{' '}
-            need attention
+            {linked
+              ? 'Needs your attention'
+              : `${attention.length} collaboration${attention.length === 1 ? '' : 's'} need attention`}
           </strong>
-          <Button onClick={() => onOpen(attention[0].id)}>Open next</Button>
+          <Button onClick={() => onOpen(attention[0].id)}>
+            {linked ? 'Open work' : 'Open next'}
+          </Button>
         </>
       ) : (
         <span>
@@ -114,7 +112,9 @@ export function TaskAttention({
               : 'Saved collaborations'}
         </span>
       )}
-      <Button onClick={onAll}>View collaborations</Button>
+      <Button onClick={onAll}>
+        {linked ? 'View work' : 'View collaborations'}
+      </Button>
     </section>
   );
 }

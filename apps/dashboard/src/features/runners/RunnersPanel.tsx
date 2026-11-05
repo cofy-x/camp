@@ -16,7 +16,13 @@ import { RunnerPermissions } from './RunnerPermissions';
 import { RunnerDiagnostics } from './RunnerDiagnostics';
 import { ConnectRunner } from './ConnectRunner';
 
-export function RunnersPanel({ desktop }: { desktop: DesktopAPI }) {
+export function RunnersPanel({
+  desktop,
+  windowId,
+}: {
+  desktop: DesktopAPI;
+  windowId: string;
+}) {
   const { runners, loading, error: loadError, refresh } = useRunners();
   const { user } = useAccount();
   const { revision, members, navigation } = useTeam();
@@ -51,6 +57,10 @@ export function RunnersPanel({ desktop }: { desktop: DesktopAPI }) {
   }, [navigation, loading, runners]);
   const selected =
     runners.find((runner) => runner.id === selectedId) ?? runners[0];
+  const location = connecting ? 'Connect Runner' : selected?.name;
+  useEffect(() => {
+    desktop.setTitle(windowId, location ? `${location} — Runners` : 'Runners');
+  }, [desktop, windowId, location]);
   const manage =
     selected && (user.role === 'admin' || selected.ownerUserId === user.id);
   const owner = (runner: Runner) =>
@@ -179,12 +189,9 @@ export function RunnersPanel({ desktop }: { desktop: DesktopAPI }) {
         {connecting ? (
           <Button onClick={() => setConnecting(false)}>Back to Runners</Button>
         ) : (
-          <>
-            <strong>Runners</strong>
-            <Button primary onClick={() => setConnecting(true)}>
-              Connect Runner…
-            </Button>
-          </>
+          <Button primary onClick={() => setConnecting(true)}>
+            Connect Runner…
+          </Button>
         )}
         <Button disabled={Boolean(pending)} onClick={refresh}>
           Refresh
@@ -260,13 +267,9 @@ export function RunnersPanel({ desktop }: { desktop: DesktopAPI }) {
               key={`${user.id}:${selected.id}`}
             >
               <header className="camp-runner-heading">
-                <PixelIcon name="computer" size={32} />
-                <div>
-                  <h2>{selected.name}</h2>
-                  <p>
-                    {runnerStatus(selected)} · {owner(selected)}
-                  </p>
-                </div>
+                <p>
+                  {runnerStatus(selected)} · {owner(selected)}
+                </p>
                 {manage && !selected.revoked && (
                   <Button
                     aria-label="Runner actions"
@@ -411,18 +414,16 @@ export function RunnersPanel({ desktop }: { desktop: DesktopAPI }) {
             </section>
           ) : (
             <div className="camp-runner-empty">
-              {loading ? (
-                <p role="status">Loading Runners…</p>
-              ) : (
-                <>
-                  <PixelIcon name="computer" size={48} />
-                  <h2>Your machines, ready for teamwork</h2>
-                  <p>
-                    Connect a supported Mac or Linux machine to execute Agent
-                    work for your Rooms.
-                  </p>
-                </>
-              )}
+              <div className="camp-empty" role="status">
+                <PixelIcon name="computer" size={32} />
+                <h2>
+                  {loading
+                    ? 'Loading Runners…'
+                    : loadError
+                      ? 'Runners unavailable'
+                      : 'No Runners connected'}
+                </h2>
+              </div>
             </div>
           )}
         </div>

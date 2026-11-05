@@ -276,15 +276,9 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
   margin-bottom: 16px;
-}
-.camp-preparation-heading > div {
-  flex: 1;
-  min-width: 150px;
-}
-.camp-preparation-heading h2 {
-  margin: 0;
 }
 .camp-preparation-next {
   display: flex;
@@ -348,9 +342,8 @@
   align-items: center;
   gap: 6px 10px;
 }
-.camp-preparation-team .app-actions {
-  margin: 0;
-  gap: 8px;
+.camp-preparation-diagnostics {
+  margin-top: 16px;
 }
 .camp-preparation-diagnostics > summary {
   font: 12px var(--p9-font);
@@ -386,9 +379,6 @@
   }
 }
 @container (max-width: 460px) {
-  .camp-preparation-heading > .p9-button {
-    margin-left: 38px;
-  }
   .camp-preparation-status > div {
     grid-template-columns: minmax(0, 1fr);
     gap: 5px;

@@ -163,6 +163,10 @@ func (s *Store) SaveRoomRead(ctx context.Context, room string, seq int64) error 
 }
 
 type InboxItem struct {
+	Title       string `json:"title"`
+	Question    string `json:"question"`
+	Summary     string `json:"summary"`
+	WorkItemID  string `json:"workItemId,omitempty"`
 	TaskID      string `json:"taskId,omitempty"`
 	RoomName    string `json:"roomName"`
 	ReviewTitle string `json:"reviewTitle"`
@@ -180,7 +184,7 @@ func (s *Store) ListInbox(ctx context.Context) ([]InboxItem, error) {
 	rows, e := s.queries().ListInbox(ctx, actorID(ctx))
 	out := make([]InboxItem, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, InboxItem{TaskID: r.TaskID, RoomName: r.RoomName, ReviewTitle: r.ReviewTitle, ReviewID: r.ReviewID, ID: r.ID, Kind: r.Kind, RoomID: r.RoomID, MessageID: r.MessageID, RunID: r.RunID, CreatedAt: r.CreatedAt, ReadAt: r.ReadAt})
+		out = append(out, InboxItem{Title: r.Title, Question: r.Question, Summary: r.Summary, WorkItemID: r.ResolvedWorkItemID, TaskID: r.TaskID, RoomName: r.RoomName, ReviewTitle: r.ReviewTitle, ReviewID: r.ReviewID, ID: r.ID, Kind: r.Kind, RoomID: r.RoomID, MessageID: r.MessageID, RunID: r.RunID, CreatedAt: r.CreatedAt, ReadAt: r.ReadAt})
 	}
 	return out, e
 }

@@ -14,9 +14,6 @@
 .camp-agents-app > .app-toolbar {
   justify-content: space-between;
 }
-.camp-agents-app > .app-toolbar > strong {
-  font-family: var(--p9-font);
-}
 .camp-agent-detail {
   flex: 1;
   min-width: 0;
@@ -24,9 +21,12 @@
   padding: 16px;
   background: var(--p9-face);
 }
-.camp-agent-detail h2 {
-  margin: 0 0 4px;
-  font: bold 16px/1.4 var(--p9-font);
+.camp-agent-empty {
+  display: flex;
+  flex-direction: column;
+}
+.camp-agent-detail .panel-heading p {
+  margin: 0;
 }
 .camp-agent-detail h3 {
   font: bold 12px/1.4 var(--p9-font);
@@ -81,9 +81,6 @@
   .camp-agents-body > .app-control-nav {
     display: none;
   }
-  .camp-agents-app > .app-toolbar > strong {
-    display: none;
-  }
   .camp-agents-chooser {
     display: block;
     flex: 1;
@@ -97,7 +94,6 @@
 .camp-agent-detail .panel-heading > div {
   min-width: 0;
 }
-.camp-agent-detail .panel-heading h2,
 .camp-agent-detail .panel-heading p,
 .camp-agent-rooms .camp-link {
   overflow-wrap: anywhere;

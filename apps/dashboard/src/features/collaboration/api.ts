@@ -3,6 +3,7 @@ import type { AgentSnapshot, ReferenceInput, Run } from '../workspace/api';
 
 export interface Task {
   id: string;
+  workItemId?: string;
   roomId: string;
   threadRootId: string;
   originMessageId: string;

@@ -18,6 +18,7 @@ type API struct {
 	settings           SettingsService
 	webhookSecrets     *configuration.WebhookSecrets
 	commentCredentials *configuration.GitHubCredentials
+	feishuCredentials  *configuration.FeishuCredentials
 	hooks              *http.ServeMux
 	importPolicy       configuration.ImportPolicy
 	library            *library.Service
@@ -47,8 +48,13 @@ func New(store *storage.Store, logger *slog.Logger, managers ...RoomService) *AP
 	a.roomRoutes(mux)
 	a.orchestrationRoutes(mux)
 	a.automationRoutes(mux)
+	a.automationEvaluationContextRoutes(mux)
+	a.workItemRoutes(mux)
+	a.workItemHistoryRoutes(mux)
+	a.memoryRoutes(mux)
 	a.taskRoutes(mux)
 	a.githubRoutes(mux)
+	a.feishuRoutes(mux)
 	a.runnerInstallationRoutes(mux)
 	a.authRoutes(mux)
 	a.avatarRoutes(mux)

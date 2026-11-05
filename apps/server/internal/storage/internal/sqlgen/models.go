@@ -127,6 +127,47 @@ type CollaborationTask struct {
 	UpdatedAt         string
 }
 
+type FeishuDelivery struct {
+	SourceID    string
+	DeliveryID  string
+	Fingerprint string
+	EventID     string
+}
+
+type FeishuEvent struct {
+	Seq            int64
+	ID             string
+	SourceID       string
+	RoomID         string
+	SourceRevision int64
+	CredentialRef  string
+	Fingerprint    string
+	Value          string
+	Payload        []byte
+	ReceivedAt     string
+}
+
+type FeishuRequest struct {
+	UserID      string
+	RequestID   string
+	RequestHash string
+	Result      string
+}
+
+type FeishuSource struct {
+	ID            string
+	RoomID        string
+	AppID         string
+	TenantKey     string
+	ChatID        string
+	Enabled       int64
+	Revision      int64
+	CredentialRef string
+	CreatedBy     string
+	CreatedAt     string
+	UpdatedAt     string
+}
+
 type GithubDelivery struct {
 	SourceID    string
 	DeliveryID  string
@@ -177,16 +218,17 @@ type GithubSource struct {
 }
 
 type Inbox struct {
-	ID        string
-	UserID    string
-	Kind      string
-	RoomID    string
-	MessageID string
-	RunID     string
-	ReviewID  string
-	TaskID    string
-	CreatedAt string
-	ReadAt    string
+	ID         string
+	UserID     string
+	Kind       string
+	RoomID     string
+	MessageID  string
+	RunID      string
+	ReviewID   string
+	TaskID     string
+	WorkItemID string
+	CreatedAt  string
+	ReadAt     string
 }
 
 type Invite struct {
@@ -211,6 +253,30 @@ type ManagementEvent struct {
 type Membership struct {
 	RoomID    string
 	AgentID   string
+	CreatedAt string
+}
+
+type Memory struct {
+	ID           string
+	RoomID       string
+	AuthorUserID string
+	Revision     int64
+	CreatedAt    string
+}
+
+type MemoryRequest struct {
+	UserID      string
+	RequestID   string
+	RequestHash string
+	Result      string
+}
+
+type MemoryRevision struct {
+	MemoryID  string
+	Revision  int64
+	State     string
+	Content   string
+	Value     string
 	CreatedAt string
 }
 
@@ -566,6 +632,92 @@ type UserLayout struct {
 type UserPreference struct {
 	UserID string
 	Value  string
+}
+
+type WorkActionReceipt struct {
+	Seq              int64
+	WorkItemID       string
+	DeliveryID       string
+	DeliveryRevision int64
+	EventID          string
+	SemanticHash     string
+	Value            string
+	CreatedAt        string
+}
+
+type WorkItem struct {
+	Seq         int64
+	ID          string
+	RoomID      string
+	OwnerUserID string
+	PolicyID    string
+	Status      string
+	Revision    int64
+	Value       string
+	CreatedAt   string
+	UpdatedAt   string
+}
+
+type WorkItemAction struct {
+	Seq        int64
+	ID         string
+	WorkItemID string
+	Kind       string
+	Status     string
+	TaskID     string
+	DeliveryID string
+	Body       string
+	CreatedAt  string
+}
+
+type WorkItemDecision struct {
+	Seq        int64
+	ID         string
+	WorkItemID string
+	Value      string
+}
+
+type WorkItemEvidence struct {
+	Seq        int64
+	WorkItemID string
+	EventID    string
+	Kind       string
+	CreatedAt  string
+}
+
+type WorkItemRequest struct {
+	UserID      string
+	RequestID   string
+	RequestHash string
+	Result      string
+	Cancelled   int64
+}
+
+type WorkItemTask struct {
+	Seq              int64
+	WorkItemID       string
+	TaskID           string
+	ResultEventID    string
+	ReservedRequests int64
+	CreatedAt        string
+}
+
+type WorkItemTimer struct {
+	Seq        int64
+	ID         string
+	WorkItemID string
+	DueAt      string
+	Condition  string
+	Status     string
+	EventID    string
+	CreatedAt  string
+}
+
+type WorkItemWatch struct {
+	WorkItemID string
+	SourceID   string
+	ThreadKey  string
+	Enabled    int64
 }
 
 type WorkspaceEvent struct {

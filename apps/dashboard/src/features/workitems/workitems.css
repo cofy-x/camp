@@ -1,0 +1,244 @@
+.work-items,
+.work-item-detail {
+  min-width: 0;
+  width: 100%;
+  max-width: 760px;
+  margin-inline: auto;
+}
+.work-item-detail {
+  display: grid;
+  gap: 12px;
+}
+.work-item-detail > .workspace-panel-heading,
+.work-item-detail p,
+.work-item-heading h3 {
+  margin: 0;
+}
+.work-item-heading h3 {
+  white-space: pre-wrap;
+  font: 600 14px/1.45 var(--p9-body-font);
+}
+.work-item-heading p {
+  margin-top: 6px;
+}
+.work-item-toolbar,
+.work-item-file-heading,
+.work-item-watch {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.work-item-form {
+  display: grid;
+  gap: 12px;
+  margin-block: 12px;
+  max-width: 760px;
+}
+.work-item-form > fieldset,
+.work-item-form fieldset fieldset {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+.work-item-form > fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.work-item-form label:not(.p9-checkbox) {
+  display: grid;
+  gap: 6px;
+}
+.work-item-form .p9-field {
+  width: 100%;
+  min-width: 0;
+}
+.work-item-form textarea.p9-field {
+  height: auto;
+  resize: vertical;
+}
+.work-item-form p,
+.work-item-record p {
+  margin-block: 5px;
+}
+.work-item-limits {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 10px;
+}
+.work-item-list {
+  padding: 0;
+  list-style: none;
+  background: white;
+  border: 1px solid var(--p9-shadow);
+  box-shadow:
+    inset 1px 1px var(--p9-mid),
+    1px 1px var(--p9-light);
+}
+.work-item-list:empty {
+  display: none;
+}
+.work-item-list > li + li {
+  border-top: 1px solid var(--p9-mid);
+}
+.work-item-list > li > button {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.work-item-row-title {
+  font-family: var(--p9-font);
+}
+.work-item-list > li > button:hover {
+  background: var(--p9-light);
+}
+.work-item-list > li > button:focus-visible {
+  outline-offset: -3px;
+}
+.work-item-question {
+  margin-block: 0;
+}
+.work-item-question h4 {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+  font: 14px/1.45 var(--p9-body-font);
+}
+.work-item-conflict {
+  border: 1px solid var(--p9-shadow);
+  padding: 12px;
+}
+.work-item-actions,
+.work-item-result,
+.work-item-manage {
+  display: grid;
+  gap: 12px;
+}
+.work-item-manage > summary,
+.work-item-options > summary,
+.work-item-records > summary {
+  font-family: var(--p9-font);
+}
+.work-item-context,
+.work-grant,
+.work-item-delegation {
+  display: grid;
+  gap: 8px;
+}
+.work-item-context {
+  border-left: 2px solid var(--p9-shadow);
+  padding-left: 12px;
+}
+.work-item-context p {
+  white-space: pre-wrap;
+}
+.work-item-files {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.work-item-files li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.work-item-files .p9-button {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+.work-item-records > details {
+  margin-block: 12px;
+}
+.work-items summary {
+  cursor: pointer;
+}
+.work-item-record {
+  display: grid;
+  gap: 5px;
+  border-block-end: 1px solid var(--p9-mid);
+  padding-block: 12px;
+}
+.work-item-record pre,
+.work-items pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+.work-item-evidence-options {
+  display: grid;
+  gap: 9px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--p9-shadow);
+  box-shadow: inset 1px 1px var(--p9-mid);
+  padding: 10px;
+  margin-block: 8px;
+  background: white;
+}
+.work-item-evidence-options .p9-checkbox {
+  align-items: flex-start;
+}
+.work-item-evidence-id {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-block: 6px;
+}
+.work-item-participants {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+}
+.work-items p,
+.work-items h3,
+.work-items h4,
+.work-items strong,
+.work-items label,
+.work-items span,
+.work-items small,
+.work-items summary,
+.work-items dd {
+  overflow-wrap: anywhere;
+}
+
+.work-item-actions > .work-item-form {
+  margin-block: 0;
+}
+
+.work-items .app-actions {
+  gap: 8px;
+  margin-top: 0;
+}
+
+.work-item-index {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.work-item-detail .p9-tab-panel,
+.work-item-overview,
+.work-item-records {
+  display: grid;
+  gap: 12px;
+}
+.work-item-overview:empty {
+  display: none;
+}
+.work-item-overview-record {
+  display: grid;
+  gap: 8px;
+  white-space: pre-wrap;
+}

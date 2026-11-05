@@ -110,6 +110,11 @@ func Run(ctx context.Context, config Config) error {
 		return fmt.Errorf("initialize webhook credentials: %w", err)
 	}
 	api.EnableGitHub(webhookSecrets)
+	feishuCredentials, err := configuration.OpenFeishuCredentials(filepath.Join(config.DataDir, "configuration", "feishu-webhooks"))
+	if err != nil {
+		return err
+	}
+	api.EnableFeishu(feishuCredentials)
 	commentCredentials, err := configuration.OpenGitHubCredentials(filepath.Join(config.DataDir, "configuration", "github-comments"))
 	if err != nil {
 		return fmt.Errorf("initialize comment credentials: %w", err)

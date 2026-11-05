@@ -26,6 +26,9 @@ import { TaskAttention, TaskList } from '../collaboration/TaskList';
 import { StartCollaboration } from '../collaboration/StartCollaboration';
 import { TaskDetail } from '../collaboration/TaskDetail';
 import { Automation } from '../automation/Automation';
+import type { SourceEvent } from '../automation/api';
+import { WorkItems } from '../workitems/WorkItems';
+import { RoomMemory } from '../memory/RoomMemory';
 
 export function Workspace({ window, desktop }: AppWindowProps) {
   const team = useTeam();
@@ -47,10 +50,32 @@ export function Workspace({ window, desktop }: AppWindowProps) {
     return () => document.removeEventListener('visibilitychange', update);
   }, []);
   const [panel, setPanel] = useState<
-    'chat' | 'agents' | 'reviews' | 'tasks' | 'start-task' | 'automation'
+    | 'chat'
+    | 'work'
+    | 'agents'
+    | 'reviews'
+    | 'tasks'
+    | 'start-task'
+    | 'automation'
+    | 'memory'
   >('chat');
   const [inspect, setInspect] = useState('');
   const [taskId, setTaskId] = useState('');
+  const [taskOrigin, setTaskOrigin] = useState<{
+    taskId: string;
+    workItemId: string;
+    roomId: string;
+  }>();
+  const [workItemId, setWorkItemId] = useState('');
+  const [workItemRequest, setWorkItemRequest] = useState(0);
+  const [workItemEvent, setWorkItemEvent] = useState<SourceEvent>();
+  const [workItemMessage, setWorkItemMessage] = useState<Message>();
+  const [managementView, setManagementView] = useState<'settings' | 'activity'>(
+    'settings',
+  );
+  const [managementRequest, setManagementRequest] = useState(0);
+  const [memoryMessage, setMemoryMessage] = useState<Message>();
+  const [memoryRequest, setMemoryRequest] = useState(0);
   const [reviewId, setReviewId] = useState('');
   const [sourceId, setSourceId] = useState('');
   const [sourceRequest, setSourceRequest] = useState(0);
@@ -65,12 +90,26 @@ export function Workspace({ window, desktop }: AppWindowProps) {
     () => desktop.beforeClose(window.id, flushPrivateDrafts),
     [desktop, window.id],
   );
+  const location = inspect
+    ? 'Work details'
+    : {
+        chat: '',
+        work: 'Work',
+        agents: 'Room Agents',
+        reviews: 'File reviews',
+        tasks: taskId ? 'Work session' : 'Execution history',
+        'start-task': 'Start collaboration',
+        automation: 'Sources & activity',
+        memory: 'Team notes',
+      }[panel];
   useEffect(() => {
     desktop.setTitle(
       window.id,
-      room ? `${room.name} — Workspace` : 'Workspace',
+      room
+        ? [location, room.name, 'Workspace'].filter(Boolean).join(' — ')
+        : 'Workspace',
     );
-  }, [desktop, window.id, room]);
+  }, [desktop, window.id, room, location]);
   useEffect(() => {
     if (
       focused &&
@@ -88,8 +127,21 @@ export function Workspace({ window, desktop }: AppWindowProps) {
     const request = ++navigationRequest.current;
     if (intent.app && intent.app !== 'workspace') return;
     workspace.selectConversation(intent.roomId, intent.threadId);
-    setPanel(intent.taskId ? 'tasks' : intent.reviewId ? 'reviews' : 'chat');
+    setPanel(
+      intent.workItemId
+        ? 'work'
+        : intent.taskId
+          ? 'tasks'
+          : intent.reviewId
+            ? 'reviews'
+            : 'chat',
+    );
+    setWorkItemId(intent.workItemId ?? '');
+    setWorkItemEvent(undefined);
+    setWorkItemMessage(undefined);
+    setWorkItemRequest(intent.workItemId ? intent.revision : 0);
     setTaskId(intent.taskId ?? '');
+    setTaskOrigin(undefined);
     setReviewId(intent.reviewId ?? '');
     setInspect(intent.taskId ? '' : (intent.runId ?? ''));
     if (intent.reference) {
@@ -115,6 +167,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
       intent.messageId &&
       !intent.reviewId &&
       !intent.taskId &&
+      !intent.workItemId &&
       !intent.threadId
     )
       void workspaceApi
@@ -154,9 +207,13 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   function showRoom(id: string) {
     return navigate(() => {
       workspace.selectRoom(id);
+      setTaskOrigin(undefined);
       setPanel('chat');
       setInspect('');
       setActionError('');
+      setWorkItemEvent(undefined);
+      setWorkItemMessage(undefined);
+      setMemoryMessage(undefined);
     });
   }
 
@@ -204,9 +261,73 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   }
 
   function openRoomActions(button: HTMLButtonElement) {
+    navigationRequest.current++;
     const rect = button.getBoundingClientRect();
     desktop.contextMenu(
       [
+        {
+          label: 'Sources & rules…',
+          disabled: !room,
+          action: () =>
+            void navigate(() => {
+              setManagementView('settings');
+              setManagementRequest((value) => value + 1);
+              setPanel('automation');
+              setInspect('');
+            }),
+        },
+        {
+          label: 'Activity…',
+          disabled: !room,
+          action: () =>
+            void navigate(() => {
+              setManagementView('activity');
+              setManagementRequest((value) => value + 1);
+              setPanel('automation');
+              setInspect('');
+            }),
+        },
+        {
+          label: 'Team notes…',
+          disabled: !room,
+          action: () =>
+            void navigate(() => {
+              setMemoryMessage(undefined);
+              setMemoryRequest((value) => value + 1);
+              setPanel('memory');
+              setInspect('');
+            }),
+        },
+        {
+          label: 'Agents…',
+          disabled: !room,
+          action: () =>
+            void navigate(() => {
+              setPanel('agents');
+              setInspect('');
+            }),
+        },
+        {
+          label: 'File reviews…',
+          disabled: !room,
+          action: () =>
+            void navigate(() => {
+              setPanel('reviews');
+              setReviewId('');
+              setInspect('');
+            }),
+        },
+        {
+          label: 'Execution history…',
+          disabled: !room,
+          action: () =>
+            void navigate(() => {
+              setPanel('tasks');
+              setTaskId('');
+              setTaskOrigin(undefined);
+              setInspect('');
+            }),
+        },
         {
           label: 'Rename Room…',
           disabled: !room,
@@ -222,6 +343,34 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   function back() {
     move(() => {
       setPanel('chat');
+      setInspect('');
+    });
+  }
+
+  function openWork(id = '', event?: SourceEvent) {
+    setTaskOrigin(undefined);
+    setWorkItemId(id);
+    setWorkItemEvent(event);
+    setWorkItemMessage(undefined);
+    setWorkItemRequest((value) => value + 1);
+    setPanel('work');
+    setInspect('');
+  }
+
+  async function followMessage(message: Message) {
+    const request = ++navigationRequest.current;
+    if (!(await flushPrivateDrafts()) || navigationRequest.current !== request)
+      return;
+    openWork();
+    setWorkItemMessage(message);
+    setActionError('');
+  }
+
+  function rememberMessage(message: Message) {
+    void navigate(() => {
+      setMemoryMessage(message);
+      setMemoryRequest((value) => value + 1);
+      setPanel('memory');
       setInspect('');
     });
   }
@@ -338,6 +487,15 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   }
 
   const active = runs.filter(isActiveRun);
+  const taskFromWork =
+    panel === 'tasks' &&
+    taskOrigin?.taskId === taskId &&
+    taskOrigin.roomId === roomId;
+  const attentionTasks = collaborations.tasks.filter((task) =>
+    ['waiting_for_person', 'needs_attention', 'interrupted'].includes(
+      task.status,
+    ),
+  );
   return (
     <div className="workspace-app">
       <div className="workspace-body">
@@ -396,36 +554,30 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                   </option>
                 ))}
               </Select>
-              <PixelIcon name="room" size={20} />
-              <strong className="workspace-room-title" title={room?.name}>
-                {room?.name ?? 'Workspace'}
-              </strong>
             </div>
             <div className="workspace-toolbar-actions">
               <Button
                 disabled={!room}
-                aria-pressed={panel === 'tasks' || panel === 'start-task'}
+                aria-pressed={panel === 'chat' && !inspect}
                 onClick={() =>
                   void navigate(() => {
-                    setPanel('tasks');
-                    setTaskId('');
+                    setPanel('chat');
                     setInspect('');
                   })
                 }
               >
-                Collaborations
+                Discussion
               </Button>
               <Button
                 disabled={!room}
-                aria-pressed={panel === 'automation'}
+                aria-pressed={panel === 'work' || taskFromWork}
                 onClick={() =>
                   void navigate(() => {
-                    setPanel('automation');
-                    setInspect('');
+                    openWork();
                   })
                 }
               >
-                Automation
+                Work
               </Button>
               <Button
                 disabled={!room}
@@ -437,37 +589,12 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                   })
                 }
               >
-                Library
-              </Button>
-              <Button
-                disabled={!room}
-                aria-pressed={panel === 'reviews'}
-                onClick={() =>
-                  void navigate(() => {
-                    setPanel(panel === 'reviews' ? 'chat' : 'reviews');
-                    setReviewId('');
-                    setInspect('');
-                  })
-                }
-              >
-                Reviews
-              </Button>
-              <Button
-                aria-pressed={panel === 'agents'}
-                onClick={() =>
-                  void navigate(() => {
-                    setPanel(panel === 'agents' ? 'chat' : 'agents');
-                    setInspect('');
-                  })
-                }
-                disabled={!room}
-              >
-                Agents
+                Files
               </Button>
               <Button
                 className="workspace-room-actions"
                 aria-label="Room actions"
-                title="Room actions"
+                title="More"
                 aria-haspopup="menu"
                 onClick={(event) => openRoomActions(event.currentTarget)}
                 onKeyDown={(event) => {
@@ -476,23 +603,33 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                   openRoomActions(event.currentTarget);
                 }}
               >
-                ⋯
+                More
               </Button>
             </div>
           </div>
           {room && panel === 'chat' && !inspect && (
             <TaskAttention
-              tasks={collaborations.tasks}
+              tasks={attentionTasks}
               onOpen={(id) =>
                 void navigate(() => {
-                  setTaskId(id);
-                  setPanel('tasks');
+                  const itemId = collaborations.tasks.find(
+                    (task) => task.id === id,
+                  )?.workItemId;
+                  if (itemId) openWork(itemId);
+                  else {
+                    setTaskId(id);
+                    setPanel('tasks');
+                  }
                 })
               }
               onAll={() =>
                 void navigate(() => {
-                  setTaskId('');
-                  setPanel('tasks');
+                  if (attentionTasks.every((task) => task.workItemId))
+                    openWork();
+                  else {
+                    setTaskId('');
+                    setPanel('tasks');
+                  }
                 })
               }
             />
@@ -548,15 +685,12 @@ export function Workspace({ window, desktop }: AppWindowProps) {
               </Button>
             </div>
           )}
-          {panel !== 'reviews' &&
-            panel !== 'automation' &&
+          {panel === 'chat' &&
             !inspect &&
             workspace.status &&
             !workspace.status.available && (
-              <details className="workspace-unavailable">
-                <summary>
-                  Agents are unavailable · you can still post to the room
-                </summary>
+              <div className="workspace-unavailable" role="status">
+                <span>Agent work unavailable</span>
                 {user.role === 'admin' && (
                   <Button
                     onClick={() =>
@@ -566,14 +700,10 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                       })
                     }
                   >
-                    Open Settings
+                    Set up…
                   </Button>
                 )}
-                <p>
-                  {workspace.status.reason ||
-                    'The execution runtime is not configured.'}
-                </p>
-              </details>
+              </div>
             )}
           {room ? (
             panel === 'reviews' ? (
@@ -625,14 +755,75 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                   }
                 }}
               />
+            ) : panel === 'work' ? (
+              <section
+                className="workspace-panel workspace-work-panel"
+                aria-label="Room work"
+              >
+                <WorkItems
+                  key={room.id}
+                  roomId={room.id}
+                  members={members}
+                  defaultAgentId={
+                    members.filter((member) => member.enabled).length === 1
+                      ? members.find((member) => member.enabled)?.id
+                      : undefined
+                  }
+                  initialItemId={workItemId}
+                  initialItemRequest={workItemRequest}
+                  sourceEvent={workItemEvent}
+                  sourceMessage={workItemMessage}
+                  availability={workspace.status ?? undefined}
+                  onOpenTask={(id, originItemId) =>
+                    void navigate(() => {
+                      setTaskOrigin(
+                        originItemId
+                          ? {
+                              taskId: id,
+                              workItemId: originItemId,
+                              roomId: room.id,
+                            }
+                          : undefined,
+                      );
+                      setTaskId(id);
+                      setPanel('tasks');
+                      setInspect('');
+                    })
+                  }
+                />
+              </section>
+            ) : panel === 'memory' ? (
+              <section
+                className="workspace-panel workspace-notes-panel"
+                aria-label="Room notes"
+              >
+                <div className="workspace-panel-heading">
+                  <Button onClick={() => void navigate(back)}>
+                    Back to Discussion
+                  </Button>
+                </div>
+                <RoomMemory
+                  key={room.id}
+                  roomId={room.id}
+                  initialMessage={memoryMessage}
+                  initialRequest={memoryRequest}
+                />
+              </section>
             ) : panel === 'automation' ? (
               <Automation
                 key={room.id}
                 room={room}
                 members={members}
                 availability={workspace.status ?? undefined}
+                initialView={managementView}
+                initialRequest={managementRequest}
+                onTrackEvent={(event) =>
+                  void navigate(() => openWork('', event))
+                }
+                onOpenWorkItem={(id) => void navigate(() => openWork(id))}
                 onOpenTask={(id) =>
                   void navigate(() => {
+                    setTaskOrigin(undefined);
                     setTaskId(id);
                     setPanel('tasks');
                     setInspect('');
@@ -646,14 +837,37 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                   key={taskId}
                   id={taskId}
                   desktop={desktop}
-                  onClose={() => move(() => setTaskId(''))}
+                  backLabel={
+                    taskOrigin?.taskId === taskId &&
+                    taskOrigin.roomId === room.id
+                      ? 'Back to Work'
+                      : undefined
+                  }
+                  onClose={() =>
+                    void navigate(() => {
+                      if (
+                        taskOrigin?.taskId === taskId &&
+                        taskOrigin.roomId === room.id
+                      )
+                        openWork(taskOrigin.workItemId);
+                      else {
+                        setTaskOrigin(undefined);
+                        setTaskId('');
+                      }
+                    })
+                  }
                   onInspect={(id) => void navigate(() => setInspect(id))}
                 />
               ) : (
                 <TaskList
                   {...collaborations}
                   onRetry={collaborations.refresh}
-                  onOpen={(id) => move(() => setTaskId(id))}
+                  onOpen={(id) =>
+                    move(() => {
+                      setTaskOrigin(undefined);
+                      setTaskId(id);
+                    })
+                  }
                   onStart={() => move(() => setPanel('start-task'))}
                   onClose={back}
                 />
@@ -661,12 +875,14 @@ export function Workspace({ window, desktop }: AppWindowProps) {
             ) : panel === 'start-task' ? (
               <StartCollaboration
                 key={room.id}
+                showHeading={false}
                 room={room}
                 members={members}
                 threadId={threadId}
                 onClose={() => move(() => setPanel('tasks'))}
                 onStarted={(task) =>
                   move(() => {
+                    setTaskOrigin(undefined);
                     setTaskId(task.id);
                     setPanel('tasks');
                   })
@@ -696,6 +912,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 threadId={threadId}
                 messages={workspace.messages}
                 runs={runs}
+                tasks={collaborations.tasks}
                 agents={agents}
                 members={members}
                 available={workspace.status?.available ?? false}
@@ -709,6 +926,8 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                   })
                 }
                 onAsk={(message, run) => void askAgent(message, run)}
+                onFollowUp={(message) => void followMessage(message)}
+                onRemember={rememberMessage}
                 onSource={(messageId) => void openSource(messageId)}
                 onThread={(id) =>
                   void navigate(() => workspace.selectThread(id))

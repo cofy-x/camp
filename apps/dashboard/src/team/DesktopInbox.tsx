@@ -3,6 +3,7 @@ import { Button, Palette, PixelIcon } from '@cofy-x/camp-platinum';
 import { useTeam } from './TeamContext';
 import { useAccount } from './AuthContext';
 import type { InboxItem } from './api';
+import { inboxItemDetail, inboxItemTitle } from './inboxPresentation';
 
 export function DesktopInbox() {
   const team = useTeam();
@@ -40,6 +41,7 @@ export function DesktopInbox() {
         runId: item.runId,
         reviewId: item.reviewId,
         taskId: item.taskId,
+        workItemId: item.workItemId,
       });
       if (!opened) return;
       setOpen(false);
@@ -90,10 +92,7 @@ export function DesktopInbox() {
             </p>
           )}
           {!team.inbox.length && (
-            <p>
-              You’re all caught up. Reviews, agent results, and mentions will
-              appear here.
-            </p>
+            <p>Questions, reviews, results, and mentions appear here.</p>
           )}
           <ul>
             {team.inbox.map((item) => (
@@ -113,25 +112,11 @@ export function DesktopInbox() {
                     size={24}
                   />
                   <span className="camp-inbox-copy">
-                    <strong>
-                      {item.kind === 'task_question'
-                        ? 'A collaboration needs your answer'
-                        : item.kind === 'task_attention'
-                          ? 'A collaboration needs attention'
-                          : item.kind === 'task_finished'
-                            ? 'Collaboration ready for review'
-                            : item.kind === 'mention'
-                              ? 'You were mentioned'
-                              : item.kind === 'review_requested'
-                                ? 'A document needs your review'
-                                : item.kind === 'review_updated'
-                                  ? 'A document review was updated'
-                                  : 'An agent finished your request'}
-                    </strong>
-                    <small>
-                      {item.reviewTitle ? `${item.reviewTitle} · ` : ''}
-                      {item.roomName}
-                    </small>
+                    <strong>{inboxItemTitle(item)}</strong>
+                    {inboxItemDetail(item) && (
+                      <small>{inboxItemDetail(item)}</small>
+                    )}
+                    <small>{item.roomName}</small>
                     <small>{new Date(item.createdAt).toLocaleString()}</small>
                   </span>
                   {!item.readAt && (

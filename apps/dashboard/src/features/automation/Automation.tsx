@@ -1,14 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Select, Tabs } from '@cofy-x/camp-platinum';
+import { Button, PixelIcon, Select, Tabs } from '@cofy-x/camp-platinum';
 import { useAccount } from '../../team/AuthContext';
 import { useTeam } from '../../team/TeamContext';
 import { flushPrivateDrafts } from '../../team/draftRegistry';
-import {
-  workspaceApi,
-  type Agent,
-  type Room,
-  type WorkspaceStatus,
-} from '../workspace/api';
+import { type Agent, type Room, type WorkspaceStatus } from '../workspace/api';
 import { githubApi, type GitHubSource } from '../github/api';
 import { GitHubEvents } from '../github/GitHubEvents';
 import { GitHubSources } from '../github/GitHubSources';
@@ -21,6 +16,7 @@ import {
 import { CommentCredential, PolicyEditor } from './AutomationPolicy';
 import { FollowEvent } from './FollowEvent';
 import { EvaluationDecision } from './EvaluationDecision';
+import { feishuApi } from '../feishu/api';
 import './automation.css';
 
 const statusLabels: Record<string, string> = {
@@ -35,6 +31,9 @@ const statusLabels: Record<string, string> = {
   context: 'Context recorded',
   answered: 'Question answered',
   stopped: 'Stopped',
+  waiting: 'Waiting for evidence',
+  waiting_for_person: 'Needs judgment',
+  completed: 'Work item completed',
 };
 
 const attentionReasons: Record<string, string> = {
@@ -74,7 +73,10 @@ function eventStatus(event: SourceEvent) {
   if (event.reason === 'post_only') return 'Discussion only';
   if (event.reason === 'own_output') return 'Camp comment';
   if (event.status === 'observed') {
-    if (event.assessmentOutcome === 'accept')
+    if (
+      event.assessmentOutcome === 'accept' ||
+      event.assessmentOutcome === 'execute'
+    )
       return 'Would start a collaboration';
     if (event.assessmentOutcome === 'ignore') return 'No new work';
   }
@@ -88,17 +90,9 @@ function OriginalEvent({ event }: { event: SourceEvent }) {
   useEffect(() => {
     if (event.content) return;
     const controller = new AbortController();
-    const load = event.externalEventId
-      ? githubApi
-          .event(event.externalEventId, controller.signal)
-          .then(({ event }) =>
-            [event.title, event.body].filter(Boolean).join('\n\n'),
-          )
-      : event.messageId
-        ? workspaceApi
-            .message(event.roomId, event.messageId, controller.signal)
-            .then(({ message }) => message.content)
-        : Promise.resolve('Original text is unavailable.');
+    const load = automationApi
+      .event(event.id, controller.signal)
+      .then(({ event }) => event.content || 'This event has no text.');
     void load
       .then((text) => {
         if (!controller.signal.aborted) {
@@ -117,6 +111,7 @@ function OriginalEvent({ event }: { event: SourceEvent }) {
     return () => controller.abort();
   }, [
     event.content,
+    event.id,
     event.externalEventId,
     event.messageId,
     event.roomId,
@@ -142,10 +137,14 @@ function EventRecord({
   event,
   onOpenTask,
   onReviewGitHub,
+  onTrackEvent,
+  onOpenWorkItem,
 }: {
   event: SourceEvent;
   onOpenTask: (id: string) => void;
   onReviewGitHub: (id: string) => void;
+  onTrackEvent: (event: SourceEvent) => void;
+  onOpenWorkItem: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const command = event.sourceId === 'task';
@@ -168,9 +167,11 @@ function EventRecord({
         <span>
           {event.repository
             ? `${event.repository}${event.number ? ` #${event.number}` : ''}`
-            : command
-              ? 'Collaboration'
-              : 'Room discussion'}
+            : event.feishu
+              ? `Feishu · ${event.feishu.chatId}`
+              : command
+                ? 'Collaboration'
+                : 'Room discussion'}
         </span>
         <span>{event.actorLogin || event.actorId}</span>
         <time
@@ -199,6 +200,11 @@ function EventRecord({
             Open Collaboration
           </Button>
         )}
+        {event.workItemId && (
+          <Button onClick={() => onOpenWorkItem(event.workItemId!)}>
+            Open Work Item
+          </Button>
+        )}
       </div>
       {attentionReason && <p>{attentionReason}</p>}
       {!command && (
@@ -210,6 +216,7 @@ function EventRecord({
               key={event.evaluationId}
               id={event.evaluationId}
               onOpenTask={onOpenTask}
+              onOpenWorkItem={onOpenWorkItem}
             />
           )}
           {open &&
@@ -247,8 +254,18 @@ function EventRecord({
                 Download Original Payload
               </a>
             )}
+            {event.feishu && (
+              <a href={feishuApi.payloadURL(event.feishu.eventId)} download>
+                Download Original Payload
+              </a>
+            )}
           </details>
           {open && <FollowEvent event={event} />}
+          {open && (
+            <Button onClick={() => onTrackEvent(event)}>
+              Track Work Item…
+            </Button>
+          )}
         </details>
       )}
     </li>
@@ -263,14 +280,18 @@ function EventHistory({
   onOpenInbox,
   onOpenTask,
   onReviewGitHub,
+  onTrackEvent,
+  onOpenWorkItem,
 }: {
   roomId: string;
   sourceId: string;
-  sources: GitHubSource[];
+  sources: { id: string; label: string; enabled: boolean }[];
   onSourceChange: (id: string) => void;
   onOpenInbox: () => void;
   onOpenTask: (id: string) => void;
   onReviewGitHub: (id: string) => void;
+  onTrackEvent: (event: SourceEvent) => void;
+  onOpenWorkItem: (id: string) => void;
 }) {
   const team = useTeam();
   const [cursor, setCursor] = useState<Cursor>({});
@@ -318,9 +339,12 @@ function EventHistory({
           <option value="">All sources</option>
           <option value="room">Room discussion</option>
           <option value="task">Collaboration actions</option>
+          <option value="timer">Follow-up timers</option>
+          <option value="workitem">Work item events</option>
+          <option value="action">Action receipts</option>
           {sources.map((source) => (
             <option value={source.id} key={source.id}>
-              {source.repository}
+              {source.label}
               {!source.enabled ? ' (disabled)' : ''}
             </option>
           ))}
@@ -349,7 +373,12 @@ function EventHistory({
       {!page && !error && <p role="status">Loading events…</p>}
       {page && (
         <>
-          {!page.items.length && <p>No activity yet.</p>}
+          {!page.items.length && (
+            <div className="camp-empty">
+              <PixelIcon name="document" size={32} />
+              <p>No activity yet.</p>
+            </div>
+          )}
           <ol className="automation-event-list">
             {page.items.map((event) => (
               <EventRecord
@@ -357,6 +386,8 @@ function EventHistory({
                 event={event}
                 onOpenTask={onOpenTask}
                 onReviewGitHub={onReviewGitHub}
+                onTrackEvent={onTrackEvent}
+                onOpenWorkItem={onOpenWorkItem}
               />
             ))}
           </ol>
@@ -399,12 +430,20 @@ export function Automation({
   onClose,
   onOpenTask,
   availability,
+  initialView = 'settings',
+  initialRequest,
+  onTrackEvent,
+  onOpenWorkItem,
 }: {
   room: Room;
   members: Agent[];
   onClose: () => void;
   onOpenTask: (id: string) => void;
   availability?: Pick<WorkspaceStatus, 'available' | 'reason'>;
+  initialView?: 'settings' | 'activity';
+  initialRequest?: number;
+  onTrackEvent: (event: SourceEvent) => void;
+  onOpenWorkItem: (id: string) => void;
 }) {
   const { user } = useAccount();
   const team = useTeam();
@@ -412,10 +451,16 @@ export function Automation({
   const [policies, setPolicies] = useState<AutomationPolicy[]>([]);
   const [sourceId, setSourceId] = useState('room');
   const [activitySource, setActivitySource] = useState('');
-  const [view, setView] = useState('activity');
-  const [settingsVisited, setSettingsVisited] = useState(false);
+  const [view, setView] = useState<string>(initialView);
+  const [settingsVisited, setSettingsVisited] = useState(
+    initialView === 'settings',
+  );
   const [githubSelection, setGitHubSelection] = useState<string | null>(null);
   const navigation = useRef(0);
+  useEffect(() => {
+    setView(initialView);
+    if (initialView === 'settings') setSettingsVisited(true);
+  }, [initialView, initialRequest]);
   useEffect(
     () => () => {
       navigation.current++;
@@ -468,6 +513,13 @@ export function Automation({
     return () => controller.abort();
   }, [room.id, team.revision, retry]);
   const policy = policies.find((item) => item.sourceId === sourceId);
+  const sourceChoices = [
+    ...sources.map((source) => ({
+      id: source.id,
+      label: source.repository,
+      enabled: source.enabled,
+    })),
+  ];
 
   function saved(policy: AutomationPolicy) {
     setPolicies((current) => {
@@ -489,25 +541,22 @@ export function Automation({
   return (
     <section
       className="workspace-panel automation-panel"
-      aria-label="Room automation"
+      aria-label="Room management"
     >
       <div className="workspace-panel-heading">
-        <h2>Automation</h2>
-        <Button onClick={onClose}>Back to Chat</Button>
+        <Button onClick={onClose}>Back to Discussion</Button>
       </div>
       {error && (
         <p className="app-error" role="alert">
           {error}{' '}
-          <Button onClick={() => setRetry((value) => value + 1)}>
-            Retry Automation
-          </Button>
+          <Button onClick={() => setRetry((value) => value + 1)}>Retry</Button>
         </p>
       )}
       <Tabs
-        label="Automation views"
+        label="Room management views"
         tabs={[
+          { id: 'settings', label: 'Sources & rules' },
           { id: 'activity', label: 'Activity' },
-          { id: 'settings', label: 'Settings' },
         ]}
         value={view}
         onChange={(next) => {
@@ -518,17 +567,22 @@ export function Automation({
           setView(next);
         }}
       >
-        <div hidden={view !== 'activity'}>
-          <div hidden={githubSelection !== null}>
+        <div className="automation-activity" hidden={view !== 'activity'}>
+          <div
+            className="automation-event-page"
+            hidden={githubSelection !== null}
+          >
             <EventHistory
               key={activitySource}
               roomId={room.id}
               sourceId={activitySource}
-              sources={sources}
+              sources={sourceChoices}
               onSourceChange={setActivitySource}
               onOpenInbox={() => navigate(() => setGitHubSelection(''))}
               onOpenTask={onOpenTask}
               onReviewGitHub={(id) => navigate(() => setGitHubSelection(id))}
+              onTrackEvent={onTrackEvent}
+              onOpenWorkItem={onOpenWorkItem}
             />
           </div>
           {githubSelection !== null && (
@@ -558,9 +612,9 @@ export function Automation({
                     }}
                   >
                     <option value="room">Room discussion</option>
-                    {sources.map((source) => (
+                    {sourceChoices.map((source) => (
                       <option value={source.id} key={source.id}>
-                        {source.repository}
+                        {source.label}
                         {!source.enabled ? ' (disabled)' : ''}
                       </option>
                     ))}

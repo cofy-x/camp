@@ -127,6 +127,8 @@ for (const fixture of [
       name: `Download ${reference.path}`,
       exact: true,
     });
+    await expect(downloadLink).toHaveText('Download');
+    await expect(downloadLink).toHaveAttribute('download', fixture.path);
     await expect(downloadLink).toHaveAttribute(
       'href',
       new RegExp(`commit=${reference.commit}`),
@@ -226,6 +228,12 @@ test('a late original-file read cannot restore a removed attachment or replace i
   await composer.locator('.workspace-reference-card summary').first().click();
   try {
     await held;
+    await expect(
+      composer.getByRole('link', { name: 'Download removed.md', exact: true }),
+    ).toHaveText('Download');
+    await expect(
+      composer.getByRole('button', { name: 'Show source', exact: true }),
+    ).toHaveCount(0);
     await composer
       .getByRole('button', {
         name: `Remove reference ${first.title}`,
@@ -300,7 +308,10 @@ test('a failed original-file read keeps the draft and exact download while retry
   ).toBeEnabled();
   await expect(
     composer.getByRole('link', { name: 'Download source.md', exact: true }),
-  ).toBeVisible();
+  ).toHaveText('Download');
+  await expect(
+    composer.getByRole('link', { name: 'Download source.md', exact: true }),
+  ).toHaveAttribute('download', 'source.md');
   await page.screenshot({
     path: testInfo.outputPath('original-read-error.png'),
   });

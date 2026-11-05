@@ -17,6 +17,7 @@ import type { AppWindowProps } from '@cofy-x/camp-platinum';
 export function Gallery({ desktop }: AppWindowProps) {
   const [tab, setTab] = useState('controls');
   const [checked, setChecked] = useState(true);
+  const [pressed, setPressed] = useState(true);
   const [choice, setChoice] = useState('platinum');
   const [status, setStatus] = useState('Ready');
   const [paletteOpen, setPaletteOpen] = useState(true);
@@ -95,6 +96,12 @@ export function Gallery({ desktop }: AppWindowProps) {
                   Default
                 </Button>
                 <Button disabled>Disabled</Button>
+                <Button
+                  aria-pressed={pressed}
+                  onClick={() => setPressed((current) => !current)}
+                >
+                  Toggle
+                </Button>
               </div>
               <Progress label="Progress" value={checked ? 65 : 30} max={100} />
             </div>

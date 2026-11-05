@@ -185,7 +185,7 @@ export function RunInspector({
     >
       <div className="workspace-inspector-content">
         <div className="workspace-panel-heading">
-          <h2>{run?.agentSnapshot.name ?? 'Agent'} · Work details</h2>
+          <h2>{run?.agentSnapshot.name ?? 'Agent'}</h2>
           <Button onClick={onClose}>{backLabel}</Button>
         </div>
         {error && (

@@ -80,7 +80,7 @@ export async function systemEventScene(page: Page, suffix: string) {
   }
   const room = await createRoom(page, `Launch review ${suffix}`);
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   await newDocument(
     page,

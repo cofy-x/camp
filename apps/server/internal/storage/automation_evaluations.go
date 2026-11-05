@@ -64,6 +64,21 @@ func unavailableAutomationCandidate(c orchestration.Candidate) (orchestration.Ca
 	originalTasks := c.Tasks
 	c.ContextLimited, c.TotalTaskCount = true, len(originalTasks)
 	c.Events = slices.Clone(c.Events)
+	c.Memories = nil
+	c.WorkItems = slices.Clone(c.WorkItems)
+	for i := range c.WorkItems {
+		c.WorkItems[i].Goal = ""
+		c.WorkItems[i].CompletionCriteria = ""
+		c.WorkItems[i].WaitCondition = ""
+		c.WorkItems[i].Question = ""
+		if len(c.WorkItems[i].Actions) > 0 {
+			c.WorkItems[i].ActionsLimited = true
+		}
+		c.WorkItems[i].Actions = nil
+		c.WorkItems[i].RecentTasks = nil
+		c.WorkItems[i].RecentDecisions = nil
+		c.WorkItems[i].ContextLimited = true
+	}
 	for index := range c.Events {
 		c.Events[index].Content = ""
 	}
@@ -97,7 +112,11 @@ func (s *Store) ClaimAutomationEvaluation(ctx context.Context, modelRevision str
 			return e
 		}
 		for _, row := range rows {
-			pRow, e := q.GetAutomationPolicy(ctx, sqlgen.GetAutomationPolicyParams{RoomID: row.RoomID, SourceID: row.SourceID})
+			evt, e2 := automationEvent(row)
+			if e2 != nil {
+				return e2
+			}
+			pRow, e := workEventPolicy(ctx, q, evt)
 			var p orchestration.Policy
 			if e == nil {
 				p, e = automationPolicy(pRow)
@@ -105,11 +124,10 @@ func (s *Store) ClaimAutomationEvaluation(ctx context.Context, modelRevision str
 			if e != nil && !errors.Is(e, sql.ErrNoRows) {
 				return e
 			}
-			evt, e2 := automationEvent(row)
-			if e2 != nil {
-				return e2
-			}
-			if e != nil || !p.Enabled || evt.Seq <= p.StartAfter || !slices.Contains(p.AllowedActorIDs, evt.ActorID) || evt.ActorKind != "user" {
+			if e != nil || !p.Enabled || evt.Seq <= p.StartAfter || !workEventEligible(ctx, q, evt, p) {
+				if e = recordWorkIntakeAttention(ctx, q, evt, "policy_not_applicable"); e != nil {
+					return e
+				}
 				evt.Status = "context"
 				evt.Reason = "policy_not_applicable"
 				if e = updateAutomationEvent(ctx, q, evt); e != nil {
@@ -118,6 +136,9 @@ func (s *Store) ClaimAutomationEvaluation(ctx context.Context, modelRevision str
 				continue
 			}
 			if e = automationAuthority(ctx, q, p); e != nil {
+				if e = recordWorkIntakeAttention(ctx, q, evt, "authorization_unavailable"); e != nil {
+					return e
+				}
 				evt.Status = "needs_attention"
 				evt.Reason = "authorization_unavailable"
 				if e = updateAutomationEvent(ctx, q, evt); e != nil {
@@ -141,6 +162,9 @@ func (s *Store) ClaimAutomationEvaluation(ctx context.Context, modelRevision str
 				return e
 			}
 			if usage.Evaluations >= int64(p.DailyEvaluations) {
+				if e = recordWorkIntakeAttention(ctx, q, evt, "daily_evaluation_limit"); e != nil {
+					return e
+				}
 				evt.Status = "needs_attention"
 				evt.Reason = "daily_evaluation_limit"
 				if e = updateAutomationEvent(ctx, q, evt); e != nil {
@@ -158,7 +182,7 @@ func (s *Store) ClaimAutomationEvaluation(ctx context.Context, modelRevision str
 				if e != nil {
 					return e
 				}
-				if v.Seq > p.StartAfter && v.ActorKind == "user" && slices.Contains(p.AllowedActorIDs, v.ActorID) {
+				if v.Seq > p.StartAfter && workEventEligible(ctx, q, v, p) {
 					c.Events = append(c.Events, v)
 				}
 			}
@@ -166,15 +190,65 @@ func (s *Store) ClaimAutomationEvaluation(ctx context.Context, modelRevision str
 			if e != nil {
 				return e
 			}
+			c.WorkItems, e = candidateWorkItems(ctx, q, c.Events)
+			relatedLimit := false
+			if e != nil {
+				var known *Error
+				if !errors.As(e, &known) || known.Code != "invalid_work_item" {
+					return e
+				}
+				relatedLimit = true
+			}
+			c.Memories, e = SnapshotMemories(ctx, q, p.RoomID, "", 5)
+			if e != nil {
+				return e
+			}
+			c.EventFrontier, e = q.AutomationFrontier(ctx, p.RoomID)
+			if e != nil {
+				return e
+			}
+			if !relatedLimit {
+				if e = chargeWorkEvaluation(ctx, q, &c); e != nil {
+					for _, v := range c.Events {
+						if e = recordWorkIntakeAttention(ctx, q, v, "work_budget_exhausted"); e != nil {
+							return e
+						}
+						v.Status, v.Reason = "needs_attention", "work_budget_exhausted"
+						if e = updateAutomationEvent(ctx, q, v); e != nil {
+							return e
+						}
+					}
+					continue
+				}
+			}
 			raw, e := json.Marshal(c)
 			if e != nil {
 				return e
 			}
-			oversized := len(raw) > automationAssessmentContextBytes
+			oversized := relatedLimit || len(raw) > automationAssessmentContextBytes
 			if oversized {
 				c, raw, e = unavailableAutomationCandidate(c)
 				if e != nil {
-					return e
+					var known *Error
+					if !errors.As(e, &known) || known.Code != "invalid_source" {
+						return e
+					}
+					// Even a valid policy's escaped reference metadata can exceed
+					// the audit envelope. Retire this lane rather than poisoning
+					// the global queue or issuing a shortened model request.
+					for _, v := range c.Events {
+						v.Status, v.Reason = "needs_attention", "assessment_reference_limit"
+						if e = updateAutomationEvent(ctx, q, v); e != nil {
+							return e
+						}
+					}
+					attention := c
+					attention.ID = ""
+					attention.WorkItems = nil
+					if e = recordAssessmentAttention(ctx, q, attention, orchestration.Assessment{Outcome: "unavailable", Reason: "The policy and reference metadata exceed the bounded assessment envelope. No model request was sent."}, "assessment_reference_limit"); e != nil {
+						return e
+					}
+					continue
 				}
 			}
 			if e = q.InsertAutomationEvaluation(ctx, sqlgen.InsertAutomationEvaluationParams{ID: c.ID, SourceID: evt.SourceID, ThreadKey: evt.ThreadKey, Candidate: string(raw), CreatedAt: now()}); e != nil {
@@ -182,15 +256,26 @@ func (s *Store) ClaimAutomationEvaluation(ctx context.Context, modelRevision str
 			}
 			if oversized {
 				assessment := orchestration.Assessment{Outcome: "unavailable", Reason: "The frozen assessment context exceeds its bounded input limit. No model request was sent; the source originals remain available."}
+				if relatedLimit {
+					assessment.Reason = "Too many related matters for one bounded assessment. No model request was sent; evidence links remain available in Work Item history."
+				}
 				result, _ := json.Marshal(assessment)
 				if e = q.FinishAutomationEvaluation(ctx, sqlgen.FinishAutomationEvaluationParams{ID: c.ID, Status: "needs_attention", Assessment: string(result)}); e != nil {
 					return e
 				}
 				for _, v := range c.Events {
 					v.Status, v.Reason, v.EvaluationID, v.PolicyRevision = "needs_attention", "assessment_context_limit", c.ID, p.Revision
+					if relatedLimit {
+						v.Reason = "assessment_related_work_limit"
+					}
 					if e = updateAutomationEvent(ctx, q, v); e != nil {
 						return e
 					}
+				}
+				attention := c
+				attention.WorkItems = nil
+				if e = recordAssessmentAttention(ctx, q, attention, assessment, "assessment_context_limit"); e != nil {
+					return e
 				}
 				return event(ctx, q, "automation.evaluation.updated", c.Policy.RoomID, c.ID)
 			}
@@ -227,11 +312,11 @@ func (s *Store) CompleteAutomationEvaluation(ctx context.Context, id string, a o
 		if e = json.Unmarshal([]byte(row.Candidate), &c); e != nil {
 			return e
 		}
-		if a.Outcome != "accept" && a.Outcome != "ignore" && a.Outcome != "unavailable" {
+		if !validAssessment(a) {
 			a = orchestration.Assessment{Outcome: "unavailable", Reason: "invalid_assessment"}
 		}
-		if !validText(a.Reason, 4096, false) || (a.Outcome == "accept" && !validText(a.Goal, 8192, false)) {
-			a = orchestration.Assessment{Outcome: "unavailable", Reason: "invalid_assessment"}
+		if a.Outcome == "execute" {
+			a.Outcome = "accept"
 		}
 		status, reason, taskID := "ignored", a.Reason, ""
 		pRow, pErr := q.GetAutomationPolicyID(ctx, c.Policy.ID)
@@ -247,6 +332,11 @@ func (s *Store) CompleteAutomationEvaluation(ctx context.Context, id string, a o
 			return e
 		}
 		stale := pErr != nil || !p.Enabled || p.Revision != c.Policy.Revision || frontier != c.TaskFrontier
+		workStale, e := workCandidateStale(ctx, q, c)
+		if e != nil {
+			return e
+		}
+		stale = stale || workStale
 		if !stale {
 			stale = automationAuthority(ctx, q, p) != nil
 		}
@@ -288,11 +378,16 @@ func (s *Store) CompleteAutomationEvaluation(ctx context.Context, id string, a o
 				status, reason = "needs_attention", "daily_task_limit"
 				break
 			}
-			t, e := createAutomationTask(ctx, tx, c, a)
-			if e != nil {
-				return e
+			var applyErr error
+			taskID, applyErr = applyAutomationWorkDecision(ctx, tx, c, &a)
+			if applyErr != nil {
+				var known *Error
+				if errors.As(applyErr, &known) {
+					status, reason = "needs_attention", known.Code
+					break
+				}
+				return applyErr
 			}
-			taskID = t.ID
 			status = "accepted"
 			if e = q.ChargeAutomationTask(ctx, sqlgen.ChargeAutomationTaskParams{PolicyID: p.ID, Day: day}); e != nil {
 				return e
@@ -304,6 +399,29 @@ func (s *Store) CompleteAutomationEvaluation(ctx context.Context, id string, a o
 						return e
 					}
 				}
+			}
+		case a.Outcome == "wait" || a.Outcome == "request_judgment" || a.Outcome == "complete" || a.Outcome == "ignore":
+			targeted := false
+			for _, ev := range c.Events {
+				targeted = targeted || ev.WorkItemID != ""
+			}
+			if a.Outcome == "ignore" && a.WorkItemID == "" && !targeted {
+				break
+			}
+			if _, applyErr := applyAutomationWorkDecision(ctx, tx, c, &a); applyErr != nil {
+				var known *Error
+				if errors.As(applyErr, &known) {
+					status, reason = "needs_attention", known.Code
+				} else {
+					return applyErr
+				}
+			} else {
+				status = a.Outcome
+			}
+		}
+		if status == "needs_attention" {
+			if e = recordAssessmentAttention(ctx, q, c, a, reason); e != nil {
+				return e
 			}
 		}
 		raw, _ := json.Marshal(a)

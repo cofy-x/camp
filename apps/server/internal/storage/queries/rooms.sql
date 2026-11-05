@@ -76,7 +76,9 @@ SELECT EXISTS(SELECT 1 FROM resources r WHERE r.id=@resource_id AND r.current_co
     OR EXISTS(SELECT 1 FROM runs w WHERE w.resource_id=@resource_id
         AND (json_extract(w.snapshot,'$.baselineCommit')=@commit_id OR json_extract(w.snapshot,'$.resultCommit')=@commit_id))
     OR EXISTS(SELECT 1 FROM resource_publications p WHERE p.resource_id=@resource_id AND (p.commit_id=@commit_id OR p.previous_commit=@commit_id))
-    OR EXISTS(SELECT 1 FROM review_events e JOIN reviews v ON v.id=e.review_id WHERE v.resource_id=@resource_id AND e.commit_id=@commit_id);
+    OR EXISTS(SELECT 1 FROM review_events e JOIN reviews v ON v.id=e.review_id WHERE v.resource_id=@resource_id AND e.commit_id=@commit_id)
+    OR EXISTS(SELECT 1 FROM memory_revisions m WHERE json_extract(m.value,'$.provenance.kind')='file'
+        AND json_extract(m.value,'$.provenance.resourceId')=@resource_id AND json_extract(m.value,'$.provenance.commit')=@commit_id);
 -- name: RoomHasResource :one
 SELECT EXISTS(SELECT 1 FROM rooms r WHERE r.id=@room_id AND r.resource_id=@resource_id)
     OR EXISTS(SELECT 1 FROM runs w WHERE w.room_id=@room_id AND w.resource_id=@resource_id)

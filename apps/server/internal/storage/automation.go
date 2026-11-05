@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cofy-x/camp/apps/server/internal/feishuhooks"
 	"github.com/cofy-x/camp/apps/server/internal/orchestration"
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
@@ -22,6 +23,7 @@ type AutomationReceipt struct {
 
 func automationPolicy(row sqlgen.AutomationPolicy) (p orchestration.Policy, err error) {
 	err = json.Unmarshal([]byte(row.Value), &p)
+	p.ItemBudget = defaultWorkBudget(p.ItemBudget)
 	p.ID, p.RoomID, p.SourceID, p.Revision, p.OwnerUserID = row.ID, row.RoomID, row.SourceID, row.Revision, row.OwnerUserID
 	p.Enabled, p.Mode, p.CredentialRef, p.StartAfter = row.Enabled != 0, row.Mode, row.CredentialRef, row.StartAfter
 	p.CredentialConfigured = p.CredentialRef != ""
@@ -120,6 +122,11 @@ func (s *Store) AutomationPolicies(ctx context.Context, room string) ([]orchestr
 }
 
 func validateAutomationPolicy(in *orchestration.PolicyInput) error {
+	if in.ItemBudget != nil {
+		if e := validateWorkBudget(*in.ItemBudget); e != nil {
+			return e
+		}
+	}
 	in.Rules = strings.TrimSpace(in.Rules)
 	if in.Mode != "observe" && in.Mode != "auto" {
 		return problem("invalid_source", "Choose observation or automatic execution.")
@@ -135,7 +142,7 @@ func validateAutomationPolicy(in *orchestration.PolicyInput) error {
 		participants[id] = true
 	}
 	for _, id := range in.AllowedActorIDs {
-		if !validText(id, 128, false) {
+		if !validText(id, 256, false) {
 			return problem("invalid_source", "Use bounded, nonempty allowed sender IDs.")
 		}
 	}
@@ -154,14 +161,37 @@ func validateAutomationPolicy(in *orchestration.PolicyInput) error {
 	return nil
 }
 func automationSourceAvailable(ctx context.Context, q *sqlgen.Queries, p orchestration.Policy) error {
-	if p.SourceID == "room" {
-		return nil
+	_, err := automationSourceKind(ctx, q, p.RoomID, p.SourceID, true)
+	return err
+}
+
+// Source scope and availability are deterministic. A source's external identity
+// format does not grant that identity Camp membership or execution authority.
+func automationSourceKind(ctx context.Context, q *sqlgen.Queries, room, source string, enabled bool) (string, error) {
+	if source == "room" {
+		return "room", nil
 	}
-	src, e := q.GetGitHubSource(ctx, p.SourceID)
-	if e != nil || src.RoomID != p.RoomID || src.Enabled == 0 {
-		return problem("source_unavailable", "The automation source is unavailable.")
+	github, err := q.GetGitHubSource(ctx, source)
+	if err == nil {
+		if github.RoomID != room || (enabled && github.Enabled == 0) {
+			return "", problem("source_unavailable", "The automation source is unavailable.")
+		}
+		return "github", nil
 	}
-	return nil
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	feishu, err := q.GetFeishuSource(ctx, source)
+	if err == nil {
+		if feishu.RoomID != room || (enabled && feishu.Enabled == 0) {
+			return "", problem("source_unavailable", "The automation source is unavailable.")
+		}
+		return "feishu", nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	return "", problem("source_unavailable", "Choose an available event source in this Room.")
 }
 func automationAuthority(ctx context.Context, q *sqlgen.Queries, p orchestration.Policy) error {
 	if len(p.ParticipantAgentIDs) < 1 || len(p.ParticipantAgentIDs) > 8 {
@@ -262,16 +292,35 @@ func (s *Store) SaveAutomationPolicy(ctx context.Context, room, source string, i
 		out.FirstAgentID = in.FirstAgentID
 		out.MaxTurns = in.MaxTurns
 		out.MaxModelRequests = in.MaxModelRequests
+		out.ItemBudget = defaultWorkBudget(orchestration.WorkBudget{})
+		if in.ItemBudget != nil {
+			out.ItemBudget = *in.ItemBudget
+		}
 		out.DailyEvaluations = in.DailyEvaluations
 		out.DailyTasks = in.DailyTasks
 		out.AllowAnswers = in.AllowAnswers
 		out.AllowComments = in.AllowComments
-		if source != "room" {
+		sourceKind, sourceErr := automationSourceKind(ctx, q, room, source, out.Enabled)
+		if sourceErr != nil {
+			return sourceErr
+		}
+		if sourceKind == "github" {
 			for _, id := range out.AllowedActorIDs {
 				n, e := strconv.ParseInt(id, 10, 64)
 				if e != nil || n < 1 || strconv.FormatInt(n, 10) != id {
 					return problem("invalid_source", "Use immutable numeric GitHub sender IDs.")
 				}
+			}
+		}
+		if sourceKind == "feishu" {
+			for _, id := range out.AllowedActorIDs {
+				parts := strings.Split(id, ":")
+				if len(parts) != 2 || !feishuhooks.IdentityPattern.MatchString(parts[0]) || !feishuhooks.IdentityPattern.MatchString(parts[1]) {
+					return problem("invalid_source", "Use immutable Feishu sender IDs as tenantKey:openId.")
+				}
+			}
+			if out.AllowAnswers || out.AllowComments {
+				return problem("invalid_source", "Feishu sources currently receive context only; external answers and comments are unavailable.")
 			}
 		}
 		if out.Enabled {
@@ -280,11 +329,6 @@ func (s *Store) SaveAutomationPolicy(ctx context.Context, room, source string, i
 			}
 			if e = automationAuthority(ctx, q, out); e != nil {
 				return e
-			}
-		} else if source != "room" {
-			src, err := q.GetGitHubSource(ctx, source)
-			if err != nil || src.RoomID != room {
-				return problem("invalid_source", "Choose a GitHub source belonging to this Room.")
 			}
 		}
 		// Every edit establishes a new intake frontier. Observation history and

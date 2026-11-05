@@ -53,8 +53,10 @@ export function ReviewList({
     >
       {(!path || onClose) && (
         <div className="camp-section-heading">
-          <h2>{path ? 'Review & Delivery' : 'Reviews & Deliveries'}</h2>
-          {onClose && <Button onClick={onClose}>Back to Chat</Button>}
+          {!onClose && (
+            <h2>{path ? 'Review & Delivery' : 'Reviews & Deliveries'}</h2>
+          )}
+          {onClose && <Button onClick={onClose}>Back to Discussion</Button>}
         </div>
       )}
       {error ? (
@@ -69,7 +71,7 @@ export function ReviewList({
       ) : !visible.length ? (
         <p>
           {path
-            ? 'No reviews yet. Choose Request Review to start one.'
+            ? 'No reviews yet.'
             : 'No reviews yet. Request one from a shared file in Library.'}
         </p>
       ) : (

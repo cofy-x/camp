@@ -52,7 +52,14 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   const [path, setPath] = useState('');
   const [files, setFiles] = useState<string[]>([]);
   const [commit, setCommit] = useState('');
-  const [publications, setPublications] = useState<Publication[]>([]);
+  const [publicationSnapshot, setPublicationSnapshot] = useState<{
+    resourceId: string;
+    items: Publication[];
+  }>({ resourceId: '', items: [] });
+  const publications =
+    publicationSnapshot.resourceId === resourceId
+      ? publicationSnapshot.items
+      : [];
   const [history, setHistory] = useState(false);
   const [environmentOpen, setEnvironmentOpen] = useState(false);
   const [version, setVersion] = useState<{
@@ -197,6 +204,8 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     setVersion(intent.commit ? { commit: intent.commit } : null);
     setComparison(null);
     if (intent.resourceId) {
+      if (selectedResource.current !== intent.resourceId)
+        setPublicationSnapshot({ resourceId: intent.resourceId, items: [] });
       setResourceId(intent.resourceId);
       setEditor(null);
       setHistory(false);
@@ -206,6 +215,25 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     if (intent.path) setPath(intent.path);
   }, [team.navigation, rooms, invalidateEditorRequest]);
   const resource = resources.find((item) => item.id === resourceId);
+  const location =
+    (resource &&
+      !resource.immutable &&
+      rooms.find(
+        (room) =>
+          room.resourceId === resource.id &&
+          resource.name === `${room.name} files`,
+      )?.name) ||
+    resource?.name;
+  useEffect(() => {
+    desktop.setTitle(
+      window.id,
+      importOpen
+        ? 'Import from Runner — Library'
+        : location
+          ? `${location} — Library`
+          : 'Library',
+    );
+  }, [desktop, window.id, location, importOpen]);
   useEffect(() => {
     selectedResource.current = resourceId;
   }, [resourceId]);
@@ -232,7 +260,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
         setFilesError('');
         setFiles(listing.files);
         setCommit(listing.commit);
-        setPublications(changes.publications);
+        setPublicationSnapshot({ resourceId, items: changes.publications });
         setPath((current) =>
           listing.files.includes(current) ? current : (listing.files[0] ?? ''),
         );
@@ -283,7 +311,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     setPath('');
     setFiles([]);
     setCommit('');
-    setPublications([]);
+    setPublicationSnapshot({ resourceId: id, items: [] });
     setError('');
     setFilesError('');
     setHistory(false);
@@ -383,12 +411,38 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     }
   }
 
-  async function restore(publication: Publication) {
-    if (!resource) return;
+  function viewVersion(publication: Publication, sourceId: string) {
+    if (selectedResource.current !== sourceId) return;
+    setVersion({
+      commit: publication.commit,
+      createdAt: publication.createdAt,
+    });
+    setHistory(false);
+    setComparison(null);
+    setPath('');
+  }
+
+  function compareVersion(publication: Publication, sourceId: string) {
+    if (selectedResource.current !== sourceId) return;
+    setComparison(publication);
+  }
+
+  async function restore(publication: Publication, source: LibraryResource) {
+    if (
+      source.immutable ||
+      source.currentCommit === publication.commit ||
+      pending
+    )
+      return;
+    const target = {
+      id: source.id,
+      name: source.name,
+      expectedCommit: source.currentCommit,
+      commit: publication.commit,
+    };
     const answer = await desktop.dialog({
       title: 'Restore Shared Files',
-      message:
-        'Restore the complete file version shown here. This creates a new shared version; the current version stays in history.',
+      message: `Restore all shared files in “${target.name}” to this version? This creates a new shared version; the current version stays in history.`,
       buttons: [
         { label: 'Cancel', value: 'cancel', cancel: true },
         { label: 'Restore Version', value: 'restore', default: true },
@@ -399,9 +453,9 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     setError('');
     try {
       await libraryApi.restore(
-        resource.id,
-        resource.currentCommit,
-        publication.commit,
+        target.id,
+        target.expectedCommit,
+        target.commit,
         crypto.randomUUID(),
       );
       refresh();
@@ -530,6 +584,8 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     closeReview,
     closeEditor,
     selectFile,
+    viewVersion,
+    compareVersion,
     restore,
   };
 }

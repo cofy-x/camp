@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { Button, Select, PixelIcon } from '@cofy-x/camp-platinum';
+import { Button, Select } from '@cofy-x/camp-platinum';
 import { useTeam } from '../../team/TeamContext';
 import { useAccount } from '../../team/AuthContext';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
@@ -382,8 +382,6 @@ export function ReviewPanel({
   return (
     <section className="camp-review-panel" aria-label="Document review">
       <div className="app-toolbar">
-        <PixelIcon name="checklist" size={24} />
-        <strong>Review & Delivery</strong>
         <Button
           onClick={() =>
             void flushPrivateDrafts().then((saved) => {

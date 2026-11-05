@@ -16,10 +16,10 @@ import (
 
 // createAutomationTask uses an explicitly delegated sponsor without attributing
 // external text or the system's actions to that sponsor as an authored message.
-func createAutomationTask(ctx context.Context, tx *sql.Tx, c orchestration.Candidate, a orchestration.Assessment) (CollaborationTask, error) {
+func createAutomationTask(ctx context.Context, tx *sql.Tx, c orchestration.Candidate, a orchestration.Assessment, matters ...*orchestration.WorkItem) (CollaborationTask, error) {
 	q := sqlgen.New(tx)
 	p := c.Policy
-	if a.Outcome != "accept" || !p.Enabled || p.Mode != "auto" {
+	if (a.Outcome != "accept" && a.Outcome != "execute") || !p.Enabled || p.Mode != "auto" {
 		return CollaborationTask{}, problem("invalid_task", "An automatic task requires an accepted automatic policy decision.")
 	}
 	in := CreateTaskInput{InputProtocol: 1, PagedResponse: true, Goal: strings.TrimSpace(a.Goal), ParticipantAgentIDs: p.ParticipantAgentIDs, FirstAgentID: p.FirstAgentID}
@@ -48,13 +48,21 @@ func createAutomationTask(ctx context.Context, tx *sql.Tx, c orchestration.Candi
 	t.AutomationSourceEventID = c.Events[0].ID
 	t.AutomationScope = c.Events[0].ThreadKey
 	for _, event := range c.Events {
-		if event.RoomID != p.RoomID || event.SourceID != p.SourceID {
+		if event.RoomID != p.RoomID || (event.SourceID != p.SourceID && event.WorkItemID == "") {
 			return t, problem("invalid_task", "The task evidence must belong to its policy source and Room.")
 		}
 		if _, err = appendAutomationTaskEvent(ctx, q, &t, event); err != nil {
 			return t, err
 		}
+		if event.WorkItemID != "" {
+			continue
+		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO automation_subscriptions(id,task_id,source_id,thread_key,enabled,revision) VALUES(?,?,?,?,1,1) ON CONFLICT(task_id,source_id,thread_key) DO NOTHING`, newID(), t.ID, event.SourceID, event.ThreadKey); err != nil {
+			return t, err
+		}
+	}
+	if len(matters) > 0 {
+		if err = attachWorkTask(ctx, q, matters[0], &t, t.MaxModelRequests); err != nil {
 			return t, err
 		}
 	}
@@ -143,6 +151,13 @@ func appendAutomationTaskEvent(ctx context.Context, q *sqlgen.Queries, t *Collab
 			return false, err
 		}
 		input := TaskInput{Seq: t.InputRevision + 1, ID: newID(), SourceEventID: event.ID, PartIndex: int(part), AuthorKind: "external", ExternalActorID: event.ActorID, AuthorName: event.ActorLogin, Content: content, CreatedAt: event.OccurredAt}
+		if builtinWorkSource(event.SourceID) {
+			input.AuthorKind = event.ActorKind
+			input.ExternalActorID = ""
+			if event.ActorKind == "user" {
+				input.AuthorUserID = event.ActorID
+			}
+		}
 		if input.CreatedAt == "" {
 			input.CreatedAt = now()
 		}
@@ -161,7 +176,11 @@ func appendAutomationTaskEvent(ctx context.Context, q *sqlgen.Queries, t *Collab
 				return false, err
 			}
 			input.MessageID = newID()
-			m := Message{ID: input.MessageID, TaskID: t.ID, RoomID: t.RoomID, ThreadRootID: t.ThreadRootID, Seq: seq, AuthorKind: "system", AuthorName: "External: " + input.AuthorName, Content: content, CreatedAt: input.CreatedAt, UpdatedAt: input.CreatedAt}
+			name := "External: " + input.AuthorName
+			if builtinWorkSource(event.SourceID) {
+				name = "Camp: " + input.AuthorName
+			}
+			m := Message{ID: input.MessageID, TaskID: t.ID, RoomID: t.RoomID, ThreadRootID: t.ThreadRootID, Seq: seq, AuthorKind: "system", AuthorName: name, Content: content, CreatedAt: input.CreatedAt, UpdatedAt: input.CreatedAt}
 			if err = insertMessage(ctx, q, m, ""); err != nil {
 				return false, err
 			}
@@ -354,10 +373,8 @@ func validateTaskSubscription(ctx context.Context, tx *sql.Tx, t CollaborationTa
 		}
 		return nil
 	}
-	var room string
-	var enabled bool
-	if err := tx.QueryRowContext(ctx, `SELECT room_id,enabled FROM github_sources WHERE id=?`, in.SourceID).Scan(&room, &enabled); err != nil || room != t.RoomID || (in.Enabled && !enabled) {
-		return problem("invalid_subscription", "Choose an available GitHub source in this Room.")
+	if _, err := automationSourceKind(ctx, sqlgen.New(tx), t.RoomID, in.SourceID, in.Enabled); err != nil {
+		return problem("invalid_subscription", "Choose an available event source in this Room.")
 	}
 	var count int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM automation_events WHERE room_id=? AND source_id=? AND thread_key=?`, t.RoomID, in.SourceID, in.ThreadKey).Scan(&count); err != nil {

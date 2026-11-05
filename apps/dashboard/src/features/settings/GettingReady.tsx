@@ -1,4 +1,4 @@
-import { Button, PixelIcon } from '@cofy-x/camp-platinum';
+import { Button } from '@cofy-x/camp-platinum';
 import type { Readiness } from './api';
 
 type Component = Readiness['components'][number];
@@ -21,16 +21,14 @@ export function GettingReady({
   onRefresh,
   onSection,
   onRunners,
-  onAgents,
   onWorkspace,
 }: {
   readiness: Readiness | null;
   loading: boolean;
   error: string;
   onRefresh: () => void;
-  onSection: (section: 'models' | 'environments' | 'team') => void;
+  onSection: (section: 'models') => void;
   onRunners: (connect?: boolean) => void;
-  onAgents: () => void;
   onWorkspace: () => void;
 }) {
   const component = (id: string) =>
@@ -42,6 +40,7 @@ export function GettingReady({
   const next =
     model?.status !== 'ready'
       ? {
+          destination: 'models',
           title: 'Connect a model',
           detail:
             'Save your model settings. Your provider key stays on the Server.',
@@ -50,6 +49,7 @@ export function GettingReady({
         }
       : runtime?.status !== 'ready' || !readiness?.ready
         ? {
+            destination: 'connect',
             title: 'Connect a Runner',
             detail: 'Connect a supported Mac or Linux machine for Agent work.',
             action: 'Connect Runner…',
@@ -57,6 +57,7 @@ export function GettingReady({
           }
         : firstTask?.status !== 'ready'
           ? {
+              destination: 'runners',
               title: 'Try your first Agent task',
               detail:
                 'Choose your Runner and run a sample file task. This makes a model request.',
@@ -64,9 +65,9 @@ export function GettingReady({
               run: () => onRunners(),
             }
           : {
+              destination: 'workspace',
               title: 'Start working',
-              detail:
-                'An Agent task succeeded previously. Open Workspace to discuss, draft and review.',
+              detail: 'A native Agent task succeeded previously.',
               action: 'Start Working',
               run: onWorkspace,
             };
@@ -76,22 +77,17 @@ export function GettingReady({
     ) ?? [];
   return (
     <section className="camp-getting-ready" aria-label="Getting Ready">
-      <header className="camp-preparation-heading">
-        <PixelIcon name="checklist" size={28} />
-        <div>
-          <h2>Getting Ready</h2>
+      {(!readiness || next.destination !== 'workspace') && (
+        <div className="camp-preparation-heading">
+          <Button onClick={onWorkspace}>Open Workspace</Button>
         </div>
-        <Button onClick={onWorkspace}>Open Workspace</Button>
-      </header>
+      )}
       {error && (
         <div className="app-error" role="alert">
           <p>
             {error}
             {readiness ? ' Previous observations are shown below.' : ''}
           </p>
-          <Button disabled={loading} onClick={onRefresh}>
-            Retry Status
-          </Button>
         </div>
       )}
       {loading && !readiness && <p role="status">Loading setup status…</p>}
@@ -122,11 +118,13 @@ export function GettingReady({
                 <p>{model.detail}</p>
               )}
             </dd>
-            <dd className="camp-preparation-action">
-              <Button onClick={() => onSection('models')}>
-                Model Settings
-              </Button>
-            </dd>
+            {next.destination !== 'models' && (
+              <dd className="camp-preparation-action">
+                <Button onClick={() => onSection('models')}>
+                  Model Settings
+                </Button>
+              </dd>
+            )}
           </div>
           <div>
             <dt>Model connection</dt>
@@ -157,9 +155,11 @@ export function GettingReady({
                 </p>
               )}
             </dd>
-            <dd className="camp-preparation-action">
-              <Button onClick={() => onRunners()}>Open Runners</Button>
-            </dd>
+            {next.destination !== 'runners' && (
+              <dd className="camp-preparation-action">
+                <Button onClick={() => onRunners()}>Open Runners</Button>
+              </dd>
+            )}
           </div>
           <div>
             <dt>Native task</dt>
@@ -175,16 +175,13 @@ export function GettingReady({
       )}
       <div className="camp-preparation-check">
         <Button disabled={loading} onClick={onRefresh}>
-          {loading ? 'Refreshing Status…' : 'Refresh Status'}
+          {loading
+            ? 'Refreshing Status…'
+            : error
+              ? 'Retry Status'
+              : 'Refresh Status'}
         </Button>
       </div>
-      <fieldset className="app-control-group camp-preparation-team">
-        <legend>Team</legend>
-        <div className="app-actions">
-          <Button onClick={() => onSection('team')}>Team Settings</Button>
-          <Button onClick={onAgents}>Open Agents</Button>
-        </div>
-      </fieldset>
       {readiness && (
         <details className="camp-preparation-diagnostics">
           <summary>

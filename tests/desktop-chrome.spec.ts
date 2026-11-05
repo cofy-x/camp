@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { openApp, settings, signIn, workspace } from './team-helpers';
+import {
+  createRoom,
+  library,
+  openApp,
+  settings,
+  signIn,
+  workspace,
+} from './team-helpers';
 
 test('Inbox palette restores focus and File names the selected desktop application', async ({
   page,
@@ -8,7 +15,9 @@ test('Inbox palette restores focus and File names the selected desktop applicati
   await signIn(page);
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  const toggle = page.getByRole('button', { name: /^Inbox/ });
+  const toggle = page
+    .getByRole('complementary', { name: 'Personal inbox', exact: true })
+    .getByRole('button', { name: /^Inbox/ });
   const panel = page.getByRole('region', { name: 'Your inbox', exact: true });
   const activate = async (element: typeof toggle) =>
     isMobile ? element.tap() : element.click();
@@ -65,4 +74,50 @@ test('Inbox palette restores focus and File names the selected desktop applicati
   await activate(toggle);
   await page.screenshot({ path: testInfo.outputPath('inbox-palette.png') });
   expect(errors).toEqual([]);
+});
+
+test('Room views retain selection and Library history provides an explicit return', async ({
+  page,
+}, testInfo) => {
+  await signIn(page);
+  await createRoom(page, `Selected views ${testInfo.project.name}`);
+  const discussion = workspace(page).getByRole('button', {
+    name: 'Discussion',
+    exact: true,
+  });
+  const work = workspace(page).getByRole('button', {
+    name: 'Work',
+    exact: true,
+  });
+  const background = (button: typeof work) =>
+    button.evaluate((element) => getComputedStyle(element).backgroundColor);
+  await expect(discussion).toHaveAttribute('aria-pressed', 'true');
+  await work.click();
+  await expect(work).toHaveAttribute('aria-pressed', 'true');
+  await expect(discussion).toHaveAttribute('aria-pressed', 'false');
+  const selected = await background(work);
+  expect(selected).not.toBe(await background(discussion));
+  await discussion.press('Enter');
+  await expect(discussion).toHaveAttribute('aria-pressed', 'true');
+  await expect(work).toHaveAttribute('aria-pressed', 'false');
+  expect(await background(discussion)).toBe(selected);
+  await workspace(page)
+    .getByRole('button', { name: 'Files', exact: true })
+    .click();
+  const history = library(page).getByRole('button', {
+    name: 'History',
+    exact: true,
+  });
+  await expect(history).toBeEnabled();
+  await history.click();
+  const back = library(page).getByRole('button', {
+    name: 'Back to Files',
+    exact: true,
+  });
+  await expect(back).toHaveCount(1);
+  await expect(back).not.toHaveAttribute('aria-pressed');
+  await expect(library(page).locator('.camp-library-history')).toBeVisible();
+  await back.press('Enter');
+  await expect(history).toBeVisible();
+  await expect(library(page).locator('.camp-library-history')).toHaveCount(0);
 });

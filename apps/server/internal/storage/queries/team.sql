@@ -66,8 +66,19 @@ INSERT INTO room_reads(user_id,room_id,seq) VALUES(?,?,?) ON CONFLICT(user_id,ro
 -- name: CreateInboxItem :exec
 INSERT INTO inbox(id,user_id,kind,room_id,message_id,run_id,review_id,task_id,created_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,kind,message_id) DO NOTHING;
 -- name: ListInbox :many
-SELECT i.*,room.name AS room_name,COALESCE(review.title,'') AS review_title
+SELECT i.*,room.name AS room_name,COALESCE(review.title,'') AS review_title,
+CAST(COALESCE(NULLIF(i.work_item_id,''),relation.work_item_id,'') AS TEXT) AS resolved_work_item_id,
+CAST(COALESCE(NULLIF(json_extract(w.value,'$.goal'),''),NULLIF(json_extract(notification_task.snapshot,'$.goal'),''),review.title,'') AS TEXT) AS title,
+CAST(COALESCE(NULLIF(json_extract(w.value,'$.question'),''),
+ CASE WHEN active_task.status='waiting_for_person' THEN NULLIF(json_extract(active_task.snapshot,'$.question.text'),'') END,
+ CASE WHEN notification_task.status='waiting_for_person' THEN json_extract(notification_task.snapshot,'$.question.text') END,'') AS TEXT) AS question,
+CAST(COALESCE(NULLIF(json_extract(notification_task.snapshot,'$.summary'),''),message.content,'') AS TEXT) AS summary
 FROM inbox i JOIN rooms room ON room.id=i.room_id LEFT JOIN reviews review ON review.id=i.review_id
+LEFT JOIN collaboration_tasks notification_task ON notification_task.id=i.task_id
+LEFT JOIN work_item_tasks relation ON relation.task_id=i.task_id
+LEFT JOIN work_items w ON w.id=COALESCE(NULLIF(i.work_item_id,''),relation.work_item_id)
+LEFT JOIN collaboration_tasks active_task ON active_task.id=json_extract(w.value,'$.activeTaskId')
+LEFT JOIN messages message ON message.id=i.message_id
 WHERE i.user_id=? ORDER BY i.created_at DESC,i.id DESC LIMIT 200;
 -- name: ReadInboxItem :execrows
 UPDATE inbox SET read_at=? WHERE id=? AND user_id=?;

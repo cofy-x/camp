@@ -8,6 +8,7 @@ import {
 import { FileDetail } from './FileDetail';
 import { DocumentEditor } from './DocumentEditor';
 import { VersionComparison } from './VersionComparison';
+import { VersionHistory } from './VersionHistory';
 import { EnvironmentEditor } from './ResourceEnvironment';
 import { RequestReview } from '../reviews/RequestReview';
 import { RunnerImport } from './RunnerImport';
@@ -38,7 +39,6 @@ export function Library({ desktop, window }: AppWindowProps) {
     commit,
     publications,
     history,
-    setHistory,
     environmentOpen,
     setEnvironmentOpen,
     version,
@@ -69,6 +69,8 @@ export function Library({ desktop, window }: AppWindowProps) {
     closeReview,
     closeEditor,
     selectFile,
+    viewVersion,
+    compareVersion,
     restore,
   } = useLibraryController({ desktop, window });
   return (
@@ -188,12 +190,40 @@ export function Library({ desktop, window }: AppWindowProps) {
                   ref={sourcesToggle}
                   aria-controls={sourcesId}
                   aria-expanded={sourcesOpen}
+                  aria-pressed={sourcesOpen}
+                  title={
+                    sourcesOpen
+                      ? 'Hide sources sidebar'
+                      : 'Show sources sidebar'
+                  }
                   onClick={() => setSourcesOpen(!sourcesOpen)}
                 >
+                  <svg
+                    className="camp-library-sidebar-icon"
+                    width="16"
+                    height="12"
+                    viewBox="0 0 16 12"
+                    aria-hidden="true"
+                    focusable="false"
+                    shapeRendering="crispEdges"
+                  >
+                    <rect
+                      x="0.5"
+                      y="0.5"
+                      width="15"
+                      height="11"
+                      fill="none"
+                      stroke="currentColor"
+                    />
+                    <path d="M5.5 1v10" stroke="currentColor" />
+                    <path
+                      className="camp-library-sidebar-pane"
+                      d="M2 2h2v8H2z"
+                      fill="currentColor"
+                    />
+                  </svg>
                   Sources
                 </Button>
-                <PixelIcon name="folder" size={24} />
-                <strong>{resource?.name ?? 'Library'}</strong>
                 <div className="app-actions">
                   <Button
                     disabled={
@@ -209,11 +239,10 @@ export function Library({ desktop, window }: AppWindowProps) {
                     New Document
                   </Button>
                   <Button
-                    aria-pressed={history}
                     disabled={!resource || Boolean(requestReview) || importOpen}
                     onClick={() => void toggleHistory()}
                   >
-                    History
+                    {history ? 'Back to Files' : 'History'}
                   </Button>
                   <Button
                     aria-label="More Library actions"
@@ -330,94 +359,22 @@ export function Library({ desktop, window }: AppWindowProps) {
                 onClose={() => setComparison(null)}
               />
             ) : history ? (
-              <section className="camp-library-history">
-                <div className="camp-section-heading">
-                  <h2>Shared version history</h2>
-                  <Button onClick={() => setHistory(false)}>
-                    Back to Files
-                  </Button>
-                </div>
-                <p className="camp-library-history-description">
-                  Saved changes to {resource.name}.
-                </p>
-                {filesError ? (
-                  <p className="app-error" role="alert">
-                    {filesError} <Button onClick={refresh}>Retry Files</Button>
-                  </p>
-                ) : !publications.length && !filesLoading ? (
-                  <p>No published changes yet.</p>
-                ) : null}
-                {publications.map((item) => (
-                  <article key={item.id}>
-                    <div className="camp-library-version-heading">
-                      <strong>
-                        {item.kind === 'agent'
-                          ? 'Agent result'
-                          : item.kind === 'restore'
-                            ? 'Restored version'
-                            : item.path}
-                      </strong>
-                      {item.commit === resource.currentCommit && (
-                        <span>Current version</span>
-                      )}
-                    </div>
-                    <p>
-                      {item.authorName || 'Agent'} ·{' '}
-                      {new Date(item.createdAt).toLocaleString()} ·{' '}
-                      {item.checksStatus === 'passed'
-                        ? 'Checks passed'
-                        : item.checksStatus === 'not_configured'
-                          ? 'Checks not configured'
-                          : 'Checks not run'}
-                    </p>
-                    <div className="app-actions">
-                      <Button
-                        onClick={() => {
-                          setVersion({
-                            commit: item.commit,
-                            createdAt: item.createdAt,
-                          });
-                          setHistory(false);
-                          setComparison(null);
-                          setPath('');
-                        }}
-                      >
-                        View Version
-                      </Button>
-                      {item.previousCommit && (
-                        <Button onClick={() => setComparison(item)}>
-                          Compare with Previous
-                        </Button>
-                      )}
-                      {item.runId && (
-                        <Button
-                          onClick={() => {
-                            const room = rooms.find(
-                              (room) => room.resourceId === resource.id,
-                            );
-                            if (room)
-                              void team.navigate({
-                                roomId: room.id,
-                                runId: item.runId,
-                              });
-                          }}
-                        >
-                          Open Conversation
-                        </Button>
-                      )}
-                      {item.commit !== resource.currentCommit &&
-                        !resource.immutable && (
-                          <Button
-                            disabled={pending}
-                            onClick={() => void restore(item)}
-                          >
-                            Restore Version…
-                          </Button>
-                        )}
-                    </div>
-                  </article>
-                ))}
-              </section>
+              <VersionHistory
+                key={resource.id}
+                desktop={desktop}
+                resource={resource}
+                publications={publications}
+                roomId={
+                  rooms.find((room) => room.resourceId === resource.id)?.id
+                }
+                pending={pending}
+                error={filesError}
+                loading={filesLoading}
+                onRetry={refresh}
+                onView={viewVersion}
+                onCompare={compareVersion}
+                onRestore={restore}
+              />
             ) : filesError ? (
               <div className="camp-empty" role="alert">
                 <p>{filesError}</p>
@@ -495,32 +452,9 @@ export function Library({ desktop, window }: AppWindowProps) {
                       }
                     />
                   ) : (
-                    <div className="camp-empty">
-                      <PixelIcon name="folder" size={48} />
-                      <h2>No files in {resource.name}</h2>
-                      <p>
-                        Create a document here, or upload source material in a
-                        room and invite an agent to help.
-                      </p>
-                      <div className="app-actions">
-                        {!resource.immutable && (
-                          <Button
-                            primary
-                            disabled={pending}
-                            onClick={() => void edit(true)}
-                          >
-                            Create Document
-                          </Button>
-                        )}
-                        <Button
-                          disabled={!targetRoom}
-                          onClick={() =>
-                            void team.navigate({ roomId: targetRoom })
-                          }
-                        >
-                          Open a Room
-                        </Button>
-                      </div>
+                    <div className="camp-library-empty">
+                      <PixelIcon name="folder" />
+                      <p>No files yet</p>
                     </div>
                   )}
                 </div>

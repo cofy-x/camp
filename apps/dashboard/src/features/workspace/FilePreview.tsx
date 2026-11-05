@@ -29,6 +29,7 @@ export function FilePreview({
     reference.commit!,
   );
   const markdown = /\.(md|markdown)$/i.test(reference.path ?? '');
+  const filename = reference.path?.split('/').at(-1);
   useEffect(() => {
     const controller = new AbortController();
     setContent(null);
@@ -74,14 +75,19 @@ export function FilePreview({
             {source ? 'Show preview' : 'Show source'}
           </Button>
         )}
-        <a href={url} download={reference.path?.split('/').at(-1)}>
-          Download {reference.path?.split('/').at(-1)}
-        </a>
         {onReference && (
           <Button type="button" onClick={() => onReference(reference)}>
             Use as reference
           </Button>
         )}
+        <a
+          className="p9-button"
+          href={url}
+          download={filename}
+          aria-label={filename ? `Download ${filename}` : 'Download'}
+        >
+          Download
+        </a>
       </div>
       {error ? (
         <p role="alert" className="app-error">

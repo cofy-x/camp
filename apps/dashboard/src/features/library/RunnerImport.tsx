@@ -48,7 +48,7 @@ export function RunnerImport({
   const [pending, setPending] = useState(false);
   const [navigation, setNavigation] = useState(0);
   const announced = useRef('');
-  const heading = useRef<HTMLHeadingElement>(null);
+  const panel = useRef<HTMLElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const source =
     sources?.runnerId === runnerId
@@ -66,7 +66,7 @@ export function RunnerImport({
 
   useEffect(() => {
     content.current?.scrollTo({ top: 0 });
-    heading.current?.focus({ preventScroll: true });
+    panel.current?.focus({ preventScroll: true });
   }, [navigation]);
 
   function remember(record: ImportReceipt | null) {
@@ -231,12 +231,13 @@ export function RunnerImport({
   }
 
   return (
-    <section className="camp-runner-import" aria-label="Import from Runner">
+    <section
+      className="camp-runner-import"
+      aria-label="Import from Runner"
+      ref={panel}
+      tabIndex={-1}
+    >
       <header className="app-toolbar camp-import-heading">
-        <PixelIcon name="folder" size={24} />
-        <h2 ref={heading} tabIndex={-1}>
-          Import from Runner
-        </h2>
         <Button onClick={() => onClose(true)}>Back to Files</Button>
       </header>
       <div className="camp-import-content" ref={content}>

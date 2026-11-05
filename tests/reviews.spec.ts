@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import {
+  openRoomMore,
   createRoom,
   library,
   mutate,
@@ -46,9 +47,7 @@ async function openReview(page: Page, title: string) {
       .getByRole('region', { name: 'Document reviews', exact: true })
       .isVisible())
   )
-    await workspace(page)
-      .getByRole('button', { name: 'Reviews', exact: true })
-      .click();
+    await openRoomMore(page, 'File reviews…');
   await workspace(page)
     .getByRole('region', { name: 'Document reviews', exact: true })
     .getByRole('button')
@@ -120,7 +119,7 @@ test('two people review, revise and deliver an exact document version', async ({
       .getByLabel(`Message ${room.name}`, { exact: true })
       .fill(revisionDraft);
     await workspace(page)
-      .getByRole('button', { name: 'Library', exact: true })
+      .getByRole('button', { name: 'Files', exact: true })
       .click();
     const first = '# Launch proposal\nPilot a weekly client update.';
     const revised = `${first}\n\nOwner: Morgan. Success: one clear next step per client.`;
@@ -165,7 +164,7 @@ test('two people review, revise and deliver an exact document version', async ({
     await reviewer.getByRole('button', { name: /Inbox, 1 unread/ }).click();
     await reviewer
       .getByRole('complementary', { name: 'Personal inbox' })
-      .getByRole('button', { name: /A document needs your review/ })
+      .getByRole('button', { name: new RegExp(title) })
       .click();
     await expect(workspace(reviewer)).toBeVisible();
     await expect(detail(reviewer)).toContainText(title);
@@ -174,10 +173,7 @@ test('two people review, revise and deliver an exact document version', async ({
     ).toHaveCount(0);
     await expect(workspace(reviewer).getByLabel('Room members')).toHaveCount(0);
     await expect(
-      workspace(reviewer).getByText(
-        'Agents are unavailable · you can still post to the room',
-        { exact: true },
-      ),
+      workspace(reviewer).locator('.workspace-unavailable'),
     ).toHaveCount(0);
     expect(
       await detail(reviewer).evaluate((panel) => {
@@ -707,7 +703,7 @@ test('a disabled reviewer can be reassigned and a cancelled version can be revie
     `reassign-review-${testInfo.project.name}`,
   );
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   await newDocument(page, 'scope.md', 'A small, explicit delivery scope.');
   await publish(page);
@@ -889,7 +885,7 @@ test('review navigation waits for the action and preserves a failed receipt clea
     .user as { id: string };
   const room = await createRoom(page, `review-clear-${testInfo.project.name}`);
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   await newDocument(
     page,
@@ -1031,7 +1027,7 @@ test('a review form retains its draft and waits for an explicit newer version', 
     id: string;
   };
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   await newDocument(page, 'brief.md', 'The version selected before review.');
   await publish(page);

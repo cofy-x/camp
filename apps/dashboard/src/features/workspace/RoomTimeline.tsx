@@ -16,6 +16,7 @@ import { Composer } from './Composer';
 import { References } from './References';
 import { WorkActivity } from './WorkActivity';
 import { SystemMessage } from './SystemMessage';
+import type { Task } from '../collaboration/api';
 import {
   conversationKey,
   readStored,
@@ -85,12 +86,14 @@ function WorkCard({
   onInspect,
   onChange,
   showTaskLink = true,
+  workItemId,
 }: {
   run: Run;
   avatar?: string;
   onInspect: (id: string) => void;
   onChange: () => void;
   showTaskLink?: boolean;
+  workItemId?: string;
 }) {
   const team = useTeam();
   const [pending, setPending] = useState(false);
@@ -124,7 +127,7 @@ function WorkCard({
           size={24}
         />
         <strong>{run.agentSnapshot.name}</strong>
-        <span>{statusLabel[run.status]}</span>
+        <span className="workspace-work-status">{statusLabel[run.status]}</span>
         <Button onClick={() => onInspect(run.id)}>
           {isActiveRun(run) ? 'Activity' : 'Details'}
         </Button>
@@ -135,10 +138,11 @@ function WorkCard({
                 app: 'workspace',
                 roomId: run.roomId,
                 taskId: run.taskId,
+                workItemId,
               })
             }
           >
-            Open collaboration
+            {workItemId ? 'Open work' : 'Open collaboration'}
           </Button>
         )}
         {isActiveRun(run) && !run.taskId && (
@@ -172,6 +176,7 @@ export function RoomTimeline({
   threadId,
   messages,
   runs,
+  tasks,
   agents,
   members,
   available,
@@ -183,6 +188,8 @@ export function RoomTimeline({
   sourceId,
   sourceRequest,
   onAsk,
+  onFollowUp,
+  onRemember,
   onSource,
   onReference,
   onAgents,
@@ -196,11 +203,14 @@ export function RoomTimeline({
   sourceId: string;
   sourceRequest: number;
   onAsk: (message: Message, run?: Run) => void;
+  onFollowUp: (message: Message) => void;
+  onRemember: (message: Message) => void;
   onSource: (messageId: string) => void;
   onReference: (reference: Reference) => void;
   onAgents: () => void;
   onSetup?: () => void;
   runs: Run[];
+  tasks: Task[];
   agents: Agent[];
   members: Agent[];
   available: boolean;
@@ -356,6 +366,9 @@ export function RoomTimeline({
           const currentAgent = agents.find(
             (item) => item.id === message.agentId,
           );
+          const linkedItemId = tasks.find(
+            (task) => task.id === (message.taskId || run?.taskId),
+          )?.workItemId;
           const person = team.members.find(
             (item) => item.id === message.authorUserId,
           );
@@ -386,6 +399,9 @@ export function RoomTimeline({
               avatar={agents.find((agent) => agent.id === item.agentId)?.avatar}
               onInspect={onInspect}
               onChange={onChange}
+              workItemId={
+                tasks.find((task) => task.id === item.taskId)?.workItemId
+              }
               showTaskLink={
                 message.authorKind !== 'system' ||
                 Boolean(message.reviewId) ||
@@ -412,10 +428,15 @@ export function RoomTimeline({
                     app: 'workspace',
                     roomId: room.id,
                     taskId: id,
+                    workItemId: tasks.find((task) => task.id === id)
+                      ?.workItemId,
                   })
                 }
+                taskLabel={linkedItemId ? 'Open work' : 'Open collaboration'}
                 onInspect={onInspect}
                 onAsk={() => onAsk(message)}
+                onFollowUp={() => onFollowUp(message)}
+                onRemember={() => onRemember(message)}
                 onThread={!threadId ? () => onThread(message.id) : undefined}
                 onSource={onSource}
               >
@@ -484,10 +505,11 @@ export function RoomTimeline({
                           app: 'workspace',
                           roomId: room.id,
                           taskId: message.taskId || run?.taskId,
+                          workItemId: linkedItemId,
                         })
                       }
                     >
-                      Open collaboration
+                      {linkedItemId ? 'Open work' : 'Open collaboration'}
                     </Button>
                   )}
                   {message.reviewId && (
@@ -500,6 +522,18 @@ export function RoomTimeline({
                     onClick={() => onAsk(message, run)}
                   >
                     Ask agent…
+                  </button>
+                  <button
+                    className="workspace-text-button"
+                    onClick={() => onFollowUp(message)}
+                  >
+                    Follow up…
+                  </button>
+                  <button
+                    className="workspace-text-button"
+                    onClick={() => onRemember(message)}
+                  >
+                    Remember this…
                   </button>
                   {!threadId && (
                     <button

@@ -1,6 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { createRoom, mutate, signIn, workspace } from './team-helpers';
+import {
+  createRoom,
+  mutate,
+  openRoomMore,
+  post,
+  settings,
+  signIn,
+  workspace,
+} from './team-helpers';
 import type { Message } from '../apps/dashboard/src/features/workspace/api';
 import { watchPageErrors } from './page-errors';
 
@@ -12,6 +20,286 @@ test.beforeEach(async ({ page, browserName }) => {
 test.afterEach(async ({ page }) =>
   expect(errors.get(page)?.errors).toEqual([]),
 );
+
+test('Room daily navigation opens work directly and remembers a message with exact provenance', async ({
+  page,
+}, info) => {
+  await page.route('**/api/workspace/status', async (route) => {
+    const response = await route.fetch();
+    return route.fulfill({
+      response,
+      json: {
+        ...(await response.json()),
+        available: false,
+        reason: 'Server-owned execution setup details.',
+      },
+    });
+  });
+  await errors.get(page)!.reload();
+  const room = await createRoom(page, `Daily work ${info.project.name}`);
+  const win = workspace(page);
+  const unavailable = win.locator('.workspace-unavailable');
+  await expect(
+    unavailable.getByText('Agent work unavailable', { exact: true }),
+  ).toBeVisible();
+  await expect(unavailable.locator('summary')).toHaveCount(0);
+  await expect(unavailable).not.toContainText(
+    'Server-owned execution setup details.',
+  );
+  const actions = win.locator('.workspace-toolbar-actions');
+  await expect(actions.getByRole('button')).toHaveText([
+    'Discussion',
+    'Work',
+    'Files',
+    'More',
+  ]);
+  await expect(
+    actions.getByRole('button', { name: 'Discussion', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  const original =
+    'Use the customer-facing title when publishing the weekly summary.';
+  await post(page, room.name, original);
+  const message = win
+    .locator('.workspace-message.author-user')
+    .filter({ hasText: original });
+  const messageId = (await message.getAttribute('data-message-id'))!;
+  const draft = page.getByLabel(`Message ${room.name}`, { exact: true });
+  await draft.fill('Keep this unfinished discussion draft.');
+  await unavailable
+    .getByRole('button', { name: 'Set up…', exact: true })
+    .click();
+  await expect(
+    settings(page).getByLabel('Control panel', { exact: true }),
+  ).toHaveValue('readiness');
+  await settings(page)
+    .getByRole('button', {
+      name: 'Close Getting Ready — Settings',
+      exact: true,
+    })
+    .click();
+  await expect(draft).toHaveValue('Keep this unfinished discussion draft.');
+  let writes = 0;
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      request.url().endsWith(`/api/rooms/${room.id}/memories`)
+    )
+      writes++;
+  });
+  await message
+    .getByRole('button', { name: 'Remember this…', exact: true })
+    .click();
+  const notes = win.getByRole('region', { name: 'Room notes', exact: true });
+  await expect(notes.getByLabel('Note', { exact: true })).toHaveValue(original);
+  expect(writes).toBe(0);
+  const note = 'Publish the weekly summary with the customer-facing title.';
+  await notes.getByLabel('Note', { exact: true }).fill(note);
+  await notes.getByRole('button', { name: 'Save note', exact: true }).click();
+  await expect(notes.getByText(note, { exact: true })).toBeVisible();
+  await page.screenshot({ path: info.outputPath('room-team-note.png') });
+  const saved = await (
+    await page.request.get(`/api/rooms/${room.id}/memories`)
+  ).json();
+  expect(saved.memories[0].provenance).toEqual({ kind: 'message', messageId });
+  expect(writes).toBe(1);
+  await notes
+    .getByRole('button', { name: 'Original message', exact: true })
+    .click();
+  await expect(draft).toHaveValue('Keep this unfinished discussion draft.');
+  await expect(win.locator(`[data-message-id="${messageId}"]`)).toHaveClass(
+    /is-source/,
+  );
+  await actions.getByRole('button', { name: 'Work', exact: true }).click();
+  await expect(
+    win.getByRole('region', { name: 'Room work', exact: true }),
+  ).toBeVisible();
+  await page.screenshot({ path: info.outputPath('room-daily-work.png') });
+  await expect(
+    win.getByRole('region', { name: 'Room management', exact: true }),
+  ).toHaveCount(0);
+  await openRoomMore(page, 'Execution history…');
+  await expect(win.locator('.p9-window-title')).toHaveText(
+    `Execution history — ${room.name} — Workspace`,
+  );
+  await expect(
+    win.getByRole('region', { name: 'Collaborations', exact: true }),
+  ).toBeVisible();
+  await actions
+    .getByRole('button', { name: 'Discussion', exact: true })
+    .click();
+  await expect(draft).toHaveValue('Keep this unfinished discussion draft.');
+});
+
+test('Inbox identifies the actual matter and opens it from a linked execution notification', async ({
+  page,
+}, info) => {
+  const room = await createRoom(page, `Inbox matter ${info.project.name}`);
+  const goal = 'Confirm the customer’s launch date';
+  const response = await mutate(page, `/rooms/${room.id}/work-items`, {
+    requestId: randomUUID(),
+    goal,
+    completionCriteria: 'The customer confirms a date.',
+  });
+  expect(response.ok()).toBe(true);
+  const { item } = await response.json();
+  const notificationId = randomUUID();
+  const question = 'Should we offer Tuesday or Thursday?';
+  let readAt = '';
+  let reads = 0;
+  await page.route('**/api/me/inbox', (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: notificationId,
+            kind: 'task_question',
+            title: goal,
+            question,
+            summary: 'An older execution summary.',
+            taskId: 'retained-execution',
+            workItemId: item.id,
+            roomId: room.id,
+            roomName: room.name,
+            messageId: '',
+            runId: '',
+            reviewTitle: '',
+            createdAt: new Date().toISOString(),
+            readAt,
+          },
+        ],
+      },
+    }),
+  );
+  await page.route(`**/api/me/inbox/${notificationId}/read`, (route) => {
+    reads++;
+    readAt = new Date().toISOString();
+    return route.fulfill({ json: {} });
+  });
+  await errors.get(page)!.reload();
+  await expect(workspace(page)).toBeVisible();
+  await page.getByRole('button', { name: /Inbox, 1 unread/ }).click();
+  const inbox = page.getByRole('region', { name: 'Your inbox', exact: true });
+  await expect(inbox.getByText(goal, { exact: true })).toBeVisible();
+  await expect(inbox.getByText(question, { exact: true })).toBeVisible();
+  await expect(inbox).not.toContainText('An older execution summary.');
+  await page.screenshot({ path: info.outputPath('inbox-actual-matter.png') });
+  await inbox.getByRole('button').filter({ hasText: goal }).click();
+  await expect(
+    workspace(page).getByRole('region', { name: 'Room work', exact: true }),
+  ).toContainText(goal);
+  await expect(
+    workspace(page).getByRole('region', {
+      name: 'Collaboration details',
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect.poll(() => reads).toBe(1);
+});
+
+test('linked execution attention and system records open the matter without reading a separate task', async ({
+  page,
+}, info) => {
+  const room = await createRoom(page, `Linked work ${info.project.name}`);
+  const goal = 'Confirm the review audience';
+  const created = await mutate(page, `/rooms/${room.id}/work-items`, {
+    requestId: randomUUID(),
+    goal,
+    completionCriteria: 'The owner confirms the audience.',
+  });
+  expect(created.ok()).toBe(true);
+  const { item } = await created.json();
+  const taskId = `linked-execution-${randomUUID()}`;
+  const system: Message = {
+    id: randomUUID(),
+    roomId: room.id,
+    taskId,
+    threadRootId: '',
+    authorKind: 'system',
+    authorUserId: '',
+    authorName: 'Camp',
+    agentId: '',
+    runId: '',
+    content: 'The current work needs your choice of review audience.',
+    requestId: '',
+    references: [],
+    seq: 1,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  // Immutable task/message presentation fixtures exercise navigation only.
+  // No Runner or model execution is fabricated or admitted by this test.
+  await page.route(`**/api/rooms/${room.id}/tasks?*`, (route) =>
+    route.fulfill({
+      json: {
+        tasks: [
+          {
+            id: taskId,
+            workItemId: item.id,
+            roomId: room.id,
+            goal,
+            status: 'waiting_for_person',
+            participants: [],
+            question: {
+              id: 'audience-question',
+              text: 'Who should review this?',
+              answer: '',
+              options: [],
+            },
+          },
+        ],
+      },
+    }),
+  );
+  await page.route(`**/api/rooms/${room.id}/messages?*`, (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    return route.fulfill({
+      json: {
+        messages:
+          !query.get('threadRootId') &&
+          Number(query.get('after') || '0') < system.seq
+            ? [system]
+            : [],
+      },
+    });
+  });
+  let taskReads = 0;
+  await page.route(`**/api/tasks/${taskId}?*`, (route) => {
+    taskReads++;
+    return route.fulfill({
+      status: 404,
+      json: { error: 'A linked task must open its matter.' },
+    });
+  });
+  await errors.get(page)!.reload();
+  const win = workspace(page);
+  const attention = win.getByRole('region', {
+    name: 'Work updates',
+    exact: true,
+  });
+  await expect(attention).toContainText('Needs your attention');
+  await attention
+    .getByRole('button', { name: 'Open work', exact: true })
+    .click();
+  await expect(
+    win.getByRole('region', { name: 'Work item detail', exact: true }),
+  ).toContainText(goal);
+  await win.getByRole('button', { name: 'Discussion', exact: true }).click();
+  await win
+    .locator(`[data-message-id="${system.id}"]`)
+    .getByRole('button', { name: 'Open work', exact: true })
+    .click();
+  await expect(
+    win.getByRole('region', { name: 'Work item detail', exact: true }),
+  ).toContainText(goal);
+  await win.getByRole('button', { name: 'Discussion', exact: true }).click();
+  await attention
+    .getByRole('button', { name: 'View work', exact: true })
+    .click();
+  await expect(
+    win.getByRole('region', { name: 'Room work', exact: true }),
+  ).toContainText(goal);
+  expect(taskReads).toBe(0);
+});
 
 test('a narrow Room chooser and compact actions fit long names without duplicating navigation', async ({
   page,
@@ -26,7 +314,7 @@ test('a narrow Room chooser and compact actions fit long names without duplicati
   const toolbar = win.locator('.workspace-toolbar');
   const actions = win.locator('.workspace-toolbar-actions');
   const menu = win.getByRole('button', { name: 'Room actions', exact: true });
-  const library = actions.getByRole('button', { name: 'Library', exact: true });
+  const library = actions.getByRole('button', { name: 'Files', exact: true });
   for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 844 });
     await expect(chooser).toBeVisible();
@@ -57,7 +345,7 @@ test('a narrow Room chooser and compact actions fit long names without duplicati
     expect(chooserBounds.x + chooserBounds.width).toBeLessThanOrEqual(
       windowBounds.x + windowBounds.width,
     );
-    expect(menuBounds.width).toBeLessThan(libraryBounds.width);
+    expect(menuBounds.width).toBeLessThanOrEqual(libraryBounds.width + 12);
     expect(menuBounds.width).toBeGreaterThanOrEqual(24);
     expect(menuBounds.x + menuBounds.width).toBeCloseTo(
       actionsBounds.x + actionsBounds.width,
@@ -137,7 +425,7 @@ test('the Room pop-up supports keyboard and touch selection while keeping privat
   await chooser.press('Tab');
   await expect(popup).toHaveCount(0);
   await expect(
-    win.getByRole('button', { name: 'Collaborations', exact: true }),
+    win.getByRole('button', { name: 'Discussion', exact: true }),
   ).toBeFocused();
 
   await chooser.focus();

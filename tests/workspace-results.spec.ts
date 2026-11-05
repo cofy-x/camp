@@ -5,7 +5,14 @@ import type {
   Message,
   Run,
 } from '../apps/dashboard/src/features/workspace/api';
-import { createRoom, mutate, openApp, signIn, workspace } from './team-helpers';
+import {
+  openRoomMore,
+  createRoom,
+  mutate,
+  openApp,
+  signIn,
+  workspace,
+} from './team-helpers';
 import { watchPageErrors } from './page-errors';
 
 const errors = new WeakMap<Page, ReturnType<typeof watchPageErrors>>();
@@ -196,13 +203,13 @@ test('a delayed source lookup cannot close a newer Automation view or replace it
       .getByRole('button', { name: 'View request in chat', exact: true })
       .click();
     await expect.poll(() => requested).toBe(true);
-    await win.getByRole('button', { name: 'Automation', exact: true }).click();
+    await openRoomMore(page, 'Sources & rules…');
     const automation = win.getByRole('region', {
-      name: 'Room automation',
+      name: 'Room management',
       exact: true,
     });
     await automation
-      .getByRole('tab', { name: 'Settings', exact: true })
+      .getByRole('tab', { name: 'Sources & rules', exact: true })
       .click();
     const rules = automation.getByLabel('Rules', { exact: true });
     const draft =
@@ -223,9 +230,11 @@ test('a delayed source lookup cannot close a newer Automation view or replace it
     await expect(automation).toBeVisible();
     await expect(rules).toHaveValue(draft);
     await expect(
-      automation.getByRole('tab', { name: 'Settings', exact: true }),
+      automation.getByRole('tab', { name: 'Sources & rules', exact: true }),
     ).toHaveAttribute('aria-selected', 'true');
-    await automation.getByRole('button', { name: 'Back to Chat' }).click();
+    await automation
+      .getByRole('button', { name: 'Back to Discussion' })
+      .click();
     await win
       .locator(`[data-message-id="${replies[0].id}"]`)
       .getByRole('button', { name: /^Details/ })
@@ -250,8 +259,7 @@ test('a delayed source lookup cannot close a newer Automation view or replace it
     const beforeClose = await selection();
     await win
       .getByRole('button', {
-        name: `Close ${room.name} — Workspace`,
-        exact: true,
+        name: /^Close .+ — Workspace$/,
       })
       .click();
     await expect(win).toHaveCount(0);

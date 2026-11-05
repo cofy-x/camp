@@ -67,6 +67,14 @@ func saveAutomationDelivery(ctx context.Context, q *sqlgen.Queries, d orchestrat
 	if err != nil {
 		return err
 	}
+	row, err := q.GetAutomationDelivery(ctx, d.ID)
+	if err != nil {
+		return err
+	}
+	d.Revision = row.Revision
+	if err = recordWorkActionResult(ctx, q, d); err != nil {
+		return err
+	}
 	return event(ctx, q, "automation.delivery.updated", t.RoomID, d.ID)
 }
 
@@ -122,6 +130,11 @@ func queueAutomationTaskNotice(ctx context.Context, q *sqlgen.Queries, t Collabo
 		}
 		if e = q.InsertAutomationDelivery(ctx, sqlgen.InsertAutomationDeliveryParams{ID: id, TaskID: t.ID, SourceID: sub.SourceID, PolicyID: p.ID, Value: string(raw), CredentialRef: p.CredentialRef, CreatedAt: d.CreatedAt}); e != nil {
 			return e
+		}
+		if t.WorkItemID != "" {
+			if e = q.InsertWorkAction(ctx, sqlgen.InsertWorkActionParams{ID: d.ID, WorkItemID: t.WorkItemID, Kind: "github.comment", Status: "pending", TaskID: t.ID, DeliveryID: d.ID, Body: d.Body, CreatedAt: d.CreatedAt}); e != nil {
+				return e
+			}
 		}
 	}
 	return nil
@@ -186,6 +199,18 @@ func (s *Store) ClaimAutomationDelivery(ctx context.Context) (out *orchestration
 				return e
 			}
 			d.Reconcile = row.Status == "reconcile"
+			if !d.Reconcile && t.WorkItemID != "" {
+				parent, e := getWorkItem(ctx, q, t.WorkItemID)
+				if e != nil {
+					return e
+				}
+				if parent.StopRequested || parent.Status == "cancelled" {
+					if e = withdrawWorkDelivery(ctx, q, d); e != nil {
+						return e
+					}
+					continue
+				}
+			}
 			cancelled := t.Status == "cancelling" || t.Status == "cancelled"
 			questionResolved := d.QuestionID != "" && (t.Status != "waiting_for_person" || t.Question == nil || t.Question.ID != d.QuestionID || t.Question.Answer != "")
 			if d.Reconcile && (cancelled || questionResolved) {
@@ -197,7 +222,7 @@ func (s *Store) ClaimAutomationDelivery(ctx context.Context) (out *orchestration
 				}
 				continue
 			}
-			if !p.Enabled || p.Mode != "auto" || !p.AllowComments || p.CredentialRef == "" || enabledOwner(ctx, q, p.OwnerUserID) != nil || automationSourceAvailable(ctx, q, p) != nil || authorizeTask(ctx, q, t) != nil {
+			if !p.Enabled || p.Mode != "auto" || !p.AllowComments || p.CredentialRef == "" || enabledOwner(ctx, q, p.OwnerUserID) != nil || automationSourceAvailable(ctx, q, p) != nil || authorizeTaskEffects(ctx, q, t) != nil {
 				d.Status = "blocked"
 				if d.Withdrawn {
 					d.Status = "withdrawn"
@@ -212,6 +237,14 @@ func (s *Store) ClaimAutomationDelivery(ctx context.Context) (out *orchestration
 				if len(d.Attempts) >= maxAutomationDeliveryAttempts || len(d.Receipts) >= maxAutomationDeliveryAttempts {
 					d.Status = "blocked"
 					d.Reason = "This comment has reached its limit of 32 dispatch attempts or confirmed receipts. Existing delivery evidence is retained; no further comment was sent."
+					if e = saveAutomationDelivery(ctx, q, d); e != nil {
+						return e
+					}
+					continue
+				}
+				if e = chargeWorkAction(ctx, q, t); e != nil {
+					d.Status = "blocked"
+					d.Reason = "The work item's action allowance, deadline or current state prevents this send."
 					if e = saveAutomationDelivery(ctx, q, d); e != nil {
 						return e
 					}

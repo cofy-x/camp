@@ -78,6 +78,13 @@ export async function openApp(page: Page, name: string) {
     .click();
 }
 
+export async function openRoomMore(page: Page, name: string) {
+  await workspace(page)
+    .getByRole('button', { name: 'Room actions', exact: true })
+    .click();
+  await page.getByRole('menuitem', { name, exact: true }).click();
+}
+
 export async function mutate(
   page: Page,
   path: string,

@@ -20,6 +20,7 @@ export type NavigationTarget =
       messageId?: string;
       runId?: string;
       taskId?: string;
+      workItemId?: string;
       reviewId?: string;
       threadId?: string;
       reference?: Reference;

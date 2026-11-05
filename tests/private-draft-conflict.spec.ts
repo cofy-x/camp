@@ -19,7 +19,7 @@ test('two sessions compare a private draft conflict before explicitly replacing 
   await signIn(page);
   const room = await createRoom(page, `draft-cas-${testInfo.project.name}`);
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   const baseline = 'Shared baseline. Private edits must not publish this file.';
   await newDocument(page, 'memo.md', baseline);
@@ -73,7 +73,7 @@ test('two sessions compare a private draft conflict before explicitly replacing 
       second.getByLabel(`Message ${room.name}`, { exact: true }),
     ).toBeVisible();
     await workspace(second)
-      .getByRole('button', { name: 'Library', exact: true })
+      .getByRole('button', { name: 'Files', exact: true })
       .click();
     await library(second)
       .getByRole('button', { name: 'Edit Text', exact: true })

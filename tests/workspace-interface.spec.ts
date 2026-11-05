@@ -6,7 +6,14 @@ import type {
   Run,
   SendInput,
 } from '../apps/dashboard/src/features/workspace/api';
-import { createRoom, mutate, post, signIn, workspace } from './team-helpers';
+import {
+  openRoomMore,
+  createRoom,
+  mutate,
+  post,
+  signIn,
+  workspace,
+} from './team-helpers';
 import { watchPageErrors } from './page-errors';
 
 const errors = new WeakMap<Page, ReturnType<typeof watchPageErrors>>();
@@ -160,6 +167,17 @@ test('members manage their own Agents and cannot share another owner’s Agent',
     errors.get(page)?.errors.push(error.message),
   );
   try {
+    await member.route('**/api/workspace/status', async (route) => {
+      const response = await route.fetch();
+      return route.fulfill({
+        response,
+        json: {
+          ...(await response.json()),
+          available: false,
+          reason: 'Server-owned execution setup details.',
+        },
+      });
+    });
     await member.goto(`/#invite=${encodeURIComponent(token)}`);
     await member.getByLabel('Your name', { exact: true }).fill('Room Teammate');
     await member
@@ -178,9 +196,18 @@ test('members manage their own Agents and cannot share another owner’s Agent',
       member,
       `membership-${testInfo.project.name}`,
     );
-    await workspace(member)
-      .getByRole('button', { name: 'Agents', exact: true })
-      .click();
+    const unavailable = workspace(member).locator('.workspace-unavailable');
+    await expect(
+      unavailable.getByText('Agent work unavailable', { exact: true }),
+    ).toBeVisible();
+    await expect(unavailable.locator('summary')).toHaveCount(0);
+    await expect(
+      unavailable.getByRole('button', { name: 'Set up…', exact: true }),
+    ).toHaveCount(0);
+    await expect(unavailable).not.toContainText(
+      'Server-owned execution setup details.',
+    );
+    await openRoomMore(member, 'Agents…');
     const panel = workspace(member).getByRole('region', {
       name: 'Room agents',
       exact: true,
@@ -283,9 +310,7 @@ test('removing a Room Agent confirms the work consequence and preserves existing
     room.name,
     'Keep this discussion after the reviewer leaves.',
   );
-  await workspace(page)
-    .getByRole('button', { name: 'Agents', exact: true })
-    .click();
+  await openRoomMore(page, 'Agents…');
   const panel = workspace(page).getByRole('region', {
     name: 'Room agents',
     exact: true,

@@ -112,3 +112,13 @@
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+.automation-activity > .github-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.github-event-list:empty {
+  display: none;
+}

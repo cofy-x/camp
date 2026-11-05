@@ -100,6 +100,9 @@ func saveTask(ctx context.Context, q *sqlgen.Queries, t *CollaborationTask) erro
 	if err = q.SaveTask(ctx, sqlgen.SaveTaskParams{ID: t.ID, Status: t.Status, Revision: t.Revision, Snapshot: string(raw), UpdatedAt: t.UpdatedAt}); err != nil {
 		return err
 	}
+	if err = syncWorkItemTask(ctx, q, *t); err != nil {
+		return err
+	}
 	return event(ctx, q, "task.updated", t.RoomID, t.ID)
 }
 func taskReceipt(ctx context.Context, q *sqlgen.Queries, scope, request string, in any) (CollaborationTask, bool, string, error) {
@@ -404,6 +407,9 @@ func (s *Store) OperateTask(ctx context.Context, id, action string, in TaskOpera
 			}
 			if in.AddTurns < 0 || in.AddTurns > 24 || in.AddModelRequests < 0 || in.AddModelRequests > 96 {
 				return problem("invalid_task", "Add at most 24 turns and 96 model requests per explicit authorization.")
+			}
+			if e = reserveWorkContinuation(ctx, q, out, in.AddModelRequests); e != nil {
+				return e
 			}
 			out.MaxTurns += in.AddTurns
 			out.MaxModelRequests += in.AddModelRequests
