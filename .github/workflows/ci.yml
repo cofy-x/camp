@@ -200,6 +200,18 @@ jobs:
           go-version-file: go.mod
       - name: Install pinned dependencies
         run: make install
+      - name: Install browser and system dependencies
+        timeout-minutes: 10
+        env:
+          BROWSER_ENGINE: ${{ matrix.engine }}
+        run: |
+          # Use Ubuntu's primary archive while preserving pockets, components and signing keys.
+          for apt_source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+            if [ -f "$apt_source" ]; then
+              sudo sed -i -E 's#(https?://)azure\.archive\.ubuntu\.com(/ubuntu/?)([[:space:]]|$)#\1archive.ubuntu.com\2\3#g' "$apt_source"
+            fi
+          done
+          npx --yes pnpm@12.11.2 exec playwright install --with-deps "$BROWSER_ENGINE"
       - name: Check desktop and touch paths
         id: browser_tests
         env:
@@ -208,7 +220,7 @@ jobs:
           BROWSER_SHARD: ${{ matrix.shard }}/2
         run: >-
           make test-e2e
-          E2E_INSTALL_ARGS="--with-deps $BROWSER_ENGINE"
+          E2E_INSTALL_ARGS="$BROWSER_ENGINE"
           E2E_ARGS="--project=$BROWSER_PROJECT --shard=$BROWSER_SHARD"
       - name: Retain radio keyboard evidence
         if: ${{ steps.browser_tests.outcome == 'success' && hashFiles('test-results/**/avatar-keyboard-*.png') != '' }}
