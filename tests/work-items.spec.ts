@@ -394,6 +394,7 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
   ).toHaveCount(0);
   await capture(page, 'completed-overview');
   let historyReads = 0;
+  let allowRecovery = false;
   let recoverHistory!: () => void;
   const recovery = new Promise<void>((resolve) => {
     recoverHistory = resolve;
@@ -401,7 +402,10 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
   await page.route(
     `**/api/work-items/${id}/history/decisions?*`,
     async (route) => {
-      if (++historyReads === 1)
+      historyReads++;
+      // A background refresh may supersede the first failed read. Keep the
+      // failure until manual retry, rather than counting requests.
+      if (!allowRecovery)
         return route.fulfill({
           status: 503,
           json: { error: 'Decision history is temporarily unavailable.' },
@@ -410,38 +414,73 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
       return route.fallback();
     },
   );
-  await detail(page)
-    .getByRole('tab', { name: 'Activity', exact: true })
-    .click();
-  await expect(
-    detail(page).getByLabel('Show activity', { exact: true }),
-  ).toHaveValue('decisions');
-  await expect(
-    detail(page)
-      .getByRole('region', { name: 'Decisions', exact: true })
-      .locator('summary'),
-  ).toHaveCount(0);
-  await expect(
-    detail(page).getByRole('button', { name: 'Retry Decisions', exact: true }),
-  ).toBeVisible();
-  await detail(page)
-    .getByRole('button', { name: 'Retry Decisions', exact: true })
-    .click();
-  recoverHistory();
-  await expect(
-    detail(page).getByRole('button', { name: 'Retry Decisions', exact: true }),
-  ).toHaveCount(0);
-  await detail(page)
-    .getByRole('button', { name: 'Refresh', exact: true })
-    .click();
-  await expect(
-    detail(page)
-      .getByRole('region', { name: 'Decisions', exact: true })
-      .getByText('The owner checked the customer’s confirmation.', {
+  try {
+    await detail(page)
+      .getByRole('tab', { name: 'Activity', exact: true })
+      .click();
+    await expect(
+      detail(page).getByLabel('Show activity', { exact: true }),
+    ).toHaveValue('decisions');
+    await expect(
+      detail(page)
+        .getByRole('region', { name: 'Decisions', exact: true })
+        .locator('summary'),
+    ).toHaveCount(0);
+    await expect(
+      detail(page).getByRole('button', {
+        name: 'Retry Decisions',
         exact: true,
       }),
-  ).toBeVisible();
-  await capture(page, 'completed-human');
+    ).toBeVisible();
+    const beforeUpdate = historyReads;
+    expect(
+      (
+        await mutate(page, `/rooms/${room.id}/messages`, {
+          requestId: randomUUID(),
+          content: 'An unrelated Room update must retain history recovery.',
+        })
+      ).ok(),
+    ).toBe(true);
+    await expect.poll(() => historyReads).toBeGreaterThan(beforeUpdate);
+    await expect(
+      detail(page).getByRole('button', {
+        name: 'Retry Decisions',
+        exact: true,
+      }),
+    ).toBeVisible();
+    const beforeRetry = historyReads;
+    allowRecovery = true;
+    await detail(page)
+      .getByRole('button', { name: 'Retry Decisions', exact: true })
+      .click();
+    await expect.poll(() => historyReads).toBeGreaterThan(beforeRetry);
+    await expect(
+      detail(page).getByRole('button', {
+        name: 'Retry Decisions',
+        exact: true,
+      }),
+    ).toBeVisible();
+    recoverHistory();
+    await expect(
+      detail(page).getByRole('button', {
+        name: 'Retry Decisions',
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await detail(page)
+      .getByRole('button', { name: 'Refresh', exact: true })
+      .click();
+    await expect(
+      detail(page)
+        .getByRole('region', { name: 'Decisions', exact: true })
+        .getByText('The owner checked the customer’s confirmation.', {
+          exact: true,
+        }),
+    ).toBeVisible();
+    await capture(page, 'completed-human');
+  } finally {
+    recoverHistory();
+  }
   await detail(page)
     .getByRole('button', { name: 'Back to Work', exact: true })
     .click();
