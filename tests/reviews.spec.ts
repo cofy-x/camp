@@ -118,7 +118,8 @@ async function chooseRoom(page: Page, room: { id: string; name: string }) {
   else
     await workspace(page)
       .getByRole('navigation', { name: 'Rooms', exact: true })
-      .getByRole('button', { name: room.name, exact: true })
+      .getByRole('button')
+      .filter({ has: page.getByText(room.name, { exact: true }) })
       .click();
 }
 

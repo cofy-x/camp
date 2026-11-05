@@ -103,6 +103,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     setRevision((value) => value + 1);
     team.refresh();
   };
+
   async function flushTransition() {
     team.cancelNavigation();
     const teamRequest = team.getNavigationRevision();
@@ -117,6 +118,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
       activation === desktop.getActivationRevision()
     );
   }
+
   const openLibraryActions = (button: HTMLButtonElement) => {
     const items: MenuItem[] = [];
     if (user.role === 'admin' && resource && !resource.immutable) {

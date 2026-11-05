@@ -182,7 +182,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
               : 'Could not open this message.',
           );
         });
-  }, [team.navigation, workspace, roomId, threadId, panel]);
+  }, [team, workspace, roomId, threadId, panel]);
 
   async function navigate(change: () => void) {
     team.cancelNavigation();
