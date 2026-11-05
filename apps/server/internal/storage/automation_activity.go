@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"strings"
 
 	"github.com/cofy-x/camp/apps/server/internal/orchestration"
@@ -57,15 +56,11 @@ func (s *Store) AutomationActivity(ctx context.Context, room string, in Automati
 		if _, e := q.GetRoom(ctx, room); e != nil {
 			return missing(e, "The Room")
 		}
-		if in.SourceID != "" && in.SourceID != "room" && in.SourceID != "task" {
+		if in.SourceID != "" && in.SourceID != "room" && in.SourceID != "task" && in.SourceID != "timer" && in.SourceID != "workitem" && in.SourceID != "action" {
 			if !validText(in.SourceID, 128, false) {
 				return problem("invalid_page", "Choose a source belonging to this Room.")
 			}
-			source, e := q.GetGitHubSource(ctx, in.SourceID)
-			if e != nil && !errors.Is(e, sql.ErrNoRows) {
-				return e
-			}
-			if e != nil || source.RoomID != room {
+			if _, e := automationSourceKind(ctx, q, room, in.SourceID, false); e != nil {
 				return problem("invalid_page", "Choose a source belonging to this Room.")
 			}
 		}
@@ -165,9 +160,17 @@ func automationActivityEvent(row sqlgen.AutomationActivityDescendingRow) (item o
 		return item, err
 	}
 	item.Seq, item.Status, item.Reason, item.TaskID, item.EvaluationID, item.PolicyRevision = row.Seq, row.Status, row.Reason, row.TaskID, row.EvaluationID, row.PolicyRevision
+	preview := row.Preview
+	if item.Feishu != nil {
+		_, body, found := strings.Cut(item.Content, "\n\n")
+		if found {
+			preview = body
+		}
+	}
 	item.Content = ""
-	item.Preview = automationTextPreview(row.Preview, 320)
-	if row.AssessmentOutcome == "accept" || row.AssessmentOutcome == "ignore" || row.AssessmentOutcome == "unavailable" {
+	item.Preview = automationTextPreview(preview, 320)
+	switch row.AssessmentOutcome {
+	case "accept", "execute", "wait", "request_judgment", "complete", "ignore", "unavailable":
 		item.AssessmentOutcome = row.AssessmentOutcome
 		item.AssessmentReason = automationTextPreview(row.AssessmentReason, 512)
 	}

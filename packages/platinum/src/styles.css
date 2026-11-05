@@ -733,6 +733,11 @@ a {
   line-height: 17px;
   white-space: nowrap;
 }
+.p9-button[aria-pressed='true']:not(:disabled) {
+  background: #e4e4f2;
+  outline: 1px solid var(--p9-highlight);
+  outline-offset: -3px;
+}
 .p9-button:active:not(:disabled) {
   color: white;
   background: #666;

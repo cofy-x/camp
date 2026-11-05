@@ -170,6 +170,13 @@ func (s *Store) ClaimRemoteRun(ctx context.Context, runID, runnerID string, leas
 		}
 		out.AttemptID, out.WriterFence, out.WaitingReason = id, fence, ""
 		out.Executor = runner.Runtime
+		if !out.MemoriesFrozen {
+			out.Memories, e = SnapshotMemories(ctx, q, out.RoomID, "", 5)
+			if e != nil {
+				return e
+			}
+			out.MemoriesFrozen = true
+		}
 		if e = saveRun(ctx, q, out); e != nil {
 			return e
 		}

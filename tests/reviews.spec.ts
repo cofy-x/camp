@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import {
+  openRoomMore,
   createRoom,
   library,
   mutate,
@@ -8,8 +9,10 @@ import {
   openApp,
   signIn,
   workspace,
+  work,
 } from './team-helpers';
 import { watchPageErrors } from './page-errors';
+import type { ReviewActionInput } from '../apps/dashboard/src/features/reviews/api';
 
 interface Review {
   id: string;
@@ -46,9 +49,7 @@ async function openReview(page: Page, title: string) {
       .getByRole('region', { name: 'Document reviews', exact: true })
       .isVisible())
   )
-    await workspace(page)
-      .getByRole('button', { name: 'Reviews', exact: true })
-      .click();
+    await openRoomMore(page, 'File reviews…');
   await workspace(page)
     .getByRole('region', { name: 'Document reviews', exact: true })
     .getByRole('button')
@@ -68,6 +69,381 @@ async function publish(page: Page) {
     .getByRole('button', { name: 'Back to Preview', exact: true })
     .click();
 }
+
+async function saveReviewFile(page: Page, resourceId: string) {
+  const initial = await (
+    await page.request.get(`/api/resources/${resourceId}/files`)
+  ).json();
+  const saved = await mutate(
+    page,
+    `/resources/${resourceId}/files`,
+    {
+      requestId: randomUUID(),
+      expectedCommit: initial.commit,
+      path: 'review.md',
+      content: '# Saved proposal\nThe owner and the next step are explicit.',
+    },
+    'PUT',
+  );
+  expect(saved.ok()).toBe(true);
+  return (
+    await (await page.request.get(`/api/resources/${resourceId}/files`)).json()
+  ).commit as string;
+}
+
+async function reviewFixture(page: Page, name: string) {
+  const room = await createRoom(page, `${name}-${randomUUID().slice(0, 8)}`);
+  const commit = await saveReviewFile(page, room.resourceId);
+  const { user } = await (await page.request.get('/api/auth/status')).json();
+  const title = `${name} decision`;
+  const requested = await mutate(page, `/rooms/${room.id}/reviews`, {
+    requestId: randomUUID(),
+    title,
+    resourceId: room.resourceId,
+    path: 'review.md',
+    commit,
+    reviewerUserId: user.id,
+  });
+  expect(requested.ok()).toBe(true);
+  return { room, title, review: (await requested.json()).review as Review };
+}
+
+async function chooseRoom(page: Page, room: { id: string; name: string }) {
+  await openApp(page, 'Workspace');
+  const chooser = workspace(page).getByRole('combobox', {
+    name: 'Room',
+    exact: true,
+  });
+  if (await chooser.isVisible()) await chooser.selectOption(room.id);
+  else
+    await workspace(page)
+      .getByRole('navigation', { name: 'Rooms', exact: true })
+      .getByRole('button')
+      .filter({ has: page.getByText(room.name, { exact: true }) })
+      .click();
+}
+
+test('an uncertain review decision freezes its original body and recovers after a newer status arrives', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  await signIn(page);
+  const value = await reviewFixture(page, 'Recover decision');
+  await openReview(page, value.title);
+  const comment = detail(page).getByLabel('Review comment', { exact: true });
+  await comment.fill('The saved proposal is ready.');
+  const bodies: ReviewActionInput[] = [];
+  let drop = true;
+  await page.route(
+    `**/api/reviews/${value.review.id}/actions`,
+    async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      bodies.push(route.request().postDataJSON());
+      if (!drop) return route.fallback();
+      drop = false;
+      expect((await route.fetch()).ok()).toBe(true);
+      return route.abort('failed');
+    },
+  );
+  await detail(page)
+    .getByRole('button', { name: 'Approve', exact: true })
+    .click();
+  await expect(comment).toBeDisabled();
+  await expect(
+    detail(page).getByRole('button', { name: 'Retry Decision', exact: true }),
+  ).toBeEnabled();
+  await expect
+    .poll(async () => (await readReview(page, value.review.id)).status)
+    .toBe('approved');
+  await detail(page)
+    .getByRole('button', { name: 'Refresh Review', exact: true })
+    .click();
+  await expect(detail(page).locator('.camp-review-state')).toHaveText(
+    'Approved',
+  );
+  await expect(
+    detail(page).getByRole('button', { name: 'Deliver', exact: true }),
+  ).toBeDisabled();
+  await detail(page)
+    .getByRole('button', { name: 'Retry Decision', exact: true })
+    .click();
+  await expect(
+    detail(page).getByRole('button', { name: 'Deliver', exact: true }),
+  ).toBeEnabled();
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1]).toEqual(bodies[0]);
+  const result = await (
+    await page.request.get(`/api/reviews/${value.review.id}`)
+  ).json();
+  expect(
+    result.events.filter(
+      (event: { action: string }) => event.action === 'approve',
+    ),
+  ).toHaveLength(1);
+  await expect(
+    detail(page).getByRole('button', { name: 'Retry Decision', exact: true }),
+  ).toHaveCount(0);
+  expect(errors.errors).toEqual([]);
+});
+
+test('a different Library source shows its own review loading state instead of the previous source’s rows', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  await signIn(page);
+  const source = await reviewFixture(page, 'Review source');
+  const destination = await createRoom(
+    page,
+    `Empty review source-${randomUUID().slice(0, 8)}`,
+  );
+  await saveReviewFile(page, destination.resourceId);
+  await chooseRoom(page, source.room);
+  await workspace(page)
+    .getByRole('button', { name: 'Files', exact: true })
+    .click();
+  await library(page)
+    .getByRole('tab', { name: 'Reviews & Delivery', exact: true })
+    .click();
+  await expect(
+    library(page).getByRole('button').filter({ hasText: source.title }),
+  ).toBeVisible();
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/reviews?*', async (route) => {
+    if (
+      new URL(route.request().url()).searchParams.get('resourceId') ===
+      destination.resourceId
+    )
+      await held;
+    return route.fallback();
+  });
+  try {
+    const sources = library(page).getByRole('complementary', {
+      name: 'Library resources',
+      exact: true,
+    });
+    if (!(await sources.isVisible()))
+      await library(page)
+        .getByRole('button', { name: 'Sources', exact: true })
+        .click();
+    await sources
+      .getByRole('button')
+      .filter({ hasText: `${destination.name} files` })
+      .click();
+    await expect(library(page).locator('.p9-window-title')).toHaveText(
+      `${destination.name} — Library`,
+    );
+    await library(page)
+      .getByRole('tab', { name: 'Reviews & Delivery', exact: true })
+      .click();
+    const list = library(page).getByRole('region', {
+      name: 'Document reviews',
+      exact: true,
+    });
+    await expect(list.getByRole('status')).toHaveText('Loading reviews…');
+    await expect(
+      list.getByRole('button').filter({ hasText: source.title }),
+    ).toHaveCount(0);
+    release();
+    await expect(list).toContainText('No reviews yet.');
+    expect(errors.errors).toEqual([]);
+  } finally {
+    release();
+    if (!page.isClosed())
+      await page.unrouteAll({ behavior: 'wait' }).catch((error: unknown) => {
+        if (!page.isClosed()) throw error;
+      });
+  }
+});
+
+for (const action of ['Back to Reviews', 'Refresh Review']) {
+  test(`a delayed ${action} cannot replace a newer document navigation`, async ({
+    page,
+    browserName,
+  }) => {
+    const errors = watchPageErrors(page, browserName);
+    await signIn(page);
+    const value = await reviewFixture(page, `Superseded ${action}`);
+    await openReview(page, value.title);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let saving = false;
+    await page.route('**/api/me/drafts/review', async (route) => {
+      if (
+        route.request().method() === 'PUT' &&
+        route.request().postDataJSON().key === `decision:${value.review.id}`
+      ) {
+        saving = true;
+        await held;
+      }
+      return route.fallback();
+    });
+    try {
+      const text = 'Preserve this private comment while choosing the document.';
+      await detail(page)
+        .getByLabel('Review comment', { exact: true })
+        .fill(text);
+      if (action === 'Refresh Review') {
+        expect(
+          (
+            await mutate(page, `/reviews/${value.review.id}/actions`, {
+              requestId: randomUUID(),
+              revision: value.review.revision,
+              action: 'approve',
+            })
+          ).ok(),
+        ).toBe(true);
+        await expect(
+          detail(page).getByRole('button', { name: action, exact: true }),
+        ).toBeVisible();
+      }
+      await detail(page)
+        .getByRole('button', { name: action, exact: true })
+        .click();
+      await expect.poll(() => saving).toBe(true);
+      await detail(page)
+        .getByRole('button', { name: 'Open Document', exact: true })
+        .click();
+      release();
+      await expect(library(page)).toHaveClass(/is-active/);
+      await openApp(page, 'Workspace');
+      await expect(detail(page)).toBeVisible();
+      await expect(
+        detail(page).getByLabel('Review comment', { exact: true }),
+      ).toHaveValue(text);
+      await expect(detail(page).locator('.camp-review-state')).toHaveText(
+        'In Review',
+      );
+      if (action === 'Refresh Review')
+        await expect(
+          detail(page).getByRole('button', { name: action, exact: true }),
+        ).toBeVisible();
+      expect(errors.errors).toEqual([]);
+    } finally {
+      release();
+      await page.unrouteAll({ behavior: 'wait' });
+    }
+  });
+}
+
+test('a completed review request remains available without replacing a newer application choice', async ({
+  page,
+  browserName,
+}, info) => {
+  const errors = watchPageErrors(page, browserName);
+  await signIn(page);
+  const room = await createRoom(
+    page,
+    `Request destination-${randomUUID().slice(0, 8)}`,
+  );
+  await saveReviewFile(page, room.resourceId);
+  await workspace(page)
+    .getByRole('button', { name: 'Files', exact: true })
+    .click();
+  await library(page)
+    .getByRole('button', { name: 'Request Review…', exact: true })
+    .click();
+  const request = library(page).getByRole('form', {
+    name: 'Request document review',
+    exact: true,
+  });
+  const title =
+    'The recorded request should not change the active application.';
+  await request.getByLabel('Title', { exact: true }).fill(title);
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let recorded = false;
+  await page.route(`**/api/rooms/${room.id}/reviews`, async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    const response = await route.fetch();
+    expect(response.ok()).toBe(true);
+    recorded = true;
+    await held;
+    return route.fulfill({ response });
+  });
+  try {
+    await request
+      .getByRole('button', { name: 'Request Review', exact: true })
+      .click();
+    await expect.poll(() => recorded).toBe(true);
+    await openApp(page, 'Work');
+    release();
+    await expect(work(page)).toHaveClass(/is-active/);
+    await openApp(page, 'Library');
+    await expect(
+      request.getByRole('button', { name: 'Open Review', exact: true }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: info.outputPath('review-request-after-newer-application.png'),
+    });
+    await request
+      .getByRole('button', { name: 'Open Review', exact: true })
+      .click();
+    await expect(detail(page)).toContainText(title);
+    const result = await (
+      await page.request.get(`/api/reviews?roomId=${room.id}`)
+    ).json();
+    expect(result.reviews).toHaveLength(1);
+    expect(errors.errors).toEqual([]);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
+});
+
+test('a recorded review decision updates in the background without taking focus from another application', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  await signIn(page);
+  const value = await reviewFixture(page, 'Decision focus');
+  await openReview(page, value.title);
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let recorded = false;
+  await page.route(
+    `**/api/reviews/${value.review.id}/actions`,
+    async (route) => {
+      const response = await route.fetch();
+      expect(response.ok()).toBe(true);
+      recorded = true;
+      await held;
+      return route.fulfill({ response });
+    },
+  );
+  try {
+    await detail(page)
+      .getByRole('button', { name: 'Approve', exact: true })
+      .click();
+    await expect.poll(() => recorded).toBe(true);
+    await openApp(page, 'Work');
+    release();
+    await expect(workspace(page).locator('.camp-review-state')).toHaveText(
+      'Approved',
+    );
+    await expect(work(page)).toHaveClass(/is-active/);
+    expect(
+      await workspace(page)
+        .locator('.camp-review-content > .camp-section-heading > h2')
+        .evaluate((element) => element === document.activeElement),
+    ).toBe(false);
+    expect(errors.errors).toEqual([]);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
+});
 
 test('two people review, revise and deliver an exact document version', async ({
   page,
@@ -120,7 +496,7 @@ test('two people review, revise and deliver an exact document version', async ({
       .getByLabel(`Message ${room.name}`, { exact: true })
       .fill(revisionDraft);
     await workspace(page)
-      .getByRole('button', { name: 'Library', exact: true })
+      .getByRole('button', { name: 'Files', exact: true })
       .click();
     const first = '# Launch proposal\nPilot a weekly client update.';
     const revised = `${first}\n\nOwner: Morgan. Success: one clear next step per client.`;
@@ -165,7 +541,7 @@ test('two people review, revise and deliver an exact document version', async ({
     await reviewer.getByRole('button', { name: /Inbox, 1 unread/ }).click();
     await reviewer
       .getByRole('complementary', { name: 'Personal inbox' })
-      .getByRole('button', { name: /A document needs your review/ })
+      .getByRole('button', { name: new RegExp(title) })
       .click();
     await expect(workspace(reviewer)).toBeVisible();
     await expect(detail(reviewer)).toContainText(title);
@@ -174,10 +550,7 @@ test('two people review, revise and deliver an exact document version', async ({
     ).toHaveCount(0);
     await expect(workspace(reviewer).getByLabel('Room members')).toHaveCount(0);
     await expect(
-      workspace(reviewer).getByText(
-        'Agents are unavailable · you can still post to the room',
-        { exact: true },
-      ),
+      workspace(reviewer).locator('.workspace-unavailable'),
     ).toHaveCount(0);
     expect(
       await detail(reviewer).evaluate((panel) => {
@@ -186,11 +559,29 @@ test('two people review, revise and deliver an exact document version', async ({
         return Boolean(
           document &&
           actions &&
-          document.compareDocumentPosition(actions) &
+          actions.compareDocumentPosition(document) &
             Node.DOCUMENT_POSITION_FOLLOWING,
         );
       }),
     ).toBeTruthy();
+    await expect(
+      detail(reviewer).getByRole('button', { name: 'Approve', exact: true }),
+    ).toBeInViewport({ ratio: 1 });
+    await expect(
+      detail(reviewer).getByRole('button', {
+        name: 'Request Changes',
+        exact: true,
+      }),
+    ).toBeInViewport({ ratio: 1 });
+    await expect(
+      detail(reviewer).getByRole('button', {
+        name: 'Open Document',
+        exact: true,
+      }),
+    ).toBeInViewport({ ratio: 1 });
+    await expect(
+      detail(reviewer).locator('.camp-reviewed-document'),
+    ).toBeVisible();
     await detail(reviewer)
       .getByRole('button', { name: 'Open Document', exact: true })
       .click();
@@ -442,6 +833,35 @@ test('two people review, revise and deliver an exact document version', async ({
     await expect
       .poll(async () => (await readReview(page, review.id)).status)
       .toBe('approved');
+    await expect(detail(reviewer).locator('.camp-review-state')).toHaveText(
+      'Approved',
+    );
+    const unsentKey = `decision:${review.id}`;
+    const privateComment = await (
+      await reviewer.request.get(
+        `/api/me/drafts/review?key=${encodeURIComponent(unsentKey)}`,
+      )
+    ).json();
+    const restoredComment =
+      'Keep this private note available after the decision.';
+    expect(
+      (
+        await mutate(
+          reviewer,
+          '/me/drafts/review',
+          {
+            key: unsentKey,
+            revision: privateComment.draft.revision,
+            value: { comment: restoredComment, receipt: null },
+          },
+          'PUT',
+        )
+      ).ok(),
+    ).toBe(true);
+    await openReview(reviewer, title);
+    await expect(
+      detail(reviewer).getByLabel('Unsent private comment', { exact: true }),
+    ).toHaveValue(restoredComment);
     await expect(
       detail(page).getByRole('button', {
         name: 'Refresh Review',
@@ -707,7 +1127,7 @@ test('a disabled reviewer can be reassigned and a cancelled version can be revie
     `reassign-review-${testInfo.project.name}`,
   );
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   await newDocument(page, 'scope.md', 'A small, explicit delivery scope.');
   await publish(page);
@@ -917,7 +1337,7 @@ test('review navigation waits for the action and preserves a failed receipt clea
     .user as { id: string };
   const room = await createRoom(page, `review-clear-${testInfo.project.name}`);
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   await newDocument(
     page,
@@ -1059,7 +1479,7 @@ test('a review form retains its draft and waits for an explicit newer version', 
     id: string;
   };
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   await newDocument(page, 'brief.md', 'The version selected before review.');
   await publish(page);

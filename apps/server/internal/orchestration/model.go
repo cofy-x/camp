@@ -21,6 +21,7 @@ const (
 // Trigger identifies an immutable source event. Content remains with its owning
 // Message or task request; source metadata cannot widen an execution grant.
 type Trigger struct {
+	WorkItemID    string         `json:"workItemId,omitempty"`
 	Source        string         `json:"source"`
 	EventID       string         `json:"eventId"`
 	Kind          Kind           `json:"kind"`

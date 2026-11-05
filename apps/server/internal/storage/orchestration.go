@@ -82,7 +82,7 @@ func recordAutomationTaskAdmission(ctx context.Context, q *sqlgen.Queries, t Col
 	}
 	work := orchestration.Work{Kind: "task", ID: t.ID, Revision: t.Revision}
 	record := orchestration.Record{
-		Trigger:  orchestration.Trigger{Source: "task", EventID: remoteHash(identity), Kind: orchestration.TaskStart, ActorKind: "system", ActorID: "automation", RoomID: t.RoomID, ThreadRootID: t.ThreadRootID, MessageID: t.OriginMessageID, TaskID: t.ID, SourceEventID: t.SourceEventID, Automation: &orchestration.AutomationRef{PolicyID: candidate.Policy.ID, PolicyRevision: candidate.Policy.Revision, EvaluationID: candidate.ID, SourceEventIDs: sources}, InputRevision: t.InputRevision, OccurredAt: t.UpdatedAt},
+		Trigger:  orchestration.Trigger{WorkItemID: t.WorkItemID, Source: "task", EventID: remoteHash(identity), Kind: orchestration.TaskStart, ActorKind: "system", ActorID: "automation", RoomID: t.RoomID, ThreadRootID: t.ThreadRootID, MessageID: t.OriginMessageID, TaskID: t.ID, SourceEventID: t.SourceEventID, Automation: &orchestration.AutomationRef{PolicyID: candidate.Policy.ID, PolicyRevision: candidate.Policy.Revision, EvaluationID: candidate.ID, SourceEventIDs: sources}, InputRevision: t.InputRevision, OccurredAt: t.UpdatedAt},
 		Decision: orchestration.Decision{PolicyVersion: orchestration.AutomationPolicyVersion, Outcome: "accept", Reason: "automation_policy", RecipientAgentIDs: []string{}, Work: []orchestration.Work{work}},
 		Mandates: []orchestration.Mandate{taskMandate(t, work)},
 	}
@@ -102,7 +102,7 @@ func recordTaskAdmission(ctx context.Context, q *sqlgen.Queries, t Collaboration
 	}
 	work := orchestration.Work{Kind: "task", ID: t.ID, Revision: t.Revision}
 	decision.Work = append(decision.Work, work)
-	record := orchestration.Record{Trigger: orchestration.Trigger{Source: "task", EventID: remoteHash(identity), Kind: kind, ActorKind: "user", ActorID: actorID(ctx), RoomID: t.RoomID, ThreadRootID: t.ThreadRootID, MessageID: messageID, TaskID: t.ID, Request: &request, InputRevision: t.InputRevision, OccurredAt: t.UpdatedAt}, Decision: decision, Mandates: []orchestration.Mandate{}}
+	record := orchestration.Record{Trigger: orchestration.Trigger{WorkItemID: t.WorkItemID, Source: "task", EventID: remoteHash(identity), Kind: kind, ActorKind: "user", ActorID: actorID(ctx), RoomID: t.RoomID, ThreadRootID: t.ThreadRootID, MessageID: messageID, TaskID: t.ID, Request: &request, InputRevision: t.InputRevision, OccurredAt: t.UpdatedAt}, Decision: decision, Mandates: []orchestration.Mandate{}}
 	if kind == orchestration.TaskStart || kind == orchestration.TaskContinue {
 		record.Mandates = append(record.Mandates, taskMandate(t, work))
 	}

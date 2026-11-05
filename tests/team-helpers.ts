@@ -11,6 +11,9 @@ export const owner = {
 export const workspace = (page: Page) =>
   page.locator('[data-window-id="workspace:main"]');
 
+export const work = (page: Page) =>
+  page.locator('[data-window-id="work:main"]');
+
 export const library = (page: Page) =>
   page.locator('[data-window-id="library:main"]');
 
@@ -76,6 +79,13 @@ export async function openApp(page: Page, name: string) {
     .getByRole('menu')
     .getByRole('menuitem', { name, exact: true })
     .click();
+}
+
+export async function openRoomMore(page: Page, name: string) {
+  await workspace(page)
+    .getByRole('button', { name: 'Room actions', exact: true })
+    .click();
+  await page.getByRole('menuitem', { name, exact: true }).click();
 }
 
 export async function mutate(

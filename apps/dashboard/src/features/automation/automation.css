@@ -222,3 +222,24 @@
     flex-basis: 100%;
   }
 }
+
+.automation-panel,
+.automation-panel > .p9-tabs,
+.automation-panel > .p9-tabs > .p9-tab-panel,
+.automation-activity,
+.automation-event-page,
+.automation-events {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.automation-panel > .p9-tabs,
+.automation-panel > .p9-tabs > .p9-tab-panel,
+.automation-activity,
+.automation-event-page,
+.automation-events {
+  flex: 1;
+}
+.automation-event-list:empty {
+  display: none;
+}

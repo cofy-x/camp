@@ -1,6 +1,9 @@
 package storage
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"github.com/cofy-x/camp/apps/server/internal/orchestration"
+)
 
 const (
 	MaxRunPromptSize      = 8192
@@ -104,54 +107,56 @@ type Message struct {
 	UpdatedAt    string      `json:"updatedAt"`
 }
 type Run struct {
-	TaskInputProtocol   int                 `json:"taskInputProtocol,omitempty"`
-	TaskInputAfter      int64               `json:"taskInputAfter,omitempty"`
-	Executor            string              `json:"executor,omitempty"`
-	ContextThroughSeq   int64               `json:"contextThroughSeq,omitempty"`
-	PreviousDraftCommit string              `json:"previousDraftCommit,omitempty"`
-	TaskID              string              `json:"taskId,omitempty"`
-	InputCommit         string              `json:"inputCommit,omitempty"`
-	TaskInputRevision   int64               `json:"taskInputRevision,omitempty"`
-	ChecksDeferred      bool                `json:"checksDeferred,omitempty"`
-	Intent              *CoordinationIntent `json:"intent,omitempty"`
-	RunnerID            string              `json:"runnerId"`
-	RunnerName          string              `json:"runnerName"`
-	AttemptID           string              `json:"attemptId"`
-	WaitingReason       string              `json:"waitingReason,omitempty"`
-	WriterFence         int64               `json:"writerFence,omitempty"`
-	RequestedByUserID   string              `json:"requestedByUserId"`
-	References          []Reference         `json:"references"`
-	Model               string              `json:"model"`
-	RuntimeKey          string              `json:"runtimeKey"`
-	ID                  string              `json:"id"`
-	RoomID              string              `json:"roomId"`
-	ThreadRootID        string              `json:"threadRootId"`
-	OriginMessageID     string              `json:"originMessageId"`
-	AgentID             string              `json:"agentId"`
-	AgentSnapshot       Agent               `json:"agentSnapshot"`
-	ResourceID          string              `json:"resourceId"`
-	Environment         json.RawMessage     `json:"environment"`
-	Prompt              string              `json:"prompt"`
-	Status              string              `json:"status"`
-	CancellationReason  string              `json:"cancellationReason,omitempty"`
-	CreatedAt           string              `json:"createdAt"`
-	UpdatedAt           string              `json:"updatedAt"`
-	FinishedAt          string              `json:"finishedAt"`
-	Error               string              `json:"error"`
-	Output              string              `json:"output"`
-	SessionID           string              `json:"sessionId"`
-	SessionMode         string              `json:"sessionMode"`
-	SessionGeneration   int64               `json:"sessionGeneration"`
-	BaselineCommit      string              `json:"baselineCommit"`
-	ResultCommit        string              `json:"resultCommit"`
-	Files               []RunFile           `json:"files"`
-	Checks              json.RawMessage     `json:"checks"`
-	ExitCode            *int                `json:"exitCode"`
-	TestExitCode        *int                `json:"testExitCode"`
-	MaxTokens           int                 `json:"maxTokens"`
-	MaxSteps            int                 `json:"maxSteps"`
-	TimeoutSeconds      int                 `json:"timeoutSeconds"`
-	Published           bool                `json:"published"`
+	TaskInputProtocol   int                    `json:"taskInputProtocol,omitempty"`
+	TaskInputAfter      int64                  `json:"taskInputAfter,omitempty"`
+	Executor            string                 `json:"executor,omitempty"`
+	ContextThroughSeq   int64                  `json:"contextThroughSeq,omitempty"`
+	PreviousDraftCommit string                 `json:"previousDraftCommit,omitempty"`
+	TaskID              string                 `json:"taskId,omitempty"`
+	InputCommit         string                 `json:"inputCommit,omitempty"`
+	TaskInputRevision   int64                  `json:"taskInputRevision,omitempty"`
+	ChecksDeferred      bool                   `json:"checksDeferred,omitempty"`
+	Intent              *CoordinationIntent    `json:"intent,omitempty"`
+	RunnerID            string                 `json:"runnerId"`
+	RunnerName          string                 `json:"runnerName"`
+	AttemptID           string                 `json:"attemptId"`
+	WaitingReason       string                 `json:"waitingReason,omitempty"`
+	WriterFence         int64                  `json:"writerFence,omitempty"`
+	RequestedByUserID   string                 `json:"requestedByUserId"`
+	References          []Reference            `json:"references"`
+	Memories            []orchestration.Memory `json:"memories,omitempty"`
+	MemoriesFrozen      bool                   `json:"memoriesFrozen,omitempty"`
+	Model               string                 `json:"model"`
+	RuntimeKey          string                 `json:"runtimeKey"`
+	ID                  string                 `json:"id"`
+	RoomID              string                 `json:"roomId"`
+	ThreadRootID        string                 `json:"threadRootId"`
+	OriginMessageID     string                 `json:"originMessageId"`
+	AgentID             string                 `json:"agentId"`
+	AgentSnapshot       Agent                  `json:"agentSnapshot"`
+	ResourceID          string                 `json:"resourceId"`
+	Environment         json.RawMessage        `json:"environment"`
+	Prompt              string                 `json:"prompt"`
+	Status              string                 `json:"status"`
+	CancellationReason  string                 `json:"cancellationReason,omitempty"`
+	CreatedAt           string                 `json:"createdAt"`
+	UpdatedAt           string                 `json:"updatedAt"`
+	FinishedAt          string                 `json:"finishedAt"`
+	Error               string                 `json:"error"`
+	Output              string                 `json:"output"`
+	SessionID           string                 `json:"sessionId"`
+	SessionMode         string                 `json:"sessionMode"`
+	SessionGeneration   int64                  `json:"sessionGeneration"`
+	BaselineCommit      string                 `json:"baselineCommit"`
+	ResultCommit        string                 `json:"resultCommit"`
+	Files               []RunFile              `json:"files"`
+	Checks              json.RawMessage        `json:"checks"`
+	ExitCode            *int                   `json:"exitCode"`
+	TestExitCode        *int                   `json:"testExitCode"`
+	MaxTokens           int                    `json:"maxTokens"`
+	MaxSteps            int                    `json:"maxSteps"`
+	TimeoutSeconds      int                    `json:"timeoutSeconds"`
+	Published           bool                   `json:"published"`
 }
 type RunFile struct {
 	Path   string `json:"path"`

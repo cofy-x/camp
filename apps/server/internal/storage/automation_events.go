@@ -53,6 +53,9 @@ func recordAutomationSourceEvent(ctx context.Context, tx *sql.Tx, e orchestratio
 	if err != nil {
 		return err
 	}
+	if err = recordWorkItemSourceEvent(ctx, tx, e, eligible); err != nil {
+		return err
+	}
 	if !eligible {
 		return updateAutomationEvent(ctx, q, e)
 	}
@@ -101,6 +104,8 @@ func recordAutomationRoomEvent(ctx context.Context, tx *sql.Tx, m Message, in Se
 		e.Reason = "post_only"
 	} else if m.AuthorKind != "user" || m.AuthorUserID == "" {
 		e.Reason = "non_human"
+	} else if decision.Outcome == "accept" {
+		e.Reason = "explicit_run"
 	}
 	if err := recordAutomationSourceEvent(ctx, tx, e, !in.PostOnly && m.AuthorKind == "user" && m.AuthorUserID != ""); err != nil {
 		return err

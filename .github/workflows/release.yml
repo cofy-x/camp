@@ -300,6 +300,8 @@ jobs:
           cp dist/camp-server-darwin-arm64/camp dist/camp
           node scripts/smoke-bundle.mjs online
           node scripts/smoke-bundle.mjs offline
+          node scripts/smoke-bundle.mjs transition-upgrade
+          cp dist/smoke-transition-upgrade.json dist/runner-verification-${{ matrix.host }}-transition-upgrade.json
           node scripts/smoke-bundle.mjs previous-upgrade
           cp dist/smoke-previous-upgrade.json dist/runner-verification-${{ matrix.host }}-previous-upgrade.json
           cp dist/smoke-online.json dist/runner-verification-${{ matrix.host }}-online.json

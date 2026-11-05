@@ -30,6 +30,13 @@ func reserveTaskAttempt(ctx context.Context, q *sqlgen.Queries, r Run, id string
 	return t.DraftFence, saveTask(ctx, q, &t)
 }
 func authorizeTask(ctx context.Context, q *sqlgen.Queries, t CollaborationTask) error {
+	if e := authorizeWorkTask(ctx, q, t); e != nil {
+		return e
+	}
+	return authorizeTaskEffects(ctx, q, t)
+}
+
+func authorizeTaskEffects(ctx context.Context, q *sqlgen.Queries, t CollaborationTask) error {
 	for _, p := range t.Participants {
 		r := Run{RequestedByUserID: t.RequestedByUserID, AgentID: p.Agent.ID, AgentSnapshot: p.Agent, RoomID: t.RoomID, RunnerID: p.RunnerID}
 		if e := authorizeRunExecution(ctx, q, r); e != nil {
@@ -82,6 +89,9 @@ func chargeTaskModel(ctx context.Context, q *sqlgen.Queries, runID string) error
 	}
 	if t.ModelRequestsUsed >= t.MaxModelRequests {
 		return problem("task_budget_exhausted", "The collaboration model request allowance is exhausted.")
+	}
+	if e = chargeWorkTaskModel(ctx, q, t); e != nil {
+		return e
 	}
 	t.ModelRequestsUsed++
 	return saveTask(ctx, q, &t)

@@ -5,14 +5,14 @@ import { binary, command, root, scratch } from './lib.mjs';
 import { hashFile, releaseIdentity, serverPlatforms } from './release.mjs';
 import {
   baselineLauncher,
-  upgradeBaseline,
-  previousRelease,
+  serverUpgradeBaselines,
+  serverUpgradeReportFile,
 } from './upgrade.mjs';
 
 const platform = `${process.platform}-${process.arch === 'x64' ? 'amd64' : process.arch}`;
 assert.ok(serverPlatforms.includes(platform));
 const identity = await releaseIdentity();
-for (const baseline of [upgradeBaseline, previousRelease]) {
+for (const baseline of serverUpgradeBaselines) {
   const directory = await scratch();
   try {
     const previous = await baselineLauncher(directory, 'server', baseline);
@@ -53,12 +53,7 @@ for (const baseline of [upgradeBaseline, previousRelease]) {
     };
     await mkdir(join(root, 'dist'), { recursive: true });
     await writeFile(
-      join(
-        root,
-        baseline === upgradeBaseline
-          ? 'dist/server-upgrade-verification.json'
-          : 'dist/server-previous-upgrade-verification.json',
-      ),
+      join(root, 'dist', serverUpgradeReportFile(baseline)),
       `${JSON.stringify(report, null, 2)}\n`,
     );
     console.log(

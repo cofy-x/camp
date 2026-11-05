@@ -19,14 +19,9 @@
   min-width: 0;
   min-height: 0;
 }
-.camp-library-toolbar > strong {
-  flex: 1;
-  min-width: 80px;
-  overflow-wrap: anywhere;
-  font-family: var(--p9-font);
-}
 .camp-library-toolbar > .app-actions {
   margin: 0;
+  margin-inline-start: auto;
   gap: 6px;
 }
 .camp-library-main > .app-error {
@@ -94,8 +89,21 @@
   overflow: hidden;
   background: #eee;
 }
-.camp-file-selection > .camp-empty {
+.camp-library-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: auto;
+  padding: 24px;
+  max-width: 100%;
+  text-align: center;
+  font: 12px/1.5 var(--p9-body-font);
+  color: #555;
   overflow: auto;
+}
+.camp-library-empty p {
+  margin: 0;
 }
 .camp-file-heading {
   display: flex;
@@ -220,11 +228,17 @@
   padding: 12px 0;
   overflow-wrap: anywhere;
 }
+.camp-library-history > .camp-section-heading {
+  margin-bottom: 12px;
+}
 .camp-library-history h2,
 .camp-version-comparison h2 {
   font-family: var(--p9-font);
   font-size: 14px;
   margin: 0;
+}
+.camp-library-history h2 {
+  font: 12px/1.4 var(--p9-font);
 }
 .camp-library-history .camp-section-heading,
 .camp-version-comparison .camp-section-heading,
@@ -241,11 +255,26 @@
 }
 .camp-library-history .app-actions {
   gap: 8px;
+  margin: 0;
 }
-.camp-library-history-description {
+.camp-library-version-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.camp-library-version-info {
+  flex: 1;
+  min-width: min(200px, 100%);
+}
+.camp-library-version-meta {
+  margin: 4px 0 0;
   color: #555;
-  font-size: 11px;
-  margin: 8px 0 12px;
+}
+.camp-version-details dd {
+  margin: 2px 0 10px;
+  overflow-wrap: anywhere;
 }
 .camp-library-version-heading {
   display: flex;
@@ -309,6 +338,16 @@
 .camp-library-sources-toggle,
 .camp-library-nav-backdrop {
   display: none;
+}
+.camp-library-sidebar-icon {
+  margin-inline-end: 5px;
+  vertical-align: -1px;
+}
+.camp-library-sidebar-pane {
+  opacity: 0.35;
+}
+.camp-library-sources-toggle[aria-expanded='true'] .camp-library-sidebar-pane {
+  opacity: 1;
 }
 .camp-library-body > .app-control-nav {
   display: flex;
@@ -444,9 +483,6 @@
   .camp-file-heading,
   .camp-file-handoff {
     padding: 8px;
-  }
-  .camp-library-toolbar > .app-actions {
-    flex-basis: 100%;
   }
   .camp-file-detail .workspace-file-preview {
     padding: 8px;

@@ -26,6 +26,10 @@ await command(process.execPath, [
 ]);
 await command(process.execPath, [
   join(root, 'scripts/smoke-bundle.mjs'),
+  'transition-upgrade',
+]);
+await command(process.execPath, [
+  join(root, 'scripts/smoke-bundle.mjs'),
   'previous-upgrade',
 ]);
 await command('docker', [

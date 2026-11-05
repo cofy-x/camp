@@ -52,7 +52,7 @@ export function usePrivateDraft<T>(kind: string, key: string, initial: T) {
         } catch {
           /* Use the server draft. */
         }
-        const next = local?.value ?? draft.value ?? initialRef.current;
+        const next = local ? local.value : (draft.value ?? initialRef.current);
         current.value = next;
         current.revision = draft.revision;
         current.loaded = true;
@@ -97,12 +97,15 @@ export function usePrivateDraft<T>(kind: string, key: string, initial: T) {
       try {
         while (current.mounted && current.serial > current.saved) {
           const snapshot = { value: current.value, serial: current.serial };
-          const result = await teamApi.saveDraft(
-            kind,
-            key,
-            snapshot.value,
-            current.revision,
-          );
+          const result =
+            snapshot.value === null
+              ? await teamApi.deleteDraft(kind, key, current.revision)
+              : await teamApi.saveDraft(
+                  kind,
+                  key,
+                  snapshot.value,
+                  current.revision,
+                );
           current.revision = result.draft.revision;
           current.saved = snapshot.serial;
           backup(

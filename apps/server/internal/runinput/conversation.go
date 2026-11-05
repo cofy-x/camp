@@ -108,6 +108,11 @@ func Conversation(ctx context.Context, reader ConversationReader, run storage.Ru
 		text += "[Some earlier messages or message content were omitted by context limits.]\n"
 	}
 	text += referenceContext(run)
+	memory, err := memoryContext(run)
+	if err != nil {
+		return "", err
+	}
+	text += memory
 	requester, _ := json.Marshal(struct {
 		Name   string `json:"name"`
 		UserID string `json:"userId"`

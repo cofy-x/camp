@@ -85,11 +85,6 @@
 .workspace-agent-editor .p9-field-label {
   align-items: flex-start;
 }
-.workspace-agent-presets .p9-button[aria-pressed='true'] {
-  background: #e4e4f2;
-  outline: 1px solid var(--p9-highlight);
-  outline-offset: -3px;
-}
 .workspace-agent-presets .p9-pixel-icon {
   flex-shrink: 0;
 }

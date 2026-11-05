@@ -416,68 +416,136 @@ test('upgrade fixture retains completion replies while grants and ordinary reads
   }
 });
 
-test('previous package evidence binds both artifact provenance and recovery checks', async () => {
-  const { previousRelease, verifyPreviousRunnerUpgrade } =
-    await import('./upgrade.mjs');
+test('public upgrade baselines retain separate evidence and strict protocol gates', async () => {
+  const {
+    upgradeBaseline,
+    protocolTransitionBaseline,
+    previousRelease,
+    serverUpgradeBaselines,
+    serverUpgradeReportFile,
+    baselineInputProtocolGate,
+  } = await import('./upgrade.mjs');
+  assert.deepEqual(serverUpgradeBaselines, [
+    'v0.1.0-alpha.2',
+    'v0.1.0-alpha.8',
+    'v0.1.0-alpha.10',
+  ]);
+  assert.deepEqual(serverUpgradeBaselines, [
+    upgradeBaseline,
+    protocolTransitionBaseline,
+    previousRelease,
+  ]);
+  assert.deepEqual(serverUpgradeBaselines.map(serverUpgradeReportFile), [
+    'server-upgrade-verification.json',
+    'server-transition-upgrade-verification.json',
+    'server-previous-upgrade-verification.json',
+  ]);
+  assert.throws(() => serverUpgradeReportFile('v0.1.0-alpha.7'));
+  assert.equal(baselineInputProtocolGate('transition-upgrade', 0), true);
+  assert.equal(baselineInputProtocolGate('previous-upgrade', 1), false);
+  assert.throws(() => baselineInputProtocolGate('transition-upgrade', 1));
+  assert.throws(() => baselineInputProtocolGate('previous-upgrade', 0));
+  assert.throws(() => baselineInputProtocolGate('previous-upgrade', 2));
+  assert.throws(() => baselineInputProtocolGate('upgrade', 0));
+  // Exact-package Mac worker campaigns choose their own baseline, while fixed
+  // public release evidence continues to require the named profile below.
+  assert.equal(baselineInputProtocolGate('previous-upgrade', 0, true), true);
+  assert.equal(baselineInputProtocolGate('previous-upgrade', 1, true), false);
+});
+
+test('both full package upgrade profiles bind protocol facts, provenance and recovery checks', async () => {
+  const {
+    runnerUpgradeProfiles,
+    verifyRunnerUpgrade,
+    verifyPreviousRunnerUpgrade,
+  } = await import('./upgrade.mjs');
   const descriptor = {
-    version: 'v0.1.0-alpha.9',
+    version: 'v0.1.0-alpha.11',
     sourceCommit: 'a'.repeat(40),
     runners: { 'linux-amd64': { installer: { sha256: 'b'.repeat(64) } } },
-  };
-  const report = {
-    status: 'passed',
-    mode: 'previous-upgrade',
-    platform: 'linux',
-    architecture: 'x64',
-    version: descriptor.version,
-    sourceCommit: descriptor.sourceCommit,
-    fromVersion: previousRelease,
-    entrypoint: 'runner-installer',
-    entrypointBinarySHA256: 'c'.repeat(64),
-    archiveSHA256: 'b'.repeat(64),
-    model: { paid: false, requests: 5 },
   };
   const checks = [
     'runnerIdentityPreserved',
     'durableSourceReceiptPreserved',
     'journalPreserved',
     'legacyProtocolAccepted',
-    'unsupportedInputProtocolQueued',
     'upgradedInputHistoryVerified',
     'sourceReceiptRetryPreserved',
     'lostCompletionReplyRecovered',
   ];
-  for (const field of checks) report[field] = true;
-  verifyPreviousRunnerUpgrade(report, descriptor, 'linux-amd64');
-  for (const field of checks)
-    assert.throws(() =>
-      verifyPreviousRunnerUpgrade(
-        { ...report, [field]: false },
-        descriptor,
-        'linux-amd64',
+  for (const [mode, profile] of Object.entries(runnerUpgradeProfiles)) {
+    const report = {
+      status: 'passed',
+      mode,
+      platform: 'linux',
+      architecture: 'x64',
+      version: descriptor.version,
+      sourceCommit: descriptor.sourceCommit,
+      fromVersion: profile.fromVersion,
+      baselineInputProtocol: profile.baselineInputProtocol,
+      unsupportedInputProtocolQueued: profile.baselineInputProtocol === 0,
+      queuedWhileOffline: profile.baselineInputProtocol === 1,
+      entrypoint: 'runner-installer',
+      entrypointBinarySHA256: 'c'.repeat(64),
+      archiveSHA256: 'b'.repeat(64),
+      model: { paid: false, requests: 5 },
+    };
+    for (const field of checks) report[field] = true;
+    const verify = (value) =>
+      verifyRunnerUpgrade(value, descriptor, 'linux-amd64', mode);
+    verify(report);
+    if (mode === 'previous-upgrade')
+      verifyPreviousRunnerUpgrade(report, descriptor, 'linux-amd64');
+    for (const field of [
+      ...checks,
+      'unsupportedInputProtocolQueued',
+      'queuedWhileOffline',
+    ]) {
+      assert.throws(
+        () => verify({ ...report, [field]: !report[field] }),
+        field,
+      );
+      const missing = { ...report };
+      delete missing[field];
+      assert.throws(() => verify(missing), `Missing ${field}`);
+    }
+    for (const changed of [
+      { sourceCommit: 'd'.repeat(40) },
+      { archiveSHA256: 'e'.repeat(64) },
+      { baselineInputProtocol: 1 - profile.baselineInputProtocol },
+      { fromVersion: 'v0.1.0-alpha.7' },
+      {
+        mode:
+          mode === 'previous-upgrade'
+            ? 'transition-upgrade'
+            : 'previous-upgrade',
+      },
+      { model: { paid: true, requests: 5 } },
+      { model: { paid: false, requests: 4 } },
+      { model: { paid: false, requests: 6 } },
+    ])
+      assert.throws(() => verify({ ...report, ...changed }));
+  }
+});
+
+test('Linux and both native Mac release hosts retain each full upgrade scenario separately', async () => {
+  const [linux, workflow] = await Promise.all([
+    readFile(new URL('./release-build.mjs', import.meta.url), 'utf8'),
+    readFile(
+      new URL('../.github/workflows/release.yml', import.meta.url),
+      'utf8',
+    ),
+  ]);
+  assert.match(workflow, /host: \[macos-15, macos-26\]/);
+  for (const mode of ['transition-upgrade', 'previous-upgrade']) {
+    assert.ok(linux.includes(`'${mode}'`));
+    assert.ok(workflow.includes(`node scripts/smoke-bundle.mjs ${mode}`));
+    assert.ok(
+      workflow.includes(
+        `cp dist/smoke-${mode}.json dist/runner-verification-\${{ matrix.host }}-${mode}.json`,
       ),
     );
-  assert.throws(() =>
-    verifyPreviousRunnerUpgrade(
-      { ...report, sourceCommit: 'd'.repeat(40) },
-      descriptor,
-      'linux-amd64',
-    ),
-  );
-  assert.throws(() =>
-    verifyPreviousRunnerUpgrade(
-      { ...report, archiveSHA256: 'e'.repeat(64) },
-      descriptor,
-      'linux-amd64',
-    ),
-  );
-  assert.throws(() =>
-    verifyPreviousRunnerUpgrade(
-      { ...report, model: { paid: true, requests: 5 } },
-      descriptor,
-      'linux-amd64',
-    ),
-  );
+  }
 });
 
 test('baseline acquisition retains supported proxy settings while isolating model keys and fixture state', async () => {

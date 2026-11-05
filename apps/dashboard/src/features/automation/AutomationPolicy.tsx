@@ -7,6 +7,7 @@ import { DraftRecovery } from '../reviews/DraftRecovery';
 import type { Agent } from '../workspace/api';
 import { automationApi, type AutomationPolicy, type PolicyValues } from './api';
 import { useAutomationOperation } from './useAutomationOperation';
+import { BudgetEditor, initialWorkBudget } from '../workitems/WorkItemForm';
 
 type PolicyDraft = { revision: number; values: PolicyValues; actors: string };
 
@@ -101,6 +102,7 @@ function initialValues(policy?: AutomationPolicy): PolicyValues {
     firstAgentId: policy?.firstAgentId ?? '',
     maxTurns: policy?.maxTurns ?? 6,
     maxModelRequests: policy?.maxModelRequests ?? 24,
+    itemBudget: policy?.itemBudget ?? initialWorkBudget,
     dailyEvaluations: policy?.dailyEvaluations ?? 20,
     dailyTasks: policy?.dailyTasks ?? 5,
     allowAnswers: policy?.allowAnswers ?? false,
@@ -114,12 +116,14 @@ export function PolicyEditor({
   policy,
   members,
   onSaved,
+  sourceKind = 'github',
 }: {
   roomId: string;
   sourceId: string;
   policy?: AutomationPolicy;
   members: Agent[];
   onSaved: (policy: AutomationPolicy) => void;
+  sourceKind?: 'github' | 'feishu';
 }) {
   const team = useTeam();
   const rulesId = useId();
@@ -133,6 +137,8 @@ export function PolicyEditor({
   const values = draft.value?.values ?? initialValues(policy);
   const revision = draft.value?.revision ?? policy?.revision ?? 0;
   const actors = draft.value?.actors ?? values.allowedActorIds.join('\n');
+  const itemBudget =
+    values.itemBudget ?? policy?.itemBudget ?? initialWorkBudget;
   const actorIds = [...new Set(actors.split(/[\s,]+/).filter(Boolean))];
   const firstAgentId =
     values.participantAgentIds.length === 1
@@ -230,6 +236,7 @@ export function PolicyEditor({
         void operation.run(async (requestId) => {
           const result = await automationApi.savePolicy(roomId, sourceId, {
             ...values,
+            itemBudget,
             firstAgentId,
             allowedActorIds: [
               ...new Set(actors.split(/[\s,]+/).filter(Boolean)),
@@ -307,14 +314,20 @@ export function PolicyEditor({
           />
         ) : (
           <div className="automation-input">
-            <label htmlFor={actorsId}>Allowed GitHub actor IDs</label>
+            <label htmlFor={actorsId}>
+              Allowed {sourceKind === 'feishu' ? 'Feishu' : 'GitHub'} actor IDs
+            </label>
             <textarea
               id={actorsId}
               className="p9-field"
               rows={2}
               required={values.enabled}
               value={actors}
-              placeholder="One numeric GitHub user ID per line"
+              placeholder={
+                sourceKind === 'feishu'
+                  ? 'One tenantKey:openId per line'
+                  : 'One numeric GitHub user ID per line'
+              }
               onChange={(event) => edit({}, event.target.value)}
             />
           </div>
@@ -366,6 +379,11 @@ export function PolicyEditor({
           <span>
             {values.dailyEvaluations} assessments · {values.dailyTasks} tasks
             per day
+          </span>
+          <span>
+            {itemBudget.maxEvaluations} assessments · {itemBudget.maxTasks}{' '}
+            tasks · {itemBudget.maxModelRequests} model requests total per work
+            item
           </span>
         </div>
         <details
@@ -433,6 +451,11 @@ export function PolicyEditor({
               />
             </label>
           </div>
+          <BudgetEditor
+            value={itemBudget}
+            onChange={(itemBudget) => edit({ itemBudget })}
+            label="Total allowance per work item"
+          />
         </details>
         {allowanceError && (
           <p className="app-error" role="alert">
@@ -444,7 +467,7 @@ export function PolicyEditor({
           caps.
         </small>
       </fieldset>
-      {sourceId !== 'room' && (
+      {sourceId !== 'room' && sourceKind !== 'feishu' && (
         <fieldset disabled={disabled}>
           <legend>GitHub conversation</legend>
           <Checkbox

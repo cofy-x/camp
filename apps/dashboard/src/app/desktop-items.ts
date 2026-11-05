@@ -9,6 +9,12 @@ export function createDesktopIcons(): DesktopIcon[] {
       appId: 'workspace',
     },
     {
+      id: 'system:work',
+      label: 'Work',
+      icon: 'checklist',
+      appId: 'work',
+    },
+    {
       id: 'system:library',
       label: 'Library',
       icon: 'folder',
@@ -33,6 +39,7 @@ export function createDesktopIcons(): DesktopIcon[] {
 export function createDesktopMenu(desktop: DesktopAPI): MenuItem[] {
   return [
     { label: 'Open Workspace', action: () => desktop.openApp('workspace') },
+    { label: 'Open Work', action: () => desktop.openApp('work') },
     { label: 'Open Library', action: () => desktop.openApp('library') },
     { label: 'Manage Agents', action: () => desktop.openApp('agents') },
     { label: 'Manage Runners', action: () => desktop.openApp('runners') },

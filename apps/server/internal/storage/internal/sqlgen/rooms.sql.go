@@ -1132,6 +1132,8 @@ SELECT EXISTS(SELECT 1 FROM resources r WHERE r.id=?1 AND r.current_commit=?2)
         AND (json_extract(w.snapshot,'$.baselineCommit')=?2 OR json_extract(w.snapshot,'$.resultCommit')=?2))
     OR EXISTS(SELECT 1 FROM resource_publications p WHERE p.resource_id=?1 AND (p.commit_id=?2 OR p.previous_commit=?2))
     OR EXISTS(SELECT 1 FROM review_events e JOIN reviews v ON v.id=e.review_id WHERE v.resource_id=?1 AND e.commit_id=?2)
+    OR EXISTS(SELECT 1 FROM memory_revisions m WHERE json_extract(m.value,'$.provenance.kind')='file'
+        AND json_extract(m.value,'$.provenance.resourceId')=?1 AND json_extract(m.value,'$.provenance.commit')=?2)
 `
 
 type ResourceRevisionKnownParams struct {

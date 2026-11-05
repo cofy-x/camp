@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Select } from '@cofy-x/camp-platinum';
+import { Button, PixelIcon, Select } from '@cofy-x/camp-platinum';
 import { useTeam } from '../../team/TeamContext';
 import type { Agent, Room, WorkspaceStatus } from '../workspace/api';
 import { StartCollaboration } from '../collaboration/StartCollaboration';
@@ -374,13 +374,14 @@ export function GitHubEvents({
           )}
           {loading && !page && <p role="status">Loading events…</p>}
           {!loading && !error && !page?.items.length && (
-            <p>
-              No{' '}
-              {state === 'pending'
-                ? 'events awaiting confirmation'
-                : 'matching events'}
-              .
-            </p>
+            <div className="camp-empty">
+              <PixelIcon name="document" size={32} />
+              <p>
+                {state === 'pending'
+                  ? 'No events awaiting confirmation.'
+                  : 'No matching events.'}
+              </p>
+            </div>
           )}
           <ul className="github-event-list">
             {page?.items.map((event) => (

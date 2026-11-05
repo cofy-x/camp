@@ -8,7 +8,9 @@ import { assertServerServiceReceipt } from './server-service.mjs';
 import {
   baselineLauncher,
   upgradeBaseline,
+  protocolTransitionBaseline,
   previousRelease,
+  serverUpgradeBaselines,
 } from './upgrade.mjs';
 
 const platform = `${process.platform}-${process.arch === 'x64' ? 'amd64' : process.arch}`;
@@ -32,7 +34,7 @@ const temporary = await scratch();
 let passed = false;
 try {
   await command('tar', ['-xzf', filename, '-C', temporary]);
-  for (const baseline of [upgradeBaseline, previousRelease]) {
+  for (const baseline of serverUpgradeBaselines) {
     const previous = await baselineLauncher(temporary, 'server', baseline);
     await command(
       process.execPath,
@@ -83,6 +85,7 @@ try {
     archiveSHA256: artifact.sha256,
     service,
     upgrade: { fromVersion: upgradeBaseline },
+    transitionUpgrade: { fromVersion: protocolTransitionBaseline },
     previousUpgrade: { fromVersion: previousRelease },
     completedAt: new Date().toISOString(),
     workflow: `https://github.com/cofy-x/camp/actions/runs/${process.env.GITHUB_RUN_ID}`,

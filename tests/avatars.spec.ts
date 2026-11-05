@@ -188,17 +188,24 @@ test('Agent defaults and chosen avatars remain consistent in the editor and Room
   await openApp(page, 'Agents');
   const app = page.locator('[data-window-id="agents:main"]');
   const chooser = app.getByLabel('Agent', { exact: true });
+  await expect(app.locator('.panel-heading')).toBeVisible();
   if (await chooser.isVisible()) await chooser.selectOption(agent.id);
   else
     await app
       .getByRole('navigation', { name: 'Agents', exact: true })
       .getByRole('button', { name: new RegExp(agent.name) })
       .click();
+  await expect(app.locator('.p9-window-title')).toHaveText(
+    `${agent.name} — Agents`,
+  );
   await expect(app.locator('.panel-heading .p9-avatar img')).toHaveAttribute(
     'src',
     `/api/avatars/${agent.avatar}`,
   );
   await app.getByRole('button', { name: 'Edit Agent…', exact: true }).click();
+  await expect(app.locator('.p9-window-title')).toHaveText(
+    `Edit ${agent.name} — Agents`,
+  );
   const editor = app.getByRole('form', { name: 'Agent settings' });
   await editor.locator('.camp-avatar-disclosure > summary').click();
   const radio = editor.getByRole('radio', { name: target.name, exact: true });
@@ -206,6 +213,9 @@ test('Agent defaults and chosen avatars remain consistent in the editor and Room
   else await radio.click();
   await editor.getByRole('button', { name: 'Save Agent', exact: true }).click();
   await expect(editor).toHaveCount(0);
+  await expect(app.locator('.p9-window-title')).toHaveText(
+    `${agent.name} — Agents`,
+  );
   await expect(app.locator('.panel-heading .p9-avatar img')).toHaveAttribute(
     'src',
     `/api/avatars/${target.id}`,

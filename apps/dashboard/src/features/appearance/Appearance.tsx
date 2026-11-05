@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Checkbox, PixelIcon } from '@cofy-x/camp-platinum';
+import { Button, Checkbox } from '@cofy-x/camp-platinum';
 import type { AppWindowProps } from '@cofy-x/camp-platinum';
 import { runCommand } from '../../shared/desktop/dialogs';
 import { useAppearanceData } from './PreferencesContext';
@@ -28,12 +28,6 @@ export function Appearance({ desktop }: AppWindowProps) {
   return (
     <div className="settings-app camp-appearance">
       <div className="app-pad">
-        <div className="panel-heading">
-          <PixelIcon name="appearance" />
-          <div>
-            <h2>Appearance</h2>
-          </div>
-        </div>
         <fieldset disabled={saving}>
           <legend>Desktop Pattern</legend>
           <div className="wallpaper-options">

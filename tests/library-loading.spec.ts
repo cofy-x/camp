@@ -96,7 +96,7 @@ test('Library loading failures stop pending states and recover through explicit 
     },
   );
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   await expect(library(page).getByRole('alert')).toContainText(
     'Library is temporarily unavailable.',
@@ -141,6 +141,9 @@ test('Library loading failures stop pending states and recover through explicit 
   await expect(
     library(page).getByText('Recovered document content.', { exact: true }),
   ).toBeVisible();
+  await expect(library(page).locator('.p9-window-title')).toHaveText(
+    `${room.name} — Library`,
+  );
   await expect(library(page).getByRole('alert')).toHaveCount(0);
 });
 
@@ -161,7 +164,7 @@ test('a delayed editor read cannot replace a different resource or History', asy
     'The second resource has its own text.',
   );
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
 
   async function selectResource(name: string) {
@@ -174,6 +177,9 @@ test('a delayed editor read cannot replace a different resource or History', asy
       .getByRole('button')
       .filter({ hasText: `${name} files` })
       .click();
+    await expect(library(page).locator('.p9-window-title')).toHaveText(
+      `${name} — Library`,
+    );
   }
 
   async function delayEditorRead(resourceId: string) {
@@ -221,6 +227,9 @@ test('a delayed editor read cannot replace a different resource or History', asy
       }),
     ).toBeVisible();
     await settleRead(releaseFirst);
+    await expect(library(page).locator('.p9-window-title')).toHaveText(
+      `${second.name} — Library`,
+    );
     await expect(library(page).getByLabel('Document content')).toHaveCount(0);
     await expect(library(page).getByRole('alert')).toHaveCount(0);
   } finally {
@@ -238,7 +247,7 @@ test('a delayed editor read cannot replace a different resource or History', asy
     ).toBeVisible();
     await expect(library(page).getByLabel('Document content')).toHaveCount(0);
     await library(page)
-      .getByRole('button', { name: 'History', exact: true })
+      .getByRole('button', { name: 'Back to Files', exact: true })
       .click();
     await library(page)
       .getByRole('button', { name: 'Edit Text', exact: true })

@@ -3,74 +3,91 @@ package orchestration
 // Policy is a versioned delegation by a Camp administrator. Source actors remain
 // independent identities; OwnerUserID is the member whose authority is checked.
 type Policy struct {
-	ID                   string   `json:"id"`
-	RoomID               string   `json:"roomId"`
-	SourceID             string   `json:"sourceId"`
-	Revision             int64    `json:"revision"`
-	OwnerUserID          string   `json:"ownerUserId"`
-	Enabled              bool     `json:"enabled"`
-	Mode                 string   `json:"mode"`
-	Rules                string   `json:"rules"`
-	AllowedActorIDs      []string `json:"allowedActorIds"`
-	ParticipantAgentIDs  []string `json:"participantAgentIds"`
-	FirstAgentID         string   `json:"firstAgentId"`
-	MaxTurns             int      `json:"maxTurns"`
-	MaxModelRequests     int      `json:"maxModelRequests"`
-	DailyEvaluations     int      `json:"dailyEvaluations"`
-	DailyTasks           int      `json:"dailyTasks"`
-	AllowAnswers         bool     `json:"allowAnswers"`
-	AllowComments        bool     `json:"allowComments"`
-	CredentialConfigured bool     `json:"credentialConfigured"`
-	CommentActorID       int64    `json:"commentActorId,omitempty"`
-	CredentialRef        string   `json:"-"`
-	StartAfter           int64    `json:"startAfter"`
+	ItemBudget           WorkBudget `json:"itemBudget,omitzero"`
+	ID                   string     `json:"id"`
+	RoomID               string     `json:"roomId"`
+	SourceID             string     `json:"sourceId"`
+	Revision             int64      `json:"revision"`
+	OwnerUserID          string     `json:"ownerUserId"`
+	Enabled              bool       `json:"enabled"`
+	Mode                 string     `json:"mode"`
+	Rules                string     `json:"rules"`
+	AllowedActorIDs      []string   `json:"allowedActorIds"`
+	ParticipantAgentIDs  []string   `json:"participantAgentIds"`
+	FirstAgentID         string     `json:"firstAgentId"`
+	MaxTurns             int        `json:"maxTurns"`
+	MaxModelRequests     int        `json:"maxModelRequests"`
+	DailyEvaluations     int        `json:"dailyEvaluations"`
+	DailyTasks           int        `json:"dailyTasks"`
+	AllowAnswers         bool       `json:"allowAnswers"`
+	AllowComments        bool       `json:"allowComments"`
+	CredentialConfigured bool       `json:"credentialConfigured"`
+	CommentActorID       int64      `json:"commentActorId,omitempty"`
+	CredentialRef        string     `json:"-"`
+	StartAfter           int64      `json:"startAfter"`
 }
 
 type PolicyInput struct {
-	RequestID           string   `json:"requestId"`
-	Revision            int64    `json:"revision"`
-	Enabled             bool     `json:"enabled"`
-	Mode                string   `json:"mode"`
-	Rules               string   `json:"rules"`
-	AllowedActorIDs     []string `json:"allowedActorIds"`
-	ParticipantAgentIDs []string `json:"participantAgentIds"`
-	FirstAgentID        string   `json:"firstAgentId"`
-	MaxTurns            int      `json:"maxTurns"`
-	MaxModelRequests    int      `json:"maxModelRequests"`
-	DailyEvaluations    int      `json:"dailyEvaluations"`
-	DailyTasks          int      `json:"dailyTasks"`
-	AllowAnswers        bool     `json:"allowAnswers"`
-	AllowComments       bool     `json:"allowComments"`
+	ItemBudget          *WorkBudget `json:"itemBudget,omitempty"`
+	RequestID           string      `json:"requestId"`
+	Revision            int64       `json:"revision"`
+	Enabled             bool        `json:"enabled"`
+	Mode                string      `json:"mode"`
+	Rules               string      `json:"rules"`
+	AllowedActorIDs     []string    `json:"allowedActorIds"`
+	ParticipantAgentIDs []string    `json:"participantAgentIds"`
+	FirstAgentID        string      `json:"firstAgentId"`
+	MaxTurns            int         `json:"maxTurns"`
+	MaxModelRequests    int         `json:"maxModelRequests"`
+	DailyEvaluations    int         `json:"dailyEvaluations"`
+	DailyTasks          int         `json:"dailyTasks"`
+	AllowAnswers        bool        `json:"allowAnswers"`
+	AllowComments       bool        `json:"allowComments"`
 }
 
 // SourceEvent retains normalized context and a reference to the immutable
 // original. Status is processing state, never execution authority.
 type SourceEvent struct {
-	Seq               int64       `json:"seq"`
-	ID                string      `json:"id"`
-	RoomID            string      `json:"roomId"`
-	SourceID          string      `json:"sourceId"`
-	ThreadKey         string      `json:"threadKey"`
-	Kind              string      `json:"kind"`
-	ActorID           string      `json:"actorId"`
-	ActorLogin        string      `json:"actorLogin"`
-	ActorKind         string      `json:"actorKind"`
-	Request           *RequestRef `json:"request,omitempty"`
-	MessageID         string      `json:"messageId,omitempty"`
-	ExternalEventID   string      `json:"externalEventId,omitempty"`
-	Repository        string      `json:"repository,omitempty"`
-	RepositoryID      int64       `json:"repositoryId,omitempty"`
-	Number            int64       `json:"number,omitempty"`
-	Content           string      `json:"content"`
-	OccurredAt        string      `json:"occurredAt"`
-	Status            string      `json:"status"`
-	Reason            string      `json:"reason,omitempty"`
-	EvaluationID      string      `json:"evaluationId,omitempty"`
-	TaskID            string      `json:"taskId,omitempty"`
-	PolicyRevision    int64       `json:"policyRevision,omitempty"`
-	Preview           string      `json:"preview,omitempty"`
-	AssessmentOutcome string      `json:"assessmentOutcome,omitempty"`
-	AssessmentReason  string      `json:"assessmentReason,omitempty"`
+	WorkItemID        string          `json:"workItemId,omitempty"`
+	CausationID       string          `json:"causationId,omitempty"`
+	Seq               int64           `json:"seq"`
+	ID                string          `json:"id"`
+	RoomID            string          `json:"roomId"`
+	SourceID          string          `json:"sourceId"`
+	ThreadKey         string          `json:"threadKey"`
+	Kind              string          `json:"kind"`
+	ActorID           string          `json:"actorId"`
+	ActorLogin        string          `json:"actorLogin"`
+	ActorKind         string          `json:"actorKind"`
+	Request           *RequestRef     `json:"request,omitempty"`
+	MessageID         string          `json:"messageId,omitempty"`
+	ExternalEventID   string          `json:"externalEventId,omitempty"`
+	Feishu            *FeishuEventRef `json:"feishu,omitempty"`
+	Repository        string          `json:"repository,omitempty"`
+	RepositoryID      int64           `json:"repositoryId,omitempty"`
+	Number            int64           `json:"number,omitempty"`
+	Content           string          `json:"content"`
+	OccurredAt        string          `json:"occurredAt"`
+	Status            string          `json:"status"`
+	Reason            string          `json:"reason,omitempty"`
+	EvaluationID      string          `json:"evaluationId,omitempty"`
+	TaskID            string          `json:"taskId,omitempty"`
+	PolicyRevision    int64           `json:"policyRevision,omitempty"`
+	Preview           string          `json:"preview,omitempty"`
+	AssessmentOutcome string          `json:"assessmentOutcome,omitempty"`
+	AssessmentReason  string          `json:"assessmentReason,omitempty"`
+}
+
+// FeishuEventRef retains the external scope without conflating Feishu identities
+// with Camp members or the legacy GitHub observation identifier.
+type FeishuEventRef struct {
+	EventID     string `json:"eventId"`
+	AppID       string `json:"appId"`
+	TenantKey   string `json:"tenantKey"`
+	ChatID      string `json:"chatId"`
+	MessageID   string `json:"messageId,omitempty"`
+	ThreadID    string `json:"threadId,omitempty"`
+	ActorOpenID string `json:"actorOpenId,omitempty"`
 }
 
 type TaskSummary struct {
@@ -83,15 +100,18 @@ type TaskSummary struct {
 }
 
 type Candidate struct {
-	ID             string          `json:"id"`
-	Policy         Policy          `json:"policy"`
-	Events         []SourceEvent   `json:"events"`
-	Tasks          []TaskSummary   `json:"tasks"`
-	ModelRevision  string          `json:"modelRevision"`
-	TaskFrontier   string          `json:"taskFrontier"`
-	Budget         ExecutionBudget `json:"budget"`
-	ContextLimited bool            `json:"contextLimited,omitempty"`
-	TotalTaskCount int             `json:"totalTaskCount,omitempty"`
+	EventFrontier  int64             `json:"eventFrontier,omitempty"`
+	WorkItems      []WorkItemSummary `json:"workItems,omitempty"`
+	Memories       []Memory          `json:"memories,omitempty"`
+	ID             string            `json:"id"`
+	Policy         Policy            `json:"policy"`
+	Events         []SourceEvent     `json:"events"`
+	Tasks          []TaskSummary     `json:"tasks"`
+	ModelRevision  string            `json:"modelRevision"`
+	TaskFrontier   string            `json:"taskFrontier"`
+	Budget         ExecutionBudget   `json:"budget"`
+	ContextLimited bool              `json:"contextLimited,omitempty"`
+	TotalTaskCount int               `json:"totalTaskCount,omitempty"`
 }
 
 type ExecutionBudget struct {
@@ -105,9 +125,14 @@ type ExecutionBudget struct {
 // Assessment is advisory. Only accept/ignore are model outcomes; unavailable
 // records transport, timeout, parse or recovery failure without retrying it.
 type Assessment struct {
-	Outcome string `json:"outcome"`
-	Goal    string `json:"goal,omitempty"`
-	Reason  string `json:"reason"`
+	WorkItemID         string `json:"workItemId,omitempty"`
+	CompletionCriteria string `json:"completionCriteria,omitempty"`
+	WaitCondition      string `json:"waitCondition,omitempty"`
+	ResumeAt           string `json:"resumeAt,omitempty"`
+	Question           string `json:"question,omitempty"`
+	Outcome            string `json:"outcome"`
+	Goal               string `json:"goal,omitempty"`
+	Reason             string `json:"reason"`
 }
 
 type Subscription struct {

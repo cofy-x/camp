@@ -199,16 +199,29 @@
   font-size: 11px;
 }
 .camp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   margin: auto;
-  padding: 30px;
+  min-width: 0;
+  max-width: min(360px, 100%);
+  padding: 24px;
   text-align: center;
-  max-width: 420px;
+  overflow-wrap: anywhere;
+  font: 12px/1.5 var(--p9-body-font);
 }
 .camp-empty h2 {
-  font-size: 19px;
+  margin: 0;
+  font: 12px/1.5 var(--p9-font);
 }
 .camp-empty p {
-  line-height: 1.5;
+  margin: 0;
+}
+.camp-empty .app-actions {
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
 }
 .camp-link {
   border: 0;

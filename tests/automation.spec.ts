@@ -10,16 +10,20 @@ import type {
   SourceEvent,
 } from '../apps/dashboard/src/features/automation/api';
 import type { Task } from '../apps/dashboard/src/features/collaboration/api';
-import { createRoom, mutate, signIn, workspace } from './team-helpers';
+import {
+  openRoomMore,
+  createRoom,
+  mutate,
+  signIn,
+  workspace,
+} from './team-helpers';
 import { watchPageErrors } from './page-errors';
 
 const panel = (page: Page) =>
-  workspace(page).getByRole('region', { name: 'Room automation', exact: true });
+  workspace(page).getByRole('region', { name: 'Room management', exact: true });
 
 async function openActivity(page: Page) {
-  await workspace(page)
-    .getByRole('button', { name: 'Automation', exact: true })
-    .click();
+  await openRoomMore(page, 'Activity…');
   await expect(
     panel(page).getByRole('tab', { name: 'Activity', exact: true }),
   ).toHaveAttribute('aria-selected', 'true');
@@ -47,6 +51,9 @@ test('policy drafts survive navigation and uncertain saves recover the committed
   );
   await openAutomation(page);
   await expect(
+    panel(page).getByRole('region', { name: 'Feishu sources', exact: true }),
+  ).toHaveCount(0);
+  await expect(
     panel(page).getByRole('radio', { name: 'Off', exact: true }),
   ).toBeChecked();
   const rules =
@@ -57,7 +64,9 @@ test('policy drafts survive navigation and uncertain saves recover the committed
     .check();
   await panel(page).getByRole('tab', { name: 'Activity', exact: true }).click();
   await expect(panel(page).getByLabel('Rules', { exact: true })).toBeHidden();
-  await panel(page).getByRole('tab', { name: 'Settings', exact: true }).click();
+  await panel(page)
+    .getByRole('tab', { name: 'Sources & rules', exact: true })
+    .click();
   await expect(panel(page).getByLabel('Rules', { exact: true })).toHaveValue(
     rules,
   );
@@ -66,7 +75,7 @@ test('policy drafts survive navigation and uncertain saves recover the committed
   ).toBeChecked();
   await panel(page).getByRole('radio', { name: 'Off', exact: true }).check();
   await panel(page)
-    .getByRole('button', { name: 'Back to Chat', exact: true })
+    .getByRole('button', { name: 'Back to Discussion', exact: true })
     .click();
   await expect(panel(page)).toHaveCount(0);
   await openAutomation(page);
@@ -95,7 +104,9 @@ test('policy drafts survive navigation and uncertain saves recover the committed
   await expect(
     panel(page).getByLabel('Activity source', { exact: true }),
   ).toBeVisible();
-  await panel(page).getByRole('tab', { name: 'Settings', exact: true }).click();
+  await panel(page)
+    .getByRole('tab', { name: 'Sources & rules', exact: true })
+    .click();
   await expect(
     panel(page).getByRole('button', { name: 'Check Saved Operation' }),
   ).toBeVisible();
@@ -211,15 +222,15 @@ test('the latest Workspace navigation wins while Automation saves a private draf
     const rules = panel(page).getByLabel('Rules', { exact: true });
     const draft = 'Preserve this private draft while navigation is pending.';
     await rules.fill(draft);
-    await panel(page).getByRole('button', { name: 'Back to Chat' }).click();
-    await expect.poll(() => saving).toBe(true);
-    await workspace(page)
-      .getByRole('button', { name: 'Automation', exact: true })
+    await panel(page)
+      .getByRole('button', { name: 'Back to Discussion' })
       .click();
+    await expect.poll(() => saving).toBe(true);
+    await openRoomMore(page, 'Sources & rules…');
     await finishSaving();
     await expect(panel(page)).toBeVisible();
     await expect(
-      panel(page).getByRole('tab', { name: 'Settings', exact: true }),
+      panel(page).getByRole('tab', { name: 'Sources & rules', exact: true }),
     ).toHaveAttribute('aria-selected', 'true');
     await expect(rules).toHaveValue(draft);
 
@@ -237,9 +248,7 @@ test('the latest Workspace navigation wins while Automation saves a private draf
     await events.getByText('Details', { exact: true }).click();
     await events.getByRole('button', { name: 'Open Collaboration' }).click();
     await expect.poll(() => saving).toBe(true);
-    await workspace(page)
-      .getByRole('button', { name: 'Automation', exact: true })
-      .click();
+    await openRoomMore(page, 'Activity…');
     await finishSaving();
     await expect(panel(page)).toBeVisible();
     await expect(
@@ -247,7 +256,7 @@ test('the latest Workspace navigation wins while Automation saves a private draf
     ).toHaveAttribute('aria-selected', 'true');
     expect(taskReads).toBe(0);
     await panel(page)
-      .getByRole('tab', { name: 'Settings', exact: true })
+      .getByRole('tab', { name: 'Sources & rules', exact: true })
       .click();
     await expect(rules).toHaveValue(`${draft} Keep the second change too.`);
     expect(errors.errors).toEqual([]);
@@ -258,7 +267,9 @@ test('the latest Workspace navigation wins while Automation saves a private draf
 
 async function openAutomationForRecovery(page: Page) {
   await openActivity(page);
-  await panel(page).getByRole('tab', { name: 'Settings', exact: true }).click();
+  await panel(page)
+    .getByRole('tab', { name: 'Sources & rules', exact: true })
+    .click();
   await expect(
     panel(page).getByRole('form', { name: 'Automation policy' }),
   ).toBeVisible();
@@ -348,7 +359,9 @@ test('a late private draft conflict stays reachable in Settings and blocks leavi
     return route.continue();
   });
   await openActivity(page);
-  await panel(page).getByRole('tab', { name: 'Settings', exact: true }).click();
+  await panel(page)
+    .getByRole('tab', { name: 'Sources & rules', exact: true })
+    .click();
   await restoring;
   await expect(panel(page).getByLabel('Rules', { exact: true })).toBeDisabled();
   await panel(page).getByRole('tab', { name: 'Activity', exact: true }).click();
@@ -367,15 +380,17 @@ test('a late private draft conflict stays reachable in Settings and blocks leavi
   // A blocked writer must still fence leaving Automation. Mounted tabs must
   // remain reachable so the user can resolve the hidden conflict instead.
   await panel(page)
-    .getByRole('button', { name: 'Back to Chat', exact: true })
+    .getByRole('button', { name: 'Back to Discussion', exact: true })
     .click();
   await expect(panel(page)).toBeVisible();
   await expect(
     panel(page).getByRole('tab', { name: 'Activity', exact: true }),
   ).toHaveAttribute('aria-selected', 'true');
-  await panel(page).getByRole('tab', { name: 'Settings', exact: true }).click();
+  await panel(page)
+    .getByRole('tab', { name: 'Sources & rules', exact: true })
+    .click();
   await expect(
-    panel(page).getByRole('tab', { name: 'Settings', exact: true }),
+    panel(page).getByRole('tab', { name: 'Sources & rules', exact: true }),
   ).toHaveAttribute('aria-selected', 'true');
   await expect(comparison).toBeVisible();
   await expect(comparison.locator('pre')).toContainText(remoteRules);
@@ -403,7 +418,7 @@ test('a late private draft conflict stays reachable in Settings and blocks leavi
   await expect(comparison).toHaveCount(0);
   await expect(panel(page).getByLabel('Rules', { exact: true })).toBeEnabled();
   await panel(page)
-    .getByRole('button', { name: 'Back to Chat', exact: true })
+    .getByRole('button', { name: 'Back to Discussion', exact: true })
     .click();
   await expect(panel(page)).toHaveCount(0);
   await openAutomation(page);
@@ -895,7 +910,9 @@ test('recent activity pins older pages, escapes original text and fits narrow wi
   await capture('activity-desktop');
   await page.setViewportSize({ width: 390, height: 844 });
   await capture('activity-narrow');
-  await panel(page).getByRole('tab', { name: 'Settings', exact: true }).click();
+  await panel(page)
+    .getByRole('tab', { name: 'Sources & rules', exact: true })
+    .click();
   await expect(
     panel(page).getByRole('radio', { name: 'Off', exact: true }),
   ).toBeChecked();
@@ -1116,9 +1133,9 @@ test('comment credential recovery keeps the synthetic token out of browser stora
     ),
   ).toBeVisible();
   await panel(page).getByRole('tab', { name: 'Activity', exact: true }).click();
-  await panel(page).getByRole('button', { name: 'Back to Chat' }).click();
+  await panel(page).getByRole('button', { name: 'Back to Discussion' }).click();
   await expect(
-    panel(page).getByRole('tab', { name: 'Settings', exact: true }),
+    panel(page).getByRole('tab', { name: 'Sources & rules', exact: true }),
   ).toHaveAttribute('aria-selected', 'true');
   await expect(
     panel(page).getByLabel('GitHub comment token', { exact: true }),

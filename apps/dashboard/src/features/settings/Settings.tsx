@@ -106,15 +106,14 @@ function ModelPanel({ onSaved }: { onSaved: () => void }) {
   return (
     <form
       className="camp-settings-form"
+      aria-label="Model settings"
       onSubmit={(event) => {
         event.preventDefault();
         void save();
       }}
     >
-      <h2>Model Connection</h2>
       {value && (
-        <fieldset disabled={pending}>
-          <legend>Connection</legend>
+        <fieldset disabled={pending} aria-label="Model connection">
           <label>
             <span className="camp-settings-field-heading">
               <span>Model</span>
@@ -404,8 +403,7 @@ function TeamPanel({ desktop }: { desktop: AppWindowProps['desktop'] }) {
   }
 
   return (
-    <section>
-      <h2>Team</h2>
+    <section aria-label="Team settings">
       <form
         className="camp-settings-form camp-team-name"
         onSubmit={(event) => {
@@ -634,6 +632,13 @@ export function Settings(props: AppWindowProps) {
     ['appearance', 'Appearance'],
     ['account', 'Account'],
   ];
+  const sectionTitle = sections.find(([id]) => id === section)?.[1];
+  useEffect(() => {
+    props.desktop.setTitle(
+      props.window.id,
+      sectionTitle ? `${sectionTitle} — Settings` : 'Settings',
+    );
+  }, [props.desktop, props.window.id, sectionTitle]);
   return (
     <div className="camp-settings">
       <div className="camp-settings-chooser app-toolbar">
@@ -698,14 +703,12 @@ export function Settings(props: AppWindowProps) {
               onRunners={(connect) =>
                 void team.navigate({ app: 'runners', connect })
               }
-              onAgents={() => props.desktop.openApp('agents')}
               onWorkspace={() => props.desktop.openApp('workspace')}
             />
           )}
           {section === 'models' && <ModelPanel onSaved={team.refresh} />}
           {section === 'environments' && (
             <>
-              <h2>Environments</h2>
               {environment && (
                 <>
                   <dl>
@@ -729,7 +732,6 @@ export function Settings(props: AppWindowProps) {
           )}
           {section === 'storage' && (
             <>
-              <h2>Storage</h2>
               {storage && (
                 <>
                   <dl>

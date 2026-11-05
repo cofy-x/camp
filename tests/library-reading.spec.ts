@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
 
 async function openLibrary(page: Page) {
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   await expect(library(page)).toBeVisible();
 }
@@ -53,9 +53,50 @@ test('an empty resource can configure its environment without starting agent wor
   const room = await createRoom(page, `environment-${testInfo.project.name}`);
   await openLibrary(page);
   const win = library(page);
+  await expect(win.locator('.p9-window-title')).toHaveText(
+    `${room.name} — Library`,
+  );
+  const empty = win.locator('.camp-library-empty');
+  const emptyText = empty.getByText('No files yet', { exact: true });
+  await expect(emptyText).toBeVisible();
+  const create = win.getByRole('button', { name: 'New Document', exact: true });
+  await expect(create).toBeVisible();
+  await expect(create).toBeEnabled();
+  await expect(empty.getByRole('button')).toHaveCount(0);
+  const [emptyBounds, iconBounds, textBounds, paneBounds] = await Promise.all([
+    empty.boundingBox(),
+    empty.locator('.p9-pixel-icon').boundingBox(),
+    emptyText.boundingBox(),
+    win.locator('.camp-file-selection').boundingBox(),
+  ]);
+  for (const bounds of [emptyBounds, iconBounds, textBounds, paneBounds])
+    expect(bounds).not.toBeNull();
+  const center = (bounds: NonNullable<typeof emptyBounds>) =>
+    bounds.x + bounds.width / 2;
+  expect(
+    Math.abs(center(iconBounds!) - center(textBounds!)),
+  ).toBeLessThanOrEqual(1);
+  expect(
+    Math.abs(center(iconBounds!) - center(paneBounds!)),
+  ).toBeLessThanOrEqual(1);
+  await create.click();
+  const newDocument = page.getByRole('dialog');
   await expect(
-    win.getByRole('heading', { name: /^No files in/ }),
+    newDocument.getByLabel('File path', { exact: true }),
   ).toBeVisible();
+  await newDocument
+    .getByLabel('File path', { exact: true })
+    .fill('not-created.md');
+  await newDocument
+    .getByRole('button', { name: 'Cancel', exact: true })
+    .click();
+  await expect(newDocument).toHaveCount(0);
+  await expect(emptyText).toBeVisible();
+  await expect(
+    win
+      .getByRole('navigation', { name: 'Resource files', exact: true })
+      .getByRole('button'),
+  ).toHaveCount(0);
   const actions = win.getByRole('button', {
     name: 'More Library actions',
     exact: true,
@@ -156,9 +197,7 @@ test('an empty resource can configure its environment without starting agent wor
   await environment
     .getByRole('button', { name: 'Back to Files', exact: true })
     .click();
-  await expect(
-    win.getByRole('heading', { name: /^No files in/ }),
-  ).toBeVisible();
+  await expect(win.getByText('No files yet', { exact: true })).toBeVisible();
   expect(
     (await (await page.request.get(`/api/rooms/${room.id}/runs`)).json()).runs,
   ).toEqual([]);
@@ -211,6 +250,9 @@ test('Library renders readable Markdown and keeps file actions safe in small win
     'PUT',
   );
   expect(published.ok()).toBeTruthy();
+  const saved = (await published.json()) as {
+    publication: { commit: string };
+  };
   await openLibrary(page);
   const win = library(page);
   const preview = win.getByRole('region', { name: `Preview ${path}` });
@@ -226,6 +268,36 @@ test('Library renders readable Markdown and keeps file actions safe in small win
   await expect(checks.nth(0)).toBeChecked();
   await expect(checks.nth(1)).not.toBeChecked();
   await expect(checks.nth(0)).toBeDisabled();
+  const downloadLink = preview.getByRole('link', {
+    name: 'Download customer-onboarding-guide.md',
+    exact: true,
+  });
+  await expect(downloadLink).toHaveText('Download');
+  await expect(downloadLink).toHaveAttribute(
+    'download',
+    'customer-onboarding-guide.md',
+  );
+  const downloadURL = new URL(
+    (await downloadLink.getAttribute('href'))!,
+    page.url(),
+  );
+  expect(downloadURL.pathname).toBe(`/api/resources/${room.resourceId}/file`);
+  expect(downloadURL.searchParams.get('path')).toBe(path);
+  expect(downloadURL.searchParams.get('commit')).toBe(saved.publication.commit);
+  const [actionsBounds, downloadBounds] = await Promise.all([
+    preview.locator('.workspace-preview-actions').boundingBox(),
+    downloadLink.boundingBox(),
+  ]);
+  expect(actionsBounds).not.toBeNull();
+  expect(downloadBounds).not.toBeNull();
+  expect(
+    Math.abs(
+      actionsBounds!.x +
+        actionsBounds!.width -
+        downloadBounds!.x -
+        downloadBounds!.width,
+    ),
+  ).toBeLessThanOrEqual(1);
   await expectNoHorizontalOverflow(win);
   await expectOneReadingScroller(win);
   await page.screenshot({ path: testInfo.outputPath('library-reading.png') });
@@ -251,7 +323,7 @@ test('Library renders readable Markdown and keeps file actions safe in small win
   await expect(reviewsTab).toBeFocused();
   await expect(
     win.getByRole('region', { name: 'Document reviews' }),
-  ).toContainText('No reviews yet.');
+  ).toHaveText('No reviews yet.');
   await reviewsTab.press('ArrowLeft');
   await expect(previewTab).toBeFocused();
   await expect(preview.locator('pre')).toHaveText(content);
@@ -353,6 +425,9 @@ test('binary working copies keep exact bytes and do not offer text editing', asy
     .getByRole('button')
     .filter({ hasText: filename })
     .click();
+  await expect(win.locator('.p9-window-title')).toHaveText(
+    `${filename} — Library`,
+  );
   await expect(
     win.getByRole('button', { name: 'New Document', exact: true }),
   ).toBeDisabled();

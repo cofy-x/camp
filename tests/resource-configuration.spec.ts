@@ -5,12 +5,10 @@ async function editor(page: Page, name: string) {
   await signIn(page);
   const room = await createRoom(page, name);
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   const win = library(page);
-  await expect(
-    win.getByRole('heading', { name: /^No files in/ }),
-  ).toBeVisible();
+  await expect(win.getByText('No files yet', { exact: true })).toBeVisible();
   await win
     .getByRole('button', { name: 'More Library actions', exact: true })
     .click();

@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   Button,
   Checkbox,
@@ -12,16 +12,62 @@ import { TaskHistory } from './TaskHistory';
 import { useTaskController } from './useTaskController';
 import { TaskAutomation } from '../automation/TaskAutomation';
 
+function TaskGoal({ goal }: { goal: string }) {
+  const id = useId();
+  const heading = useRef<HTMLHeadingElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflow, setOverflow] = useState(false);
+  useLayoutEffect(() => {
+    const node = heading.current;
+    if (!node || expanded) return;
+    let active = true;
+    const measure = () => {
+      if (active) setOverflow(node.scrollHeight > node.clientHeight + 1);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    void document.fonts.ready.then(measure);
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [goal, expanded]);
+
+  return (
+    <div className="collaboration-task-goal">
+      <h2
+        ref={heading}
+        id={id}
+        className={`collaboration-title${expanded ? ' is-expanded' : ''}`}
+      >
+        {goal}
+      </h2>
+      {(overflow || expanded) && (
+        <Button
+          aria-controls={id}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? 'Show less' : 'Show full goal'}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 export function TaskDetail({
   id,
   desktop,
   onClose,
   onInspect,
+  backLabel = 'Back to Collaborations',
 }: {
   id: string;
   desktop: DesktopAPI;
   onClose: () => void;
   onInspect: (id: string) => void;
+  backLabel?: string;
 }) {
   const inputId = useId();
   const [tab, setTab] = useState('overview');
@@ -147,8 +193,7 @@ export function TaskDetail({
       aria-label="Collaboration details"
     >
       <div className="workspace-panel-heading">
-        <h2>Collaboration</h2>
-        <Button onClick={onClose}>Back to Collaborations</Button>
+        <Button onClick={onClose}>{backLabel}</Button>
       </div>
       {!task && !loadError && <p role="status">Loading collaboration…</p>}
       {loadError && (
@@ -182,7 +227,7 @@ export function TaskDetail({
                 {task.status === 'running' ? ' · working now' : ' · next turn'}
               </span>
             )}
-            <p className="collaboration-title">{task.goal}</p>
+            <TaskGoal goal={task.goal} />
           </div>
           {task.error && (
             <p className="app-error" role="alert">
@@ -470,13 +515,6 @@ export function TaskDetail({
             />
             {tab === 'setup' && (
               <div className="collaboration-tab-content">
-                <section
-                  className="collaboration-goal"
-                  aria-label="Shared goal"
-                >
-                  <h3>Shared goal</h3>
-                  <p>{task.goal}</p>
-                </section>
                 <section aria-label="Collaboration participants">
                   <h3>Participants</h3>
                   <ul className="collaboration-roster">

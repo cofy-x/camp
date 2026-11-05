@@ -12,8 +12,10 @@ import { root } from './lib.mjs';
 import { hashFile, releaseIdentity, verifyRelease } from './release.mjs';
 import {
   upgradeBaseline,
-  previousRelease,
-  verifyPreviousRunnerUpgrade,
+  serverUpgradeBaselines,
+  serverUpgradeReportFile,
+  runnerUpgradeProfiles,
+  verifyRunnerUpgrade,
 } from './upgrade.mjs';
 import { verifyWorkerArtifact } from './worker-release.mjs';
 
@@ -25,31 +27,29 @@ const { runner, artifacts } = await verifyRelease(
   identity.sourceCommit,
 );
 const reports = [];
-const upgrade = JSON.parse(
-  await readFile(join(directory, 'server-upgrade-verification.json'), 'utf8'),
+const serverUpgrades = [];
+const serverBinarySHA256 = await hashFile(
+  join(directory, 'camp-server-linux-amd64/camp'),
 );
-assert.equal(upgrade.status, 'passed');
-assert.equal(upgrade.version, identity.version);
-assert.equal(upgrade.sourceCommit, identity.sourceCommit);
-assert.equal(upgrade.sourceModified, false);
-assert.equal(upgrade.fromVersion, upgradeBaseline);
-assert.equal(
-  upgrade.binarySHA256,
-  await hashFile(join(directory, 'camp-server-linux-amd64/camp')),
-);
-const previousUpgrade = JSON.parse(
-  await readFile(
-    join(directory, 'server-previous-upgrade-verification.json'),
-    'utf8',
-  ),
-);
-assert.equal(previousUpgrade.status, 'passed');
-assert.equal(previousUpgrade.version, identity.version);
-assert.equal(previousUpgrade.sourceCommit, identity.sourceCommit);
-assert.equal(previousUpgrade.sourceModified, false);
-assert.equal(previousUpgrade.fromVersion, previousRelease);
-assert.equal(previousUpgrade.binarySHA256, upgrade.binarySHA256);
-for (const mode of ['online', 'offline', 'upgrade', 'previous-upgrade']) {
+for (const baseline of serverUpgradeBaselines) {
+  const report = JSON.parse(
+    await readFile(join(directory, serverUpgradeReportFile(baseline)), 'utf8'),
+  );
+  assert.equal(report.status, 'passed');
+  assert.equal(report.version, identity.version);
+  assert.equal(report.sourceCommit, identity.sourceCommit);
+  assert.equal(report.sourceModified, false);
+  assert.equal(report.fromVersion, baseline);
+  assert.equal(report.binarySHA256, serverBinarySHA256);
+  serverUpgrades.push(report);
+}
+const [upgrade, transitionUpgrade, previousUpgrade] = serverUpgrades;
+for (const mode of [
+  'online',
+  'offline',
+  'upgrade',
+  ...Object.keys(runnerUpgradeProfiles),
+]) {
   const report = JSON.parse(
     await readFile(join(directory, `smoke-${mode}.json`), 'utf8'),
   );
@@ -62,10 +62,12 @@ for (const mode of ['online', 'offline', 'upgrade', 'previous-upgrade']) {
       ? runner.runners['linux-amd64'].offline.sha256
       : runner.runners['linux-amd64'].installer.sha256,
   );
-  if (mode === 'upgrade' || mode === 'previous-upgrade') {
+  if (mode === 'upgrade' || runnerUpgradeProfiles[mode]) {
     assert.equal(
       report.fromVersion,
-      mode === 'upgrade' ? upgradeBaseline : previousRelease,
+      mode === 'upgrade'
+        ? upgradeBaseline
+        : runnerUpgradeProfiles[mode].fromVersion,
     );
     for (const field of [
       'runnerIdentityPreserved',
@@ -74,8 +76,8 @@ for (const mode of ['online', 'offline', 'upgrade', 'previous-upgrade']) {
     ])
       assert.equal(report[field], true);
   }
-  if (mode === 'previous-upgrade')
-    verifyPreviousRunnerUpgrade(report, runner, 'linux-amd64');
+  if (runnerUpgradeProfiles[mode])
+    verifyRunnerUpgrade(report, runner, 'linux-amd64', mode);
   reports.push(report);
 }
 const image = JSON.parse(
@@ -167,6 +169,7 @@ const evidence = {
   installations: reports,
   serverImage: image,
   serverUpgrade: upgrade,
+  serverTransitionUpgrade: transitionUpgrade,
   serverPreviousUpgrade: previousUpgrade,
   publicDistribution:
     process.env.CAMP_RELEASE_VALIDATE_ONLY === 'true'
@@ -174,7 +177,7 @@ const evidence = {
       : 'pending; see appended distribution-verification evidence',
   untested: [
     'paid model provider',
-    'upgrades from releases other than the two named baselines',
+    'upgrades from releases other than the three named baselines',
     'systemd service installation',
   ],
 };

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Select } from '@cofy-x/camp-platinum';
+import { Button, Select, type DesktopAPI } from '@cofy-x/camp-platinum';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
 import { useTeam } from '../../team/TeamContext';
 import { useAccount } from '../../team/AuthContext';
@@ -19,20 +19,24 @@ interface RequestDraft {
 
 export function RequestReview({
   roomId,
+  desktop,
   resourceId,
   path,
   commit,
   currentCommit,
   onClose,
   onCreated,
+  showHeading = true,
 }: {
   roomId: string;
+  desktop: DesktopAPI;
   resourceId: string;
   path: string;
   commit: string;
   currentCommit: string;
   onClose: () => void;
   onCreated: (review: Review) => void;
+  showHeading?: boolean;
 }) {
   const team = useTeam();
   const { user } = useAccount();
@@ -62,6 +66,9 @@ export function RequestReview({
 
   async function submit() {
     if (submitting.current) return;
+    team.cancelNavigation();
+    const navigation = team.getNavigationRevision();
+    const activation = desktop.getActivationRevision();
     submitting.current = true;
     setPending(true);
     setError('');
@@ -87,7 +94,12 @@ export function RequestReview({
       const saved = await draft.flush();
       submitting.current = false;
       team.refresh();
-      if (saved) onCreated(result.review);
+      if (
+        saved &&
+        navigation === team.getNavigationRevision() &&
+        activation === desktop.getActivationRevision()
+      )
+        onCreated(result.review);
     } catch (error) {
       // A protocol rejection is definite. Network and server failures keep the
       // original body so a retry can recover a committed response without replay.
@@ -120,17 +132,13 @@ export function RequestReview({
       }}
     >
       <fieldset disabled={pending || !draft.loaded}>
-        <legend>Request Review</legend>
+        {showHeading && <legend>Request Review</legend>}
         <p>
-          Ask a person to review a saved version of <strong>{path}</strong>.
-          Discussion stays in one room thread. No agent starts automatically.
+          <strong>{path}</strong>
         </p>
         {draft.value.completed ? (
           <>
-            <p role="status">
-              Review requested: {draft.value.completed.title}. Open it to see
-              the latest decision, or start a separate review.
-            </p>
+            <p role="status">Review requested: {draft.value.completed.title}</p>
             <div className="app-actions">
               <Button
                 type="button"

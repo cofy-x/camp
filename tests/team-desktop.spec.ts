@@ -27,11 +27,18 @@ test.afterEach(async ({ page }) =>
 test('first-run discussion, private drafts, threads and explicit agent requests', async ({
   page,
 }, testInfo) => {
-  for (const name of ['Workspace', 'Library', 'Agents', 'Runners', 'Settings'])
+  for (const name of [
+    'Workspace',
+    'Work',
+    'Library',
+    'Agents',
+    'Runners',
+    'Settings',
+  ])
     await expect(
       page.locator('.p9-desktop-icon').getByText(name, { exact: true }),
     ).toHaveCount(1);
-  await expect(page.locator('.p9-desktop-icon')).toHaveCount(5);
+  await expect(page.locator('.p9-desktop-icon')).toHaveCount(6);
   if (['chromium', 'touch'].includes(testInfo.project.name))
     await page.screenshot({
       path: testInfo.outputPath('workspace-first-run.png'),
@@ -39,9 +46,9 @@ test('first-run discussion, private drafts, threads and explicit agent requests'
   await workspace(page)
     .getByRole('button', { name: 'Set Up Agent Work…', exact: true })
     .click();
-  await expect(
-    settings(page).getByRole('heading', { name: 'Getting Ready', exact: true }),
-  ).toBeVisible();
+  await expect(settings(page).locator('.p9-window-title')).toHaveText(
+    'Getting Ready — Settings',
+  );
   await settings(page)
     .getByRole('button', { name: 'Open Workspace', exact: true })
     .click();
@@ -117,7 +124,7 @@ for (const inputMode of ['fill', 'keyboard'] as const) {
     const name = `writing-${testInfo.project.name}-${inputMode}-${testInfo.repeatEachIndex}`;
     const room = await createRoom(page, name);
     await workspace(page)
-      .getByRole('button', { name: 'Library', exact: true })
+      .getByRole('button', { name: 'Files', exact: true })
       .click();
     await newDocument(
       page,
@@ -153,10 +160,26 @@ for (const inputMode of ['fill', 'keyboard'] as const) {
       .getByRole('button', { name: 'History', exact: true })
       .click();
     await expect(
-      library(page).getByText(/Browser Owner.*Checks not run/),
-    ).toBeVisible();
+      library(page).locator('.camp-library-version-meta'),
+    ).toContainText('Browser Owner');
     await library(page)
-      .getByRole('button', { name: 'History', exact: true })
+      .getByRole('button', { name: 'More version actions', exact: true })
+      .click();
+    await page
+      .getByRole('menuitem', { name: 'Version Details…', exact: true })
+      .click();
+    const versionDetails = page.getByRole('dialog', {
+      name: 'Version Details',
+      exact: true,
+    });
+    await expect(
+      versionDetails.getByText('Checks not run', { exact: true }),
+    ).toBeVisible();
+    await versionDetails
+      .getByRole('button', { name: 'Done', exact: true })
+      .click();
+    await library(page)
+      .getByRole('button', { name: 'Back to Files', exact: true })
       .click();
     await expect(
       library(page).getByRole('combobox', { name: 'Use in room', exact: true }),
@@ -176,7 +199,7 @@ for (const inputMode of ['fill', 'keyboard'] as const) {
     ).toEqual([]);
     await post(page, name, 'Please review the attached guide with me.');
     await workspace(page)
-      .getByRole('button', { name: 'Library', exact: true })
+      .getByRole('button', { name: 'Files', exact: true })
       .click();
     await library(page)
       .getByRole('button', { name: 'Edit Text', exact: true })
@@ -347,9 +370,7 @@ test('invited teammate, human mentions outside Workspace and account revocation'
     await expect(
       membership.getByRole('button', { name: 'Leave Room', exact: true }),
     ).toHaveCount(0);
-    await agents
-      .getByRole('button', { name: 'Close Agents', exact: true })
-      .click();
+    await agents.getByRole('button', { name: /^Close .+ — Agents$/ }).click();
     await openApp(member, 'Workspace');
     await workspace(member)
       .getByRole('button', { name: /^Close .*Workspace$/ })
@@ -420,7 +441,7 @@ test('file upload preserves originals and desktop controls fit the viewport', as
   await expect(composer.getByText(filename, { exact: true })).toBeVisible();
   await post(page, room.name, 'These are the original customer notes.');
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   const original = library(page)
     .getByRole('complementary', { name: 'Library resources' })
@@ -443,9 +464,12 @@ test('file upload preserves originals and desktop controls fit the viewport', as
   await expect(
     library(page).getByText('Original customer notes.', { exact: false }),
   ).toBeVisible();
+  await expect(library(page).locator('.p9-window-title')).toHaveText(
+    `${filename} — Library`,
+  );
   await page.screenshot({ path: testInfo.outputPath('library-original.png') });
   await library(page)
-    .getByRole('button', { name: 'Close Library', exact: true })
+    .getByRole('button', { name: `Close ${filename} — Library`, exact: true })
     .click();
   const win = workspace(page);
   const viewport = page.viewportSize()!;
@@ -491,7 +515,7 @@ test('publication keeps newer typing private and immediate close flushes the edi
 }, testInfo) => {
   const room = await createRoom(page, `autosave-${testInfo.project.name}`);
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   await newDocument(page, 'memo.md', 'The submitted document.');
   let release = () => {};
@@ -525,12 +549,24 @@ test('publication keeps newer typing private and immediate close flushes the edi
         { exact: true },
       ),
     ).toBeVisible();
+    await expect(
+      library(page).getByRole('button', {
+        name: 'Publish Changes',
+        exact: true,
+      }),
+    ).toBeEnabled();
     await page.unrouteAll({ behavior: 'wait' });
     await library(page)
       .getByLabel('Document content', { exact: true })
       .fill('Last keystrokes before closing.');
+    await expect(library(page).locator('.p9-window-title')).toHaveText(
+      `${room.name} — Library`,
+    );
     await library(page)
-      .getByRole('button', { name: 'Close Library', exact: true })
+      .getByRole('button', {
+        name: `Close ${room.name} — Library`,
+        exact: true,
+      })
       .click();
     await expect(library(page)).toHaveCount(0);
     await expect
@@ -546,7 +582,7 @@ test('publication keeps newer typing private and immediate close flushes the edi
       )
       .toBe('Last keystrokes before closing.');
     await workspace(page)
-      .getByRole('button', { name: 'Library', exact: true })
+      .getByRole('button', { name: 'Files', exact: true })
       .click();
     await library(page)
       .getByRole('button', { name: 'Edit Text', exact: true })
@@ -566,13 +602,13 @@ test('publication keeps newer typing private and immediate close flushes the edi
   }
 });
 
-test('history inspects exact versions and downloads differences without restoring', async ({
+test('history inspects exact versions, downloads differences, and confirms restoration', async ({
   page,
   isMobile,
 }, testInfo) => {
   const room = await createRoom(page, `history-${testInfo.project.name}`);
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   await newDocument(page, 'proposal.md', 'First published draft.');
   await library(page)
@@ -581,15 +617,24 @@ test('history inspects exact versions and downloads differences without restorin
   await expect(
     library(page).getByText('Published to shared files.', { exact: true }),
   ).toBeVisible();
+  await expect(
+    library(page).getByRole('button', { name: 'Publish Changes', exact: true }),
+  ).toBeDisabled();
   await library(page)
     .getByLabel('Document content', { exact: true })
     .fill('Revised published draft.');
+  await expect(
+    library(page).getByRole('button', { name: 'Publish Changes', exact: true }),
+  ).toBeEnabled();
   await library(page)
     .getByRole('button', { name: 'Publish Changes', exact: true })
     .click();
   await expect(
     library(page).getByText('Published to shared files.', { exact: true }),
   ).toBeVisible();
+  await expect(
+    library(page).getByRole('button', { name: 'Publish Changes', exact: true }),
+  ).toBeDisabled();
   const latest = await (
     await page.request.get(`/api/resources/${room.resourceId}/files`)
   ).json();
@@ -614,14 +659,53 @@ test('history inspects exact versions and downloads differences without restorin
   const versions = library(page).locator('.camp-library-history article');
   await expect(versions).toHaveCount(2);
   await expect(
-    versions.first().getByText('Current version', { exact: true }),
-  ).toBeVisible();
+    library(page).getByRole('button', { name: 'Back to Files', exact: true }),
+  ).toHaveCount(1);
   await expect(
-    versions.first().getByRole('button', { name: /^Restore Version/ }),
+    versions.first().getByText('Checks not run', { exact: true }),
   ).toHaveCount(0);
   await expect(
-    versions.nth(1).getByRole('button', { name: /^Restore Version/ }),
-  ).toBeEnabled();
+    versions.first().locator('.camp-library-version-meta'),
+  ).toContainText(owner.name);
+  const headerBounds = await library(page)
+    .getByRole('heading', { name: 'Shared version history', exact: true })
+    .boundingBox();
+  const firstBounds = await versions.first().boundingBox();
+  expect(headerBounds).not.toBeNull();
+  expect(firstBounds).not.toBeNull();
+  expect(
+    firstBounds!.y - (headerBounds!.y + headerBounds!.height),
+  ).toBeGreaterThanOrEqual(11);
+  await expect(
+    versions.first().getByText('Current version', { exact: true }),
+  ).toBeVisible();
+  const currentMore = versions.first().getByRole('button', {
+    name: 'More version actions',
+    exact: true,
+  });
+  await currentMore.focus();
+  await currentMore.press('ArrowDown');
+  await expect(page.getByRole('menu')).toBeVisible();
+  await expect(
+    page.getByRole('menuitem', { name: 'Restore Version…', exact: true }),
+  ).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(currentMore).toBeFocused();
+  await currentMore.click();
+  await page
+    .getByRole('menuitem', { name: 'Version Details…', exact: true })
+    .click();
+  const details = page.getByRole('dialog', {
+    name: 'Version Details',
+    exact: true,
+  });
+  await expect(details).toContainText(`${room.name} files`);
+  await expect(details).toContainText(latest.commit);
+  await expect(
+    details.getByText('Checks not run', { exact: true }),
+  ).toBeVisible();
+  await details.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(currentMore).toBeFocused();
   await expect(
     library(page).getByRole('link', { name: 'Download Patch', exact: true }),
   ).toHaveCount(0);
@@ -661,7 +745,10 @@ test('history inspects exact versions and downloads differences without restorin
     .click();
   await versions
     .first()
-    .getByRole('button', { name: 'Compare with Previous', exact: true })
+    .getByRole('button', { name: 'More version actions', exact: true })
+    .click();
+  await page
+    .getByRole('menuitem', { name: 'Compare with Previous', exact: true })
     .click();
   const changes = library(page).getByLabel('Version differences', {
     exact: true,
@@ -687,7 +774,7 @@ test('history inspects exact versions and downloads differences without restorin
     .getByRole('button', { name: 'Back to History', exact: true })
     .click();
   await library(page)
-    .getByRole('button', { name: 'History', exact: true })
+    .getByRole('button', { name: 'Back to Files', exact: true })
     .click();
   await library(page)
     .getByRole('button', { name: 'Return to Latest', exact: true })
@@ -703,6 +790,133 @@ test('history inspects exact versions and downloads differences without restorin
   ).json();
   expect(history.publications).toHaveLength(2);
   expect(history.publications[0].commit).toBe(latest.commit);
+  const restoreBodies: {
+    expectedCommit: string;
+    commit: string;
+    requestId: string;
+  }[] = [];
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      request.url().endsWith(`/api/resources/${room.resourceId}/restore`)
+    )
+      restoreBodies.push(request.postDataJSON());
+  });
+  await library(page)
+    .getByRole('button', { name: 'History', exact: true })
+    .click();
+  const olderMore = versions
+    .nth(1)
+    .getByRole('button', { name: 'More version actions', exact: true });
+  await olderMore.click();
+  await page
+    .getByRole('menuitem', { name: 'Restore Version…', exact: true })
+    .click();
+  const confirmation = page.getByRole('dialog', {
+    name: 'Restore Shared Files',
+    exact: true,
+  });
+  await expect(confirmation).toContainText(
+    `all shared files in “${room.name} files”`,
+  );
+  await expect(confirmation).toContainText('creates a new shared version');
+  await expect(confirmation).toContainText('current version stays in history');
+  await confirmation
+    .getByRole('button', { name: 'Cancel', exact: true })
+    .click();
+  expect(restoreBodies).toHaveLength(0);
+  expect(
+    (
+      await (
+        await page.request.get(`/api/resources/${room.resourceId}/files`)
+      ).json()
+    ).commit,
+  ).toBe(latest.commit);
+  await olderMore.click();
+  await page
+    .getByRole('menuitem', { name: 'Restore Version…', exact: true })
+    .click();
+  await confirmation
+    .getByRole('button', { name: 'Restore Version', exact: true })
+    .click();
+  await expect(versions).toHaveCount(3);
+  expect(restoreBodies).toHaveLength(1);
+  expect(restoreBodies[0]).toMatchObject({
+    expectedCommit: latest.commit,
+    commit: history.publications[1].commit,
+  });
+  expect(restoreBodies[0].requestId).toBeTruthy();
+  const restored = await (
+    await page.request.get(`/api/resources/${room.resourceId}/files`)
+  ).json();
+  expect(restored.commit).not.toBe(latest.commit);
+  expect(restored.commit).not.toBe(history.publications[1].commit);
+  const restoredFile = await page.request.get(
+    `/api/resources/${room.resourceId}/file?path=proposal.md&commit=${restored.commit}`,
+  );
+  expect(await restoredFile.text()).toBe('First published draft.');
+  await expect(
+    versions.first().getByText('Restored version', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    versions.first().getByText('Current version', { exact: true }),
+  ).toBeVisible();
+  await library(page)
+    .getByRole('button', { name: 'Back to Files', exact: true })
+    .click();
+  await expect(
+    library(page).getByText('First published draft.', { exact: true }),
+  ).toBeVisible();
+  await library(page)
+    .getByRole('button', { name: 'History', exact: true })
+    .click();
+  await versions
+    .nth(1)
+    .getByRole('button', { name: 'More version actions', exact: true })
+    .click();
+  await page
+    .getByRole('menuitem', { name: 'Restore Version…', exact: true })
+    .click();
+  await expect(confirmation).toBeVisible();
+  const backgroundEdit = await mutate(
+    page,
+    `/resources/${room.resourceId}/files`,
+    {
+      requestId: randomUUID(),
+      expectedCommit: restored.commit,
+      path: 'background.md',
+      content: 'A newer shared file must survive the stale restore.',
+    },
+    'PUT',
+  );
+  expect(backgroundEdit.ok()).toBe(true);
+  const newer = await backgroundEdit.json();
+  await expect(versions).toHaveCount(4);
+  const rejectedRestore = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/resources/${room.resourceId}/restore`) &&
+      response.request().method() === 'POST',
+  );
+  await confirmation
+    .getByRole('button', { name: 'Restore Version', exact: true })
+    .click();
+  expect((await rejectedRestore).status()).toBe(409);
+  expect(restoreBodies).toHaveLength(2);
+  expect(restoreBodies[1]).toMatchObject({
+    expectedCommit: restored.commit,
+    commit: history.publications[0].commit,
+  });
+  await expect(library(page).getByRole('alert')).toBeVisible();
+  const afterConflict = await (
+    await page.request.get(`/api/resources/${room.resourceId}/files`)
+  ).json();
+  expect(afterConflict.commit).toBe(newer.resource.currentCommit);
+  const retainedNewFile = await page.request.get(
+    `/api/resources/${room.resourceId}/file?path=background.md&commit=${afterConflict.commit}`,
+  );
+  expect(await retainedNewFile.text()).toBe(
+    'A newer shared file must survive the stale restore.',
+  );
 });
 
 test('Platinum control panels stay usable in a narrow window with keyboard navigation', async ({
@@ -738,7 +952,7 @@ test('Platinum control panels stay usable in a narrow window with keyboard navig
   await chooser.press('Enter');
   await expect(chooser).toHaveValue('models');
   await expect(
-    win.getByRole('heading', { name: 'Model Connection' }),
+    win.getByRole('group', { name: 'Model connection', exact: true }),
   ).toBeVisible();
   await expect(win.getByLabel('API key', { exact: true })).toHaveValue('');
   for (const section of [

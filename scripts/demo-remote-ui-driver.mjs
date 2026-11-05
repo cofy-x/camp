@@ -118,7 +118,10 @@ export async function createDemoAgent({
   snapshot,
 }) {
   const workspace = page.locator('[data-window-id="workspace:main"]');
-  await workspace.getByRole('button', { name: 'Agents', exact: true }).click();
+  await workspace
+    .getByRole('button', { name: 'Room actions', exact: true })
+    .click();
+  await page.getByRole('menuitem', { name: 'Agents…', exact: true }).click();
   const panel = workspace.getByRole('region', {
     name: 'Room agents',
     exact: true,

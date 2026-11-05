@@ -20,14 +20,20 @@ export interface InboxItem {
     | 'review_updated'
     | 'task_question'
     | 'task_attention'
-    | 'task_finished';
+    | 'task_finished'
+    | 'work_item_attention'
+    | 'work_item_finished';
   taskId?: string;
+  workItemId?: string;
   roomId: string;
   messageId: string;
   runId: string;
   reviewId?: string;
   roomName: string;
   reviewTitle: string;
+  title?: string;
+  question?: string;
+  summary?: string;
   createdAt: string;
   readAt: string;
 }
@@ -124,7 +130,10 @@ export const teamApi = {
       json('PUT', { key, value, revision }),
     ),
   deleteDraft: (kind: string, key: string, revision: number) =>
-    request(`/me/drafts/${kind}`, json('DELETE', { key, revision })),
+    request<{ draft: PrivateDraft }>(
+      `/me/drafts/${kind}`,
+      json('DELETE', { key, revision }),
+    ),
   drafts: (kind: string) =>
     request<{
       drafts: {

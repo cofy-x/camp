@@ -4,8 +4,10 @@ import { join } from 'node:path';
 import { verifyRelease, verifyRunnerInstallationReport } from './release.mjs';
 import {
   upgradeBaseline,
+  protocolTransitionBaseline,
   previousRelease,
-  verifyPreviousRunnerUpgrade,
+  runnerUpgradeProfiles,
+  verifyRunnerUpgrade,
 } from './upgrade.mjs';
 import { verifyWorkerArtifact } from './worker-release.mjs';
 import { assertServerServiceReceipt } from './server-service.mjs';
@@ -38,6 +40,25 @@ export async function collectReleaseEvidence(
   assert.equal(acceptance.sourceModified, false);
   assert.equal(acceptance.native.status, 'passed');
   assert.equal(acceptance.validationOnly, validationOnly);
+  for (const [field, baseline] of [
+    ['serverUpgrade', upgradeBaseline],
+    ['serverTransitionUpgrade', protocolTransitionBaseline],
+    ['serverPreviousUpgrade', previousRelease],
+  ]) {
+    const report = acceptance[field];
+    assert.equal(report?.status, 'passed');
+    assert.equal(report.version, identity.version);
+    assert.equal(report.sourceCommit, identity.sourceCommit);
+    assert.equal(report.sourceModified, false);
+    assert.equal(report.fromVersion, baseline);
+  }
+  for (const mode of Object.keys(runnerUpgradeProfiles)) {
+    const reports = acceptance.installations.filter(
+      (report) => report.mode === mode,
+    );
+    assert.equal(reports.length, 1, `Retain one Linux ${mode} report.`);
+    verifyRunnerUpgrade(reports[0], runner, 'linux-amd64', mode);
+  }
   assert.match(
     acceptance.ci.sourceBrowserFixture,
     /^https:\/\/github\.com\/cofy-x\/camp\/actions\/runs\/\d+$/,
@@ -56,6 +77,10 @@ export async function collectReleaseEvidence(
     assert.equal(report.sourceCommit, identity.sourceCommit);
     assert.equal(report.archiveSHA256, server.servers[platform].sha256);
     assert.equal(report.upgrade?.fromVersion, upgradeBaseline);
+    assert.equal(
+      report.transitionUpgrade?.fromVersion,
+      protocolTransitionBaseline,
+    );
     assert.equal(report.previousUpgrade?.fromVersion, previousRelease);
     assertServerServiceReceipt(report.service, {
       version: identity.version,
@@ -117,14 +142,16 @@ export async function collectReleaseEvidence(
       verifyRunnerInstallationReport(report, runner, 'darwin-arm64', mode);
       acceptance.macRunners.push({ host, ...report });
     }
-    const previous = JSON.parse(
-      await readFile(
-        join(directory, `runner-verification-${host}-previous-upgrade.json`),
-        'utf8',
-      ),
-    );
-    verifyPreviousRunnerUpgrade(previous, runner, 'darwin-arm64');
-    acceptance.macRunners.push({ host, ...previous });
+    for (const mode of Object.keys(runnerUpgradeProfiles)) {
+      const report = JSON.parse(
+        await readFile(
+          join(directory, `runner-verification-${host}-${mode}.json`),
+          'utf8',
+        ),
+      );
+      verifyRunnerUpgrade(report, runner, 'darwin-arm64', mode);
+      acceptance.macRunners.push({ host, ...report });
+    }
   }
 
   const actualMac = await optionalMacWorkerEvidence(

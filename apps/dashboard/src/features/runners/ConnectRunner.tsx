@@ -146,7 +146,6 @@ export function ConnectRunner({
 
   return (
     <section className="camp-runner-connect" aria-label="Connect Runner">
-      <h2>Connect a machine</h2>
       <section
         className="camp-runner-connect-step"
         aria-label="Install Camp Runner"

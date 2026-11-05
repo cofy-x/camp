@@ -59,6 +59,8 @@ func automationPayload(kind, action, body string, actor, object int64) []byte {
 
 func TestAutomationObservedAssessmentQuestionExternalAnswerAndOnePublication(t *testing.T) {
 	var modelCalls atomic.Int64
+	var sourceCalls, followUpCalls atomic.Int64
+	var assessments sync.Map
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		modelCalls.Add(1)
 		var request struct {
@@ -77,12 +79,21 @@ func TestAutomationObservedAssessmentQuestionExternalAnswerAndOnePublication(t *
 			w.WriteHeader(400)
 			return
 		}
-		assessment := orchestration.Assessment{Outcome: "accept", Goal: "[fixture:ask-person] Prepare a release guide, ask who should receive it, and finish.", Reason: "A release guide request matches the policy."}
+		if _, loaded := assessments.LoadOrStore(candidate.ID, true); loaded {
+			t.Error("a frozen assessment was sent to the provider twice")
+		}
+		assessment := orchestration.Assessment{Outcome: "accept", CompletionCriteria: "The requested guide is published and all outgoing comments have confirmed receipts.", Goal: "[fixture:ask-person] Prepare a release guide, ask who should receive it, and finish.", Reason: "A release guide request matches the policy."}
 		if strings.Contains(candidate.Events[len(candidate.Events)-1].Content, "Additional context") {
 			assessment = orchestration.Assessment{Outcome: "ignore", Reason: "This is context for the existing active guide task."}
 		}
 		if strings.Contains(candidate.Events[len(candidate.Events)-1].Content, "New request after completion") {
 			assessment.Goal = "[fixture:finish] Prepare a separate follow-up guide."
+		}
+		if target := candidate.Events[0].WorkItemID; target != "" {
+			followUpCalls.Add(1)
+			assessment = orchestration.Assessment{Outcome: "complete", WorkItemID: target, Reason: "The guide task has finished; close the matter after outgoing delivery is confirmed."}
+		} else {
+			sourceCalls.Add(1)
 		}
 		text, _ := json.Marshal(assessment)
 		_ = json.NewEncoder(w).Encode(map[string]any{"stop_reason": "end_turn", "content": []any{map[string]string{"type": "text", "text": string(text)}}})
@@ -234,6 +245,26 @@ func TestAutomationObservedAssessmentQuestionExternalAnswerAndOnePublication(t *
 		t.Fatal("answer replay was not idempotent", replay, duplicate, err)
 	}
 	finished := h.taskState(t, task.ID, "completed")
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		w, err := h.store.GetWorkItem(h.actor, finished.WorkItemID)
+		if err != nil {
+			t.Log("matter diagnostics", err)
+			return
+		}
+		t.Logf("matter status=%s revision=%d active=%s question=%q wait=%q usage=%+v", w.Status, w.Revision, w.ActiveTaskID, w.Question, w.WaitCondition, w.Usage)
+		for _, d := range w.Decisions {
+			t.Logf("decision kind=%s actor=%s/%s reason=%q eval=%s", d.Kind, d.ActorKind, d.ActorID, d.Reason, d.EvaluationID)
+		}
+		page, err := h.store.AutomationEvents(h.actor, room.ID, 0, nil, 20)
+		if err == nil {
+			for _, ev := range page.Items {
+				t.Logf("event kind=%s status=%s reason=%s eval=%s work=%s", ev.Kind, ev.Status, ev.Reason, ev.EvaluationID, ev.WorkItemID)
+			}
+		}
+	})
 	if finished.Question.Answer != "Internal team" || finished.Question.AnsweredByUserID != "" || finished.Question.AnsweredByExternalActorID != "123" || finished.Question.AnswerSourceEventID != "github:"+answer.ID || finished.TurnsUsed != 2 {
 		t.Fatalf("external answer attribution or rounds: %+v", finished)
 	}
@@ -256,8 +287,12 @@ func TestAutomationObservedAssessmentQuestionExternalAnswerAndOnePublication(t *
 			t.Fatalf("external original was attributed to a Camp member: %+v", input)
 		}
 	}
-	if modelCalls.Load() != 3 {
-		t.Fatalf("answer/echo/restart made extra assessments: %d", modelCalls.Load())
+	remoteEventually(t, 5*time.Second, "the published matter did not complete after confirmed effects", func() bool {
+		w, err := h.store.GetWorkItem(h.actor, finished.WorkItemID)
+		return err == nil && w.Status == "completed" && w.Usage.Tasks == 1
+	})
+	if sourceCalls.Load() != 3 || followUpCalls.Load() < 1 || modelCalls.Load() != sourceCalls.Load()+followUpCalls.Load() {
+		t.Fatalf("source intake replayed or the matter failed to follow up: source=%d followUp=%d total=%d", sourceCalls.Load(), followUpCalls.Load(), modelCalls.Load())
 	}
 	terminalNew, _, _ := receive("issue_comment", "created", "New request after completion: prepare a separate follow-up guide.", 123, 404)
 	newAdmission := awaitEvent(terminalNew.ID, "accepted")

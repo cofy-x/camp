@@ -1,4 +1,6 @@
 import { request } from '../../shared/api/http';
+import type { WorkBudget, WorkItemSummary } from '../workitems/api';
+import type { Memory } from '../memory/api';
 
 export interface AutomationPolicy {
   id: string;
@@ -14,6 +16,7 @@ export interface AutomationPolicy {
   firstAgentId: string;
   maxTurns: number;
   maxModelRequests: number;
+  itemBudget?: WorkBudget;
   dailyEvaluations: number;
   dailyTasks: number;
   allowAnswers: boolean;
@@ -33,6 +36,7 @@ export type PolicyValues = Pick<
   | 'firstAgentId'
   | 'maxTurns'
   | 'maxModelRequests'
+  | 'itemBudget'
   | 'dailyEvaluations'
   | 'dailyTasks'
   | 'allowAnswers'
@@ -60,11 +64,30 @@ export interface SourceEvent {
   reason?: string;
   evaluationId?: string;
   taskId?: string;
+  workItemId?: string;
+  feishu?: {
+    eventId: string;
+    appId: string;
+    tenantKey: string;
+    chatId: string;
+    messageId: string;
+    threadId: string;
+    actorOpenId: string;
+  };
   policyRevision?: number;
   preview?: string;
-  assessmentOutcome?: 'accept' | 'ignore' | 'unavailable';
+  assessmentOutcome?: AssessmentOutcome;
   assessmentReason?: string;
 }
+
+export type AssessmentOutcome =
+  | 'accept'
+  | 'execute'
+  | 'wait'
+  | 'request_judgment'
+  | 'complete'
+  | 'ignore'
+  | 'unavailable';
 
 export interface SourceEventPage {
   items: SourceEvent[];
@@ -80,13 +103,25 @@ export interface Evaluation {
   policy: AutomationPolicy;
   events: SourceEvent[];
   tasks: { id: string; goal: string; status: string; revision: number }[];
+  workItems?: WorkItemSummary[];
+  memories?: Memory[];
+  workItemsOmitted?: boolean;
+  memoriesOmitted?: boolean;
+  totalWorkItems?: number;
+  totalMemories?: number;
+  contextLimited?: boolean;
   modelRevision: string;
   totalTasks: number;
   tasksOmitted: boolean;
   assessment?: {
-    outcome: 'accept' | 'ignore' | 'unavailable';
+    outcome: AssessmentOutcome;
     goal?: string;
     reason: string;
+    workItemId?: string;
+    completionCriteria?: string;
+    waitCondition?: string;
+    resumeAt?: string;
+    question?: string;
   } | null;
   createdAt: string;
 }
@@ -143,6 +178,10 @@ const json = (method: string, value: unknown) => ({
 });
 
 export const automationApi = {
+  event: (eventId: string, signal?: AbortSignal) =>
+    request<{ event: SourceEvent }>(`/automation-events/${id(eventId)}`, {
+      signal,
+    }),
   policies: (room: string, signal?: AbortSignal) =>
     request<{ policies: AutomationPolicy[] }>(
       `/rooms/${id(room)}/automation-policies`,
@@ -197,6 +236,22 @@ export const automationApi = {
     request<Evaluation>(`/automation-evaluations/${id(evaluationId)}`, {
       signal,
     }),
+  evaluationContext: <K extends 'work-items' | 'memories'>(
+    evaluationId: string,
+    kind: K,
+    after = 0,
+    signal?: AbortSignal,
+  ) =>
+    request<{
+      items: (K extends 'work-items' ? WorkItemSummary : Memory)[];
+      nextAfter: number;
+      hasMore: boolean;
+      total: number;
+      contextLimited?: boolean;
+    }>(
+      `/automation-evaluations/${id(evaluationId)}/context/${kind}?after=${after}&limit=10`,
+      { signal },
+    ),
   subscriptions: (task: string, signal?: AbortSignal) =>
     request<{ subscriptions: Subscription[] }>(
       `/tasks/${id(task)}/subscriptions`,

@@ -17,7 +17,7 @@ import { IdentityAvatar } from '../identity/IdentityAvatar';
 import { useAccount } from '../../team/AuthContext';
 import { useTeam } from '../../team/TeamContext';
 
-export function Agents({ desktop }: AppWindowProps) {
+export function Agents({ desktop, window }: AppWindowProps) {
   const { user } = useAccount();
   const team = useTeam();
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -103,6 +103,14 @@ export function Agents({ desktop }: AppWindowProps) {
     setCreating(false);
   }, [team.navigation]);
   const agent = agents.find((item) => item.id === selected);
+  const location = creating
+    ? 'New Agent'
+    : editing && agent
+      ? `Edit ${agent.name}`
+      : agent?.name;
+  useEffect(() => {
+    desktop.setTitle(window.id, location ? `${location} — Agents` : 'Agents');
+  }, [desktop, window.id, location]);
   const canEdit = user.role === 'admin' || agent?.ownerUserId === user.id;
 
   async function membership(room: Room) {
@@ -135,26 +143,27 @@ export function Agents({ desktop }: AppWindowProps) {
   return (
     <div className="camp-agents-app">
       <div className="app-toolbar">
-        <strong>Agents</strong>
-        <div className="camp-agents-chooser">
-          <Select
-            label="Agent"
-            value={creating ? '' : selected}
-            disabled={pending}
-            onChange={(event) => {
-              setSelected(event.target.value);
-              setEditing(false);
-              setCreating(false);
-            }}
-          >
-            {creating && <option value="">New Agent</option>}
-            {agents.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </Select>
-        </div>
+        {(agents.length > 0 || creating) && (
+          <div className="camp-agents-chooser">
+            <Select
+              label="Agent"
+              value={creating ? '' : selected}
+              disabled={pending}
+              onChange={(event) => {
+                setSelected(event.target.value);
+                setEditing(false);
+                setCreating(false);
+              }}
+            >
+              {creating && <option value="">New Agent</option>}
+              {agents.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
         <Button
           disabled={pending}
           onClick={() => {
@@ -166,29 +175,36 @@ export function Agents({ desktop }: AppWindowProps) {
         </Button>
       </div>
       <div className="camp-agents-body">
-        <nav className="camp-resource-nav app-control-nav" aria-label="Agents">
-          {agents.map((item) => (
-            <button
-              key={item.id}
-              className={item.id === selected && !creating ? 'selected' : ''}
-              aria-current={
-                item.id === selected && !creating ? 'page' : undefined
-              }
-              onClick={() => {
-                setSelected(item.id);
-                setEditing(false);
-                setCreating(false);
-              }}
-            >
-              <IdentityAvatar avatar={item.avatar} kind="agent" size={28} />
-              <span>
-                {item.name}
-                <small>@{item.handle}</small>
-              </span>
-            </button>
-          ))}
-        </nav>
-        <main className="camp-agent-detail">
+        {agents.length > 0 && (
+          <nav
+            className="camp-resource-nav app-control-nav"
+            aria-label="Agents"
+          >
+            {agents.map((item) => (
+              <button
+                key={item.id}
+                className={item.id === selected && !creating ? 'selected' : ''}
+                aria-current={
+                  item.id === selected && !creating ? 'page' : undefined
+                }
+                onClick={() => {
+                  setSelected(item.id);
+                  setEditing(false);
+                  setCreating(false);
+                }}
+              >
+                <IdentityAvatar avatar={item.avatar} kind="agent" size={28} />
+                <span>
+                  {item.name}
+                  <small>@{item.handle}</small>
+                </span>
+              </button>
+            ))}
+          </nav>
+        )}
+        <main
+          className={`camp-agent-detail${!editing && !agent ? ' camp-agent-empty' : ''}`}
+        >
           {error && (
             <p className="app-error" role="alert">
               {error}
@@ -199,6 +215,7 @@ export function Agents({ desktop }: AppWindowProps) {
               key={creating ? 'new' : selected}
               agent={creating ? undefined : agent}
               agents={agents}
+              showHeading={false}
               onSave={(saved) => {
                 team.refresh();
                 setSelected(saved.id);
@@ -214,7 +231,6 @@ export function Agents({ desktop }: AppWindowProps) {
               <div className="panel-heading">
                 <IdentityAvatar avatar={agent.avatar} kind="agent" />
                 <div>
-                  <h2>{agent.name}</h2>
                   <p>
                     @{agent.handle} ·{' '}
                     {agent.ownerUserId
@@ -228,10 +244,12 @@ export function Agents({ desktop }: AppWindowProps) {
                   </p>
                 </div>
               </div>
-              <fieldset className="app-control-group camp-agent-role">
-                <legend>Responsibilities</legend>
-                <p>{agent.instructions || 'A general-purpose collaborator.'}</p>
-              </fieldset>
+              {agent.instructions && (
+                <fieldset className="app-control-group camp-agent-role">
+                  <legend>Responsibilities</legend>
+                  <p>{agent.instructions}</p>
+                </fieldset>
+              )}
               {canEdit && (
                 <Button
                   onClick={() => {
@@ -277,7 +295,7 @@ export function Agents({ desktop }: AppWindowProps) {
               </ul>
               {status && !status.available && (
                 <p className="app-error">
-                  Agents need attention in Settings before they can work.{' '}
+                  {status.reason || 'Agent work is unavailable.'}{' '}
                   {user.role === 'admin' && (
                     <Button
                       onClick={() =>
@@ -296,8 +314,13 @@ export function Agents({ desktop }: AppWindowProps) {
           ) : (
             <div className="camp-empty" role="status">
               <PixelIcon name="agent" size={32} />
-              <h2>{loading ? 'Loading Agents…' : 'No Agents yet'}</h2>
-              {!loading && <p>Create an Agent and share it with your Rooms.</p>}
+              <h2>
+                {loading
+                  ? 'Loading Agents…'
+                  : error
+                    ? 'Agents unavailable'
+                    : 'No Agents yet'}
+              </h2>
             </div>
           )}
         </main>

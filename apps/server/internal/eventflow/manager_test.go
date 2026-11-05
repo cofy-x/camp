@@ -29,6 +29,8 @@ type queueStore struct {
 	failFirst        bool
 }
 
+func (s *queueStore) FireWorkItemTimers(context.Context) error { return nil }
+
 func (s *queueStore) RecoverAutomationWork(context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

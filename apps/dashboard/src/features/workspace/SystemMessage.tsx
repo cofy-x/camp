@@ -15,8 +15,11 @@ export function SystemMessage({
   threadLabel,
   onReview,
   onTask,
+  taskLabel = 'Open collaboration',
   onInspect,
   onAsk,
+  onFollowUp,
+  onRemember,
   onThread,
   onSource,
   children,
@@ -28,8 +31,11 @@ export function SystemMessage({
   threadLabel: string;
   onReview: (id: string) => void;
   onTask: (id: string) => void;
+  taskLabel?: string;
   onInspect: (id: string) => void;
   onAsk: () => void;
+  onFollowUp: () => void;
+  onRemember: () => void;
   onThread?: () => void;
   onSource: (id: string) => void;
   children?: ReactNode;
@@ -61,6 +67,8 @@ export function SystemMessage({
         action: () => setSourcesOpen(!sourcesOpen),
       });
     items.push({ label: 'Ask agent…', action: onAsk });
+    items.push({ label: 'Follow up…', action: onFollowUp });
+    items.push({ label: 'Remember this…', action: onRemember });
     if (onThread) items.push({ label: threadLabel, action: onThread });
     const rect = button.getBoundingClientRect();
     desktop.contextMenu(items, { x: rect.left, y: rect.bottom });
@@ -101,7 +109,7 @@ export function SystemMessage({
                 className="workspace-text-button"
                 onClick={() => onTask(message.taskId!)}
               >
-                Open collaboration
+                {taskLabel}
               </button>
             ) : message.runId ? (
               <button

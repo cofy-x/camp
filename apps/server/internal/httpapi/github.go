@@ -16,7 +16,9 @@ import (
 func (a *API) EnableGitHub(secrets *configuration.WebhookSecrets) { a.webhookSecrets = secrets }
 
 func (a *API) githubRoutes(mux *http.ServeMux) {
-	a.hooks = http.NewServeMux()
+	if a.hooks == nil {
+		a.hooks = http.NewServeMux()
+	}
 	a.hooks.HandleFunc("POST /api/hooks/github/{id}", a.githubDelivery)
 	register := func(route string, h http.HandlerFunc) { mux.HandleFunc(route, a.authorizeRoute(route, h)) }
 	register("GET /api/rooms/{id}/github-sources", func(w http.ResponseWriter, r *http.Request) {

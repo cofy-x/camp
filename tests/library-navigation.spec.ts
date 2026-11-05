@@ -25,7 +25,7 @@ test('Library Sources preserves focus and keeps navigation accessible in a short
     expect(response.ok()).toBeTruthy();
   }
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   await page.setViewportSize({ width: 390, height: 430 });
   const win = library(page);
@@ -37,17 +37,23 @@ test('Library Sources preserves focus and keeps navigation accessible in a short
   const activate = (target: Locator) =>
     isMobile ? target.tap() : target.click();
 
-  await expect(win.locator('.camp-library-toolbar')).toContainText(
-    `${room.name} files`,
+  await expect(win.locator('.p9-window-title')).toHaveText(
+    `${room.name} — Library`,
   );
+  await expect(win.locator('.camp-library-toolbar')).not.toContainText(
+    room.name,
+  );
+  await expect(sources).toHaveAttribute('aria-pressed', 'false');
   await activate(sources);
   await expect(sources).toHaveAttribute('aria-expanded', 'true');
+  await expect(sources).toHaveAttribute('aria-pressed', 'true');
   await expect(selected).toContainText(`${room.name} files`);
   await expect(selected).toBeFocused();
   await expect(selected).toBeInViewport();
   await selected.press('Escape');
   await expect(panel).toBeHidden();
   await expect(sources).toHaveAttribute('aria-expanded', 'false');
+  await expect(sources).toHaveAttribute('aria-pressed', 'false');
   await expect(sources).toBeFocused();
 
   await activate(sources);
@@ -101,17 +107,20 @@ test('Library Sources preserves focus and keeps navigation accessible in a short
   );
   await expect(panel).toBeHidden();
   await expect(sources).toBeFocused();
-  await expect(win.locator('.camp-library-toolbar')).toContainText(
-    `${destination} files`,
+  await expect(win.locator('.p9-window-title')).toHaveText(
+    `${destination} — Library`,
+  );
+  await expect(win.locator('.camp-library-toolbar')).not.toContainText(
+    destination,
   );
   await activate(sources);
   await expect(selected).toContainText(`${destination} files`);
   await expect(selected).toBeFocused();
   await expect(selected).toBeInViewport();
   await activate(storage);
-  await expect(
-    settings(page).getByRole('heading', { name: 'Storage', exact: true }),
-  ).toBeVisible();
+  await expect(settings(page).locator('.p9-window-title')).toHaveText(
+    'Storage — Settings',
+  );
 });
 
 test('a delayed source change does not steal focus after leaving the drawer', async ({
@@ -120,7 +129,7 @@ test('a delayed source change does not steal focus after leaving the drawer', as
   await signIn(page);
   await createRoom(page, `source-focus-${testInfo.project.name}`);
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   await page.setViewportSize({ width: 390, height: 600 });
   let release = () => {};
@@ -167,7 +176,7 @@ test('Library actions preserve a private document while refreshing and wait for 
   await signIn(page);
   const room = await createRoom(page, `actions-draft-${testInfo.project.name}`);
   await workspace(page)
-    .getByRole('button', { name: 'Library', exact: true })
+    .getByRole('button', { name: 'Files', exact: true })
     .click();
   const win = library(page);
   const actions = win.getByRole('button', {
@@ -270,7 +279,7 @@ for (const initiallyFails of [false, true]) {
     });
     try {
       await workspace(page)
-        .getByRole('button', { name: 'Library', exact: true })
+        .getByRole('button', { name: 'Files', exact: true })
         .click();
       const win = library(page);
       await expect(win).toBeVisible();
@@ -295,11 +304,14 @@ for (const initiallyFails of [false, true]) {
       await expect(done).toBeFocused();
       release();
       await expect(
-        win.getByRole('heading', {
-          name: `No files in ${room.name} files`,
-          exact: true,
-        }),
+        win.getByText('No files yet', { exact: true }),
       ).toBeVisible();
+      await expect(win.locator('.p9-window-title')).toHaveText(
+        `${room.name} — Library`,
+      );
+      await expect(win.locator('.camp-library-toolbar')).not.toContainText(
+        room.name,
+      );
       await page.screenshot({
         path: testInfo.outputPath(
           `library-delayed-${initiallyFails ? 'retry' : 'load'}.png`,

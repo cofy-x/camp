@@ -2,7 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import type { Task } from '../apps/dashboard/src/features/collaboration/api';
 import type { Agent, Run } from '../apps/dashboard/src/features/workspace/api';
-import { createRoom, library, mutate, signIn, workspace } from './team-helpers';
+import {
+  openRoomMore,
+  createRoom,
+  library,
+  mutate,
+  signIn,
+  workspace,
+} from './team-helpers';
 
 const detail = (page: Page) =>
   workspace(page).getByRole('region', {
@@ -168,9 +175,7 @@ async function fixture(page: Page, name: string) {
       expect(response.ok()).toBeTruthy();
     },
     async open() {
-      await workspace(page)
-        .getByRole('button', { name: 'Collaborations', exact: true })
-        .click();
+      await openRoomMore(page, 'Execution history…');
       await workspace(page).getByRole('button', { name: task.goal }).click();
       await expect(detail(page)).toBeVisible();
     },
@@ -206,9 +211,7 @@ test('collaboration is explicit, previews finite grants and keeps inputs separat
   await expect(composer).toContainText('Ordinary request remained');
   expect(created).toEqual([]);
   await composer.getByRole('textbox').fill('');
-  await workspace(page)
-    .getByRole('button', { name: 'Collaborations', exact: true })
-    .click();
+  await openRoomMore(page, 'Execution history…');
   await workspace(page)
     .getByRole('button', { name: 'Start collaboration…', exact: true })
     .click();
@@ -242,9 +245,7 @@ test('collaboration is explicit, previews finite grants and keeps inputs separat
   ).toBeDisabled();
   await expect(form).toContainText('without starting another');
   await page.reload();
-  await workspace(page)
-    .getByRole('button', { name: 'Collaborations', exact: true })
-    .click();
+  await openRoomMore(page, 'Execution history…');
   await workspace(page)
     .getByRole('button', { name: 'Start collaboration…', exact: true })
     .click();
@@ -256,6 +257,9 @@ test('collaboration is explicit, previews finite grants and keeps inputs separat
   ).toBeDisabled();
   await form.getByRole('button', { name: 'Retry Start', exact: true }).click();
   await expect(detail(page)).toContainText('Waiting for Runner');
+  await expect(
+    detail(page).getByRole('button', { name: 'Show full goal', exact: true }),
+  ).toHaveCount(0);
   expect(created).toHaveLength(2);
   expect(created[1]).toEqual(created[0]);
   expect(created[0]).toMatchObject({
@@ -712,10 +716,31 @@ test('completed collaboration puts its fixed result before a long summary and ke
     await workspace(page).screenshot({
       path: info.outputPath('collaboration-result.png'),
     });
+  const goal = panel.getByRole('heading', {
+    name: value.task.goal,
+    exact: true,
+  });
+  const collapsedHeight = (await goal.boundingBox())!.height;
+  await panel
+    .getByRole('button', { name: 'Show full goal', exact: true })
+    .click();
+  await expect(
+    panel.getByRole('button', { name: 'Show less', exact: true }),
+  ).toHaveAttribute('aria-expanded', 'true');
+  await expect
+    .poll(async () => (await goal.boundingBox())!.height)
+    .toBeGreaterThan(collapsedHeight);
   await panel.getByRole('tab', { name: 'Task setup', exact: true }).click();
   await expect(
-    panel.getByRole('region', { name: 'Shared goal', exact: true }),
-  ).toContainText(value.task.goal);
+    panel.getByRole('heading', { name: value.task.goal, exact: true }),
+  ).toBeVisible();
+  await panel.getByRole('button', { name: 'Show less', exact: true }).click();
+  await expect(
+    panel.getByRole('button', { name: 'Show full goal', exact: true }),
+  ).toHaveAttribute('aria-expanded', 'false');
+  await expect
+    .poll(async () => (await goal.boundingBox())!.height)
+    .toBeCloseTo(collapsedHeight, 0);
   await expect(
     panel.getByRole('region', {
       name: 'Collaboration participants',
@@ -935,9 +960,7 @@ test('legacy pending collaboration starts retain the original protocol and ident
       : (requests.push(route.request().postDataJSON()),
         route.fulfill({ json: { task: value.task } })),
   );
-  await workspace(page)
-    .getByRole('button', { name: 'Collaborations', exact: true })
-    .click();
+  await openRoomMore(page, 'Execution history…');
   await workspace(page)
     .getByRole('button', { name: 'Start collaboration…', exact: true })
     .click();

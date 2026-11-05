@@ -114,15 +114,18 @@ async function selectRunner(page: Page, runner: Runner) {
       .getByRole('navigation', { name: 'Runners', exact: true })
       .getByRole('button', { name: runner.name, exact: true })
       .click();
-  await expect(
-    runnerDetail(page).getByRole('heading', { name: runner.name, exact: true }),
-  ).toBeVisible();
+  await expect(runnerApp(page).locator('.p9-window-title')).toHaveText(
+    `${runner.name} — Runners`,
+  );
 }
 
 async function connectRunner(page: Page, platform = 'linux-amd64') {
   await runnerApp(page)
     .getByRole('button', { name: 'Connect Runner…', exact: true })
     .click();
+  await expect(runnerApp(page).locator('.p9-window-title')).toHaveText(
+    'Connect Runner — Runners',
+  );
   const panel = runnerApp(page).getByRole('region', {
     name: 'Connect Runner',
     exact: true,
@@ -148,10 +151,18 @@ async function openImport(page: Page) {
   await library(page)
     .getByRole('button', { name: 'Import from Runner…', exact: true })
     .click();
-  return library(page).getByRole('region', {
+  await expect(library(page).locator('.p9-window-title')).toHaveText(
+    'Import from Runner — Library',
+  );
+  const panel = library(page).getByRole('region', {
     name: 'Import from Runner',
     exact: true,
   });
+  await expect(panel).toBeVisible();
+  await expect(
+    panel.getByRole('heading', { name: 'Import from Runner', exact: true }),
+  ).toHaveCount(0);
+  return panel;
 }
 
 test('Imported working files retain the initial Runner snapshot provenance', async ({
@@ -223,7 +234,7 @@ test('Imported working files retain the initial Runner snapshot provenance', asy
   });
   try {
     await workspace(page)
-      .getByRole('button', { name: 'Library', exact: true })
+      .getByRole('button', { name: 'Files', exact: true })
       .click();
     const file = library(page).getByRole('region', { name: 'Selected file' });
     await expect(file).toContainText(
@@ -312,9 +323,9 @@ test('Runner navigation separates connection codes from machine details and reta
     await target.focus();
     await page.keyboard.press('Enter');
   }
-  await expect(
-    detail.getByRole('heading', { name: runners[1].name, exact: true }),
-  ).toBeVisible();
+  await expect(app.locator('.p9-window-title')).toHaveText(
+    `${runners[1].name} — Runners`,
+  );
   await expect(detail).toContainText('Test executor');
   await expect(detail).not.toContainText('Execution ready');
   await expect(detail.getByText('pinned', { exact: true })).toHaveCount(0);
@@ -353,14 +364,14 @@ test('Runner navigation separates connection codes from machine details and reta
   await chooser.focus();
   await chooser.press('Home');
   await chooser.press('Enter');
-  await expect(
-    detail.getByRole('heading', { name: runners[0].name, exact: true }),
-  ).toBeVisible();
+  await expect(app.locator('.p9-window-title')).toHaveText(
+    `${runners[0].name} — Runners`,
+  );
   await chooser.press('End');
   await chooser.press('Enter');
-  await expect(
-    detail.getByRole('heading', { name: runners[1].name, exact: true }),
-  ).toBeVisible();
+  await expect(app.locator('.p9-window-title')).toHaveText(
+    `${runners[1].name} — Runners`,
+  );
   expect(
     await detail.evaluate(
       (element) => element.scrollWidth > element.clientWidth,
@@ -374,9 +385,9 @@ test('Runner navigation separates connection codes from machine details and reta
   await app
     .getByRole('button', { name: 'Back to Runners', exact: true })
     .click();
-  await expect(
-    detail.getByRole('heading', { name: runners[1].name, exact: true }),
-  ).toBeVisible();
+  await expect(app.locator('.p9-window-title')).toHaveText(
+    `${runners[1].name} — Runners`,
+  );
   await app.getByRole('button', { name: 'Refresh', exact: true }).click();
   await connectRunner(page);
   await expect(connect.getByLabel('Runner name', { exact: true })).toHaveValue(
@@ -944,7 +955,13 @@ test('Runner imports recover an uncertain receipt after closing the panel and ca
     return route.fulfill({ json: { sourceImport: value } });
   });
   await openApp(page, 'Library');
+  const title = library(page).locator('.p9-window-title');
+  await expect(title).toHaveText(/.+ — Library$/);
+  const originalTitle = (await title.textContent())!;
   let panel = await openImport(page);
+  await expect(
+    panel.getByRole('group', { name: 'Directory snapshot', exact: true }),
+  ).toBeVisible();
   await panel
     .getByLabel('Source Runner', { exact: true })
     .selectOption(runners[0].id);
@@ -964,6 +981,7 @@ test('Runner imports recover an uncertain receipt after closing the panel and ca
   await panel
     .getByRole('button', { name: 'Back to Files', exact: true })
     .click();
+  await expect(title).toHaveText(originalTitle);
   panel = await openImport(page);
   await panel
     .getByRole('button', { name: 'Check Import Receipt', exact: true })
@@ -1221,7 +1239,7 @@ test('Connect Runner selects native Mac packages with the keyboard and preserves
   ).toBe(false);
   if (['chromium', 'touch'].includes(info.project.name)) {
     await panel
-      .getByRole('heading', { name: 'Connect a machine', exact: true })
+      .getByRole('heading', { name: '1. Get Camp Runner', exact: true })
       .scrollIntoViewIfNeeded();
     await runnerApp(page).screenshot({
       path: info.outputPath('runners-native-mac.png'),
@@ -1648,9 +1666,9 @@ test('Late sample preparation cannot share or navigate after switching Runners',
       ),
     )
     .toContain('late-sample-agent');
-  await expect(
-    runnerDetail(page).getByRole('heading', { name: 'Mac B', exact: true }),
-  ).toBeVisible();
+  await expect(runnerApp(page).locator('.p9-window-title')).toHaveText(
+    'Mac B — Runners',
+  );
   expect(scene.shares).toEqual([]);
   expect(scene.sends).toEqual([]);
   await selectRunner(page, scene.machines[0]);
@@ -1848,9 +1866,9 @@ test('A late diagnostic task lookup cannot replace a newer Runner selection', as
   release.release();
   await completed;
   await expect(runnerApp(page)).toHaveClass(/is-active/);
-  await expect(
-    runnerDetail(page).getByRole('heading', { name: 'Mac B', exact: true }),
-  ).toBeVisible();
+  await expect(runnerApp(page).locator('.p9-window-title')).toHaveText(
+    'Mac B — Runners',
+  );
 });
 
 test('Unavailable browser receipt storage blocks sample creation before any write', async ({

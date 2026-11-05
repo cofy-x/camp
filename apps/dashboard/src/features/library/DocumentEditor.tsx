@@ -81,10 +81,15 @@ export function DocumentEditor({
   }
 
   async function publish() {
+    const submitted = draft.getValue();
+    if (
+      published?.content === submitted.content &&
+      published?.commit === submitted.baseCommit
+    )
+      return;
     setPending(true);
     setError('');
     setPublished(null);
-    const submitted = draft.getValue();
     const key = JSON.stringify(submitted);
     const requestId = request?.key === key ? request.id : crypto.randomUUID();
     setRequest({ key, id: requestId });
@@ -217,6 +222,7 @@ export function DocumentEditor({
           disabled={
             !draft.loaded ||
             pending ||
+            saved ||
             sharedConflict ||
             new TextEncoder().encode(draft.value.content).length > 1048576
           }

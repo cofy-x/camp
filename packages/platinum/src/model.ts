@@ -199,6 +199,46 @@ export function initialIconPosition(
   };
 }
 
+/** Place newly registered icons around saved positions without rearranging them. */
+export function resolvedIconPositions(
+  ids: string[],
+  saved: Record<string, Point>,
+  viewport: DesktopViewport,
+): Record<string, Point> {
+  const positions = Object.fromEntries(
+    ids.filter((id) => Object.hasOwn(saved, id)).map((id) => [id, saved[id]]),
+  );
+  const bounds = (point: Point): Bounds => ({
+    x: Math.max(0, Math.min(point.x, viewport.width - ICON_SIZE.width)),
+    y: Math.max(
+      (viewport.menuHeight ?? MENU_HEIGHT) + 6,
+      Math.min(
+        point.y,
+        viewport.height -
+          ICON_SIZE.height -
+          (viewport.stripHeight ?? STRIP_HEIGHT) -
+          8,
+      ),
+    ),
+    ...ICON_SIZE,
+  });
+  const occupied = Object.values(positions).map(bounds);
+  let slot = 0;
+  for (const id of ids) {
+    if (Object.hasOwn(positions, id)) continue;
+    let candidate = initialIconPosition(slot++, viewport);
+    // Small viewports can have fewer grid slots than icons; keep placement bounded.
+    for (let attempts = 0; attempts < ids.length * 4; attempts++) {
+      if (!occupied.some((other) => intersects(bounds(candidate), other)))
+        break;
+      candidate = initialIconPosition(slot++, viewport);
+    }
+    positions[id] = candidate;
+    occupied.push(bounds(candidate));
+  }
+  return positions;
+}
+
 export function overviewTransform(
   bounds: Bounds,
   index: number,

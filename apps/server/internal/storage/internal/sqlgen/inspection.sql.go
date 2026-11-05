@@ -104,6 +104,8 @@ SELECT resource_id,commit_id FROM (
  FROM runs r,json_each(r.snapshot,'$.references') j WHERE json_extract(j.value,'$.kind')='file'
  UNION SELECT CAST(json_extract(value,'$.resourceId') AS TEXT),CAST(json_extract(value,'$.baseCommit') AS TEXT)
  FROM user_drafts WHERE kind='document'
+ UNION SELECT CAST(json_extract(value,'$.provenance.resourceId') AS TEXT),CAST(json_extract(value,'$.provenance.commit') AS TEXT)
+ FROM memory_revisions WHERE json_extract(value,'$.provenance.kind')='file'
 ) WHERE resource_id IS NOT NULL AND commit_id IS NOT NULL AND commit_id<>'' ORDER BY resource_id,commit_id LIMIT 100001
 `
 

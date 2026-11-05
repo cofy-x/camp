@@ -206,6 +206,8 @@ func immutableRun(previous Run, r *Run) {
 	r.CancellationReason = previous.CancellationReason
 	r.RequestedByUserID = previous.RequestedByUserID
 	r.References = previous.References
+	r.Memories = previous.Memories
+	r.MemoriesFrozen = previous.MemoriesFrozen
 	r.ID = previous.ID
 	r.RoomID = previous.RoomID
 	r.ThreadRootID = previous.ThreadRootID

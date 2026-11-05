@@ -16,6 +16,7 @@ import (
 )
 
 type Store interface {
+	FireWorkItemTimers(context.Context) error
 	RecoverAutomationWork(context.Context) error
 	ClaimAutomationEvaluation(context.Context, string, storage.Budget) (*orchestration.Candidate, error)
 	CompleteAutomationEvaluation(context.Context, string, orchestration.Assessment) error
@@ -108,6 +109,9 @@ func (m *Manager) evaluate() {
 	var result orchestration.Assessment
 	for m.ctx.Err() == nil {
 		if pending == nil {
+			if err := m.store.FireWorkItemTimers(m.ctx); err != nil {
+				m.report("fire_timers", "")
+			}
 			revision, model := m.models.Snapshot()
 			budget := storage.Budget{RequireRunner: true, RuntimeKey: revision, Model: model.Model, MaxTokens: model.MaxTokens, MaxSteps: model.MaxSteps, TimeoutSeconds: model.TimeoutSeconds}
 			var err error

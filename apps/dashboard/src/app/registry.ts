@@ -6,12 +6,14 @@ import { runnersApp } from '../features/runners/definition';
 import { agentsApp } from '../features/agents/definition';
 import { settingsApp } from '../features/settings/definition';
 import { galleryApp } from '../features/gallery/definition';
+import { workApp } from '../features/workitems/definition';
 
 if (import.meta.env.DEV) void import('../features/gallery/gallery.css');
 
 export function createAppRegistry(): AppDefinition[] {
   return [
     workspaceApp,
+    workApp,
     libraryApp,
     agentsApp,
     runnersApp,
