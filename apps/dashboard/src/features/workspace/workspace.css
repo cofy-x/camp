@@ -1236,12 +1236,10 @@
   overflow-wrap: anywhere;
 }
 
-.workspace-work-panel,
 .workspace-notes-panel {
   display: flex;
   flex-direction: column;
 }
-.workspace-work-panel > .work-items,
 .workspace-notes-panel > .work-items {
   display: flex;
   flex-direction: column;

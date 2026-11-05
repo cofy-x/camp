@@ -5,8 +5,10 @@ import {
   createRoom,
   library,
   mutate,
+  openApp,
   openRoomMore,
   signIn,
+  work,
   workspace,
 } from './team-helpers';
 import { watchPageErrors } from './page-errors';
@@ -15,7 +17,8 @@ import type {
   WorkItemInput,
   WorkActionInput,
 } from '../apps/dashboard/src/features/workitems/api';
-import type { Agent } from '../apps/dashboard/src/features/workspace/api';
+import type { Agent, Run } from '../apps/dashboard/src/features/workspace/api';
+import type { Task } from '../apps/dashboard/src/features/collaboration/api';
 import type {
   Evaluation,
   SourceEventPage,
@@ -24,15 +27,15 @@ import type { Memory } from '../apps/dashboard/src/features/memory/api';
 
 const automation = (page: Page) =>
   workspace(page).getByRole('region', { name: 'Room management', exact: true });
-const work = (page: Page) =>
-  workspace(page).getByRole('region', { name: 'Room work', exact: true });
 const detail = (page: Page) =>
   work(page).getByRole('region', { name: 'Work item detail', exact: true });
 
 async function openItems(page: Page) {
+  await openApp(page, 'Workspace');
   await workspace(page)
     .getByRole('button', { name: 'Work', exact: true })
     .click();
+  await expect(work(page)).toHaveClass(/is-active/);
 }
 
 async function capture(page: Page, scene: string) {
@@ -45,17 +48,79 @@ async function capture(page: Page, scene: string) {
     await work(page).evaluate((element) => {
       element.scrollTop = 0;
     });
+    const geometry = await work(page).evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      const left = box.left + element.clientLeft;
+      const right = left + element.clientWidth;
+      const measure = (node: Element) => {
+        const rect = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        return {
+          tag: node.tagName.toLowerCase(),
+          id: node.id,
+          className: node.getAttribute('class'),
+          label: node.getAttribute('aria-label'),
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          clientWidth: node.clientWidth,
+          scrollWidth: node.scrollWidth,
+          display: style.display,
+          position: style.position,
+          cssWidth: style.width,
+          minWidth: style.minWidth,
+          maxWidth: style.maxWidth,
+          overflowX: style.overflowX,
+          whiteSpace: style.whiteSpace,
+        };
+      };
+      return {
+        viewport: { width: innerWidth, height: innerHeight },
+        desktopClass: element.closest('.p9-desktop')?.className,
+        root: measure(element),
+        page: {
+          scrollWidth: document.documentElement.scrollWidth,
+          clientWidth: document.documentElement.clientWidth,
+        },
+        contentOverflow: [
+          ...element.querySelectorAll(
+            '.p9-window-content, .work-app, .work-app-toolbar, .work-app-body, .work-items, .work-item-list, .work-item-detail, .work-item-overview, .work-create',
+          ),
+        ]
+          .map(measure)
+          .filter(
+            (node) =>
+              node.width > 0 &&
+              (node.scrollWidth > node.clientWidth + 1 ||
+                node.right > right + 1 ||
+                node.left < left - 1),
+          ),
+        overflowing: [...element.querySelectorAll('*')]
+          .map(measure)
+          .filter(
+            (node) =>
+              node.width > 0 &&
+              (node.right > right + 1 ||
+                node.left < left - 1 ||
+                node.scrollWidth > node.clientWidth + 1),
+          )
+          .sort((a, b) => b.right - a.right)
+          .slice(0, 40),
+      };
+    });
     expect(
-      await work(page).evaluate(
-        (element) => element.scrollWidth <= element.clientWidth + 1,
-      ),
-    ).toBe(true);
+      geometry.contentOverflow,
+      `Work ${scene} ${size} content overflow:\n${JSON.stringify(geometry, null, 2)}`,
+    ).toEqual([]);
+    expect(geometry.page.scrollWidth).toBeLessThanOrEqual(
+      geometry.page.clientWidth + 1,
+    );
     const path = test.info().outputPath(`matter-${scene}-${size}.png`);
-    await workspace(page).screenshot({ path });
+    await work(page).screenshot({ path });
     captures.push({
       path,
       viewport,
-      bounds: await workspace(page).boundingBox(),
+      bounds: await work(page).boundingBox(),
     });
   }
   await writeFile(
@@ -158,6 +223,17 @@ async function presentation(page: Page, initial: Partial<WorkItem> = {}) {
       ? route.fulfill({ json: { items: [item], nextAfter: 1, hasMore: false } })
       : route.fallback(),
   );
+  await page.route('**/api/work-items?*', (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          { ...item, roomName: room.name, needsYou: Boolean(item.question) },
+        ],
+        nextCursor: '',
+        hasMore: false,
+      },
+    }),
+  );
   await page.route(`**/api/work-items/${item.id}`, (route) =>
     route.fulfill({ json: { item } }),
   );
@@ -222,6 +298,7 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
     work(page).getByLabel('What needs to happen?', { exact: true }),
   ).toBeDisabled();
   await capture(page, 'uncertain-record');
+  await openApp(page, 'Workspace');
   await workspace(page)
     .getByRole('button', { name: 'Discussion', exact: true })
     .click();
@@ -368,7 +445,9 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
   await detail(page)
     .getByRole('button', { name: 'Back to Work', exact: true })
     .click();
-  await work(page).getByLabel('Show', { exact: true }).selectOption('done');
+  await work(page)
+    .getByLabel('View', { exact: true })
+    .selectOption({ label: 'Completed' });
   await expect(
     work(page)
       .getByRole('button')
@@ -409,6 +488,7 @@ test('message follow-up links the original and future replies in one recorded ma
       exact: true,
     }),
   ).toBeChecked();
+  await openApp(page, 'Workspace');
   await workspace(page)
     .getByRole('button', { name: 'Discussion', exact: true })
     .click();
@@ -941,6 +1021,7 @@ test('starting work freezes the actual finite grant and recovers the same reques
   await expect(
     work(page).getByRole('button', { name: 'Check status', exact: true }),
   ).toBeVisible();
+  await openApp(page, 'Workspace');
   await workspace(page)
     .getByRole('button', { name: 'Discussion', exact: true })
     .click();
@@ -1562,7 +1643,7 @@ test('blocked work opens its saved execution for an explicit continuation grant'
   releaseSave();
   await expect(detail(page)).toHaveCount(0);
   await expect(
-    workspace(page).getByRole('region', {
+    work(page).getByRole('region', {
       name: 'Collaboration details',
       exact: true,
     }),
@@ -1574,14 +1655,12 @@ test('blocked work opens its saved execution for an explicit continuation grant'
   await detail(page)
     .getByRole('button', { name: 'Review and continue…', exact: true })
     .click();
-  const execution = workspace(page).getByRole('region', {
+  const execution = work(page).getByRole('region', {
     name: 'Collaboration details',
     exact: true,
   });
   await expect(execution).toBeVisible();
-  await expect(
-    workspace(page).getByRole('button', { name: 'Work', exact: true }),
-  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(work(page)).toHaveClass(/is-active/);
   await execution
     .getByRole('button', { name: 'Continue…', exact: true })
     .click();
@@ -1589,11 +1668,151 @@ test('blocked work opens its saved execution for an explicit continuation grant'
     execution.getByLabel('Additional model requests', { exact: true }),
   ).toBeVisible();
   await execution
-    .getByRole('button', { name: 'Back to Work', exact: true })
+    .getByRole('button', { name: 'Back to Work Item', exact: true })
     .click();
   await expect(
     detail(page).getByRole('heading', { name: value.item.goal, exact: true }),
   ).toBeVisible();
+  expect(errors.errors).toEqual([]);
+});
+
+test('linked task and run inspection stay inside Work and return to the same matter', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  const taskId = `work-task-${randomUUID()}`;
+  const runId = `work-run-${randomUUID()}`;
+  const createdAt = new Date().toISOString();
+  const value = await presentation(page, {
+    status: 'running',
+    activeTaskId: taskId,
+    tasks: [{ id: taskId, status: 'running', summary: '', createdAt }],
+  });
+  const task: Task = {
+    id: taskId,
+    workItemId: value.item.id,
+    roomId: value.room.id,
+    resourceId: value.room.resourceId,
+    threadRootId: '',
+    originMessageId: '',
+    requestedByUserId: value.item.ownerUserId,
+    goal: value.item.goal,
+    status: 'running',
+    revision: 2,
+    participants: [
+      {
+        agent: value.agent,
+        runnerId: 'fixture-runner',
+        runnerName: 'Fixture Runner',
+      },
+    ],
+    currentAgentId: value.agent.id,
+    activeRunId: runId,
+    baseSharedCommit: 'a'.repeat(40),
+    checkpointCommit: 'a'.repeat(40),
+    publishedCommit: '',
+    error: '',
+    summary: '',
+    turnsUsed: 1,
+    maxTurns: 6,
+    modelRequestsUsed: 1,
+    maxModelRequests: 24,
+    inputRevision: 0,
+    inputBytes: 0,
+    coveredInputRevision: 0,
+    createdAt,
+    updatedAt: createdAt,
+  };
+  const run: Run = {
+    id: runId,
+    taskId,
+    roomId: value.room.id,
+    threadRootId: '',
+    originMessageId: '',
+    agentId: value.agent.id,
+    resourceId: value.room.resourceId,
+    runnerId: 'fixture-runner',
+    runnerName: 'Fixture Runner',
+    prompt: value.item.goal,
+    references: [],
+    status: 'running',
+    createdAt,
+    updatedAt: createdAt,
+    finishedAt: '',
+    error: '',
+    output: '',
+    sessionId: '',
+    sessionMode: 'fresh',
+    baselineCommit: 'a'.repeat(40),
+    resultCommit: '',
+    agentSnapshot: value.agent,
+    environment: null,
+    checks: [],
+    files: [],
+    exitCode: null,
+    testExitCode: null,
+    maxTokens: 4096,
+    maxSteps: 8,
+    timeoutSeconds: 180,
+    sessionGeneration: 1,
+    published: false,
+  };
+  await page.route(`**/api/tasks/${taskId}?*`, (route) =>
+    route.fulfill({ json: { task } }),
+  );
+  await page.route(`**/api/runs/${runId}`, (route) =>
+    route.fulfill({ json: { run } }),
+  );
+  await page.route(`**/api/runs/${runId}/events?*`, (route) =>
+    route.fulfill({ json: { events: [] } }),
+  );
+  await value.open();
+  await detail(page)
+    .getByRole('tab', { name: 'Activity', exact: true })
+    .click();
+  await detail(page)
+    .getByLabel('Show activity', { exact: true })
+    .selectOption('tasks');
+  await detail(page)
+    .getByRole('button', { name: 'Open execution', exact: true })
+    .click();
+  const execution = work(page).getByRole('region', {
+    name: 'Collaboration details',
+    exact: true,
+  });
+  await expect(execution).toContainText(value.item.goal);
+  await execution
+    .getByRole('button', { name: 'View current work', exact: true })
+    .click();
+  const inspector = work(page).getByRole('region', {
+    name: 'Work details',
+    exact: true,
+  });
+  await expect(inspector).toContainText('Fixture Runner');
+  await inspector
+    .getByRole('button', { name: 'Open collaboration', exact: true })
+    .click();
+  await expect(work(page)).toHaveClass(/is-active/);
+  await expect(inspector).toHaveCount(0);
+  await expect(execution).toContainText(value.item.goal);
+  await execution
+    .getByRole('button', { name: 'View current work', exact: true })
+    .click();
+  await inspector
+    .getByRole('button', { name: 'Back to Collaboration', exact: true })
+    .click();
+  await execution
+    .getByRole('button', { name: 'Back to Work Item', exact: true })
+    .click();
+  await expect(detail(page)).toContainText(value.item.goal);
+  await expect(
+    workspace(page).getByRole('region', {
+      name: 'Collaboration details',
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(work(page)).toHaveCount(1);
   expect(errors.errors).toEqual([]);
 });
 

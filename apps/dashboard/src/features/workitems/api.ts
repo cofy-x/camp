@@ -206,6 +206,38 @@ export interface WorkItemPage {
   hasMore: boolean;
 }
 
+export type WorkListItem = Pick<
+  WorkItem,
+  | 'seq'
+  | 'id'
+  | 'roomId'
+  | 'ownerUserId'
+  | 'goal'
+  | 'status'
+  | 'revision'
+  | 'dueAt'
+  | 'question'
+  | 'questionKind'
+  | 'activeTaskId'
+  | 'execution'
+  | 'result'
+  | 'createdAt'
+  | 'updatedAt'
+> & { roomName: string; needsYou: boolean };
+
+export interface WorkListPage {
+  items: WorkListItem[];
+  nextCursor: string;
+  hasMore: boolean;
+}
+
+export interface WorkListQuery {
+  view: 'active' | 'needs_you' | 'done' | 'all';
+  scope: 'mine' | 'team';
+  roomId: string;
+  cursor: string;
+}
+
 const id = encodeURIComponent;
 const post = (value: unknown) => ({
   method: 'POST',
@@ -213,6 +245,11 @@ const post = (value: unknown) => ({
 });
 
 export const workItemsApi = {
+  work: (query: WorkListQuery, signal?: AbortSignal) =>
+    request<WorkListPage>(
+      `/work-items?${new URLSearchParams({ ...query, limit: '20' })}`,
+      { signal },
+    ),
   list: (roomId: string, after = 0, signal?: AbortSignal, state = 'all') =>
     request<WorkItemPage>(
       `/rooms/${id(roomId)}/work-items?after=${after}&limit=20&state=${id(state)}`,

@@ -17,10 +17,15 @@ export function ReviewList({
   onClose?: () => void;
 }) {
   const team = useTeam();
-  const [reviews, setReviews] = useState<Review[]>([]);
-  const [error, setError] = useState('');
-  const [loaded, setLoaded] = useState(false);
+  const [snapshot, setSnapshot] = useState<{
+    scope: string;
+    reviews: Review[];
+  }>();
+  const [failure, setFailure] = useState({ scope: '', message: '' });
   const [attempt, setAttempt] = useState(0);
+  const scope = JSON.stringify([roomId ?? '', resourceId ?? '']);
+  const reviews = snapshot?.scope === scope ? snapshot.reviews : undefined;
+  const error = failure.scope === scope ? failure.message : '';
   useEffect(() => {
     const controller = new AbortController();
     void reviewsApi
@@ -33,19 +38,22 @@ export function ReviewList({
       )
       .then((result) => {
         if (controller.signal.aborted) return;
-        setReviews(result.reviews);
-        setLoaded(true);
-        setError('');
+        setSnapshot({ scope, reviews: result.reviews });
+        setFailure({ scope, message: '' });
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted)
-          setError(
-            error instanceof Error ? error.message : 'Could not load reviews.',
-          );
+          setFailure({
+            scope,
+            message:
+              error instanceof Error
+                ? error.message
+                : 'Could not load reviews.',
+          });
       });
     return () => controller.abort();
-  }, [roomId, resourceId, team.revision, attempt]);
-  const visible = reviews.filter((review) => !path || review.path === path);
+  }, [roomId, resourceId, scope, team.revision, attempt]);
+  const visible = reviews?.filter((review) => !path || review.path === path);
   return (
     <section
       className={`camp-review-list ${onClose ? 'is-panel' : ''}`}
@@ -66,15 +74,16 @@ export function ReviewList({
             Retry
           </Button>
         </div>
-      ) : !loaded ? (
+      ) : !reviews ? (
         <p role="status">Loading reviews…</p>
-      ) : !visible.length ? (
+      ) : null}
+      {!error && visible && !visible.length ? (
         <p>
           {path
             ? 'No reviews yet.'
             : 'No reviews yet. Request one from a shared file in Library.'}
         </p>
-      ) : (
+      ) : visible && visible.length > 0 ? (
         <ul>
           {visible.map((review) => (
             <li key={review.id}>
@@ -103,7 +112,7 @@ export function ReviewList({
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
     </section>
   );
 }

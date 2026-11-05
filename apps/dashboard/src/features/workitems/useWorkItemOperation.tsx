@@ -19,7 +19,12 @@ import {
 } from './api';
 
 type Pending =
-  | { kind: 'create'; roomId: string; body: WorkItemInput }
+  | {
+      kind: 'create';
+      roomId: string;
+      body: WorkItemInput;
+      draftSnapshot?: string;
+    }
   | {
       kind: 'action';
       itemId: string;
@@ -37,6 +42,8 @@ function isPending(value: unknown): value is Pending {
   if (pending.kind === 'create')
     return (
       typeof pending.roomId === 'string' &&
+      (pending.draftSnapshot === undefined ||
+        typeof pending.draftSnapshot === 'string') &&
       'goal' in body &&
       typeof body.goal === 'string' &&
       (body.completionCriteria === undefined ||
@@ -78,6 +85,10 @@ export function useWorkItemOperation(
   scope: string,
   onConfirmed: (item: WorkItem) => void,
   recoveryScopes: string[] = [],
+  beforeConfirmed?: (
+    item: WorkItem,
+    context: { draftSnapshot?: string },
+  ) => Promise<boolean>,
 ) {
   const { user } = useAccount();
   const team = useTeam();
@@ -104,10 +115,13 @@ export function useWorkItemOperation(
   const mounted = useRef(true);
   const callback = useRef(onConfirmed);
   callback.current = onConfirmed;
+  const preparation = useRef(beforeConfirmed);
+  preparation.current = beforeConfirmed;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [missing, setMissing] = useState(false);
   const [confirmation, setConfirmation] = useState<Pending | null>(null);
+  const [recorded, setRecorded] = useState('');
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -115,19 +129,43 @@ export function useWorkItemOperation(
     };
   }, []);
 
-  function confirmed(item: WorkItem) {
-    const completed = retained.current?.value ?? null;
-    clearSessionReceipt(retained.current?.storageKey ?? key);
+  async function confirmed(item: WorkItem) {
+    const original = retained.current;
+    team.refresh();
+    if (!original || !mounted.current) return false;
+    setRecorded(original.value.body.requestId);
+    setError('');
+    if (preparation.current) {
+      try {
+        const saved = await preparation.current(item, {
+          draftSnapshot:
+            original.value.kind === 'create'
+              ? original.value.draftSnapshot
+              : undefined,
+        });
+        if (!saved) return false;
+      } catch (error) {
+        if (mounted.current)
+          setError(
+            error instanceof Error
+              ? error.message
+              : 'Could not save the private draft.',
+          );
+        return false;
+      }
+    }
+    // A committed request remains recoverable until its mounted owner has
+    // persisted completion cleanup. Leaving cannot release a second create.
+    if (!mounted.current || retained.current !== original) return false;
+    clearSessionReceipt(original.storageKey);
     const next = readRetained();
     retained.current = next;
-    if (mounted.current) {
-      setRecovery(next);
-      setConfirmation(completed);
-      setError('');
-      setMissing(false);
-      callback.current(item);
-    }
-    team.refresh();
+    setRecovery(next);
+    setConfirmation(original.value);
+    setRecorded('');
+    setMissing(false);
+    callback.current(item);
+    return true;
   }
 
   async function send(value: Pending, retry: boolean) {
@@ -144,8 +182,7 @@ export function useWorkItemOperation(
       retained.current = { storageKey, value };
       setRecovery(retained.current);
       const response = await submit(value);
-      confirmed(response.item);
-      return true;
+      return await confirmed(response.item);
     } catch (error) {
       const uncertain =
         !(error instanceof APIError) || !error.status || error.status >= 500;
@@ -174,7 +211,7 @@ export function useWorkItemOperation(
     active.current = true;
     setBusy(true);
     try {
-      confirmed((await workItemsApi.receipt(value.body.requestId)).item);
+      await confirmed((await workItemsApi.receipt(value.body.requestId)).item);
     } catch (error) {
       if (error instanceof APIError && error.code === 'request_cancelled') {
         clearSessionReceipt(retained.current?.storageKey ?? key);
@@ -220,7 +257,9 @@ export function useWorkItemOperation(
           setMissing(false);
         }
       } else {
-        confirmed((await workItemsApi.receipt(value.body.requestId)).item);
+        await confirmed(
+          (await workItemsApi.receipt(value.body.requestId)).item,
+        );
       }
     } catch (error) {
       if (mounted.current)
@@ -236,12 +275,17 @@ export function useWorkItemOperation(
   }
 
   return {
-    create: (roomId: string, body: Omit<WorkItemInput, 'requestId'>) =>
+    create: (
+      roomId: string,
+      body: Omit<WorkItemInput, 'requestId'>,
+      draftSnapshot?: string,
+    ) =>
       send(
         {
           kind: 'create',
           roomId,
           body: { ...body, requestId: crypto.randomUUID() },
+          draftSnapshot,
         },
         false,
       ),
@@ -275,7 +319,11 @@ export function useWorkItemOperation(
       <>
         {(error || pending) && (
           <p className="app-error" role="alert">
-            {pending ? 'Camp has not confirmed this action. ' : ''}
+            {pending
+              ? recorded === pending.body.requestId
+                ? 'Work is recorded. Finish saving the private draft before opening it. '
+                : 'Camp has not confirmed this action. '
+              : ''}
             {error}
           </p>
         )}

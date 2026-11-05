@@ -3,10 +3,12 @@ import { randomUUID } from 'node:crypto';
 import {
   createRoom,
   mutate,
+  openApp,
   openRoomMore,
   post,
   settings,
   signIn,
+  work,
   workspace,
 } from './team-helpers';
 import type { Message } from '../apps/dashboard/src/features/workspace/api';
@@ -109,14 +111,17 @@ test('Room daily navigation opens work directly and remembers a message with exa
   await expect(win.locator(`[data-message-id="${messageId}"]`)).toHaveClass(
     /is-source/,
   );
-  await actions.getByRole('button', { name: 'Work', exact: true }).click();
   await expect(
-    win.getByRole('region', { name: 'Room work', exact: true }),
-  ).toBeVisible();
+    actions.getByRole('button', { name: 'Work', exact: true }),
+  ).not.toHaveAttribute('aria-pressed');
+  await actions.getByRole('button', { name: 'Work', exact: true }).click();
+  await expect(work(page)).toBeVisible();
+  await expect(work(page)).toHaveClass(/is-active/);
   await page.screenshot({ path: info.outputPath('room-daily-work.png') });
   await expect(
     win.getByRole('region', { name: 'Room management', exact: true }),
   ).toHaveCount(0);
+  await openApp(page, 'Workspace');
   await openRoomMore(page, 'Execution history…');
   await expect(win.locator('.p9-window-title')).toHaveText(
     `Execution history — ${room.name} — Workspace`,
@@ -184,9 +189,7 @@ test('Inbox identifies the actual matter and opens it from a linked execution no
   await expect(inbox).not.toContainText('An older execution summary.');
   await page.screenshot({ path: info.outputPath('inbox-actual-matter.png') });
   await inbox.getByRole('button').filter({ hasText: goal }).click();
-  await expect(
-    workspace(page).getByRole('region', { name: 'Room work', exact: true }),
-  ).toContainText(goal);
+  await expect(work(page)).toContainText(goal);
   await expect(
     workspace(page).getByRole('region', {
       name: 'Collaboration details',
@@ -281,23 +284,23 @@ test('linked execution attention and system records open the matter without read
     .getByRole('button', { name: 'Open work', exact: true })
     .click();
   await expect(
-    win.getByRole('region', { name: 'Work item detail', exact: true }),
+    work(page).getByRole('region', { name: 'Work item detail', exact: true }),
   ).toContainText(goal);
+  await openApp(page, 'Workspace');
   await win.getByRole('button', { name: 'Discussion', exact: true }).click();
   await win
     .locator(`[data-message-id="${system.id}"]`)
     .getByRole('button', { name: 'Open work', exact: true })
     .click();
   await expect(
-    win.getByRole('region', { name: 'Work item detail', exact: true }),
+    work(page).getByRole('region', { name: 'Work item detail', exact: true }),
   ).toContainText(goal);
+  await openApp(page, 'Workspace');
   await win.getByRole('button', { name: 'Discussion', exact: true }).click();
   await attention
     .getByRole('button', { name: 'View work', exact: true })
     .click();
-  await expect(
-    win.getByRole('region', { name: 'Room work', exact: true }),
-  ).toContainText(goal);
+  await expect(work(page)).toContainText(goal);
   expect(taskReads).toBe(0);
 });
 

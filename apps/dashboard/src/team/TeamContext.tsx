@@ -11,7 +11,13 @@ import {
 import { teamApi, type InboxItem, type User } from './api';
 import { useAccount } from './AuthContext';
 import { flushPrivateDrafts } from './draftRegistry';
-import type { Reference, WorkspaceEvent } from '../features/workspace/api';
+import type {
+  Message,
+  Reference,
+  Run,
+  WorkspaceEvent,
+} from '../features/workspace/api';
+import type { SourceEvent } from '../features/automation/api';
 
 export type NavigationTarget =
   | {
@@ -24,6 +30,15 @@ export type NavigationTarget =
       reviewId?: string;
       threadId?: string;
       reference?: Reference;
+      handoff?: { message: Message; run?: Run };
+    }
+  | {
+      app: 'work';
+      roomId?: string;
+      workItemId?: string;
+      sourceMessage?: Message;
+      sourceEvent?: SourceEvent;
+      taskId?: string;
     }
   | {
       app: 'library';
@@ -48,6 +63,8 @@ interface TeamState {
   event: WorkspaceEvent | null;
   navigation: NavigationIntent | null;
   navigate: (value: NavigationTarget) => Promise<boolean>;
+  cancelNavigation: () => void;
+  getNavigationRevision: () => number;
   navigationError: string;
   refresh: () => void;
   readRoom: (roomId: string, seq: number) => void;
@@ -86,6 +103,13 @@ export function TeamProvider({
   const cursor = useRef(0);
   const readPending = useRef(new Map<string, number>());
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
+  const cancelNavigation = useCallback(() => {
+    navigationRequest.current++;
+  }, []);
+  const getNavigationRevision = useCallback(
+    () => navigationRequest.current,
+    [],
+  );
   useEffect(() => {
     const controller = new AbortController();
     void Promise.all([
@@ -170,6 +194,14 @@ export function TeamProvider({
   );
   const navigate = useCallback(
     async (value: NavigationTarget): Promise<boolean> => {
+      const target: NavigationTarget =
+        (!value.app || value.app === 'workspace') && value.workItemId
+          ? {
+              app: 'work',
+              roomId: value.roomId,
+              workItemId: value.workItemId,
+            }
+          : value;
       const request = ++navigationRequest.current;
       const activation = getActivationRevision();
       const saved = await flushPrivateDrafts();
@@ -186,10 +218,10 @@ export function TeamProvider({
       }
       setNavigationError('');
       setNavigation((current) => ({
-        ...value,
+        ...target,
         revision: (current?.revision ?? 0) + 1,
       }));
-      openApp(value.app ?? 'workspace');
+      openApp(target.app ?? 'workspace');
       return true;
     },
     [openApp, getActivationRevision],
@@ -206,6 +238,8 @@ export function TeamProvider({
       navigation,
       navigationError,
       navigate,
+      cancelNavigation,
+      getNavigationRevision,
       refresh,
       readRoom,
       readInbox,
@@ -221,6 +255,8 @@ export function TeamProvider({
       navigation,
       navigationError,
       navigate,
+      cancelNavigation,
+      getNavigationRevision,
       refresh,
       readRoom,
       readInbox,

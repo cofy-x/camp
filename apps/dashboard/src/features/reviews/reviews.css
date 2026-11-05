@@ -198,6 +198,23 @@
   padding-top: 12px;
   border-top: 1px solid #aaa;
 }
+.camp-file-tab > .camp-review-list {
+  margin: 0;
+  padding: 12px;
+  border: 0;
+}
+.camp-review-list > .camp-section-heading {
+  margin-bottom: 12px;
+}
+.camp-review-recovery {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.camp-review-recovery p {
+  margin: 0;
+}
 .camp-review-list.is-panel {
   flex: 1;
   min-height: 0;
@@ -213,6 +230,7 @@
   border: 1px solid #888;
   box-shadow: inset 1px 1px #bbb;
   background: white;
+  margin: 0;
 }
 .camp-review-list li > button {
   display: flex;

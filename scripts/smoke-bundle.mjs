@@ -30,9 +30,10 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { command, root, stop, waitFor } from './lib.mjs';
 import {
   baselineLauncher,
+  baselineInputProtocolGate,
   httpProxyEnvironment,
   upgradeBaseline,
-  previousRelease,
+  runnerUpgradeProfiles,
 } from './upgrade.mjs';
 import { hashFile, validVersion } from './release.mjs';
 import {
@@ -61,22 +62,24 @@ assert.ok(
     'github',
     'github-offline',
     'github-upgrade',
+    'transition-upgrade',
     'previous-upgrade',
   ].includes(mode),
 );
 const publicDownload = mode.startsWith('github');
 const offline = mode.endsWith('offline');
-const previousUpgrade = mode === 'previous-upgrade';
+const upgradeProfile = runnerUpgradeProfiles[mode];
+const fullUpgrade = Boolean(upgradeProfile);
 const upgrading =
-  previousUpgrade || mode === 'upgrade' || mode === 'github-upgrade';
-const baseline = previousUpgrade
-  ? process.env.CAMP_TEST_PREVIOUS_RELEASE || previousRelease
+  fullUpgrade || mode === 'upgrade' || mode === 'github-upgrade';
+const baseline = fullUpgrade
+  ? process.env.CAMP_TEST_PREVIOUS_RELEASE || upgradeProfile.fromVersion
   : upgradeBaseline;
 assert.ok(validVersion(baseline), 'Select an exact public upgrade baseline.');
 const baselineBackend = process.env.CAMP_TEST_BASELINE_BACKEND;
 assert.ok(
   !baselineBackend ||
-    (previousUpgrade &&
+    (fullUpgrade &&
       ['native-local', 'layerfs-worker'].includes(baselineBackend)),
 );
 const packageDirectory = path.resolve(
@@ -98,7 +101,7 @@ assert.ok(
   !checkpointWorker || mac,
   'The native checkpoint worker fixture requires an ARM64 Mac.',
 );
-if (upgrading && mac && !previousUpgrade)
+if (upgrading && mac && !fullUpgrade)
   throw new Error('The public upgrade baseline has no Mac Runner.');
 const reportFile = process.env.CAMP_SMOKE_REPORT
   ? path.resolve(process.env.CAMP_SMOKE_REPORT)
@@ -240,8 +243,7 @@ const provider = createServer(async (request, response) => {
   const compatibility = body.includes('Camp previous-package compatibility');
   if (compatibility) {
     compatibilityRequests++;
-    if (previousUpgrade && compatibilityRequests === 1)
-      replyProxy.holdReplies();
+    if (fullUpgrade && compatibilityRequests === 1) replyProxy.holdReplies();
   } else calls++;
   if ((!compatibility && calls > 2) || compatibilityRequests > 4) {
     response.writeHead(500).end('Unexpected extra model request');
@@ -363,7 +365,7 @@ acceptance: try {
   const port = socket.address().port;
   await new Promise((resolve) => socket.close(resolve));
   const origin = `http://127.0.0.1:${port}`;
-  if (previousUpgrade) replyProxy = await runnerReplyProxy(port);
+  if (fullUpgrade) replyProxy = await runnerReplyProxy(port);
   child = spawn(
     serverBinary,
     ['serve', '--addr', `127.0.0.1:${port}`, '--data-dir', data],
@@ -568,7 +570,7 @@ acceptance: try {
   if (upgrading) {
     // Optional local reruns reuse only already verified immutable runtime files,
     // never another installation's identity, credentials or durable journal.
-    if (previousUpgrade && process.env.CAMP_TEST_UPGRADE_RUNTIME_CACHE) {
+    if (fullUpgrade && process.env.CAMP_TEST_UPGRADE_RUNTIME_CACHE) {
       await mkdir(runnerData, { mode: 0o700 });
       await cp(
         path.resolve(process.env.CAMP_TEST_UPGRADE_RUNTIME_CACHE),
@@ -640,11 +642,15 @@ acceptance: try {
       'Baseline source import failed',
     );
     previousImport = receipt.sourceImport;
-    if (previousUpgrade) {
+    if (fullUpgrade) {
       const oldRunner = (await api('/api/runners')).runners.find(
         (item) => item.id === previousConfig.runnerId,
       );
-      legacyInputProtocolGate = recordedInputProtocol(oldRunner.id) !== 1;
+      legacyInputProtocolGate = baselineInputProtocolGate(
+        mode,
+        recordedInputProtocol(oldRunner.id),
+        Boolean(process.env.CAMP_TEST_PREVIOUS_RELEASE),
+      );
       let compatRoom = (await api('/api/rooms')).rooms.find(
         (room) => room.id === previousImport.roomId,
       );
@@ -741,7 +747,7 @@ acceptance: try {
     }
     if (runner) await stop(runner);
     runner = undefined;
-    if (previousUpgrade) {
+    if (fullUpgrade) {
       const journal = new DatabaseSync(
         path.join(runnerData, 'journal.sqlite'),
         { readOnly: true },
@@ -1066,7 +1072,7 @@ acceptance: try {
     if (
       assigned?.online &&
       assigned.capabilities?.ready &&
-      (!previousUpgrade || recordedInputProtocol(assigned.id) === 1)
+      (!fullUpgrade || recordedInputProtocol(assigned.id) === 1)
     )
       break;
     if (runner.exitCode !== null)
@@ -1107,7 +1113,7 @@ acceptance: try {
     assert.equal(assigned.capabilities.layerfsVersion, '1.1.0');
   else if (mac) assert.equal(assigned.capabilities.layerfsVersion, undefined);
   assert.equal(assigned.firstTaskRunId, firstNativeRunId);
-  if (!previousUpgrade) assert.equal(assigned.firstTaskSucceededAt, '');
+  if (!fullUpgrade) assert.equal(assigned.firstTaskSucceededAt, '');
   assert.equal(assigned.modelConfigured, true);
   if (upgrading) {
     const retained = (await api(`/api/source-imports/${previousImport.id}`))
@@ -1119,7 +1125,7 @@ acceptance: try {
       'Preserve the original source.\n',
     );
   }
-  if (previousUpgrade) {
+  if (fullUpgrade) {
     assert.equal(recordedInputProtocol(assigned.id), 1);
     const recovered = await api(
       '/api/source-imports',
@@ -1805,13 +1811,14 @@ acceptance: try {
                 scope:
                   'Stopped main database and present WAL bytes; SHM is volatile coordination and excluded from durable equality.',
               },
-              ...(previousUpgrade
+              ...(fullUpgrade
                 ? {
                     baselineRuntimeCacheProvided: Boolean(
                       process.env.CAMP_TEST_UPGRADE_RUNTIME_CACHE,
                     ),
                     legacyProtocolAccepted: true,
                     unsupportedInputProtocolQueued: legacyInputProtocolGate,
+                    queuedWhileOffline: !legacyInputProtocolGate,
                     upgradedInputHistoryVerified: true,
                     sourceReceiptRetryPreserved: true,
                     lostCompletionReplyRecovered: true,
@@ -1826,7 +1833,7 @@ acceptance: try {
         ...(checkpointStorage ? { checkpointStorage } : {}),
         ...(workerUpgrade ? { workerUpgrade } : {}),
         ...(backupJournalEvidence ? { backupJournalEvidence } : {}),
-        ...(previousUpgrade
+        ...(fullUpgrade
           ? {
               baselineWorkspaceBackend:
                 baselineBackend || (mac ? 'native-local' : 'layerfs'),

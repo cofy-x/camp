@@ -103,6 +103,20 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     setRevision((value) => value + 1);
     team.refresh();
   };
+  async function flushTransition() {
+    team.cancelNavigation();
+    const teamRequest = team.getNavigationRevision();
+    invalidateEditorRequest();
+    const request = editorRequest.current;
+    const activation = desktop.getActivationRevision();
+    const saved = await flushPrivateDrafts();
+    return (
+      saved &&
+      request === editorRequest.current &&
+      teamRequest === team.getNavigationRevision() &&
+      activation === desktop.getActivationRevision()
+    );
+  }
   const openLibraryActions = (button: HTMLButtonElement) => {
     const items: MenuItem[] = [];
     if (user.role === 'admin' && resource && !resource.immutable) {
@@ -111,9 +125,8 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
           label: 'Environment…',
           disabled: Boolean(requestReview),
           action: () =>
-            void flushPrivateDrafts().then((saved) => {
+            void flushTransition().then((saved) => {
               if (!saved) return;
-              invalidateEditorRequest();
               setEditor(null);
               setHistory(false);
               setComparison(null);
@@ -229,11 +242,13 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
       window.id,
       importOpen
         ? 'Import from Runner — Library'
-        : location
-          ? `${location} — Library`
-          : 'Library',
+        : requestReview
+          ? ['Request Review', location, 'Library'].filter(Boolean).join(' — ')
+          : location
+            ? `${location} — Library`
+            : 'Library',
     );
-  }, [desktop, window.id, location, importOpen]);
+  }, [desktop, window.id, location, importOpen, requestReview]);
   useEffect(() => {
     selectedResource.current = resourceId;
   }, [resourceId]);
@@ -290,8 +305,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
       : null;
 
   async function selectResource(id: string) {
-    if (!(await flushPrivateDrafts())) return;
-    invalidateEditorRequest();
+    if (!(await flushTransition())) return;
     closeSources();
     setRequestReview(null);
     setImportOpen(false);
@@ -318,10 +332,18 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   }
 
   async function edit(newFile = false) {
+    team.cancelNavigation();
+    const teamRequest = team.getNavigationRevision();
     invalidateEditorRequest();
     const request = editorRequest.current;
+    const activation = desktop.getActivationRevision();
     if (!(await flushPrivateDrafts())) return;
-    if (request !== editorRequest.current) return;
+    if (
+      request !== editorRequest.current ||
+      teamRequest !== team.getNavigationRevision() ||
+      activation !== desktop.getActivationRevision()
+    )
+      return;
     if (!resource || resource.immutable || version) return;
     const baseline = commit || resource.currentCommit;
     let file = path;
@@ -334,7 +356,12 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
           { label: 'Create Draft', value: 'create', default: true },
         ],
       });
-      if (request !== editorRequest.current) return;
+      if (
+        request !== editorRequest.current ||
+        teamRequest !== team.getNavigationRevision() ||
+        activation !== desktop.getActivationRevision()
+      )
+        return;
       if (result?.button !== 'create' || !result.value.trim()) return;
       file = result.value.trim();
     }
@@ -350,7 +377,12 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
         newFile,
         controller.signal,
       );
-      if (request !== editorRequest.current) return;
+      if (
+        request !== editorRequest.current ||
+        teamRequest !== team.getNavigationRevision() ||
+        activation !== desktop.getActivationRevision()
+      )
+        return;
       setEnvironmentOpen(false);
       setHistory(false);
       setEditor({
@@ -360,7 +392,12 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
         baseCommit: baseline,
       });
     } catch (error) {
-      if (request !== editorRequest.current) return;
+      if (
+        request !== editorRequest.current ||
+        teamRequest !== team.getNavigationRevision() ||
+        activation !== desktop.getActivationRevision()
+      )
+        return;
       setError(
         error instanceof Error ? error.message : 'Could not open the editor.',
       );
@@ -471,12 +508,11 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   }
 
   async function openDraft(item: (typeof drafts)[number]) {
-    if (!(await flushPrivateDrafts())) return;
+    if (!(await flushTransition())) return;
     const resource = resources.find(
       (resource) => resource.id === item.resourceId,
     );
     if (!resource) return;
-    invalidateEditorRequest();
     closeSources();
     setEnvironmentOpen(false);
     setRequestReview(null);
@@ -493,8 +529,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   }
 
   async function openImport() {
-    if (!(await flushPrivateDrafts())) return;
-    invalidateEditorRequest();
+    if (!(await flushTransition())) return;
     setImportOpen(true);
     setRequestReview(null);
     setEditor(null);
@@ -504,8 +539,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   }
 
   async function toggleHistory() {
-    if (!(await flushPrivateDrafts())) return;
-    invalidateEditorRequest();
+    if (!(await flushTransition())) return;
     setEnvironmentOpen(false);
     setHistory(!history);
     setComparison(null);
@@ -513,18 +547,17 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   }
 
   async function closeReview() {
-    if (await flushPrivateDrafts()) setRequestReview(null);
+    if (await flushTransition()) setRequestReview(null);
   }
 
   async function closeEditor() {
-    if (!(await flushPrivateDrafts())) return;
+    if (!(await flushTransition())) return;
     setEditor(null);
     setRevision((value) => value + 1);
   }
 
   async function selectFile(file: string) {
-    if (!(await flushPrivateDrafts())) return;
-    invalidateEditorRequest();
+    if (!(await flushTransition())) return;
     setPath(file);
     setRequestReview(null);
   }

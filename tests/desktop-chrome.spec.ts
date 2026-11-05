@@ -5,6 +5,7 @@ import {
   openApp,
   settings,
   signIn,
+  work,
   workspace,
 } from './team-helpers';
 
@@ -76,7 +77,7 @@ test('Inbox palette restores focus and File names the selected desktop applicati
   expect(errors).toEqual([]);
 });
 
-test('Room views retain selection and Library history provides an explicit return', async ({
+test('Room Work opens its application and Library history provides an explicit return', async ({
   page,
 }, testInfo) => {
   await signIn(page);
@@ -85,22 +86,18 @@ test('Room views retain selection and Library history provides an explicit retur
     name: 'Discussion',
     exact: true,
   });
-  const work = workspace(page).getByRole('button', {
+  const workShortcut = workspace(page).getByRole('button', {
     name: 'Work',
     exact: true,
   });
-  const background = (button: typeof work) =>
-    button.evaluate((element) => getComputedStyle(element).backgroundColor);
   await expect(discussion).toHaveAttribute('aria-pressed', 'true');
-  await work.click();
-  await expect(work).toHaveAttribute('aria-pressed', 'true');
-  await expect(discussion).toHaveAttribute('aria-pressed', 'false');
-  const selected = await background(work);
-  expect(selected).not.toBe(await background(discussion));
+  await expect(workShortcut).not.toHaveAttribute('aria-pressed');
+  await workShortcut.click();
+  await expect(work(page)).toHaveClass(/is-active/);
+  await openApp(page, 'Workspace');
   await discussion.press('Enter');
   await expect(discussion).toHaveAttribute('aria-pressed', 'true');
-  await expect(work).toHaveAttribute('aria-pressed', 'false');
-  expect(await background(discussion)).toBe(selected);
+  await expect(workShortcut).not.toHaveAttribute('aria-pressed');
   await workspace(page)
     .getByRole('button', { name: 'Files', exact: true })
     .click();

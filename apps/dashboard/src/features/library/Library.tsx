@@ -318,6 +318,8 @@ export function Library({ desktop, window }: AppWindowProps) {
               <RequestReview
                 key={`${requestReview.roomId}:${requestReview.resourceId}:${requestReview.path}`}
                 {...requestReview}
+                desktop={desktop}
+                showHeading={false}
                 currentCommit={
                   resources.find((item) => item.id === requestReview.resourceId)
                     ?.currentCommit ?? requestReview.commit
@@ -440,6 +442,7 @@ export function Library({ desktop, window }: AppWindowProps) {
                           version.commit === resource.currentCommit) &&
                         reviewRoom
                           ? () => {
+                              team.cancelNavigation();
                               invalidateEditorRequest();
                               setRequestReview({
                                 roomId: reviewRoom.id,

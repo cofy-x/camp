@@ -4,11 +4,12 @@
 
 ## Find your way around
 
-Camp's browser desktop has five applications:
+Camp's browser desktop has six applications:
 
 | Application | Use it for |
 | --- | --- |
-| Workspace | Room discussion, matters, questions and results |
+| Workspace | Room discussion and source context |
+| Work | Personal matters across Rooms, questions and results |
 | Library | Original sources, shared files, private text drafts and history |
 | Agents | Responsibilities, file access, Runner targets and Room sharing |
 | Runners | Connecting machines, execution readiness and access grants |
@@ -26,13 +27,13 @@ File uploads and limits are described in the [upload contract](api.md#file-uploa
 
 ## Work with Agents
 
-Open a Room's **Work**, or choose **Follow up…** on a message. Record the goal for later or explicitly delegate it to start work. The source message is retained as evidence; following later messages is an explicit choice. Before execution, confirm the participants, scope and finite allowance. Agents can hand off, ask a person and finish. Work continues after the browser closes.
+Open **Work** on the desktop, a Room's **Work** shortcut, or choose **Follow up…** on a message. Record the goal for later or explicitly delegate it to start work. The source message is retained as evidence; following later messages is an explicit choice. Before execution, confirm the participants, scope and finite allowance. Agents can hand off, ask a person and finish. Work continues after the browser closes.
 
 Collaboration uses a separate team-visible draft. Final publication compares the starting shared version; a conflict retains the draft and requires explicit continuation. Completing Agent work, publishing files, human approval and delivery remain distinct actions.
 
 ## Follow a matter
 
-The Room's **Discussion**, **Work** and **Files** lead to conversation, matters and the existing Library. Each matter keeps its current question, progress and exact-version result together. Execution rounds and their audit records remain available inside the matter. Earlier independent collaborations remain available in execution history.
+Open **Work** to see your unfinished matters across Rooms. **Needs me** shows your questions and work requiring recovery; ordinary waiting and execution remain in **My work**. **Completed** holds finished matters, while **All work** includes team-visible matters. The Room filter narrows any view. A Room's **Work** shortcut opens that same application filtered to the Room. **Discussion** stays in Workspace, and **Files** opens Library. Each matter keeps its current question, progress and exact-version result together. Execution rounds and their audit records remain available inside the matter, with a direct return from task and Run inspection. **Open Room** returns to its discussion. Inbox reminders open the same matter; reading a reminder does not complete it. Earlier independent collaborations remain available in execution history.
 
 **Overview** shows what needs your attention and the latest result. **Activity** browses one kind of record at a time. **Manage** holds reminders, context, automatic follow-up and allowance settings. Switching views retains an unfinished answer; reading records starts no Agent work.
 

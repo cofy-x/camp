@@ -9,6 +9,7 @@ import { useWorkItemOperation } from './useWorkItemOperation';
 import { EvidenceChooser } from './WorkItemEvidence';
 import { WorkGrant, suggestedParticipants } from './WorkGrant';
 import { useWorkDefaults } from './useWorkDefaults';
+import { matchesCreationDraft } from './creationDraft';
 import type { WorkBudget, WorkItem, WorkItemInput } from './api';
 
 export function localDateTime(value: string) {
@@ -88,6 +89,7 @@ export function WorkItemForm({
   availability,
   onCreated,
   onClose,
+  showHeading = true,
 }: {
   roomId: string;
   members: Agent[];
@@ -98,6 +100,7 @@ export function WorkItemForm({
   availability?: Pick<WorkspaceStatus, 'available' | 'reason'>;
   onCreated: (item: WorkItem) => void;
   onClose: () => void;
+  showHeading?: boolean;
 }) {
   const { user } = useAccount();
   const goalId = useId();
@@ -124,9 +127,18 @@ export function WorkItemForm({
     : (participants[0] ?? '');
   const operation = useWorkItemOperation(
     `create:${roomId}:${scope}`,
-    (item) => {
-      draft.setValue(null);
-      onCreated(item);
+    onCreated,
+    [],
+    async (_item, { draftSnapshot }) => {
+      if (!draft.loaded) return false;
+      // Only clear the private draft that supplied this request. A newer draft
+      // selected through conflict recovery belongs to its own future work.
+      if (
+        draft.getValue() !== null &&
+        matchesCreationDraft(draft.getValue(), draftSnapshot)
+      )
+        draft.setValue(null);
+      return draft.flush();
     },
   );
   const delegated = policies.filter(
@@ -157,20 +169,24 @@ export function WorkItemForm({
 
   function create(start: boolean) {
     const { expiryEdited, deadline, ...input } = values;
-    void operation.create(roomId, {
-      ...input,
-      start,
-      policyRevision: values.policyId ? selectedPolicy?.revision : undefined,
-      budget: values.budget ?? defaults?.budget,
-      expiresAt: expiryEdited
-        ? utcDateTime(values.expiresAt ?? '')
-        : (values.expiresAt ??
-          (deadline ? utcDateTime(deadline) : defaults?.expiresAt)),
-      sourceEventId: sourceEvent?.id,
-      messageId: sourceMessage?.id,
-      participantAgentIds: start ? participants : undefined,
-      firstAgentId: start ? first : undefined,
-    });
+    void operation.create(
+      roomId,
+      {
+        ...input,
+        start,
+        policyRevision: values.policyId ? selectedPolicy?.revision : undefined,
+        budget: values.budget ?? defaults?.budget,
+        expiresAt: expiryEdited
+          ? utcDateTime(values.expiresAt ?? '')
+          : (values.expiresAt ??
+            (deadline ? utcDateTime(deadline) : defaults?.expiresAt)),
+        sourceEventId: sourceEvent?.id,
+        messageId: sourceMessage?.id,
+        participantAgentIds: start ? participants : undefined,
+        firstAgentId: start ? first : undefined,
+      },
+      JSON.stringify(draft.getValue()),
+    );
   }
 
   return (
@@ -183,7 +199,7 @@ export function WorkItemForm({
       }}
     >
       <div className="workspace-panel-heading">
-        <h3>New work</h3>
+        {showHeading && <h3>New work</h3>}
         <Button onClick={onClose}>Back to Work</Button>
       </div>
       <DraftRecovery draft={draft} preview={(value) => value?.goal ?? ''} />

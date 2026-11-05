@@ -11,6 +11,9 @@ export const owner = {
 export const workspace = (page: Page) =>
   page.locator('[data-window-id="workspace:main"]');
 
+export const work = (page: Page) =>
+  page.locator('[data-window-id="work:main"]');
+
 export const library = (page: Page) =>
   page.locator('[data-window-id="library:main"]');
 

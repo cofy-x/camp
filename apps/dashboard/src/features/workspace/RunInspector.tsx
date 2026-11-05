@@ -53,6 +53,7 @@ export function RunInspector({
   onReference,
   onAsk,
   onSource,
+  onOpenTask,
 }: {
   id: string;
   onClose: () => void;
@@ -60,6 +61,7 @@ export function RunInspector({
   onReference: (reference: Reference) => void;
   onAsk: (run: Run) => void;
   onSource: (messageId: string) => void;
+  onOpenTask?: (taskId: string) => void;
 }) {
   const team = useTeam();
   const [run, setRun] = useState<Run | null>(null);
@@ -206,13 +208,15 @@ export function RunInspector({
               <div className="app-actions">
                 {run.taskId ? (
                   <Button
-                    onClick={() =>
-                      void team.navigate({
-                        app: 'workspace',
-                        roomId: run.roomId,
-                        taskId: run.taskId,
-                      })
-                    }
+                    onClick={() => {
+                      if (onOpenTask) onOpenTask(run.taskId!);
+                      else
+                        void team.navigate({
+                          app: 'workspace',
+                          roomId: run.roomId,
+                          taskId: run.taskId,
+                        });
+                    }}
                   >
                     Open collaboration
                   </Button>

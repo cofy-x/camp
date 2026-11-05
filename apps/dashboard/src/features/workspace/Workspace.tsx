@@ -11,11 +11,10 @@ import { findRunReply } from './runMessages';
 import {
   addDraftReferences,
   conversationKey,
-  draftReferences,
   writeStored,
 } from './conversationState';
 import { useWorkspace } from './useWorkspace';
-import { handoffFiles, selectHandoffReferences } from './handoffFiles';
+import { prepareHandoff } from './prepareHandoff';
 import { useTeam } from '../../team/TeamContext';
 import { useAccount } from '../../team/AuthContext';
 import { flushPrivateDrafts } from '../../team/draftRegistry';
@@ -27,7 +26,6 @@ import { StartCollaboration } from '../collaboration/StartCollaboration';
 import { TaskDetail } from '../collaboration/TaskDetail';
 import { Automation } from '../automation/Automation';
 import type { SourceEvent } from '../automation/api';
-import { WorkItems } from '../workitems/WorkItems';
 import { RoomMemory } from '../memory/RoomMemory';
 
 export function Workspace({ window, desktop }: AppWindowProps) {
@@ -51,7 +49,6 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   }, []);
   const [panel, setPanel] = useState<
     | 'chat'
-    | 'work'
     | 'agents'
     | 'reviews'
     | 'tasks'
@@ -61,15 +58,6 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   >('chat');
   const [inspect, setInspect] = useState('');
   const [taskId, setTaskId] = useState('');
-  const [taskOrigin, setTaskOrigin] = useState<{
-    taskId: string;
-    workItemId: string;
-    roomId: string;
-  }>();
-  const [workItemId, setWorkItemId] = useState('');
-  const [workItemRequest, setWorkItemRequest] = useState(0);
-  const [workItemEvent, setWorkItemEvent] = useState<SourceEvent>();
-  const [workItemMessage, setWorkItemMessage] = useState<Message>();
   const [managementView, setManagementView] = useState<'settings' | 'activity'>(
     'settings',
   );
@@ -94,7 +82,6 @@ export function Workspace({ window, desktop }: AppWindowProps) {
     ? 'Work details'
     : {
         chat: '',
-        work: 'Work',
         agents: 'Room Agents',
         reviews: 'File reviews',
         tasks: taskId ? 'Work session' : 'Execution history',
@@ -125,30 +112,33 @@ export function Workspace({ window, desktop }: AppWindowProps) {
     if (!intent || handledNavigation.current === intent.revision) return;
     handledNavigation.current = intent.revision;
     const request = ++navigationRequest.current;
+    const teamRequest = team.getNavigationRevision();
     if (intent.app && intent.app !== 'workspace') return;
     workspace.selectConversation(intent.roomId, intent.threadId);
-    setPanel(
-      intent.workItemId
-        ? 'work'
-        : intent.taskId
-          ? 'tasks'
-          : intent.reviewId
-            ? 'reviews'
-            : 'chat',
-    );
-    setWorkItemId(intent.workItemId ?? '');
-    setWorkItemEvent(undefined);
-    setWorkItemMessage(undefined);
-    setWorkItemRequest(intent.workItemId ? intent.revision : 0);
+    setPanel(intent.taskId ? 'tasks' : intent.reviewId ? 'reviews' : 'chat');
     setTaskId(intent.taskId ?? '');
-    setTaskOrigin(undefined);
     setReviewId(intent.reviewId ?? '');
     setInspect(intent.taskId ? '' : (intent.runId ?? ''));
-    if (intent.reference) {
+    if (intent.handoff) {
       try {
-        const key = conversationKey(intent.roomId);
+        prepareHandoff(
+          intent.roomId,
+          intent.handoff.message,
+          intent.handoff.run,
+        );
+      } catch (error) {
+        setActionError(
+          error instanceof Error
+            ? error.message
+            : 'Could not prepare the request.',
+        );
+      }
+    } else if (intent.reference) {
+      try {
+        const key = conversationKey(intent.roomId, intent.threadId);
         if (
           roomId !== intent.roomId ||
+          threadId !== (intent.threadId ?? '') ||
           panel !== 'chat' ||
           !workspace.conversationReady
         )
@@ -167,7 +157,6 @@ export function Workspace({ window, desktop }: AppWindowProps) {
       intent.messageId &&
       !intent.reviewId &&
       !intent.taskId &&
-      !intent.workItemId &&
       !intent.threadId
     )
       void workspaceApi
@@ -175,8 +164,10 @@ export function Workspace({ window, desktop }: AppWindowProps) {
         .then(async ({ message }) => {
           if (
             navigationRequest.current !== request ||
+            teamRequest !== team.getNavigationRevision() ||
             !(await flushPrivateDrafts()) ||
-            navigationRequest.current !== request
+            navigationRequest.current !== request ||
+            teamRequest !== team.getNavigationRevision()
           )
             return;
           workspace.selectConversation(intent.roomId, message.threadRootId);
@@ -191,15 +182,25 @@ export function Workspace({ window, desktop }: AppWindowProps) {
               : 'Could not open this message.',
           );
         });
-  }, [team.navigation, workspace, roomId, panel]);
+  }, [team.navigation, workspace, roomId, threadId, panel]);
 
   async function navigate(change: () => void) {
+    team.cancelNavigation();
+    const teamRequest = team.getNavigationRevision();
     const request = ++navigationRequest.current;
+    const activation = desktop.getActivationRevision();
     const saved = await flushPrivateDrafts();
-    if (saved && navigationRequest.current === request) change();
+    if (
+      saved &&
+      navigationRequest.current === request &&
+      teamRequest === team.getNavigationRevision() &&
+      activation === desktop.getActivationRevision()
+    )
+      change();
   }
 
   function move(change: () => void) {
+    team.cancelNavigation();
     navigationRequest.current++;
     change();
   }
@@ -207,12 +208,9 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   function showRoom(id: string) {
     return navigate(() => {
       workspace.selectRoom(id);
-      setTaskOrigin(undefined);
       setPanel('chat');
       setInspect('');
       setActionError('');
-      setWorkItemEvent(undefined);
-      setWorkItemMessage(undefined);
       setMemoryMessage(undefined);
     });
   }
@@ -324,7 +322,6 @@ export function Workspace({ window, desktop }: AppWindowProps) {
             void navigate(() => {
               setPanel('tasks');
               setTaskId('');
-              setTaskOrigin(undefined);
               setInspect('');
             }),
         },
@@ -348,22 +345,24 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   }
 
   function openWork(id = '', event?: SourceEvent) {
-    setTaskOrigin(undefined);
-    setWorkItemId(id);
-    setWorkItemEvent(event);
-    setWorkItemMessage(undefined);
-    setWorkItemRequest((value) => value + 1);
-    setPanel('work');
-    setInspect('');
+    if (!room) return;
+    navigationRequest.current++;
+    void team.navigate({
+      app: 'work',
+      roomId: room.id,
+      workItemId: id || undefined,
+      sourceEvent: event,
+    });
   }
 
   async function followMessage(message: Message) {
-    const request = ++navigationRequest.current;
-    if (!(await flushPrivateDrafts()) || navigationRequest.current !== request)
-      return;
-    openWork();
-    setWorkItemMessage(message);
-    setActionError('');
+    if (!room) return;
+    navigationRequest.current++;
+    await team.navigate({
+      app: 'work',
+      roomId: room.id,
+      sourceMessage: message,
+    });
   }
 
   function rememberMessage(message: Message) {
@@ -394,56 +393,26 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   }
 
   async function askAgent(message: Message, run?: Run) {
+    team.cancelNavigation();
+    const teamRequest = team.getNavigationRevision();
+    const activation = desktop.getActivationRevision();
     const request = ++navigationRequest.current;
-    if (!(await flushPrivateDrafts()) || navigationRequest.current !== request)
+    if (
+      !(await flushPrivateDrafts()) ||
+      navigationRequest.current !== request ||
+      teamRequest !== team.getNavigationRevision() ||
+      activation !== desktop.getActivationRevision()
+    )
       return;
     if (!room) return;
-    const thread = message.threadRootId;
-    const key = conversationKey(room.id, thread);
-    const author =
-      message.authorKind === 'user'
-        ? message.authorName || 'Team member'
-        : message.authorKind === 'system'
-          ? 'Camp'
-          : (run?.agentSnapshot.name ??
-            agents.find((agent) => agent.id === message.agentId)?.name ??
-            'Agent');
-    const reference: Reference = {
-      kind: 'message',
-      messageId: message.id,
-      title: author === 'You' ? 'Your message' : `${author}'s message`,
-      author,
-      content: message.content,
-      threadRootId: message.threadRootId,
-      sourceRunId: run?.id,
-      sourceStatus: run?.status,
-      published: run?.published,
-    };
-    const files = handoffFiles(message, run);
     try {
-      const { selected, omitted } = selectHandoffReferences(
-        draftReferences(key),
-        reference,
-        files,
+      prepareHandoff(
+        room.id,
+        message,
+        run,
+        agents.find((agent) => agent.id === message.agentId)?.name,
       );
-      addDraftReferences(key, selected);
-      writeStored(
-        `draft-seed:${key}`,
-        JSON.stringify({
-          references: selected,
-          handoff: crypto.randomUUID(),
-          recipients: 'null',
-        }),
-      );
-      writeStored(
-        `reference-note:${key}`,
-        omitted
-          ? `${omitted} ${omitted === 1 ? 'file was' : 'files were'} not added because a message allows 8 references. Remove a source to choose another file from Files or Details → Files.`
-          : '',
-      );
-      writeStored(`handoff:${key}`, crypto.randomUUID());
-      writeStored(`recipients:${key}`, 'null');
-      workspace.selectThread(thread);
+      workspace.selectThread(message.threadRootId);
       setSourceId('');
       setActionError('');
       back();
@@ -458,16 +427,28 @@ export function Workspace({ window, desktop }: AppWindowProps) {
 
   async function openSource(messageId: string) {
     if (!room) return;
+    team.cancelNavigation();
+    const teamRequest = team.getNavigationRevision();
+    const activation = desktop.getActivationRevision();
     const request = ++navigationRequest.current;
-    if (!(await flushPrivateDrafts()) || navigationRequest.current !== request)
+    if (
+      !(await flushPrivateDrafts()) ||
+      navigationRequest.current !== request ||
+      teamRequest !== team.getNavigationRevision() ||
+      activation !== desktop.getActivationRevision()
+    )
       return;
     const selectedRoom = room.id;
     try {
       const { message } = await workspaceApi.message(selectedRoom, messageId);
       if (
         navigationRequest.current !== request ||
+        teamRequest !== team.getNavigationRevision() ||
+        activation !== desktop.getActivationRevision() ||
         !(await flushPrivateDrafts()) ||
-        navigationRequest.current !== request
+        navigationRequest.current !== request ||
+        teamRequest !== team.getNavigationRevision() ||
+        activation !== desktop.getActivationRevision()
       )
         return;
       if (threadId !== message.threadRootId)
@@ -487,10 +468,6 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   }
 
   const active = runs.filter(isActiveRun);
-  const taskFromWork =
-    panel === 'tasks' &&
-    taskOrigin?.taskId === taskId &&
-    taskOrigin.roomId === roomId;
   const attentionTasks = collaborations.tasks.filter((task) =>
     ['waiting_for_person', 'needs_attention', 'interrupted'].includes(
       task.status,
@@ -568,15 +545,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
               >
                 Discussion
               </Button>
-              <Button
-                disabled={!room}
-                aria-pressed={panel === 'work' || taskFromWork}
-                onClick={() =>
-                  void navigate(() => {
-                    openWork();
-                  })
-                }
-              >
+              <Button disabled={!room} onClick={() => openWork()}>
                 Work
               </Button>
               <Button
@@ -610,28 +579,25 @@ export function Workspace({ window, desktop }: AppWindowProps) {
           {room && panel === 'chat' && !inspect && (
             <TaskAttention
               tasks={attentionTasks}
-              onOpen={(id) =>
-                void navigate(() => {
-                  const itemId = collaborations.tasks.find(
-                    (task) => task.id === id,
-                  )?.workItemId;
-                  if (itemId) openWork(itemId);
-                  else {
+              onOpen={(id) => {
+                const itemId = collaborations.tasks.find(
+                  (task) => task.id === id,
+                )?.workItemId;
+                if (itemId) openWork(itemId);
+                else
+                  void navigate(() => {
                     setTaskId(id);
                     setPanel('tasks');
-                  }
-                })
-              }
-              onAll={() =>
-                void navigate(() => {
-                  if (attentionTasks.every((task) => task.workItemId))
-                    openWork();
-                  else {
+                  });
+              }}
+              onAll={() => {
+                if (attentionTasks.every((task) => task.workItemId)) openWork();
+                else
+                  void navigate(() => {
                     setTaskId('');
                     setPanel('tasks');
-                  }
-                })
-              }
+                  });
+              }}
             />
           )}
           {room && panel === 'chat' && !inspect && (
@@ -711,7 +677,8 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 <ReviewPanel
                   key={reviewId}
                   id={reviewId}
-                  onClose={() => move(() => setReviewId(''))}
+                  desktop={desktop}
+                  onClose={() => void navigate(() => setReviewId(''))}
                 />
               ) : (
                 <ReviewList
@@ -755,43 +722,6 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                   }
                 }}
               />
-            ) : panel === 'work' ? (
-              <section
-                className="workspace-panel workspace-work-panel"
-                aria-label="Room work"
-              >
-                <WorkItems
-                  key={room.id}
-                  roomId={room.id}
-                  members={members}
-                  defaultAgentId={
-                    members.filter((member) => member.enabled).length === 1
-                      ? members.find((member) => member.enabled)?.id
-                      : undefined
-                  }
-                  initialItemId={workItemId}
-                  initialItemRequest={workItemRequest}
-                  sourceEvent={workItemEvent}
-                  sourceMessage={workItemMessage}
-                  availability={workspace.status ?? undefined}
-                  onOpenTask={(id, originItemId) =>
-                    void navigate(() => {
-                      setTaskOrigin(
-                        originItemId
-                          ? {
-                              taskId: id,
-                              workItemId: originItemId,
-                              roomId: room.id,
-                            }
-                          : undefined,
-                      );
-                      setTaskId(id);
-                      setPanel('tasks');
-                      setInspect('');
-                    })
-                  }
-                />
-              </section>
             ) : panel === 'memory' ? (
               <section
                 className="workspace-panel workspace-notes-panel"
@@ -817,13 +747,10 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 availability={workspace.status ?? undefined}
                 initialView={managementView}
                 initialRequest={managementRequest}
-                onTrackEvent={(event) =>
-                  void navigate(() => openWork('', event))
-                }
-                onOpenWorkItem={(id) => void navigate(() => openWork(id))}
+                onTrackEvent={(event) => openWork('', event)}
+                onOpenWorkItem={(id) => openWork(id)}
                 onOpenTask={(id) =>
                   void navigate(() => {
-                    setTaskOrigin(undefined);
                     setTaskId(id);
                     setPanel('tasks');
                     setInspect('');
@@ -837,37 +764,27 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                   key={taskId}
                   id={taskId}
                   desktop={desktop}
-                  backLabel={
-                    taskOrigin?.taskId === taskId &&
-                    taskOrigin.roomId === room.id
-                      ? 'Back to Work'
-                      : undefined
-                  }
-                  onClose={() =>
-                    void navigate(() => {
-                      if (
-                        taskOrigin?.taskId === taskId &&
-                        taskOrigin.roomId === room.id
-                      )
-                        openWork(taskOrigin.workItemId);
-                      else {
-                        setTaskOrigin(undefined);
-                        setTaskId('');
-                      }
-                    })
-                  }
+                  onClose={() => void navigate(() => setTaskId(''))}
                   onInspect={(id) => void navigate(() => setInspect(id))}
                 />
               ) : (
                 <TaskList
                   {...collaborations}
                   onRetry={collaborations.refresh}
-                  onOpen={(id) =>
-                    move(() => {
-                      setTaskOrigin(undefined);
-                      setTaskId(id);
-                    })
-                  }
+                  onOpen={(id) => {
+                    const workItemId = collaborations.tasks.find(
+                      (task) => task.id === id,
+                    )?.workItemId;
+                    if (workItemId) {
+                      navigationRequest.current++;
+                      void team.navigate({
+                        app: 'work',
+                        roomId: room.id,
+                        workItemId,
+                        taskId: id,
+                      });
+                    } else void navigate(() => setTaskId(id));
+                  }}
                   onStart={() => move(() => setPanel('start-task'))}
                   onClose={back}
                 />
@@ -882,7 +799,6 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 onClose={() => move(() => setPanel('tasks'))}
                 onStarted={(task) =>
                   move(() => {
-                    setTaskOrigin(undefined);
                     setTaskId(task.id);
                     setPanel('tasks');
                   })

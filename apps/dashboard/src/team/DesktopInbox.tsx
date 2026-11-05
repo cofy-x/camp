@@ -35,14 +35,21 @@ export function DesktopInbox() {
   async function openItem(item: InboxItem) {
     setError('');
     try {
-      const opened = await team.navigate({
-        roomId: item.roomId,
-        messageId: item.messageId,
-        runId: item.runId,
-        reviewId: item.reviewId,
-        taskId: item.taskId,
-        workItemId: item.workItemId,
-      });
+      const opened = await team.navigate(
+        item.workItemId
+          ? {
+              app: 'work',
+              roomId: item.roomId,
+              workItemId: item.workItemId,
+            }
+          : {
+              roomId: item.roomId,
+              messageId: item.messageId,
+              runId: item.runId,
+              reviewId: item.reviewId,
+              taskId: item.taskId,
+            },
+      );
       if (!opened) return;
       setOpen(false);
       await team.readInbox(item.id);

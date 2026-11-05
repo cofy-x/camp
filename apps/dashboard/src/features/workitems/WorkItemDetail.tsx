@@ -83,6 +83,7 @@ export function WorkItemDetail({
   availability,
   onBack,
   onOpenTask,
+  onOpenRoom,
 }: {
   id: string;
   initialRequest?: number;
@@ -92,6 +93,7 @@ export function WorkItemDetail({
   availability?: Pick<WorkspaceStatus, 'available' | 'reason'>;
   onBack: () => void;
   onOpenTask: (id: string) => void;
+  onOpenRoom?: () => void;
 }) {
   const { user } = useAccount();
   const team = useTeam();
@@ -184,9 +186,12 @@ export function WorkItemDetail({
     <section aria-label="Work item detail" className="work-item-detail">
       <div className="workspace-panel-heading">
         <Button onClick={onBack}>Back to Work</Button>
-        <Button onClick={() => setRetry((value) => value + 1)}>
-          {error ? 'Retry work' : 'Refresh'}
-        </Button>
+        <div className="app-actions">
+          {onOpenRoom && <Button onClick={onOpenRoom}>Open Room</Button>}
+          <Button onClick={() => setRetry((value) => value + 1)}>
+            {error ? 'Retry work' : 'Refresh'}
+          </Button>
+        </div>
       </div>
       {error && (
         <p className="app-error" role="alert">

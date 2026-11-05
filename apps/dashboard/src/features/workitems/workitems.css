@@ -1,3 +1,40 @@
+.work-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.work-app-toolbar .p9-select {
+  margin-left: 0;
+  width: auto;
+  min-width: 0;
+  max-width: 260px;
+}
+.work-app-toolbar > .app-actions {
+  margin: 0 0 0 auto;
+  gap: 8px;
+}
+.work-app-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 18px;
+  background: #f8f8f8;
+  line-height: 1.5;
+}
+.work-create > .p9-select {
+  max-width: 100%;
+}
+.work-app .collaboration-panel {
+  padding: 0;
+  overflow: visible;
+}
+.work-item-row-context {
+  color: var(--p9-text-muted, #555);
+}
+.work-item-list > li > button.needs-you {
+  box-shadow: inset 3px 0 var(--p9-highlight);
+}
 .work-items,
 .work-item-detail {
   min-width: 0;

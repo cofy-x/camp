@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   Dispatch,
   SetStateAction,
@@ -8,7 +8,7 @@ import {
   ICON_SIZE,
   MENU_HEIGHT,
   STRIP_HEIGHT,
-  initialIconPosition,
+  resolvedIconPositions,
   intersects,
   marqueeBounds,
   moveIconGroup,
@@ -77,11 +77,18 @@ export function useDesktopGestures({
   const desktopRef = useRef<HTMLDivElement>(null);
   const lastTouch = useRef<{ id: string; time: number } | null>(null);
   const lastTouchActivation = useRef<{ id: string; time: number } | null>(null);
-  const iconPosition = (icon: DesktopIcon, index: number): Point => {
+  const positions = useMemo(
+    () =>
+      resolvedIconPositions(
+        props.icons.map((icon) => icon.id),
+        layout.icons,
+        viewport,
+      ),
+    [props.icons, layout.icons, viewport],
+  );
+  const iconPosition = (icon: DesktopIcon, _index: number): Point => {
     const point =
-      iconPreview[icon.id] ??
-      layout.icons[icon.id] ??
-      initialIconPosition(index, viewport);
+      iconPreview[icon.id] ?? layout.icons[icon.id] ?? positions[icon.id];
     return {
       x: Math.max(0, Math.min(point.x, viewport.width - ICON_SIZE.width)),
       y: Math.max(

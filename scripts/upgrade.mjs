@@ -9,10 +9,55 @@ import {
   validVersion,
 } from './release.mjs';
 
-// Fixed public packages; retain the oldest supported baseline separately from
-// the immediately previous release. The launcher verifies immutable archives.
+// Keep the oldest supported package, protocol transition and current public
+// predecessor distinct. The launcher verifies immutable archives.
 export const upgradeBaseline = 'v0.1.0-alpha.2';
-export const previousRelease = 'v0.1.0-alpha.8';
+export const protocolTransitionBaseline = 'v0.1.0-alpha.8';
+export const previousRelease = 'v0.1.0-alpha.10';
+export const serverUpgradeBaselines = [
+  upgradeBaseline,
+  protocolTransitionBaseline,
+  previousRelease,
+];
+export const runnerUpgradeProfiles = {
+  'transition-upgrade': {
+    fromVersion: protocolTransitionBaseline,
+    baselineInputProtocol: 0,
+  },
+  'previous-upgrade': {
+    fromVersion: previousRelease,
+    baselineInputProtocol: 1,
+  },
+};
+
+export function serverUpgradeReportFile(baseline) {
+  assert.ok(serverUpgradeBaselines.includes(baseline));
+  return baseline === upgradeBaseline
+    ? 'server-upgrade-verification.json'
+    : baseline === protocolTransitionBaseline
+      ? 'server-transition-upgrade-verification.json'
+      : 'server-previous-upgrade-verification.json';
+}
+
+export function baselineInputProtocolGate(
+  mode,
+  protocol,
+  customBaseline = false,
+) {
+  const profile = runnerUpgradeProfiles[mode];
+  assert.ok(profile, 'Select a full Runner upgrade profile.');
+  assert.ok(
+    [0, 1].includes(protocol),
+    'Read a supported baseline input capability.',
+  );
+  if (!customBaseline)
+    assert.equal(
+      protocol,
+      profile.baselineInputProtocol,
+      'The fixed public baseline must retain its expected task input capability.',
+    );
+  return protocol === 0;
+}
 
 export async function readBaselineInstallation(
   directory,
@@ -132,15 +177,23 @@ export async function baselineLauncher(
   return readBaselineInstallation(directory, role, version, binary);
 }
 
-export function verifyPreviousRunnerUpgrade(report, descriptor, platform) {
+export function verifyRunnerUpgrade(report, descriptor, platform, mode) {
+  const profile = runnerUpgradeProfiles[mode];
+  assert.ok(profile, 'Select a fixed full Runner upgrade profile.');
   const [os, arch] = platform.split('-');
   assert.equal(report.status, 'passed');
-  assert.equal(report.mode, 'previous-upgrade');
+  assert.equal(report.mode, mode);
   assert.equal(report.platform, os);
   assert.equal(report.architecture, arch === 'amd64' ? 'x64' : arch);
   assert.equal(report.version, descriptor.version);
   assert.equal(report.sourceCommit, descriptor.sourceCommit);
-  assert.equal(report.fromVersion, previousRelease);
+  assert.equal(report.fromVersion, profile.fromVersion);
+  assert.equal(report.baselineInputProtocol, profile.baselineInputProtocol);
+  assert.equal(
+    report.unsupportedInputProtocolQueued,
+    profile.baselineInputProtocol === 0,
+  );
+  assert.equal(report.queuedWhileOffline, profile.baselineInputProtocol === 1);
   assert.equal(report.entrypoint, 'runner-installer');
   assert.match(report.entrypointBinarySHA256, /^[a-f0-9]{64}$/);
   assert.equal(
@@ -152,7 +205,6 @@ export function verifyPreviousRunnerUpgrade(report, descriptor, platform) {
     'durableSourceReceiptPreserved',
     'journalPreserved',
     'legacyProtocolAccepted',
-    'unsupportedInputProtocolQueued',
     'upgradedInputHistoryVerified',
     'sourceReceiptRetryPreserved',
     'lostCompletionReplyRecovered',
@@ -160,4 +212,8 @@ export function verifyPreviousRunnerUpgrade(report, descriptor, platform) {
     assert.equal(report[field], true);
   assert.equal(report.model.paid, false);
   assert.equal(report.model.requests, 5);
+}
+
+export function verifyPreviousRunnerUpgrade(report, descriptor, platform) {
+  verifyRunnerUpgrade(report, descriptor, platform, 'previous-upgrade');
 }

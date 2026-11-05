@@ -6,6 +6,7 @@ import {
   mergeMenuGroups,
   moveIconGroup,
   overviewTransform,
+  resolvedIconPositions,
   resizeBounds,
   sanitizeLayout,
   selectionAfterClick,
@@ -207,6 +208,28 @@ describe('desktop selection', () => {
       expect(point.x + 88).toBeLessThanOrEqual(390);
       expect(point.y + 74).toBeLessThanOrEqual(844);
     }
+  });
+  it('fits a newly registered application around a saved desktop without moving existing icons', () => {
+    const oldIds = ['workspace', 'library', 'agents', 'runners', 'settings'];
+    const saved = Object.fromEntries(
+      oldIds.map((id, index) => [id, initialIconPosition(index, viewport)]),
+    );
+    saved.agents = { x: 340, y: 150 };
+    const original = structuredClone(saved);
+    const ids = ['workspace', 'work', ...oldIds.slice(1)];
+    const resolved = resolvedIconPositions(ids, saved, viewport);
+
+    for (const id of oldIds) expect(resolved[id]).toEqual(saved[id]);
+    for (const id of oldIds) {
+      expect(
+        intersects(
+          { ...resolved.work, width: 88, height: 74 },
+          { ...resolved[id], width: 88, height: 74 },
+        ),
+      ).toBe(false);
+    }
+    expect(resolvedIconPositions(ids, saved, viewport)).toEqual(resolved);
+    expect(saved).toEqual(original);
   });
   it('keeps a dragged group spaced apart at every viewport edge and when snapping', () => {
     const positions = { first: { x: 100, y: 100 }, second: { x: 190, y: 174 } };

@@ -9,6 +9,26 @@ import (
 
 func (a *API) workItemRoutes(mux *http.ServeMux) {
 	register := func(route string, h http.HandlerFunc) { mux.HandleFunc(route, a.authorizeRoute(route, h)) }
+	register("GET /api/work-items", func(w http.ResponseWriter, r *http.Request) {
+		allowed := map[string]bool{"scope": true, "view": true, "roomId": true, "cursor": true, "limit": true}
+		for key, values := range r.URL.Query() {
+			if !allowed[key] || len(values) != 1 || ((key == "scope" || key == "view") && values[0] == "") {
+				writeError(w, 400, "invalid_page", "Provide one value for each supported Work filter.")
+				return
+			}
+		}
+		limit, present, ok := pageNumber(w, r, "limit")
+		if !ok {
+			return
+		}
+		if (present && limit == 0) || limit > 20 {
+			writeError(w, 400, "invalid_page", "Read between one and 20 work items at a time.")
+			return
+		}
+		query := r.URL.Query()
+		page, err := a.store.ListWorkItems(r.Context(), storage.WorkListOptions{Scope: query.Get("scope"), View: query.Get("view"), RoomID: query.Get("roomId"), Cursor: query.Get("cursor"), Limit: int(limit)})
+		a.respond(w, r, page, err)
+	})
 	register("GET /api/automation-events/{id}", func(w http.ResponseWriter, r *http.Request) {
 		item, err := a.store.GetAutomationEvent(r.Context(), r.PathValue("id"))
 		a.respond(w, r, map[string]any{"event": item}, err)

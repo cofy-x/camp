@@ -27,11 +27,18 @@ test.afterEach(async ({ page }) =>
 test('first-run discussion, private drafts, threads and explicit agent requests', async ({
   page,
 }, testInfo) => {
-  for (const name of ['Workspace', 'Library', 'Agents', 'Runners', 'Settings'])
+  for (const name of [
+    'Workspace',
+    'Work',
+    'Library',
+    'Agents',
+    'Runners',
+    'Settings',
+  ])
     await expect(
       page.locator('.p9-desktop-icon').getByText(name, { exact: true }),
     ).toHaveCount(1);
-  await expect(page.locator('.p9-desktop-icon')).toHaveCount(5);
+  await expect(page.locator('.p9-desktop-icon')).toHaveCount(6);
   if (['chromium', 'touch'].includes(testInfo.project.name))
     await page.screenshot({
       path: testInfo.outputPath('workspace-first-run.png'),
