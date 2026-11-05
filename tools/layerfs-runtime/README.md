@@ -4,7 +4,9 @@ This directory builds and hosts Camp's private LayerFS SDK bridge. The package, 
 
 ## Source pin
 
-The current pin includes the qualified connection-retirement correction in [upstream PR #546](https://github.com/Ephemeral-AI-Lab/layerfs/pull/546), which is awaiting maintainer merge (tracked in [Camp #121](https://github.com/cofy-x/camp/issues/121)). This is a fixed public PR revision, not a new upstream SDK release. Both source installers keep their promisor Git configuration private, avoid eagerly fetching large documentation media, and fully materialize the requested source archive. The Linux image's commit label comes from the same pin and is read back before installation metadata is saved. Image staging makes the pnpm tree readable/traversable for the nonroot command identity without changing host-cache permissions; the build verifies pnpm as UID 501 even under a private host umask.
+Pin an exact revision already accepted on official upstream main or included in an upstream release. Review the upstream diff and qualify affected Camp integrations before updating; installers never follow a floating branch. Use isolated candidate worktrees and fresh fixtures to reproduce, test and contribute fork fixes until upstream accepts them. Camp issues retain the user impact, workaround, upstream link and adoption criteria. The current SDK unmount-tail follow-up is [Camp #121](https://github.com/cofy-x/camp/issues/121).
+
+Both source installers keep their promisor Git configuration private, avoid eagerly fetching large documentation media, and fully materialize the requested source archive. The Linux image's commit label comes from the same pin and is read back before installation metadata is saved. Image staging makes the pnpm tree readable/traversable for the nonroot command identity without changing host-cache permissions; the build verifies pnpm as UID 501 even under a private host umask.
 
 ## Development
 
