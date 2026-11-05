@@ -39,7 +39,7 @@ export async function qualifyExportRelease({
   const report = {
     passed: false,
     scope:
-      'packaged export release fault qualification; artificial delay excluded from costs',
+      'export release fault qualification; artificial delay excluded from costs',
     modelRequests: 0,
   };
   let worker;
