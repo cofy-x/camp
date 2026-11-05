@@ -240,28 +240,32 @@ export function ReviewPanel({
                   </div>
                 </section>
               )}
-              <details className="camp-reviewed-document" open>
-                <summary>
-                  {review.status === 'delivered'
-                    ? 'Delivered document'
-                    : 'Submitted document'}
-                </summary>
-                <FilePreview
-                  reference={{
-                    kind: 'file',
-                    resourceId: review.resourceId,
-                    path: review.path,
-                    commit: review.deliveredCommit || review.submittedCommit,
-                    title: review.path,
-                  }}
-                />
-              </details>
-              <ReviewActions
-                key={review.id}
-                review={review}
-                changed={Boolean(incoming)}
-                onChange={applyDecision}
-              />
+              <div className="camp-review-decision-layout">
+                <div className="camp-review-decision">
+                  <ReviewActions
+                    key={review.id}
+                    review={review}
+                    changed={Boolean(incoming)}
+                    onChange={applyDecision}
+                  />
+                </div>
+                <details className="camp-reviewed-document" open>
+                  <summary>
+                    {review.status === 'delivered'
+                      ? 'Delivered document'
+                      : 'Submitted document'}
+                  </summary>
+                  <FilePreview
+                    reference={{
+                      kind: 'file',
+                      resourceId: review.resourceId,
+                      path: review.path,
+                      commit: review.deliveredCommit || review.submittedCommit,
+                      title: review.path,
+                    }}
+                  />
+                </details>
+              </div>
               <details className="camp-review-history">
                 <summary>Review history</summary>
                 <ol>

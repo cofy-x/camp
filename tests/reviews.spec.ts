@@ -222,15 +222,17 @@ test('a different Library source shows its own review loading state instead of t
     return route.fallback();
   });
   try {
-    await library(page)
-      .getByRole('button', { name: 'Sources', exact: true })
-      .click();
-    await library(page)
-      .getByRole('complementary', { name: 'Library resources', exact: true })
+    const sources = library(page).getByRole('complementary', {
+      name: 'Library resources',
+      exact: true,
+    });
+    if (!(await sources.isVisible()))
+      await library(page)
+        .getByRole('button', { name: 'Sources', exact: true })
+        .click();
+    await sources
       .getByRole('button')
-      .filter({
-        has: page.getByText(`${destination.name} files`, { exact: true }),
-      })
+      .filter({ hasText: `${destination.name} files` })
       .click();
     await expect(library(page).locator('.p9-window-title')).toHaveText(
       `${destination.name} — Library`,
@@ -251,7 +253,10 @@ test('a different Library source shows its own review loading state instead of t
     expect(errors.errors).toEqual([]);
   } finally {
     release();
-    await page.unrouteAll({ behavior: 'wait' });
+    if (!page.isClosed())
+      await page.unrouteAll({ behavior: 'wait' }).catch((error: unknown) => {
+        if (!page.isClosed()) throw error;
+      });
   }
 });
 
@@ -554,11 +559,29 @@ test('two people review, revise and deliver an exact document version', async ({
         return Boolean(
           document &&
           actions &&
-          document.compareDocumentPosition(actions) &
+          actions.compareDocumentPosition(document) &
             Node.DOCUMENT_POSITION_FOLLOWING,
         );
       }),
     ).toBeTruthy();
+    await expect(
+      detail(reviewer).getByRole('button', { name: 'Approve', exact: true }),
+    ).toBeInViewport({ ratio: 1 });
+    await expect(
+      detail(reviewer).getByRole('button', {
+        name: 'Request Changes',
+        exact: true,
+      }),
+    ).toBeInViewport({ ratio: 1 });
+    await expect(
+      detail(reviewer).getByRole('button', {
+        name: 'Open Document',
+        exact: true,
+      }),
+    ).toBeInViewport({ ratio: 1 });
+    await expect(
+      detail(reviewer).locator('.camp-reviewed-document'),
+    ).toBeVisible();
     await detail(reviewer)
       .getByRole('button', { name: 'Open Document', exact: true })
       .click();
