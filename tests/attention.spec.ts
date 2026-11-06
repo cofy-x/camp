@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { expect, test, type Browser, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type Browser,
+  type Locator,
+  type Page,
+} from '@playwright/test';
 import type { AttentionPage } from '../apps/dashboard/src/features/attention/api';
 import type { Review } from '../apps/dashboard/src/features/reviews/api';
 import type { WorkItem } from '../apps/dashboard/src/features/workitems/api';
@@ -173,6 +179,117 @@ async function teammate(browser: Browser, owner: Page, baseURL?: string) {
   await expect(workspace(page)).toBeVisible();
   return { context, page, user };
 }
+
+async function readableFeedback(row: Locator) {
+  const colors = await row.evaluate((button) => {
+    const style = getComputedStyle(button);
+    return {
+      background: style.backgroundColor,
+      text: style.color,
+      metadata: getComputedStyle(button.querySelector('small')!).color,
+    };
+  });
+  const luminance = (color: string) =>
+    color
+      .match(/[\d.]+/g)!
+      .slice(0, 3)
+      .map(Number)
+      .map((value) => {
+        const channel = value / 255;
+        return channel <= 0.04045
+          ? channel / 12.92
+          : ((channel + 0.055) / 1.055) ** 2.4;
+      })
+      .reduce(
+        (sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index],
+        0,
+      );
+  for (const text of [colors.text, colors.metadata]) {
+    const values = [luminance(text), luminance(colors.background)];
+    expect(
+      (Math.max(...values) + 0.05) / (Math.min(...values) + 0.05),
+    ).toBeGreaterThanOrEqual(4.5);
+  }
+  return colors;
+}
+
+test('Inbox keeps readable feedback and reachable tabs while each view starts at its first item', async ({
+  page: ownerPage,
+  browser,
+  baseURL,
+}) => {
+  await signIn(ownerPage);
+  await ownerPage.setViewportSize({ width: 390, height: 540 });
+  const room = await createRoom(
+    ownerPage,
+    `Inbox scrolling ${randomUUID().slice(0, 8)}`,
+  );
+  const member = await teammate(browser, ownerPage, baseURL);
+  const page = member.page;
+  try {
+    for (let index = 0; index < 7; index++)
+      await question(
+        page,
+        room.id,
+        `Choose the customer update priorities and next steps ${index}`,
+      );
+    const originalNotices = await notices(page);
+    await openPending(page);
+    const needs = queue(page).getByRole('button');
+    await expect(needs).toHaveCount(7);
+    await expect(needs.first()).toBeInViewport();
+    await needs.last().scrollIntoViewIfNeeded();
+    await expect(needs.first()).not.toBeInViewport();
+    const needsTab = palette(page).getByRole('tab', {
+      name: 'Needs me',
+      exact: true,
+    });
+    const activityTab = palette(page).getByRole('tab', { name: /^Activity/ });
+    await needs.first().scrollIntoViewIfNeeded();
+    await needs.first().hover();
+    const needsHover = await readableFeedback(needs.first());
+    await needsTab.hover();
+    await needsTab.focus();
+    await needsTab.press('Tab');
+    // Firefox includes native scroll containers in sequential navigation.
+    const scroll = palette(page).locator('.camp-inbox-scroll');
+    if (await scroll.evaluate((node) => node === document.activeElement))
+      await page.keyboard.press('Tab');
+    await expect(needs.first()).toBeFocused();
+    expect(await readableFeedback(needs.first())).toEqual(needsHover);
+    await expect(needs.first()).toHaveCSS('outline-style', 'solid');
+    await expect(needs.first()).toHaveCSS('outline-color', needsHover.text);
+    await needs.last().scrollIntoViewIfNeeded();
+    await expect(activityTab).toBeInViewport();
+    await activityTab.click();
+    const activity = palette(page)
+      .getByRole('list', { name: 'Activity', exact: true })
+      .getByRole('button');
+    await expect(activity).toHaveCount(7);
+    await expect(activity.first()).toBeInViewport();
+    await activity.first().hover();
+    expect(await readableFeedback(activity.first())).toEqual(needsHover);
+    await activityTab.hover();
+    await activityTab.focus();
+    await activityTab.press('Tab');
+    if (await scroll.evaluate((node) => node === document.activeElement))
+      await page.keyboard.press('Tab');
+    await expect(activity.first()).toBeFocused();
+    expect(await readableFeedback(activity.first())).toEqual(needsHover);
+    await expect(activity.first()).toHaveCSS('outline-color', needsHover.text);
+    await activity.last().scrollIntoViewIfNeeded();
+    await expect(activity.first()).not.toBeInViewport();
+    await expect(needsTab).toBeInViewport();
+    await needsTab.click();
+    await expect(needs.first()).toBeInViewport();
+    await activityTab.click();
+    await expect(activity.first()).toBeInViewport();
+    expect(await notices(page)).toEqual(originalNotices);
+    expect((await pending(page)).total).toBe(7);
+  } finally {
+    await member.context.close();
+  }
+});
 
 test('reading Activity never resolves current questions or reviews, while actual decisions remove them', async ({
   page: ownerPage,

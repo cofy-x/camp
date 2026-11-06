@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
 import { statusLabel } from '../workspace/api';
 import {
@@ -83,6 +83,7 @@ export function TaskHistory({
   active: boolean;
   onInspect: (id: string) => void;
 }) {
+  const descriptionId = useId();
   const loadInputs = useCallback(
     (cursor: InputCursor, signal: AbortSignal) =>
       tasksApi.inputs(task.id, cursor.after, cursor.through, signal),
@@ -126,18 +127,38 @@ export function TaskHistory({
         {runs.page && (
           <>
             {!runs.page.items.length && <p>No execution has started yet.</p>}
-            <ol>
+            <ol className="collaboration-turns">
               {runs.page.items.map((run) => (
                 <li key={run.id}>
-                  <Button onClick={() => onInspect(run.id)}>
-                    {run.agentName} · {statusLabel[run.status]}
-                  </Button>
-                  <small>
-                    {run.runnerName}
-                    {run.checksDeferred
-                      ? ' · Checks deferred until finish'
-                      : ''}
-                  </small>
+                  <button
+                    type="button"
+                    className="collaboration-turn"
+                    aria-label={`${run.agentName} · ${statusLabel[run.status]}`}
+                    aria-describedby={
+                      run.runnerName || run.checksDeferred
+                        ? `${descriptionId}-${run.id}`
+                        : undefined
+                    }
+                    onClick={() => onInspect(run.id)}
+                  >
+                    <span className="collaboration-turn-agent">
+                      {run.agentName}
+                    </span>
+                    <span className="collaboration-turn-status">
+                      {statusLabel[run.status]}
+                    </span>
+                    <span className="collaboration-turn-arrow" aria-hidden>
+                      ›
+                    </span>
+                    {(run.runnerName || run.checksDeferred) && (
+                      <small id={`${descriptionId}-${run.id}`}>
+                        {run.runnerName}
+                        {run.checksDeferred
+                          ? `${run.runnerName ? ' · ' : ''}Checks deferred until finish`
+                          : ''}
+                      </small>
+                    )}
+                  </button>
                 </li>
               ))}
             </ol>

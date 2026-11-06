@@ -758,6 +758,11 @@ test('completed collaboration puts its fixed result before a long summary and ke
       .getByRole('button', { name: 'Writer · Completed', exact: true }),
   ).toBeVisible();
   await expect(
+    panel
+      .getByRole('region', { name: 'Collaboration turns', exact: true })
+      .getByRole('button', { name: 'Writer · Completed', exact: true }),
+  ).toHaveAccessibleDescription('Personal Runner 1');
+  await expect(
     panel.getByRole('region', { name: 'Team input', exact: true }),
   ).toContainText('independent of later Room changes');
   if (['chromium', 'touch'].includes(info.project.name))

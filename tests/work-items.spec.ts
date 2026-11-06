@@ -1003,7 +1003,7 @@ test('starting work freezes the actual finite grant and recovers the same reques
   await expect(
     work(page).getByRole('button', { name: 'Start work', exact: true }),
   ).toBeDisabled();
-  await work(page).getByText('Change Agents', { exact: true }).click();
+  await work(page).getByLabel('Change Agents', { exact: true }).click();
   await work(page)
     .getByRole('checkbox', { name: 'former-agent · Unavailable', exact: true })
     .click();
@@ -1013,17 +1013,17 @@ test('starting work freezes the actual finite grant and recovers the same reques
       exact: true,
     }),
   ).toHaveCount(0);
-  await work(page).getByText('Change Agents', { exact: true }).click();
+  await work(page).getByLabel('Change Agents', { exact: true }).click();
   await expect(
     work(page).getByText('Writer · May edit Room files', { exact: true }),
   ).toBeVisible();
   await expect(
-    work(page).getByText('Up to 6 turns and 24 model requests.', {
+    work(page).getByText('Up to 6 turns · 24 model requests', {
       exact: true,
     }),
   ).toBeVisible();
   await expect(
-    work(page).getByText('Work is saved in a team-visible draft.', {
+    work(page).getByText('Team-visible draft', {
       exact: true,
     }),
   ).toBeVisible();
@@ -1032,7 +1032,7 @@ test('starting work freezes the actual finite grant and recovers the same reques
     .getByLabel('Future follow-up', { exact: true })
     .selectOption(policy.id);
   await expect(
-    work(page).getByText('Up to 6 turns and 24 model requests.', {
+    work(page).getByText('Up to 6 turns · 24 model requests', {
       exact: true,
     }),
   ).toHaveCount(0);
@@ -1420,7 +1420,7 @@ test('results expose exact files and the final finite grant; stop remains visibl
     .getByRole('button', { name: 'Request changes…', exact: true })
     .click();
   await expect(
-    detail(page).getByText('Up to 6 turns and 24 model requests.', {
+    detail(page).getByText('Up to 6 turns · 24 model requests', {
       exact: true,
     }),
   ).toBeVisible();

@@ -65,6 +65,31 @@ export function Work(props: AppWindowProps) {
           </Button>
         </div>
       </div>
+      {selection.kind === 'create' && (
+        <div className="app-toolbar work-app-toolbar work-create-toolbar">
+          <Button onClick={work.showList}>Back to Work</Button>
+          <Select
+            label="Room"
+            required
+            value={selection.roomId}
+            disabled={sources}
+            onChange={(event) => work.creationRoom(event.target.value)}
+          >
+            <option value="" disabled>
+              Choose a Room
+            </option>
+            {selection.roomId &&
+              !work.rooms.some((room) => room.id === selection.roomId) && (
+                <option value={selection.roomId}>Loading Room…</option>
+              )}
+            {work.rooms.map((room) => (
+              <option key={room.id} value={room.id}>
+                {room.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+      )}
       <main className="work-app-body">
         <section className="work-items" aria-label="Work items">
           {work.actionError && (
@@ -149,31 +174,6 @@ export function Work(props: AppWindowProps) {
           </div>
           {selection.kind === 'create' && (
             <div className="work-create">
-              <Select
-                label="Room"
-                required
-                value={selection.roomId}
-                disabled={sources}
-                onChange={(event) => work.creationRoom(event.target.value)}
-              >
-                <option value="" disabled>
-                  Choose a Room
-                </option>
-                {selection.roomId &&
-                  !work.rooms.some((room) => room.id === selection.roomId) && (
-                    <option value={selection.roomId}>Loading Room…</option>
-                  )}
-                {work.rooms.map((room) => (
-                  <option key={room.id} value={room.id}>
-                    {room.name}
-                  </option>
-                ))}
-              </Select>
-              {!selection.roomId && (
-                <div className="app-actions">
-                  <Button onClick={work.showList}>Back to Work</Button>
-                </div>
-              )}
               {context && (
                 <WorkItemForm
                   key={`create:${selection.roomId}:${selection.sourceMessage?.id ?? selection.sourceEvent?.id ?? 'manual'}`}
@@ -184,7 +184,7 @@ export function Work(props: AppWindowProps) {
                   availability={work.availability}
                   sourceMessage={selection.sourceMessage}
                   sourceEvent={selection.sourceEvent}
-                  showHeading={false}
+                  showHeader={false}
                   onCreated={(item) =>
                     work.created(
                       item,
@@ -243,7 +243,7 @@ export function Work(props: AppWindowProps) {
           {work.activeRoomId &&
             !context &&
             !inspection.taskId &&
-            (selection.kind === 'item' || selection.kind === 'create') && (
+            selection.kind === 'item' && (
               <div className="app-actions">
                 <Button onClick={work.showList}>Back to Work</Button>
               </div>

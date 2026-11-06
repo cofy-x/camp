@@ -89,7 +89,7 @@ export function WorkItemForm({
   availability,
   onCreated,
   onClose,
-  showHeading = true,
+  showHeader = true,
 }: {
   roomId: string;
   members: Agent[];
@@ -100,7 +100,7 @@ export function WorkItemForm({
   availability?: Pick<WorkspaceStatus, 'available' | 'reason'>;
   onCreated: (item: WorkItem) => void;
   onClose: () => void;
-  showHeading?: boolean;
+  showHeader?: boolean;
 }) {
   const { user } = useAccount();
   const goalId = useId();
@@ -198,10 +198,12 @@ export function WorkItemForm({
         create(true);
       }}
     >
-      <div className="workspace-panel-heading">
-        {showHeading && <h3>New work</h3>}
-        <Button onClick={onClose}>Back to Work</Button>
-      </div>
+      {showHeader && (
+        <div className="workspace-panel-heading">
+          <h3>New work</h3>
+          <Button onClick={onClose}>Back to Work</Button>
+        </div>
+      )}
       <DraftRecovery draft={draft} preview={(value) => value?.goal ?? ''} />
       <fieldset disabled={disabled}>
         <label htmlFor={goalId}>What needs to happen?</label>

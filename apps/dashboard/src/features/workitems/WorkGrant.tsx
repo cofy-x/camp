@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { Checkbox, Select } from '@cofy-x/camp-platinum';
 import type { Agent } from '../workspace/api';
 import type { WorkItemDefaults } from './api';
@@ -42,6 +43,7 @@ export function WorkGrant({
   onFirstChange: (id: string) => void;
   disabled?: boolean;
 }) {
+  const summaryId = useId();
   const agents = selected.flatMap((id) => {
     const agent = members.find((agent) => agent.id === id);
     return agent ? [agent] : [];
@@ -52,21 +54,16 @@ export function WorkGrant({
   );
   return (
     <div className="work-grant">
-      <p>
-        {agents.map((agent) => agent.name).join(', ') || 'Choose an Agent'}
-        {agents.length
-          ? ` · ${agents.some((agent) => agent.access === 'write') ? 'May edit Room files' : 'Read access'}`
-          : ''}
-      </p>
-      {defaults && (
-        <p>
-          Up to {defaults.execution.maxTurns} turns and {requests} model
-          requests.
-        </p>
-      )}
-      <p>Work is saved in a team-visible draft.</p>
-      <details>
-        <summary>Change Agents</summary>
+      <details className="work-grant-agents">
+        <summary aria-label="Change Agents" aria-describedby={summaryId}>
+          <span className="work-grant-summary" id={summaryId}>
+            {agents.map((agent) => agent.name).join(', ') || 'Choose an Agent'}
+            {agents.length
+              ? ` · ${agents.some((agent) => agent.access === 'write') ? 'May edit Room files' : 'Read access'}`
+              : ''}
+          </span>
+          <span className="work-grant-change">Change…</span>
+        </summary>
         <fieldset disabled={disabled} className="work-item-participants">
           {members
             .filter((agent) => agent.enabled)
@@ -117,6 +114,15 @@ export function WorkGrant({
           )}
         </fieldset>
       </details>
+      <p className="work-grant-limits">
+        {defaults && (
+          <span>
+            Up to {defaults.execution.maxTurns} turns · {requests} model
+            requests
+          </span>
+        )}
+        <span>Team-visible draft</span>
+      </p>
     </div>
   );
 }
