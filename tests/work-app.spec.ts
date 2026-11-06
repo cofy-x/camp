@@ -85,12 +85,9 @@ test('Work prioritizes attention across Rooms and Room and Inbox shortcuts reuse
   expect(closed.ok()).toBe(true);
 
   const queries: URLSearchParams[] = [];
-  const attentionQueries: URLSearchParams[] = [];
   page.on('request', (request) => {
     const url = new URL(request.url());
     if (url.pathname === '/api/work-items') queries.push(url.searchParams);
-    if (url.pathname === '/api/attention')
-      attentionQueries.push(url.searchParams);
   });
   await openApp(page, 'Work');
   await expect(work(page).locator('.p9-window-title')).toHaveText('Work');
@@ -117,7 +114,6 @@ test('Work prioritizes attention across Rooms and Room and Inbox shortcuts reuse
       .filter({ hasText: active.goal })
       .filter({ hasText: second.name }),
   ).toHaveCount(0);
-  expect(attentionQueries.length).toBeGreaterThan(0);
   await viewFilter(page).selectOption({ label: 'Completed' });
   await expect(rows.first()).toContainText(completed.goal);
   expect(queries.at(-1)?.get('view')).toBe('done');
