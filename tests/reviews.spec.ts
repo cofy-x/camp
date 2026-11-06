@@ -1281,6 +1281,13 @@ test('a disabled reviewer can be reassigned and a cancelled version can be revie
     await expect
       .poll(async () => (await readReview(page, review.id)).status)
       .toBe('cancelled');
+    // Receipt cleanup stays held while SSE reports the cancelled revision.
+    // Let its notice settle before clicking the document control below it.
+    await expect(
+      detail(page)
+        .getByRole('status')
+        .filter({ hasText: 'This review changed in another session.' }),
+    ).toBeVisible();
     await detail(page)
       .getByRole('button', { name: 'Open Document', exact: true })
       .click();
