@@ -17,6 +17,10 @@ import (
 
 func TestTaskInputHTTPSCapabilityPreservesFrozenScopeAcrossRestart(t *testing.T) {
 	h := newRemoteHarness(t, configuration.ModelInput{})
+	// Claim and prepare manually without racing scheduler recovery of the same
+	// unprepared durable Attempt. Restart below still creates a real scheduler.
+	h.manager.Load().cancel()
+	<-h.manager.Load().done
 	config := h.join(t, "history-owner", "fixture", nil, nativeexecutor.Config{})
 	other := h.join(t, "history-other", "fixture", nil, nativeexecutor.Config{})
 	if _, err := h.store.ConnectRunner(h.ctx, config.RunnerID, storage.RunnerConnection{StorageID: config.StorageID, Runtime: "fixture", Slots: 1, Capabilities: json.RawMessage(`{"executor":"fixture","ready":true,"taskInputsVersion":1}`)}); err != nil {
@@ -118,6 +122,10 @@ func TestTaskInputHTTPSCapabilityPreservesFrozenScopeAcrossRestart(t *testing.T)
 
 func TestTaskInputHTTPSPreservesExternalProvenance(t *testing.T) {
 	h := newRemoteHarness(t, configuration.ModelInput{})
+	// Claim and prepare manually without racing scheduler recovery of the same
+	// unprepared durable Attempt.
+	h.manager.Load().cancel()
+	<-h.manager.Load().done
 	config := h.join(t, "external-history-owner", "fixture", nil, nativeexecutor.Config{})
 	if _, err := h.store.ConnectRunner(h.ctx, config.RunnerID, storage.RunnerConnection{StorageID: config.StorageID, Runtime: "fixture", Slots: 1, Capabilities: json.RawMessage(`{"executor":"fixture","ready":true,"taskInputsVersion":1}`)}); err != nil {
 		t.Fatal(err)
