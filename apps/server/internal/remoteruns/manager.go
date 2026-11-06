@@ -286,13 +286,18 @@ func (m *Manager) Readiness(ctx context.Context) (configuration.Readiness, error
 		return configuration.Readiness{}, err
 	}
 	ready := 0
+	upgradeReasoning := 0
 	firstTask := configuration.Diagnostic{Status: "unknown", Detail: "No successful native task has been recorded. Installation self-tests and fixture tasks do not verify model-backed native work."}
 	lastSelfTest := ""
 	for _, r := range runners {
 		var c runnerprotocol.Capabilities
 		_ = json.Unmarshal(r.Capabilities, &c)
 		if r.Online && r.Enabled && !r.Revoked && c.Ready {
-			ready++
+			if model.ReasoningEffort != "" && c.ReasoningEffortVersion != 1 {
+				upgradeReasoning++
+			} else {
+				ready++
+			}
 			if c.Readiness != nil && c.Readiness.CheckedAt > lastSelfTest {
 				lastSelfTest = c.Readiness.CheckedAt
 			}
@@ -304,6 +309,9 @@ func (m *Manager) Readiness(ctx context.Context) (configuration.Readiness, error
 		}
 	}
 	runnerState, runnerDetail := "missing", "Connect an execution machine in Runners."
+	if upgradeReasoning > 0 {
+		runnerDetail = "Update a connected Runner to use the configured reasoning setting."
+	}
 	if ready > 0 {
 		runnerState, runnerDetail = "ready", "Connected Runners report execution ready. Agent routing and access are checked separately when work is submitted."
 	}

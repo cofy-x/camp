@@ -9,6 +9,49 @@ import (
 )
 
 func ptr[T any](v T) *T { return &v }
+
+func TestReasoningSettingsRetainFrozenVersionsAndProviderDefault(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "settings")
+	models, err := Open(directory, Defaults(), Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if models.View().ReasoningEffort != "" {
+		t.Fatal("an unset setting changed provider behavior")
+	}
+	view, err := models.Update(Update{ReasoningEffort: ptr("off")})
+	if err != nil || view.ReasoningEffort != "off" || view.Fields["reasoningEffort"].Source != "managed" {
+		t.Fatal("explicit reasoning setting was not saved", err)
+	}
+	frozen := view.Revision
+	view, err = models.Update(Update{ReasoningEffort: ptr("high")})
+	if err != nil || view.Revision == frozen {
+		t.Fatal("reasoning change did not receive a new private revision", err)
+	}
+	old, err := models.Resolve(frozen)
+	if err != nil || old.ReasoningEffort != "off" {
+		t.Fatal("new settings reinterpreted an existing request", err)
+	}
+	if _, err = models.Update(Update{ReasoningEffort: ptr("none")}); err == nil {
+		t.Fatal("unsupported SDK reasoning effort accepted")
+	}
+	view, err = models.Update(Update{ReasoningEffort: ptr("")})
+	if err != nil || view.ReasoningEffort != "" {
+		t.Fatal("provider default could not be selected", err)
+	}
+	models, err = Open(directory, Defaults(), Overrides{EnvFile: map[string]string{"reasoningEffort": "low"}, Environment: map[string]string{"reasoningEffort": "max"}})
+	if err != nil || models.View().ReasoningEffort != "max" || models.View().Fields["reasoningEffort"].Source != "environment" {
+		t.Fatal("reasoning precedence was not preserved", err)
+	}
+	if _, err = models.Update(Update{ReasoningEffort: ptr("off")}); err == nil {
+		t.Fatal("locked reasoning setting was overwritten")
+	}
+	old, err = models.Resolve(frozen)
+	if err != nil || old.ReasoningEffort != "off" {
+		t.Fatal("reopening settings changed frozen reasoning", err)
+	}
+}
+
 func TestPrecedencePrivateVersionsAndWriteOnlyKey(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "settings")
 	models, err := Open(directory, Defaults(), Overrides{})

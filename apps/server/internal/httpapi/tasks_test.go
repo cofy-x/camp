@@ -1,11 +1,58 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 )
+
+func TestTaskSummaryExposesOnlyCurrentCapturedRecoveryCandidate(t *testing.T) {
+	f, runner := remoteTeamFixture(t)
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "PATCH", "/api/runners/"+runner.ID, map[string]any{"teamShared": true}), 200)
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "PATCH", "/api/execution-defaults", map[string]any{"scope": "team", "runnerId": runner.ID, "revision": 0}), 200)
+	created := teamRequest(t, f, f.adminCookie, "POST", "/api/rooms/"+f.room.ID+"/tasks?view=summary", map[string]any{"requestId": "recoverable-task", "goal": "Build notes.", "participantAgentIds": []string{f.room.DefaultAgentID}, "firstAgentId": f.room.DefaultAgentID})
+	requireHTTP(t, created, 200)
+	var data struct {
+		Task     storage.CollaborationTask `json:"task"`
+		Recovery *storage.TaskRecoveryRun  `json:"recoveryRun"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &data); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	run, attempt, err := f.store.ClaimRemoteRun(ctx, data.Task.ActiveRunID, runner.ID, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, _ := json.Marshal(map[string]string{"id": attempt.CommandID, "operationId": attempt.ID, "kind": "run.start"})
+	if err = f.store.SaveAttemptCommand(ctx, attempt.ID, command, strings.Repeat("d", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.store.AcceptAttempt(ctx, attempt.ID, runner.ID); err != nil {
+		t.Fatal(err)
+	}
+	run.Status, run.ResultCommit = "failed", strings.Repeat("b", 40)
+	run.Files = []storage.RunFile{{Path: "index.html", Status: "added"}}
+	if _, err = f.store.FinishRemoteRun(ctx, attempt.ID, runner.ID, "captured", strings.Repeat("c", 64), run, "Captured partial files.", false, true); err != nil {
+		t.Fatal(err)
+	}
+	response := teamRequest(t, f, f.memberCookie, "GET", "/api/tasks/"+data.Task.ID+"?view=summary", nil)
+	requireHTTP(t, response, 200)
+	if err = json.Unmarshal(response.Body.Bytes(), &data); err != nil || data.Recovery == nil || data.Recovery.RunID != run.ID || data.Recovery.Commit != run.ResultCommit || data.Recovery.FileCount != 1 || data.Task.CheckpointCommit == run.ResultCommit {
+		t.Fatal("summary did not distinguish partial work from the accepted task draft", response.Body.String(), err)
+	}
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(response.Body.Bytes(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(fields["recoveryRun"]), "resultCommit") || strings.Contains(string(fields["recoveryRun"]), "private") {
+		t.Fatal("candidate exposed private execution metadata", string(fields["recoveryRun"]))
+	}
+}
 
 func TestTaskHTTPAdmissionReplayAndMemberOperations(t *testing.T) {
 	f, runner := remoteTeamFixture(t)

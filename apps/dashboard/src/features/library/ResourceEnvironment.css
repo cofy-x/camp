@@ -21,11 +21,6 @@
   margin: 0;
   font: 14px/1.4 var(--p9-font);
 }
-.library-environment-heading p {
-  margin: 3px 0 0;
-  color: #555;
-  overflow-wrap: anywhere;
-}
 .library-environment-description {
   max-width: 64ch;
   margin: 14px 0;
@@ -77,31 +72,84 @@
 .library-environment-checks {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
   min-width: 0;
 }
-.library-environment-checks > label {
-  font-weight: 600;
+.library-environment-checks h3 {
+  margin: 0;
+  font: 12px/1.4 var(--p9-font);
 }
 .library-environment-checks p {
   margin: 0;
 }
-.library-environment-checks textarea {
-  width: 100%;
+.library-environment-check {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 0 0;
+  border: 0;
+  border-top: 1px solid var(--p9-mid);
   min-width: 0;
-  min-height: 100px;
-  padding: 7px;
-  border: 1px solid var(--p9-shadow);
-  box-shadow:
-    inset 1px 1px #bbb,
-    1px 1px #fff;
-  border-radius: 0;
-  background: #fff;
-  color: var(--p9-text);
+}
+.library-environment-check label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.library-environment-check .p9-field {
+  min-width: 0;
+  width: 100%;
+}
+.library-check-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+.library-check-heading > label {
+  flex: 1 1 160px;
+}
+.library-check-arguments {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  align-items: start;
+  gap: 6px;
+}
+.library-check-arguments > span {
+  grid-column: 1 / -1;
+}
+.library-check-arguments > .p9-button {
+  justify-self: start;
+}
+.library-check-argument {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+.library-check-argument textarea {
+  flex: 1;
+  min-height: 26px;
   resize: vertical;
   font:
-    11px/1.6 ui-monospace,
+    11px/1.4 ui-monospace,
     monospace;
+}
+.library-check-argument > .p9-button {
+  flex-shrink: 0;
+  min-width: 22px;
+  padding-inline: 3px;
+}
+.library-check-directory > summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.library-check-directory > summary > span {
+  margin-left: 6px;
+  color: #555;
+}
+.library-check-directory > input {
+  margin-top: 6px;
 }
 .library-environment-hint {
   margin: 0;

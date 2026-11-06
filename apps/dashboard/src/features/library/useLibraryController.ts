@@ -121,6 +121,31 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
 
   const openLibraryActions = (button: HTMLButtonElement) => {
     const items: MenuItem[] = [];
+    const downloadCommit = version?.commit ?? commit;
+    items.push({
+      label: 'Download Files',
+      href:
+        resource && downloadCommit
+          ? libraryApi.archiveURL(resource.id, downloadCommit)
+          : undefined,
+      download: true,
+      disabled:
+        !resource ||
+        !downloadCommit ||
+        !files.length ||
+        filesLoading ||
+        commit !== (version?.commit ?? resource?.currentCommit) ||
+        Boolean(filesError) ||
+        loading ||
+        Boolean(libraryError) ||
+        pending ||
+        Boolean(editor) ||
+        Boolean(requestReview) ||
+        history ||
+        Boolean(comparison) ||
+        environmentOpen,
+    });
+    items.push({ separator: true });
     if (user.role === 'admin' && resource && !resource.immutable) {
       items.push(
         {

@@ -11,6 +11,8 @@ import {
   reloadEnvironment,
   sameEnvironment,
 } from './environmentState';
+import { EnvironmentChecks } from './EnvironmentChecks';
+import { configuredChecks, editableCheck } from './environmentChecks';
 import './ResourceEnvironment.css';
 
 export function EnvironmentEditor({
@@ -23,13 +25,12 @@ export function EnvironmentEditor({
   onClose: () => void;
 }) {
   const headingId = useId();
-  const checksId = useId();
   const [kind, setKind] = useState(resource.environment?.kind ?? 'none');
   const [manager, setManager] = useState(
     resource.environment?.packageManager ?? 'node',
   );
-  const [checks, setChecks] = useState(
-    JSON.stringify(resource.environment?.checks ?? [], null, 2),
+  const [checks, setChecks] = useState(() =>
+    (resource.environment?.checks ?? []).map(editableCheck),
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
@@ -62,7 +63,7 @@ export function EnvironmentEditor({
   function reload() {
     setKind(currentEnvironment?.kind ?? 'none');
     setManager(currentEnvironment?.packageManager ?? 'node');
-    setChecks(JSON.stringify(currentEnvironment?.checks ?? [], null, 2));
+    setChecks((currentEnvironment?.checks ?? []).map(editableCheck));
     setSnapshot((current) => reloadEnvironment(current));
     setError('');
     setNotice('');
@@ -130,11 +131,7 @@ export function EnvironmentEditor({
     let desired: Environment | null | undefined;
     const editing = editVersion.current;
     try {
-      const configured = (
-        kind === 'none' ? [] : JSON.parse(checks)
-      ) as Environment['checks'];
-      if (!Array.isArray(configured))
-        throw new Error('Checks must be a JSON array.');
+      const configured = kind === 'none' ? [] : configuredChecks(checks);
       const environment: Environment | null =
         kind === 'none'
           ? null
@@ -203,16 +200,14 @@ export function EnvironmentEditor({
       <header className="library-environment-heading">
         <div>
           <h2 id={headingId}>Environment and checks</h2>
-          <p>{resource.name}</p>
         </div>
         <Button disabled={pending} onClick={onClose}>
           Back to Files
         </Button>
       </header>
       <p className="library-environment-description">
-        Optional tools and checks for future agent requests. Reading, writing
-        and reviewing documents need no environment. Queued work keeps its
-        original configuration.
+        Changes apply to future work. Queued work keeps its original
+        configuration.
       </p>
       <dl className="library-environment-summary">
         <dt>Saved environment</dt>
@@ -270,16 +265,16 @@ export function EnvironmentEditor({
       >
         <fieldset
           className="app-control-group"
+          aria-label="Environment configuration"
           disabled={pending || unconfirmed !== undefined}
         >
-          <legend>Configuration</legend>
           <Select
             disabled={pending}
             label="Environment"
             value={kind}
             onChange={(event) => {
               setKind(event.target.value);
-              setChecks('[]');
+              setChecks([]);
               changed();
             }}
           >
@@ -302,41 +297,15 @@ export function EnvironmentEditor({
             </Select>
           )}
           {kind !== 'none' ? (
-            <div className="library-environment-checks">
-              <label htmlFor={checksId}>Checks (JSON array)</label>
-              <p id={`${checksId}-help`}>
-                Use an empty array for no checks. Saving configuration does not
-                run checks or install tools.
-              </p>
-              <textarea
-                id={checksId}
-                aria-describedby={`${checksId}-help ${checksId}-example`}
-                disabled={pending}
-                rows={6}
-                value={checks}
-                spellCheck={false}
-                onChange={(event) => {
-                  setChecks(event.target.value);
-                  changed();
-                }}
-              />
-              <div
-                id={`${checksId}-example`}
-                className="library-environment-hint"
-              >
-                <span>Example</span>
-                <code>
-                  {kind === 'node'
-                    ? '[{"name":"Tests","script":"test"}]'
-                    : '[{"name":"Tests","arguments":["python3","-m","unittest"]}]'}
-                </code>
-                <p>
-                  An optional directory is relative to the resource. Commands
-                  run directly, without an implied shell; their tools must
-                  already be available in the execution environment.
-                </p>
-              </div>
-            </div>
+            <EnvironmentChecks
+              checks={checks}
+              kind={kind}
+              manager={manager}
+              onChange={(value) => {
+                setChecks(value);
+                changed();
+              }}
+            />
           ) : (
             <p className="library-environment-hint">
               Checks: Not configured. Agents can still read and edit files.

@@ -15,7 +15,7 @@ The installer allows only the required native build steps recorded in [pnpm-work
 
 Camp launches the public CLI with `--profile sdk-minimal --patch ...`. JSON-RPC 2.0 is one message per stdio line; stdout is protocol-only and stderr diagnostic. The adapter lives in [internal/dsh](../../apps/server/internal/dsh).
 
-1. `initialize` supplies cwd, provider, model and per-request output limit.
+1. `initialize` supplies cwd, provider, model, optional `reasoningEffort` and per-request output limit. Omission retains provider behavior; explicit `off`, `low`, `high` and `max` use the public Messages adapter's controls.
 2. `session/resume` restores an eligible session; `session/prompt` supplies text content blocks. A message ID acknowledges admission, not completion.
 3. `session.event` notifications carry `{sessionId,event:{type,seq,time,data}}`. Observe tool/assistant/step/turn events; idle alone is not success.
 4. `session/wait` resolves the root turn outcome. Only a completed end reason is normal model completion. `shutdown` and confirmed process exit follow.

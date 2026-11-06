@@ -34,7 +34,35 @@ func (m *Manager) CreateTask(ctx context.Context, room string, in storage.Create
 	return t, err
 }
 func (m *Manager) OperateTask(ctx context.Context, id, action string, in storage.TaskOperation) (storage.CollaborationTask, error) {
-	t, err := m.store.OperateTask(ctx, id, action, in)
+	if in.FromRunID != "" {
+		if task, found, err := m.store.FindTaskOperation(ctx, id, action, in); err != nil || found {
+			return task, err
+		}
+		if action != "continue" || in.FromLatest {
+			return storage.CollaborationTask{}, problem("invalid_task_recovery", "Choose either captured task files or the latest Room files when continuing.")
+		}
+		run, err := m.store.RecoveryRunFiles(ctx, id, in.FromRunID)
+		if err != nil {
+			return storage.CollaborationTask{}, err
+		}
+		if _, err = m.files.ListFiles(ctx, run.ResourceID, run.ResultCommit); err != nil {
+			return storage.CollaborationTask{}, problem("invalid_task_recovery", "The captured files are unavailable. Review the failed turn before continuing.")
+		}
+	}
+	var t storage.CollaborationTask
+	var err error
+	if action == "continue" && in.RefreshModelSettings {
+		revision, model := m.models.Snapshot()
+		current := storage.Budget{}
+		if model.APIKey != "" || m.config.AllowFixture {
+			current = storage.Budget{RequireRunner: true, RuntimeKey: revision, Model: model.Model, MaxTokens: model.MaxTokens, MaxSteps: model.MaxSteps, TimeoutSeconds: model.TimeoutSeconds}
+		}
+		// Storage replays the original receipt before consulting these settings,
+		// even if an administrator has since removed the current connection.
+		t, err = m.store.OperateTaskWithModel(ctx, id, action, in, current)
+	} else {
+		t, err = m.store.OperateTask(ctx, id, action, in)
+	}
 	if err == nil {
 		if action == "cancel" {
 			m.stopTaskPreparation(id)

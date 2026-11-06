@@ -1633,6 +1633,15 @@ test('blocked work opens its saved execution for an explicit continuation grant'
       },
     }),
   );
+  await openItems(page);
+  const pausedRow = work(page)
+    .getByRole('button')
+    .filter({ hasText: value.item.goal });
+  await expect(
+    pausedRow.getByText('Needs attention', { exact: true }),
+  ).toBeVisible();
+  await expect(pausedRow.getByText('Working', { exact: true })).toHaveCount(0);
+  await capture(page, 'paused-work-list');
   await value.open();
   await expect(
     detail(page).getByText('Needs attention · Writer', { exact: true }),

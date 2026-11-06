@@ -29,6 +29,7 @@ type Request struct {
 	Directory, ReferencesDir                     string
 	Persona, Access, Prompt                      string
 	Model, ModelURL, ModelToken                  string
+	ReasoningEffort                              string
 	MaxTokens, MaxSteps                          int
 	Timeout                                      time.Duration
 	Environment                                  json.RawMessage

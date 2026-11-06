@@ -347,6 +347,16 @@ func taskManage(ctx context.Context, q *sqlgen.Queries, t CollaborationTask) err
 	return nil
 }
 func (s *Store) OperateTask(ctx context.Context, id, action string, in TaskOperation) (out CollaborationTask, err error) {
+	return s.operateTask(ctx, id, action, in, nil)
+}
+
+// OperateTaskWithModel applies trusted current settings only when the requester
+// explicitly refreshes the model for future rounds. Earlier Runs stay immutable.
+func (s *Store) OperateTaskWithModel(ctx context.Context, id, action string, in TaskOperation, model Budget) (CollaborationTask, error) {
+	return s.operateTask(ctx, id, action, in, &model)
+}
+
+func (s *Store) operateTask(ctx context.Context, id, action string, in TaskOperation, model *Budget) (out CollaborationTask, err error) {
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
 		if e := requireActor(ctx, q, false); e != nil {
@@ -360,6 +370,12 @@ func (s *Store) OperateTask(ctx context.Context, id, action string, in TaskOpera
 		if replay {
 			out = old
 			return nil
+		}
+		if in.RefreshModelSettings && action != "continue" {
+			return problem("invalid_task", "Current model settings can only be selected when continuing a collaboration.")
+		}
+		if in.FromRunID != "" && (action != "continue" || in.FromLatest) {
+			return problem("invalid_task_recovery", "Choose either captured task files or the latest Room files when continuing.")
 		}
 		out, e = getTask(ctx, q, id)
 		if e != nil {
@@ -405,6 +421,12 @@ func (s *Store) OperateTask(ctx context.Context, id, action string, in TaskOpera
 			if out.ActiveRunID != "" || out.Status == "publishing" {
 				return problem("task_busy", "Wait for the current execution to stop before continuing.")
 			}
+			if in.RefreshModelSettings {
+				if model == nil || model.RuntimeKey == "" || model.Model == "" || model.MaxTokens < 1 || model.MaxSteps < 1 || model.TimeoutSeconds < 1 {
+					return problem("invalid_task", "Current model settings are unavailable. Refresh before continuing.")
+				}
+				out.Budget = *model
+			}
 			if in.AddTurns < 0 || in.AddTurns > 24 || in.AddModelRequests < 0 || in.AddModelRequests > 96 {
 				return problem("invalid_task", "Add at most 24 turns and 96 model requests per explicit authorization.")
 			}
@@ -422,6 +444,20 @@ func (s *Store) OperateTask(ctx context.Context, id, action string, in TaskOpera
 				if e != nil {
 					return e
 				}
+			}
+			if in.FromRunID != "" {
+				// Check current authority even when an exhausted allowance means
+				// enqueueTaskRound cannot create a Run yet.
+				if e = authorizeTask(ctx, q, out); e != nil {
+					return e
+				}
+				run, err := recoverableTaskRun(ctx, q, out, in.FromRunID)
+				if err != nil {
+					return err
+				}
+				out.CheckpointCommit = run.ResultCommit
+				out.CheckpointRevision++
+				out.PublicationRunID = ""
 			}
 			if in.FromLatest {
 				resource, e := q.GetResource(ctx, out.ResourceID)

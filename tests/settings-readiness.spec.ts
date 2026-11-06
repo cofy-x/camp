@@ -635,3 +635,44 @@ test('panel navigation refreshes status and ignores an older pending response', 
     releaseOlderRead();
   }
 });
+
+test('reasoning mode is explicit and can return to the provider default without changing request limits', async ({
+  page,
+}) => {
+  await signIn(page);
+  const before = await (await page.request.get('/api/settings/models')).json();
+  await openApp(page, 'Settings');
+  await selectPanel(page, 'models', 'Models');
+  const app = settings(page);
+  await app
+    .locator('summary')
+    .getByText('Request limits', { exact: true })
+    .click();
+  const effort = app.getByRole('combobox', {
+    name: 'Reasoning effort',
+    exact: true,
+  });
+  await expect(effort).toHaveValue(before.reasoningEffort ?? '');
+  await effort.selectOption('off');
+  await app
+    .getByRole('button', { name: 'Save Model Settings', exact: true })
+    .click();
+  await expect(
+    app.getByText('Model settings saved.', { exact: true }),
+  ).toBeVisible();
+  let current = await (await page.request.get('/api/settings/models')).json();
+  expect(current.reasoningEffort).toBe('off');
+  expect(current.maxTokens).toBe(before.maxTokens);
+  expect(current.maxSteps).toBe(before.maxSteps);
+  expect(current.timeoutSeconds).toBe(before.timeoutSeconds);
+  await effort.selectOption('');
+  await app
+    .getByRole('button', { name: 'Save Model Settings', exact: true })
+    .click();
+  await expect(
+    app.getByText('Model settings saved.', { exact: true }),
+  ).toBeVisible();
+  current = await (await page.request.get('/api/settings/models')).json();
+  expect(current.reasoningEffort ?? '').toBe('');
+  expect(current.maxTokens).toBe(before.maxTokens);
+});

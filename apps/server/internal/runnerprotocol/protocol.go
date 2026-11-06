@@ -20,21 +20,22 @@ type ReadinessReport struct {
 }
 
 type Capabilities struct {
-	Installation      *Installation    `json:"installation,omitempty"`
-	TaskInputsVersion int              `json:"taskInputsVersion,omitempty"`
-	Storage           *StorageHealth   `json:"storage,omitempty"`
-	Platform          string           `json:"platform,omitempty"`
-	Workspace         string           `json:"workspace,omitempty"`
-	Sandbox           string           `json:"sandbox,omitempty"`
-	Checkpoint        string           `json:"checkpoint,omitempty"`
-	Readiness         *ReadinessReport `json:"readiness,omitempty"`
-	Executor          string           `json:"executor"`
-	Ready             bool             `json:"ready"`
-	Reason            string           `json:"reason,omitempty"`
-	Slots             int              `json:"slots"`
-	Fingerprint       string           `json:"fingerprint"`
-	DSHVersion        string           `json:"dshVersion,omitempty"`
-	LayerFSVersion    string           `json:"layerfsVersion,omitempty"`
+	Installation           *Installation    `json:"installation,omitempty"`
+	TaskInputsVersion      int              `json:"taskInputsVersion,omitempty"`
+	ReasoningEffortVersion int              `json:"reasoningEffortVersion,omitempty"`
+	Storage                *StorageHealth   `json:"storage,omitempty"`
+	Platform               string           `json:"platform,omitempty"`
+	Workspace              string           `json:"workspace,omitempty"`
+	Sandbox                string           `json:"sandbox,omitempty"`
+	Checkpoint             string           `json:"checkpoint,omitempty"`
+	Readiness              *ReadinessReport `json:"readiness,omitempty"`
+	Executor               string           `json:"executor"`
+	Ready                  bool             `json:"ready"`
+	Reason                 string           `json:"reason,omitempty"`
+	Slots                  int              `json:"slots"`
+	Fingerprint            string           `json:"fingerprint"`
+	DSHVersion             string           `json:"dshVersion,omitempty"`
+	LayerFSVersion         string           `json:"layerfsVersion,omitempty"`
 }
 
 // Installation identifies the immutable package reported by a trusted Runner.
@@ -94,30 +95,31 @@ type Artifact struct {
 	Bytes  int64  `json:"bytes"`
 }
 type ExecutionSpec struct {
-	Task           *Collaboration  `json:"task,omitempty"`
-	RunID          string          `json:"runId"`
-	AttemptID      string          `json:"attemptId"`
-	ResourceID     string          `json:"resourceId"`
-	BaselineCommit string          `json:"baselineCommit"`
-	Fence          int64           `json:"fence"`
-	AgentName      string          `json:"agentName"`
-	Instructions   string          `json:"instructions"`
-	Access         string          `json:"access"`
-	Prompt         string          `json:"prompt"`
-	Request        string          `json:"request"` // current user request, without reconstructed history or evidence
-	Environment    json.RawMessage `json:"environment"`
-	Model          string          `json:"model"`
-	MaxTokens      int             `json:"maxTokens"`
-	MaxSteps       int             `json:"maxSteps"`
-	TimeoutSeconds int             `json:"timeoutSeconds"`
-	ConversationID string          `json:"conversationId"`
-	SessionID      string          `json:"sessionId"`
-	Generation     int64           `json:"generation"`
-	Resume         bool            `json:"resume"`
-	ModelURL       string          `json:"modelUrl"`
-	ModelToken     string          `json:"modelToken"`
-	Project        Artifact        `json:"project"`
-	References     *Artifact       `json:"references,omitempty"`
+	Task            *Collaboration  `json:"task,omitempty"`
+	RunID           string          `json:"runId"`
+	AttemptID       string          `json:"attemptId"`
+	ResourceID      string          `json:"resourceId"`
+	BaselineCommit  string          `json:"baselineCommit"`
+	Fence           int64           `json:"fence"`
+	AgentName       string          `json:"agentName"`
+	Instructions    string          `json:"instructions"`
+	Access          string          `json:"access"`
+	Prompt          string          `json:"prompt"`
+	Request         string          `json:"request"` // current user request, without reconstructed history or evidence
+	Environment     json.RawMessage `json:"environment"`
+	Model           string          `json:"model"`
+	ReasoningEffort string          `json:"reasoningEffort,omitempty"`
+	MaxTokens       int             `json:"maxTokens"`
+	MaxSteps        int             `json:"maxSteps"`
+	TimeoutSeconds  int             `json:"timeoutSeconds"`
+	ConversationID  string          `json:"conversationId"`
+	SessionID       string          `json:"sessionId"`
+	Generation      int64           `json:"generation"`
+	Resume          bool            `json:"resume"`
+	ModelURL        string          `json:"modelUrl"`
+	ModelToken      string          `json:"modelToken"`
+	Project         Artifact        `json:"project"`
+	References      *Artifact       `json:"references,omitempty"`
 }
 type SourceCapture struct {
 	SourceID string `json:"sourceId"`

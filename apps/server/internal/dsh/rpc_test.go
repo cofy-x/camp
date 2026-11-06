@@ -31,6 +31,21 @@ func TestRPCProcessHelper(t *testing.T) {
 		result := any(map[string]any{})
 		switch frame.Method {
 		case "initialize":
+			if mode == "reasoning" {
+				var values map[string]json.RawMessage
+				_ = json.Unmarshal(frame.Params, &values)
+				want := os.Getenv("CAMP_RPC_REASONING")
+				if want == "" {
+					if _, exists := values["reasoningEffort"]; exists {
+						os.Exit(4)
+					}
+				} else {
+					var actual string
+					if json.Unmarshal(values["reasoningEffort"], &actual) != nil || actual != want {
+						os.Exit(4)
+					}
+				}
+			}
 			if mode == "malformed" {
 				fmt.Fprintln(os.Stdout, "not-json")
 				continue
@@ -81,6 +96,25 @@ func TestRPCProcessHelper(t *testing.T) {
 		}
 	}
 	os.Exit(0)
+}
+
+func TestReasoningSettingUsesPublicInitializeAndPreservesOmission(t *testing.T) {
+	for _, effort := range []string{"", "off", "low", "high", "max"} {
+		t.Run("effort="+effort, func(t *testing.T) {
+			exe, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command(exe, "-test.run=^TestRPCProcessHelper$")
+			cmd.Env = append(os.Environ(), "CAMP_RPC_FIXTURE=reasoning", "CAMP_RPC_REASONING="+effort)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			code, err := Run(ctx, cmd, Config{Model: "fixture", ReasoningEffort: effort, MaxTokens: 32, MaxSteps: 2}, "unit", "prompt", func(Event) error { return nil })
+			if err != nil || code != 0 {
+				t.Fatalf("public reasoning control did not reach initialize: %d %v", code, err)
+			}
+		})
+	}
 }
 
 func TestResumePrecedesPromptAndFailureNeverSubmits(t *testing.T) {

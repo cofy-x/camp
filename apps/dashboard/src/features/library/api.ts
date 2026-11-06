@@ -37,6 +37,8 @@ const json = (method: string, body: unknown) => ({
   body: JSON.stringify(body),
 });
 export const libraryApi = {
+  archiveURL: (resourceId: string, commit: string) =>
+    `/api/resources/${encodeURIComponent(resourceId)}/archive?commit=${encodeURIComponent(commit)}`,
   patchURL: (resourceId: string, from: string, to: string) =>
     `/api/resources/${encodeURIComponent(resourceId)}/patch?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
   list: (signal?: AbortSignal) =>

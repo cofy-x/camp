@@ -34,6 +34,12 @@ Server model precedence is **nonempty process environment → selected private f
 
 Keep the file mode 600. Keys are write-only in Settings and stay on Server. Queued work freezes an opaque private revision that can resolve old credentials after restart. Settings reports external overrides and cannot overwrite them. A configured key does not prove connectivity; observed provider responses are a separate fact.
 
+Agent execution has an optional **Reasoning effort** control under Settings → Models → Request limits, also available as `CAMP_DSH_REASONING_EFFORT`. Empty means provider default; explicit values are `off`, `low`, `high` and `max`. The selected mode is frozen in the same private model revision as the connection and limits, passed through DSH's public `initialize.reasoningEffort`, and checked by the Server before an upstream request is charged. DSH maps `off` to Messages `thinking: {type: "disabled"}` and the other values to enabled thinking with that effort. Reasoning shares the output-token allowance; the [DeepSeek Messages contract](https://api-docs.deepseek.com/guides/anthropic_api/) does not use `budget_tokens` as an independent cap. Event assessment retains its separate non-thinking policy.
+
+Explicit reasoning requires a Runner advertising `reasoningEffortVersion: 1`. An older Runner remains eligible for provider-default work, but readiness and input preparation reject an explicit mode with an upgrade instruction. Upgrading is an operator action; the Server does not retry work or replace the mode.
+
+Changing settings does not rewrite queued Runs or an existing task grant. An explicit continuation may select **Use current model settings** to freeze the current configuration for subsequent rounds, retaining earlier Runs and the existing cumulative turn/request ceilings. Its durable request identity includes that choice; an uncertain response retries the accepted authorization without adopting a later setting. A changed private model revision invalidates native session resume, including changes that keep the same model name.
+
 | Setting                         | Default | Maximum |
 | ------------------------------- | ------- | ------- |
 | Output tokens per model request | 4096    | 8192    |

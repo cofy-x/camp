@@ -43,6 +43,12 @@ type Selection =
 
 export type WorkView = 'mine' | 'needs_me' | 'completed' | 'all';
 
+interface Inspection {
+  taskId: string;
+  runId: string;
+  fromItem?: boolean;
+}
+
 const views: Record<WorkView, Pick<WorkListQuery, 'scope' | 'view'>> = {
   mine: { scope: 'mine', view: 'active' },
   needs_me: { scope: 'mine', view: 'needs_you' },
@@ -66,7 +72,10 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
       ? { kind: 'item', id: window.params.workItemId, roomId: '' }
       : { kind: 'list' },
   );
-  const [inspection, setInspection] = useState({ taskId: '', runId: '' });
+  const [inspection, setInspection] = useState<Inspection>({
+    taskId: '',
+    runId: '',
+  });
   const [taskSnapshot, setTaskSnapshot] =
     useState<Pick<Task, 'id' | 'roomId' | 'workItemId'>>();
   const [taskError, setTaskError] = useState({ id: '', message: '' });
@@ -527,10 +536,18 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
       ),
     openTask: (taskId: string) =>
       void move(() => setInspection({ taskId, runId: '' })),
+    viewProgress: (taskId: string, runId: string) =>
+      void move(() => setInspection({ taskId, runId, fromItem: true })),
     inspectRun: (runId: string) =>
       void move(() => setInspection((current) => ({ ...current, runId }))),
     closeRun: () =>
-      void move(() => setInspection((current) => ({ ...current, runId: '' }))),
+      void move(() =>
+        setInspection((current) =>
+          current.fromItem
+            ? { taskId: '', runId: '' }
+            : { ...current, runId: '' },
+        ),
+      ),
     closeTask: () => void move(() => setInspection({ taskId: '', runId: '' })),
     previousPage: () =>
       void move(() => {

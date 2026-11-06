@@ -1,9 +1,14 @@
 import { isActiveRun } from './api';
 import type { CheckResult, Run } from './api';
 
+export function isTaskDraftResult(run: Run): boolean {
+  return Boolean(run.taskId && run.resultCommit && run.status === 'succeeded');
+}
+
 export function runFilesLabel(run: Run): string {
   if (run.published) return 'Saved to room files';
-  if (run.taskId && run.resultCommit) return 'Saved to task draft';
+  if (isTaskDraftResult(run)) return 'Saved to task draft';
+  if (run.taskId && run.resultCommit) return 'Saved working files';
   if (run.agentSnapshot.access === 'read') return 'Read-only work';
   if (!run.resultCommit) return 'No result files captured';
   return run.files?.length ? 'Changes retained separately' : 'No files changed';

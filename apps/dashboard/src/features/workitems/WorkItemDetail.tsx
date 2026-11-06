@@ -9,7 +9,7 @@ import { EvidenceRecord } from './WorkItemEvidence';
 import { WorkItemHistory } from './WorkItemHistory';
 import { WorkItemActions } from './WorkItemActions';
 import { useWorkItemOperation } from './useWorkItemOperation';
-import { decisionLabel, workItemsApi, workStatus, type WorkItem } from './api';
+import { decisionLabel, workItemsApi, type WorkItem } from './api';
 import { workItemOverviewFallback, workItemStatus } from './presentation';
 
 function stamp(value: string) {
@@ -83,6 +83,7 @@ export function WorkItemDetail({
   availability,
   onBack,
   onOpenTask,
+  onViewProgress,
   onOpenRoom,
 }: {
   id: string;
@@ -93,6 +94,7 @@ export function WorkItemDetail({
   availability?: Pick<WorkspaceStatus, 'available' | 'reason'>;
   onBack: () => void;
   onOpenTask: (id: string) => void;
+  onViewProgress?: (taskId: string, runId: string) => void;
   onOpenRoom?: () => void;
 }) {
   const { user } = useAccount();
@@ -157,28 +159,18 @@ export function WorkItemDetail({
       (item.execution?.question && !item.execution.question.answer),
     );
   const summary = item?.execution?.summary;
-  const displayStatus =
-    item?.activeTaskId &&
-    item.status !== 'stopping' &&
-    !terminal &&
-    item.execution
-      ? ({
-          queued: 'Queued',
-          running: 'Working',
-          waiting_for_person: 'Needs your answer',
-          needs_attention: 'Needs attention',
-          cancelling: 'Stopping',
-        }[item.execution.status] ??
-        workStatus[item.status] ??
-        item.status)
-      : item
-        ? workItemStatus(item)
-        : '';
+  const displayStatus = item ? workItemStatus(item) : '';
   const earlierResult = Boolean(
     item?.result &&
     item.activeTaskId &&
     item.result.taskId !== item.activeTaskId,
   );
+  const progress =
+    item?.activeTaskId &&
+    item.execution?.activeRunId &&
+    item.execution.taskId === item.activeTaskId
+      ? item.execution
+      : null;
   const overviewFallback = item
     ? workItemOverviewFallback(item, Boolean(editable))
     : null;
@@ -204,24 +196,37 @@ export function WorkItemDetail({
         <>
           <header className="work-item-heading">
             <h3>{item.goal}</h3>
-            {!hasQuestion && (
-              <p>
-                {displayStatus}
-                {item.execution?.currentAgentName && item.activeTaskId
-                  ? ` · ${item.execution.currentAgentName}`
-                  : ''}
-                {item.dueAt
-                  ? ` · Due ${item.dueAt.length === 10 ? item.dueAt : new Date(item.dueAt).toLocaleDateString()}`
-                  : ''}
-              </p>
-            )}
-            {hasQuestion && item.dueAt && (
-              <p>
-                Due{' '}
-                {item.dueAt.length === 10
-                  ? item.dueAt
-                  : new Date(item.dueAt).toLocaleDateString()}
-              </p>
+            {(!hasQuestion || item.dueAt || (progress && onViewProgress)) && (
+              <div className="work-item-state">
+                {!hasQuestion && (
+                  <p>
+                    {displayStatus}
+                    {item.execution?.currentAgentName && item.activeTaskId
+                      ? ` · ${item.execution.currentAgentName}`
+                      : ''}
+                    {item.dueAt
+                      ? ` · Due ${item.dueAt.length === 10 ? item.dueAt : new Date(item.dueAt).toLocaleDateString()}`
+                      : ''}
+                  </p>
+                )}
+                {hasQuestion && item.dueAt && (
+                  <p>
+                    Due{' '}
+                    {item.dueAt.length === 10
+                      ? item.dueAt
+                      : new Date(item.dueAt).toLocaleDateString()}
+                  </p>
+                )}
+                {progress && onViewProgress && (
+                  <Button
+                    onClick={() =>
+                      onViewProgress(progress.taskId, progress.activeRunId)
+                    }
+                  >
+                    View progress
+                  </Button>
+                )}
+              </div>
             )}
           </header>
           <Tabs

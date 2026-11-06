@@ -15,6 +15,14 @@ import (
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
 )
 
+func TestRunnerAdvertisesExplicitReasoningPropagation(t *testing.T) {
+	d := Daemon{config: Config{Executor: "fixture", Slots: 1}}
+	capabilities := d.capabilities()
+	if capabilities.ReasoningEffortVersion != 1 {
+		t.Fatal("Runner omitted its explicit reasoning support", capabilities)
+	}
+}
+
 func TestInvalidRunnerCapabilitiesFailBeforeEnrollmentPersistenceOrNetwork(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

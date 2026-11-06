@@ -3,6 +3,7 @@ import { Button, PixelIcon } from '@cofy-x/camp-platinum';
 import type { Reference, Run } from './api';
 import { FilePreview } from './FilePreview';
 import { useTeam } from '../../team/TeamContext';
+import { isTaskDraftResult } from './runPresentation';
 
 export function ResultFiles({
   run,
@@ -51,9 +52,9 @@ export function ResultFiles({
                 <small>
                   {run.published
                     ? 'Saved version'
-                    : run.taskId
+                    : isTaskDraftResult(run)
                       ? 'Task draft · not published'
-                      : 'Retained result · not published'}
+                      : 'Saved files · not published'}
                 </small>
               </span>
               <span className="workspace-document-action">
