@@ -602,6 +602,7 @@ test('failed attention refresh shows an unknown count, keeps accepted rows, and 
   const member = await teammate(browser, ownerPage, baseURL);
   const page = member.page;
   const errors = watchPageErrors(page, browserName);
+  let releaseRecovery = () => {};
   try {
     const matter = await question(
       page,
@@ -614,19 +615,39 @@ test('failed attention refresh shows an unknown count, keeps accepted rows, and 
     ).toBeVisible();
     await expect(inboxToggle(page)).toContainText('Needs me (1)');
     let failure = 503;
-    await page.route('**/api/attention?*', (route) => {
-      if (new URL(route.request().url()).searchParams.get('roomId') || !failure)
+    let successfulRead = Promise.resolve();
+    await page.route('**/api/attention?*', async (route) => {
+      if (new URL(route.request().url()).searchParams.get('roomId'))
         return route.fallback();
+      const status = failure;
+      if (!status) {
+        await successfulRead;
+        return route.fallback();
+      }
       return route.fulfill({
-        status: failure,
+        status,
         json: {
           error:
-            failure === 503
+            status === 503
               ? 'Attention is temporarily unavailable.'
               : 'Attention access was refused.',
         },
       });
     });
+    const retryAttention = async () => {
+      // Hold successful background reads until the test has clicked Retry.
+      successfulRead = new Promise<void>((resolve) => {
+        releaseRecovery = resolve;
+      });
+      failure = 0;
+      try {
+        await palette(page)
+          .getByRole('button', { name: 'Retry attention', exact: true })
+          .click();
+      } finally {
+        releaseRecovery();
+      }
+    };
     await work(page)
       .getByRole('button', { name: 'Refresh', exact: true })
       .click();
@@ -644,10 +665,7 @@ test('failed attention refresh shows an unknown count, keeps accepted rows, and 
     await expect(
       queue(page).getByRole('button').filter({ hasText: matter.goal }),
     ).toBeVisible();
-    failure = 0;
-    await palette(page)
-      .getByRole('button', { name: 'Retry attention', exact: true })
-      .click();
+    await retryAttention();
     await expect(palette(page).getByRole('alert')).toHaveCount(0);
     await expect(inboxToggle(page)).toContainText('Needs me (1)');
     await palette(page)
@@ -669,10 +687,7 @@ test('failed attention refresh shows an unknown count, keeps accepted rows, and 
       queue(page).getByRole('button').filter({ hasText: matter.goal }),
     ).toHaveCount(0);
     await expect(inboxToggle(page)).toContainText('Needs me (?)');
-    failure = 0;
-    await palette(page)
-      .getByRole('button', { name: 'Retry attention', exact: true })
-      .click();
+    await retryAttention();
     await expect(
       queue(page).getByRole('button').filter({ hasText: matter.goal }),
     ).toBeVisible();
@@ -680,6 +695,8 @@ test('failed attention refresh shows an unknown count, keeps accepted rows, and 
     expect((await pending(page, room.id)).total).toBe(1);
     expect(errors.errors).toEqual([]);
   } finally {
+    releaseRecovery();
+    await page.unrouteAll({ behavior: 'wait' });
     await member.context.close();
   }
 });
