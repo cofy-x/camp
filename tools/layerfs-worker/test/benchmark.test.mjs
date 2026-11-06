@@ -307,7 +307,7 @@ async function runtimeFixture(t) {
     await put(name, 'synthetic executable fixture\n', 0o700);
   await put(
     'runtime/dsh-runtime/sdk/package.json',
-    JSON.stringify({ version: '0.2.1-rc.3' }),
+    JSON.stringify({ version: '0.2.2-rc.1' }),
   );
   for (const name of [
     'coordination',
@@ -332,7 +332,7 @@ async function runtimeFixture(t) {
     role: 'runner-runtime',
     platform: 'darwin/arm64',
     node: '24.16.0',
-    dsh: '0.2.1-rc.3',
+    dsh: '0.2.2-rc.1',
     symlinks: { [alias]: '../../sdk' },
     checkpointWorker: {
       image: worker.image,

@@ -17,7 +17,13 @@ export function toolPatch(access, moduleRoot = '/runtime/camp-tools') {
     ].map((id) => ({ id, disabled: true })),
     {
       id: 'tool-fs',
-      config: { read: true, readImage: false, write, edit: write },
+      config: {
+        read: true,
+        readImage: false,
+        write,
+        edit: write,
+        applyPatch: false,
+      },
     },
     {
       insert: [

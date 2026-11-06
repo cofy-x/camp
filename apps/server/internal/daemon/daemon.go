@@ -251,7 +251,7 @@ func (d *Daemon) capabilities() p.Capabilities {
 	if d.config.Executor == "native" && d.native != nil {
 		facts := d.native.Facts()
 		c.Workspace, c.Sandbox, c.Checkpoint = facts.Workspace, facts.Sandbox, facts.Checkpoint
-		c.DSHVersion = "0.2.1-rc.3"
+		c.DSHVersion = "0.2.2-rc.1"
 		c.LayerFSVersion = facts.LayerFSVersion
 		c.Fingerprint += ":" + c.DSHVersion + ":" + c.LayerFSVersion
 		c.Fingerprint += ":" + d.native.Fingerprint()

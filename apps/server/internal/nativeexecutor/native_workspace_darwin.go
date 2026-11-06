@@ -79,8 +79,8 @@ func openNativeWorkspace(ctx context.Context, config Config) (workspace.Provider
 	var version struct {
 		Version string `json:"version"`
 	}
-	if err != nil || json.Unmarshal(manifest, &version) != nil || version.Version != "0.2.1-rc.3" {
-		return nil, errors.New("Install the pinned DSH 0.2.1-rc.3 runtime")
+	if err != nil || json.Unmarshal(manifest, &version) != nil || version.Version != "0.2.2-rc.1" {
+		return nil, errors.New("Install the pinned DSH 0.2.2-rc.1 runtime")
 	}
 	output, err := exec.CommandContext(ctx, config.NodePath, "--version").Output()
 	if err != nil || strings.TrimSpace(string(output)) != "v"+projectenv.NodeVersion {

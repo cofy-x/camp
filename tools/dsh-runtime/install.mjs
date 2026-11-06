@@ -29,9 +29,9 @@ const version = spawnSync(
   },
 );
 if (version.error) throw version.error;
-if (version.status !== 0 || version.stdout.trim() !== '0.2.1-rc.3') {
+if (version.status !== 0 || version.stdout.trim() !== '0.2.2-rc.1') {
   throw new Error(
-    'Installed DSH runtime did not report the pinned version 0.2.1-rc.3',
+    'Installed DSH runtime did not report the pinned version 0.2.2-rc.1',
   );
 }
-process.stdout.write('Camp DSH runtime 0.2.1-rc.3 is ready.\n');
+process.stdout.write('Camp DSH runtime 0.2.2-rc.1 is ready.\n');
