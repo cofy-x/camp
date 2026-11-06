@@ -23,20 +23,8 @@ func (q *Queries) WorkListFrontier(ctx context.Context) (int64, error) {
 const workListPage = `-- name: WorkListPage :many
 WITH attention(seq,id,room_id,owner_user_id,policy_id,status,revision,value,created_at,updated_at,room_name,needs_you) AS (
  SELECT w.seq,w.id,w.room_id,w.owner_user_id,w.policy_id,w.status,w.revision,w.value,w.created_at,w.updated_at,r.name AS room_name,
- CAST(CASE WHEN w.owner_user_id=?5
-  AND w.status NOT IN ('completed','cancelled','stopping')
-  AND coalesce(json_extract(w.value,'$.stopRequested'),0)=0
-  AND coalesce(json_extract(w.value,'$.status'),'')<>'stopping'
- THEN CASE WHEN coalesce(json_extract(w.value,'$.activeTaskId'),'')<>'' THEN
-   CASE WHEN coalesce(json_extract(t.snapshot,'$.activeRunId'),'')=''
-    AND (t.status IN ('needs_attention','interrupted') OR (
-     t.status='waiting_for_person' AND coalesce(json_extract(t.snapshot,'$.question.text'),'')<>''
-     AND coalesce(json_extract(t.snapshot,'$.question.answer'),'')=''
-    )) THEN 1 ELSE 0 END
-  WHEN w.status IN ('waiting_for_person','needs_attention') OR coalesce(json_extract(w.value,'$.question'),'')<>'' THEN 1
-  ELSE 0 END ELSE 0 END AS INTEGER) AS needs_you
+ CAST(EXISTS(SELECT 1 FROM personal_attention a WHERE a.source='work_item' AND a.entity_id=w.id AND a.responsible_user_id=?5) AS INTEGER) AS needs_you
  FROM work_items w JOIN rooms r ON r.id=w.room_id
- LEFT JOIN collaboration_tasks t ON t.id=json_extract(w.value,'$.activeTaskId')
  WHERE w.seq<=?6
   AND (?7='team' OR w.owner_user_id=?5)
   AND (?8='' OR w.room_id=?8)

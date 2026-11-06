@@ -6,6 +6,7 @@ import {
   createRoom,
   mutate,
   openApp,
+  openInboxActivity,
   signIn,
   work,
   workspace,
@@ -84,9 +85,12 @@ test('Work prioritizes attention across Rooms and Room and Inbox shortcuts reuse
   expect(closed.ok()).toBe(true);
 
   const queries: URLSearchParams[] = [];
+  const attentionQueries: URLSearchParams[] = [];
   page.on('request', (request) => {
     const url = new URL(request.url());
     if (url.pathname === '/api/work-items') queries.push(url.searchParams);
+    if (url.pathname === '/api/attention')
+      attentionQueries.push(url.searchParams);
   });
   await openApp(page, 'Work');
   await expect(work(page).locator('.p9-window-title')).toHaveText('Work');
@@ -100,9 +104,20 @@ test('Work prioritizes attention across Rooms and Room and Inbox shortcuts reuse
   expect(queries.at(-1)?.get('view')).toBe('active');
 
   await viewFilter(page).selectOption({ label: 'Needs me' });
-  await expect(rows.first()).toContainText(needsMe.goal);
-  await expect(rows.filter({ hasText: active.goal })).toHaveCount(0);
-  expect(queries.at(-1)?.get('view')).toBe('needs_you');
+  const attentionRows = work(page)
+    .getByRole('list', { name: 'Needs me', exact: true })
+    .locator(':scope > li');
+  await expect(
+    attentionRows
+      .filter({ hasText: needsMe.goal })
+      .filter({ hasText: first.name }),
+  ).toContainText(question);
+  await expect(
+    attentionRows
+      .filter({ hasText: active.goal })
+      .filter({ hasText: second.name }),
+  ).toHaveCount(0);
+  expect(attentionQueries.length).toBeGreaterThan(0);
   await viewFilter(page).selectOption({ label: 'Completed' });
   await expect(rows.first()).toContainText(completed.goal);
   expect(queries.at(-1)?.get('view')).toBe('done');
@@ -146,12 +161,11 @@ test('Work prioritizes attention across Rooms and Room and Inbox shortcuts reuse
       );
     })
     .toBe(true);
-  await page
-    .getByRole('complementary', { name: 'Personal inbox', exact: true })
-    .getByRole('button', { name: /^Inbox/ })
-    .click();
-  const inbox = page.getByRole('region', { name: 'Your inbox', exact: true });
-  const notice = inbox.getByRole('button').filter({ hasText: needsMe.goal });
+  const inbox = await openInboxActivity(page);
+  const notice = inbox
+    .getByRole('button')
+    .filter({ hasText: needsMe.goal })
+    .filter({ hasText: first.name });
   await expect(notice).toContainText(question);
   await notice.click();
   await expect(work(page)).toHaveClass(/is-active/);

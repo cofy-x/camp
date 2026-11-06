@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   createRoom,
+  inboxToggle,
   library,
   openApp,
   settings,
@@ -16,9 +17,7 @@ test('Inbox palette restores focus and File names the selected desktop applicati
   await signIn(page);
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  const toggle = page
-    .getByRole('complementary', { name: 'Personal inbox', exact: true })
-    .getByRole('button', { name: /^Inbox/ });
+  const toggle = inboxToggle(page);
   const panel = page.getByRole('region', { name: 'Your inbox', exact: true });
   const activate = async (element: typeof toggle) =>
     isMobile ? element.tap() : element.click();

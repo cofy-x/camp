@@ -6,6 +6,7 @@ import {
   library,
   mutate,
   openApp,
+  openInboxActivity,
   openRoomMore,
   signIn,
   work,
@@ -779,10 +780,7 @@ test('message follow-up links the original and future replies in one recorded ma
   await detail(page)
     .getByLabel('Waiting for (optional)', { exact: true })
     .fill(unsentCondition);
-  await page
-    .getByRole('complementary', { name: 'Personal inbox', exact: true })
-    .getByRole('button', { name: /^Inbox/ })
-    .click();
+  await openInboxActivity(page);
   await page
     .getByRole('region', { name: 'Your inbox', exact: true })
     .getByRole('button')

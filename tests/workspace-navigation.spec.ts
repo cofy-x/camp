@@ -4,6 +4,7 @@ import {
   createRoom,
   mutate,
   openApp,
+  openInboxActivity,
   openRoomMore,
   post,
   settings,
@@ -182,8 +183,7 @@ test('Inbox identifies the actual matter and opens it from a linked execution no
   });
   await errors.get(page)!.reload();
   await expect(workspace(page)).toBeVisible();
-  await page.getByRole('button', { name: /Inbox, 1 unread/ }).click();
-  const inbox = page.getByRole('region', { name: 'Your inbox', exact: true });
+  const inbox = await openInboxActivity(page);
   await expect(inbox.getByText(goal, { exact: true })).toBeVisible();
   await expect(inbox.getByText(question, { exact: true })).toBeVisible();
   await expect(inbox).not.toContainText('An older execution summary.');

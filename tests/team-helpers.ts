@@ -20,6 +20,18 @@ export const library = (page: Page) =>
 export const settings = (page: Page) =>
   page.locator('[data-window-id="settings:main"]');
 
+export const inboxToggle = (page: Page) =>
+  page
+    .getByRole('complementary', { name: 'Personal inbox', exact: true })
+    .getByRole('button', { name: /^Needs me,/ });
+
+export async function openInboxActivity(page: Page) {
+  const panel = page.getByRole('region', { name: 'Your inbox', exact: true });
+  if (!(await panel.isVisible())) await inboxToggle(page).click();
+  await panel.getByRole('tab', { name: /^Activity(?: \(\d+\))?$/ }).click();
+  return panel;
+}
+
 let ownerCookies: Awaited<ReturnType<BrowserContext['cookies']>> = [];
 
 export async function signIn(page: Page) {

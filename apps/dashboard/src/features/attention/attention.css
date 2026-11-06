@@ -1,0 +1,54 @@
+.attention-list {
+  list-style: none;
+  padding: 1px;
+  margin-block: 0 12px;
+  min-width: 0;
+  background: white;
+  border: 1px solid var(--p9-shadow);
+  box-shadow:
+    inset 1px 1px var(--p9-mid),
+    1px 1px var(--p9-light);
+}
+.attention-list:empty {
+  display: none;
+}
+.attention-list > li + li {
+  border-top: 1px solid var(--p9-mid);
+}
+.attention-list > li > button {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.attention-list > li > button:hover {
+  background: var(--p9-light);
+}
+.attention-list > li > button:focus-visible {
+  outline-offset: -3px;
+}
+.attention-title {
+  font-weight: 600;
+  -webkit-line-clamp: 2;
+}
+.attention-summary {
+  -webkit-line-clamp: 3;
+}
+.attention-title,
+.attention-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.attention-list small {
+  font-size: 11px;
+  color: var(--p9-text-muted, #555);
+}

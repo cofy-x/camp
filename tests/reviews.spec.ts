@@ -7,6 +7,7 @@ import {
   mutate,
   newDocument,
   openApp,
+  openInboxActivity,
   signIn,
   workspace,
   work,
@@ -538,7 +539,7 @@ test('two people review, revise and deliver an exact document version', async ({
     expect(review.submittedCommit).toBe(submitted.commit);
     expect(review.threadRootId).not.toBe('');
 
-    await reviewer.getByRole('button', { name: /Inbox, 1 unread/ }).click();
+    await openInboxActivity(reviewer);
     await reviewer
       .getByRole('complementary', { name: 'Personal inbox' })
       .getByRole('button', { name: new RegExp(title) })
@@ -673,7 +674,7 @@ test('two people review, revise and deliver an exact document version', async ({
     const inbox = reviewer.getByRole('complementary', {
       name: 'Personal inbox',
     });
-    await reviewer.getByRole('button', { name: /Inbox, 1 unread/ }).click();
+    await openInboxActivity(reviewer);
     await inbox.getByRole('button', { name: /You were mentioned/ }).click();
     await expect(
       inbox.getByRole('button', { name: 'Close inbox' }),
@@ -692,7 +693,7 @@ test('two people review, revise and deliver an exact document version', async ({
       .getByRole('button', { name: 'Save My Draft', exact: true })
       .click();
     await expect(detail(reviewer).getByRole('alert')).toHaveCount(0);
-    await reviewer.getByRole('button', { name: /Inbox, 1 unread/ }).click();
+    await openInboxActivity(reviewer);
     await inbox.getByRole('button', { name: /You were mentioned/ }).click();
     await expect(
       inbox.getByRole('button', { name: 'Close inbox' }),

@@ -1,15 +1,18 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Button, Palette, PixelIcon } from '@cofy-x/camp-platinum';
+import { Button, Palette, PixelIcon, Tabs } from '@cofy-x/camp-platinum';
 import { useTeam } from './TeamContext';
 import { useAccount } from './AuthContext';
 import type { InboxItem } from './api';
 import { inboxItemDetail, inboxItemTitle } from './inboxPresentation';
+import { AttentionList } from '../features/attention/AttentionList';
+import type { AttentionItem } from '../features/attention/api';
 
 export function DesktopInbox() {
   const team = useTeam();
   const { user } = useAccount();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState('');
+  const [view, setView] = useState('needs_me');
   const panelId = useId();
   const root = useRef<HTMLElement>(null);
   const toggle = useRef<HTMLButtonElement>(null);
@@ -31,6 +34,28 @@ export function DesktopInbox() {
     return () => document.removeEventListener('pointerdown', outside, true);
   }, [open]);
   const unread = team.inbox.filter((item) => !item.readAt).length;
+  const attentionCount = team.attentionError
+    ? '?'
+    : (team.attention?.total ?? '…');
+  const attentionLabel = team.attentionError
+    ? 'attention count unavailable'
+    : team.attention
+      ? `${team.attention.total} need attention`
+      : 'loading attention count';
+
+  async function openAttention(item?: AttentionItem) {
+    setError('');
+    try {
+      if (
+        await team.navigate(item?.target ?? { app: 'work', view: 'needs_me' })
+      )
+        setOpen(false);
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : 'Could not open this item.',
+      );
+    }
+  }
 
   async function openItem(item: InboxItem) {
     setError('');
@@ -89,50 +114,100 @@ export function DesktopInbox() {
           closeButtonRef={closeButton}
           onClose={dismiss}
         >
-          <p className="camp-inbox-summary">
-            {unread ? `${unread} unread` : 'All read'} · {team.inbox.length}{' '}
-            {team.inbox.length === 1 ? 'item' : 'items'}
-          </p>
           {team.navigationError && (
             <p className="app-error" role="alert">
               {team.navigationError}
             </p>
           )}
-          {!team.inbox.length && (
-            <p>Questions, reviews, results, and mentions appear here.</p>
-          )}
-          <ul>
-            {team.inbox.map((item) => (
-              <li key={item.id}>
-                <button
-                  className={item.readAt ? '' : 'is-unread'}
-                  onClick={() => void openItem(item)}
-                >
-                  <PixelIcon
-                    name={
-                      item.reviewId
-                        ? 'checklist'
-                        : item.kind === 'mention'
-                          ? 'conversation'
-                          : 'agent'
-                    }
-                    size={24}
-                  />
-                  <span className="camp-inbox-copy">
-                    <strong>{inboxItemTitle(item)}</strong>
-                    {inboxItemDetail(item) && (
-                      <small>{inboxItemDetail(item)}</small>
+          <Tabs
+            label="Inbox views"
+            value={view}
+            onChange={setView}
+            tabs={[
+              { id: 'needs_me', label: 'Needs me' },
+              {
+                id: 'activity',
+                label: unread ? `Activity (${unread})` : 'Activity',
+              },
+            ]}
+          >
+            {view === 'needs_me' ? (
+              <>
+                {team.attentionError && (
+                  <p className="app-error" role="alert">
+                    {team.attentionError}{' '}
+                    <Button onClick={team.refresh}>Retry attention</Button>
+                  </p>
+                )}
+                {!team.attention && !team.attentionError && (
+                  <p role="status">Loading…</p>
+                )}
+                {team.attention && (
+                  <>
+                    {!team.attention.items.length && !team.attentionError && (
+                      <p className="camp-inbox-empty">
+                        Nothing needs your attention.
+                      </p>
                     )}
-                    <small>{item.roomName}</small>
-                    <small>{new Date(item.createdAt).toLocaleString()}</small>
-                  </span>
-                  {!item.readAt && (
-                    <span className="camp-inbox-unread" aria-label="Unread" />
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
+                    <AttentionList
+                      items={team.attention.items}
+                      onOpen={(item) => void openAttention(item)}
+                    />
+                    {team.attention.items.length > 0 && (
+                      <div className="camp-inbox-actions">
+                        <Button onClick={() => void openAttention()}>
+                          Open Work
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                {!team.inbox.length && (
+                  <p className="camp-inbox-empty">No activity yet.</p>
+                )}
+                <ul className="camp-inbox-activity" aria-label="Activity">
+                  {team.inbox.map((item) => (
+                    <li key={item.id}>
+                      <button
+                        className={item.readAt ? '' : 'is-unread'}
+                        onClick={() => void openItem(item)}
+                      >
+                        <PixelIcon
+                          name={
+                            item.reviewId
+                              ? 'checklist'
+                              : item.kind === 'mention'
+                                ? 'conversation'
+                                : 'agent'
+                          }
+                          size={24}
+                        />
+                        <span className="camp-inbox-copy">
+                          <strong>{inboxItemTitle(item)}</strong>
+                          {inboxItemDetail(item) && (
+                            <small>{inboxItemDetail(item)}</small>
+                          )}
+                          <small>{item.roomName}</small>
+                          <small>
+                            {new Date(item.createdAt).toLocaleString()}
+                          </small>
+                        </span>
+                        {!item.readAt && (
+                          <span
+                            className="camp-inbox-unread"
+                            aria-label="Unread"
+                          />
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </Tabs>
           {error && (
             <p role="alert" className="app-error">
               {error}
@@ -145,17 +220,21 @@ export function DesktopInbox() {
         className="camp-inbox-toggle"
         onClick={() => {
           setError('');
+          if (!open) setView('needs_me');
           setOpen(!open);
         }}
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
-        aria-label={`Inbox${unread ? `, ${unread} unread` : ''}`}
+        aria-label={`Needs me, ${attentionLabel}${unread ? `, ${unread} unread activity` : ''}`}
       >
         <PixelIcon name="document" size={16} />
         <span className="camp-inbox-account" title={user.name}>
           {user.name}
         </span>
-        <span>· Inbox{unread ? ` (${unread})` : ''}</span>
+        <span>· Needs me ({attentionCount})</span>
+        {unread > 0 && (
+          <span className="camp-inbox-unread" aria-label="Unread activity" />
+        )}
         <span className="camp-inbox-arrow" aria-hidden="true">
           {open ? '▾' : '▴'}
         </span>

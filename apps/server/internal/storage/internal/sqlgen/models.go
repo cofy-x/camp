@@ -310,6 +310,27 @@ type OrchestrationRecord struct {
 	Value     string
 }
 
+type PersonalAttention struct {
+	ID                interface{}
+	Source            string
+	EntityID          string
+	ResponsibleUserID string
+	RoomID            string
+	RoomName          string
+	Kind              string
+	Priority          int64
+	Title             string
+	Summary           string
+	Status            string
+	Reason            string
+	CreatedAt         string
+	UpdatedAt         interface{}
+	TargetApp         string
+	WorkItemID        string
+	ReviewID          string
+	TaskID            string
+}
+
 type PersonalRunnerDefault struct {
 	UserID   string
 	RunnerID sql.NullString
