@@ -205,8 +205,8 @@ jobs:
         env:
           BROWSER_ENGINE: ${{ matrix.engine }}
         run: |
-          # Use Ubuntu's primary archive while preserving pockets, components and signing keys.
-          for apt_source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+          # Normalize direct sources and runner mirrorlists, preserving signing keys and priorities.
+          for apt_source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources /etc/apt/apt-mirrors.txt; do
             if [ -f "$apt_source" ]; then
               sudo sed -i -E 's#(https?://)azure\.archive\.ubuntu\.com(/ubuntu/?)([[:space:]]|$)#\1archive.ubuntu.com\2\3#g' "$apt_source"
             fi
