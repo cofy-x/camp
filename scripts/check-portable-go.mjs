@@ -3,6 +3,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { portableGoPlan } from './change-policy.mjs';
+import { listedTests, parseShard, shardTests } from './test-go-shard.mjs';
 
 export function checkPortableGo(execute = execFileSync) {
   const root = fileURLToPath(new URL('../', import.meta.url));
@@ -36,7 +37,35 @@ export function checkPortableGo(execute = execFileSync) {
       .filter(Boolean),
   );
   console.log(JSON.stringify({ profile: 'mac-portable-go-race', ...plan }));
-  execute('go', plan.args, { ...options, stdio: 'inherit' });
+  const names = listedTests(
+    execute(
+      'go',
+      ['test', '-json', '-list', '^(Test|Example|Fuzz)', ...plan.args.slice(1)],
+      { ...options, maxBuffer: 64 << 20 },
+    ),
+  );
+  const shards = ['1/2', '2/2'].map((shard) => ({
+    shard,
+    selected: shardTests(names, parseShard(shard)),
+  }));
+  if (shards.some(({ selected }) => !selected.length))
+    throw new Error('Portable Go discovery returned an empty shard.');
+  for (const { shard, selected } of shards) {
+    console.log(
+      `Portable Go shard ${shard}: ${selected.length}/${names.length} test names; race detection enabled, cached results disabled.`,
+    );
+    execute(
+      'go',
+      [
+        'test',
+        '-count=1',
+        '-run',
+        `^(${selected.join('|')})$`,
+        ...plan.args.slice(1),
+      ],
+      { ...options, stdio: 'inherit' },
+    );
+  }
   return plan;
 }
 

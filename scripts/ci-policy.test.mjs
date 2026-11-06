@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import test from 'node:test';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -248,40 +248,83 @@ test('release runs complete core regression even after documentation-only main C
 
 test('portable Mac source policy drives the real command path and propagates failures', async () => {
   const { checkPortableGo } = await import('./check-portable-go.mjs');
+  const { listedTests } = await import('./test-go-shard.mjs');
   const calls = [];
   const packages = [
     'github.com/cofy-x/camp',
     'github.com/cofy-x/camp/apps/server/internal/layerfs',
     'github.com/cofy-x/camp/apps/server/internal/resource',
   ];
+  const listing = ['TestAlpha', 'TestBeta', 'Example', 'FuzzSeed']
+    .map((name) => JSON.stringify({ Action: 'output', Output: `${name}\n` }))
+    .join('\n');
+  const respond = (args) =>
+    args[0] === 'list'
+      ? packages.join('\n')
+      : args.includes('-list')
+        ? listing
+        : '';
   const plan = checkPortableGo((file, args, options) => {
     calls.push({ file, args, options });
-    return packages.join('\n');
+    return respond(args);
   });
-  assert.equal(calls.length, 2);
-  assert.deepEqual(calls[1].args, [
-    'test',
-    '-race',
-    '-p',
-    '2',
-    packages[0],
-    packages[2],
-  ]);
-  assert.equal(calls[1].options.env.GOTOOLCHAIN, 'local');
-  assert.equal(calls[1].options.env.DEEPSEEK_API_KEY, undefined);
+  assert.equal(calls.length, 4);
+  const names = listedTests(listing);
+  const selected = [];
+  for (const call of calls.slice(1)) {
+    assert.equal(call.file, 'go');
+    assert.deepEqual(call.args.slice(-2), [packages[0], packages[2]]);
+    assert.ok(call.args.includes('-race'));
+    assert.equal(call.args[call.args.indexOf('-p') + 1], '2');
+    assert.ok(!call.args.some((arg) => arg.startsWith('-timeout')));
+    assert.equal(call.options.env.GOTOOLCHAIN, 'local');
+    assert.equal(call.options.env.DEEPSEEK_API_KEY, undefined);
+    assert.deepEqual(call.options.env, calls[0].options.env);
+  }
+  assert.equal(
+    calls[1].args[calls[1].args.indexOf('-list') + 1],
+    '^(Test|Example|Fuzz)',
+  );
+  for (const call of calls.slice(2)) {
+    assert.ok(call.args.includes('-count=1'));
+    const pattern = new RegExp(call.args[call.args.indexOf('-run') + 1]);
+    selected.push(...names.filter((name) => pattern.test(name)));
+  }
+  assert.deepEqual(selected.sort(), names);
+  assert.equal(new Set(selected).size, names.length);
   assert.equal(plan.exclusions.length, 1);
   assert.throws(
     () => checkPortableGo(() => packages[0]),
     /Stale platform exclusion/,
   );
-  assert.throws(
-    () =>
+  for (const failedCall of [1, 2, 3]) {
+    let call = 0;
+    assert.throws(
+      () =>
+        checkPortableGo((_file, args) => {
+          if (call++ === failedCall) throw Error('controlled Go failure');
+          return respond(args);
+        }),
+      /controlled Go failure/,
+    );
+    assert.equal(call, failedCall + 1);
+  }
+  for (const empty of [
+    '',
+    '{"Action":"fail","Package":"broken"}',
+    JSON.stringify({ Action: 'output', Output: 'TestAlpha' }),
+  ]) {
+    let ran = false;
+    assert.throws(() =>
       checkPortableGo((_file, args) => {
-        if (args[0] === 'test') throw Error('controlled Go failure');
-        return packages.join('\n');
+        if (args[0] === 'list') return packages.join('\n');
+        if (args.includes('-list')) return empty;
+        ran = true;
+        return '';
       }),
-    /controlled Go failure/,
-  );
+    );
+    assert.equal(ran, false);
+  }
   const text = await readFile(
     new URL('../.github/workflows/ci.yml', import.meta.url),
     'utf8',
@@ -290,6 +333,121 @@ test('portable Mac source policy drives the real command path and propagates fai
   assert(block.includes("inputs.validation-stage == 'release'"));
   assert(block.includes('node scripts/check-portable-go.mjs'));
   assert(block.includes('test-js'));
+});
+
+test('portable Go shards execute the real package set, nested tests, examples and fuzz seeds without caching', async (t) => {
+  const { checkPortableGo } = await import('./check-portable-go.mjs');
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'camp-portable-go-'));
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  await writeFile(
+    path.join(cwd, 'go.mod'),
+    'module github.com/cofy-x/camp\n\ngo 1.27.3\n',
+  );
+  await writeFile(
+    path.join(cwd, 'root_test.go'),
+    `package camp
+import ("fmt"; "testing")
+func TestAlpha(t *testing.T) { t.Run("nested", func(t *testing.T) {}) }
+func FuzzSeed(f *testing.F) { f.Add("one"); f.Add("two"); f.Fuzz(func(t *testing.T, s string) {}) }
+func Example() { fmt.Println("portable proof")
+// Output: portable proof
+}
+`,
+  );
+  for (const name of ['layerfs', 'resource'])
+    await mkdir(path.join(cwd, 'apps/server/internal', name), {
+      recursive: true,
+    });
+  await writeFile(
+    path.join(cwd, 'apps/server/internal/layerfs/excluded_test.go'),
+    `package layerfs
+import "testing"
+func TestExcluded(t *testing.T) { t.Fatal("Linux-only package must stay excluded") }
+`,
+  );
+  const resource = path.join(
+    cwd,
+    'apps/server/internal/resource/resource_test.go',
+  );
+  await writeFile(
+    resource,
+    `package resource
+import "testing"
+func TestAlpha(t *testing.T) {}
+func TestBeta(t *testing.T) {}
+`,
+  );
+  const events = [];
+  const execute = (binary, args, options) => {
+    const testing = args[0] === 'test';
+    if (testing) {
+      assert.ok(args.includes('-race'));
+      assert.equal(args[args.indexOf('-p') + 1], '2');
+      assert.ok(!args.some((arg) => arg.endsWith('/layerfs')));
+    }
+    const stdout = execFileSync(
+      binary,
+      testing && !args.includes('-list')
+        ? ['test', '-json', ...args.slice(1)]
+        : args,
+      {
+        ...options,
+        cwd,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        maxBuffer: 64 << 20,
+      },
+    );
+    if (testing && !args.includes('-list'))
+      events.push(
+        ...stdout
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line)),
+      );
+    return stdout;
+  };
+  for (const iteration of [1, 2]) {
+    events.length = 0;
+    checkPortableGo(execute);
+    const ran = events.filter((event) => event.Action === 'run');
+    for (const [suffix, names] of [
+      [
+        '',
+        [
+          'TestAlpha',
+          'TestAlpha/nested',
+          'Example',
+          'FuzzSeed',
+          'FuzzSeed/seed#0',
+          'FuzzSeed/seed#1',
+        ],
+      ],
+      ['/apps/server/internal/resource', ['TestAlpha', 'TestBeta']],
+    ])
+      for (const name of names)
+        assert.equal(
+          ran.filter(
+            (event) =>
+              event.Package === `github.com/cofy-x/camp${suffix}` &&
+              event.Test === name,
+          ).length,
+          1,
+          `${iteration}:${suffix}:${name}`,
+        );
+    assert.ok(events.every((event) => !event.Output?.includes('(cached)')));
+  }
+  await writeFile(
+    resource,
+    `package resource
+import "testing"
+func TestAlpha(t *testing.T) { t.Fatal("controlled real Go test failure") }
+func TestBeta(t *testing.T) {}
+`,
+  );
+  assert.throws(
+    () => checkPortableGo(execute),
+    (error) => error.status === 1,
+  );
 });
 
 test('browser sharding keeps all projects, strict evidence uploads and a separate required verifier', async () => {
