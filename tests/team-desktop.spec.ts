@@ -7,6 +7,7 @@ import {
   mutate,
   newDocument,
   openApp,
+  openInboxActivity,
   owner,
   post,
   settings,
@@ -381,7 +382,7 @@ test('invited teammate, human mentions outside Workspace and account revocation'
       content: `@${username} Please review our onboarding guide.`,
     });
     expect(notice.ok()).toBeTruthy();
-    await member.getByRole('button', { name: /Inbox, 1 unread/ }).click();
+    await openInboxActivity(member);
     await member.getByRole('button', { name: /You were mentioned/ }).click();
     await expect(workspace(member)).toBeVisible();
     await expect(

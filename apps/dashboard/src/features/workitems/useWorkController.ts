@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { AppWindowProps } from '@cofy-x/camp-platinum';
 import { useTeam } from '../../team/TeamContext';
 import { flushPrivateDrafts } from '../../team/draftRegistry';
+import { APIError } from '../../shared/api/http';
+import {
+  attentionApi,
+  type AttentionItem,
+  type AttentionPage,
+} from '../attention/api';
 import {
   workspaceApi,
   type Agent,
@@ -48,7 +54,11 @@ const views: Record<WorkView, Pick<WorkListQuery, 'scope' | 'view'>> = {
 export function useWorkController({ desktop, window }: AppWindowProps) {
   const team = useTeam();
   const [view, setView] = useState<WorkView>(
-    window.params.roomId ? 'all' : 'mine',
+    window.params.view === 'needs_me'
+      ? 'needs_me'
+      : window.params.roomId
+        ? 'all'
+        : 'mine',
   );
   const [roomFilter, setRoomFilter] = useState(window.params.roomId ?? '');
   const [selection, setSelection] = useState<Selection>(
@@ -69,6 +79,10 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
   const [pageSnapshot, setPageSnapshot] = useState<{
     key: string;
     page: WorkListPage;
+  }>();
+  const [attentionSnapshot, setAttentionSnapshot] = useState<{
+    key: string;
+    page: AttentionPage;
   }>();
   const [listError, setListError] = useState({ key: '', message: '' });
   const [itemError, setItemError] = useState({ id: '', message: '' });
@@ -100,7 +114,21 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
   const query = { ...views[view], roomId: roomFilter, cursor };
   const queryKey = JSON.stringify(query);
   const page = pageSnapshot?.key === queryKey ? pageSnapshot.page : undefined;
-  const error = listError.key === queryKey ? listError.message : '';
+  const sharedAttention = view === 'needs_me' && !roomFilter && !cursor;
+  const attentionPage =
+    view !== 'needs_me'
+      ? undefined
+      : sharedAttention
+        ? team.attention
+        : attentionSnapshot?.key === queryKey
+          ? attentionSnapshot.page
+          : undefined;
+  const listing = view === 'needs_me' ? attentionPage : page;
+  const error = sharedAttention
+    ? team.attentionError
+    : listError.key === queryKey
+      ? listError.message
+      : '';
 
   function resetPage() {
     setCursor('');
@@ -141,7 +169,18 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
       intent.sourceEvent?.roomId ??
       intent.roomId ??
       '';
-    if (intent.roomId) {
+    if (intent.view === 'needs_me') {
+      setRoomFilter(intent.roomId ?? '');
+      setView('needs_me');
+      setCursor('');
+      setPrevious([]);
+    } else if (
+      intent.roomId &&
+      !intent.workItemId &&
+      !intent.taskId &&
+      !intent.sourceMessage &&
+      !intent.sourceEvent
+    ) {
       setRoomFilter(intent.roomId);
       setView('all');
       setCursor('');
@@ -200,6 +239,7 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
   }, [team.revision, retry]);
 
   useEffect(() => {
+    if (view === 'needs_me') return;
     const controller = new AbortController();
     void workItemsApi
       .work(JSON.parse(queryKey) as WorkListQuery, controller.signal)
@@ -217,7 +257,40 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
           });
       });
     return () => controller.abort();
-  }, [queryKey, team.revision, retry]);
+  }, [queryKey, view, team.revision, retry]);
+
+  useEffect(() => {
+    if (view !== 'needs_me' || sharedAttention) return;
+    const controller = new AbortController();
+    void attentionApi
+      .list({ roomId: roomFilter, cursor }, controller.signal)
+      .then((page) => {
+        if (controller.signal.aborted) return;
+        setAttentionSnapshot({ key: queryKey, page });
+        setListError({ key: queryKey, message: '' });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (error instanceof APIError && [401, 403, 404].includes(error.status))
+          setAttentionSnapshot(undefined);
+        setListError({
+          key: queryKey,
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Could not load what needs your attention.',
+        });
+      });
+    return () => controller.abort();
+  }, [
+    view,
+    sharedAttention,
+    roomFilter,
+    cursor,
+    queryKey,
+    team.revision,
+    retry,
+  ]);
 
   const unresolvedItem =
     selection.kind === 'item' && !selection.roomId ? selection.id : '';
@@ -403,6 +476,8 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
     room,
     context,
     page,
+    attentionPage,
+    listing,
     error,
     actionError,
     previous,
@@ -419,9 +494,11 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
     refresh: () => {
       resetPage();
       setRetry((value) => value + 1);
+      team.refresh();
     },
     showList,
     selectItem,
+    openAttention: (item: AttentionItem) => void team.navigate(item.target),
     created,
     ask,
     changeView: (next: WorkView) =>
@@ -462,9 +539,9 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
       }),
     nextPage: () =>
       void move(() => {
-        if (!page?.hasMore) return;
+        if (!listing?.hasMore) return;
         setPrevious([...previous, cursor]);
-        setCursor(page.nextCursor);
+        setCursor(listing.nextCursor);
       }),
   };
 }

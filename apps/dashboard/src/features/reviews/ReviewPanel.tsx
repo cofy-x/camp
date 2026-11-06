@@ -119,7 +119,7 @@ export function ReviewPanel({
             <div role="alert" className="app-error">
               {error}{' '}
               <Button onClick={() => setAttempt((value) => value + 1)}>
-                Refresh Review
+                Retry Review
               </Button>
             </div>
           )}

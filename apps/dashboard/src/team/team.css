@@ -96,12 +96,7 @@
   max-height: min(480px, calc(100dvh - 90px));
   margin-bottom: 6px;
 }
-.camp-inbox-summary {
-  margin: 0 0 6px;
-  font-size: 11px;
-  color: #555;
-}
-.camp-inbox-panel ul {
+.camp-inbox-activity {
   list-style: none;
   padding: 1px;
   margin: 0;
@@ -111,10 +106,10 @@
     inset 1px 1px #bbb,
     1px 1px white;
 }
-.camp-inbox-panel li + li {
+.camp-inbox-activity > li + li {
   border-top: 1px solid #ddd;
 }
-.camp-inbox-panel li button {
+.camp-inbox-activity > li > button {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) 8px;
   align-items: center;
@@ -127,6 +122,29 @@
   padding: 7px 6px;
   font: 11px/1.4 var(--p9-body-font);
   cursor: pointer;
+}
+.camp-inbox-panel .p9-tab-panel {
+  padding: 8px;
+}
+.camp-inbox-panel .attention-list {
+  max-height: 290px;
+  overflow: auto;
+  margin-bottom: 8px;
+}
+.camp-inbox-panel .attention-list > li > button {
+  padding: 8px;
+  font: 11px/1.4 var(--p9-body-font);
+}
+.camp-inbox-panel .attention-title {
+  font: 600 12px/1.35 var(--p9-body-font);
+}
+.camp-inbox-empty {
+  margin: 8px 0;
+  font: 12px/1.5 var(--p9-body-font);
+}
+.camp-inbox-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 .camp-inbox-copy {
   min-width: 0;

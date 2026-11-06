@@ -10,6 +10,7 @@ import { TaskDetail } from '../collaboration/TaskDetail';
 import { RunInspector } from '../workspace/RunInspector';
 import { useWorkController, type WorkView } from './useWorkController';
 import { workItemStatus } from './presentation';
+import { AttentionList } from '../attention/AttentionList';
 import './workitems.css';
 
 export function Work(props: AppWindowProps) {
@@ -59,7 +60,7 @@ export function Work(props: AppWindowProps) {
           <Button onClick={work.refresh}>
             {work.error ? 'Retry work' : 'Refresh'}
           </Button>
-          <Button primary onClick={work.newWork}>
+          <Button primary={work.view !== 'needs_me'} onClick={work.newWork}>
             New work…
           </Button>
         </div>
@@ -83,8 +84,8 @@ export function Work(props: AppWindowProps) {
                 {work.error}
               </p>
             )}
-            {!work.page && !work.error && <p role="status">Loading work…</p>}
-            {work.page && !work.page.items.length && !work.error && (
+            {!work.listing && !work.error && <p role="status">Loading work…</p>}
+            {work.listing && !work.listing.items.length && !work.error && (
               <div className="camp-empty">
                 <PixelIcon name="checklist" size={32} />
                 <p>
@@ -96,44 +97,52 @@ export function Work(props: AppWindowProps) {
                 </p>
               </div>
             )}
-            <ul className="work-item-list">
-              {work.page?.items.map((item) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    className={item.needsYou ? 'needs-you' : ''}
-                    onClick={() => work.selectItem(item)}
-                  >
-                    <span className="work-item-row-title">{item.goal}</span>
-                    <span>
-                      {item.execution?.question &&
-                      !item.execution.question.answer
-                        ? item.execution.question.text
-                        : item.question || workItemStatus(item)}
-                    </span>
-                    {(!work.roomFilter || item.dueAt) && (
-                      <small className="work-item-row-context">
-                        {!work.roomFilter && item.roomName}
-                        {!work.roomFilter && item.dueAt && ' · '}
-                        {item.dueAt && (
-                          <>
-                            Due{' '}
-                            {item.dueAt.length === 10
-                              ? item.dueAt
-                              : new Date(item.dueAt).toLocaleDateString()}
-                          </>
-                        )}
-                      </small>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
+            {work.view === 'needs_me' ? (
+              <AttentionList
+                items={work.attentionPage?.items ?? []}
+                onOpen={work.openAttention}
+                showRoom={!work.roomFilter}
+              />
+            ) : (
+              <ul className="work-item-list">
+                {work.page?.items.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      className={item.needsYou ? 'needs-you' : ''}
+                      onClick={() => work.selectItem(item)}
+                    >
+                      <span className="work-item-row-title">{item.goal}</span>
+                      <span>
+                        {item.execution?.question &&
+                        !item.execution.question.answer
+                          ? item.execution.question.text
+                          : item.question || workItemStatus(item)}
+                      </span>
+                      {(!work.roomFilter || item.dueAt) && (
+                        <small className="work-item-row-context">
+                          {!work.roomFilter && item.roomName}
+                          {!work.roomFilter && item.dueAt && ' · '}
+                          {item.dueAt && (
+                            <>
+                              Due{' '}
+                              {item.dueAt.length === 10
+                                ? item.dueAt
+                                : new Date(item.dueAt).toLocaleDateString()}
+                            </>
+                          )}
+                        </small>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
             <div className="app-actions">
               {work.previous.length > 0 && (
                 <Button onClick={work.previousPage}>Previous work</Button>
               )}
-              {work.page?.hasMore && (
+              {work.listing?.hasMore && (
                 <Button onClick={work.nextPage}>More work</Button>
               )}
             </div>

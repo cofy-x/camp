@@ -7,6 +7,7 @@ import {
   mutate,
   newDocument,
   openApp,
+  openInboxActivity,
   signIn,
   workspace,
   work,
@@ -156,6 +157,44 @@ test('an uncertain review decision freezes its original body and recovers after 
   await expect
     .poll(async () => (await readReview(page, value.review.id)).status)
     .toBe('approved');
+  const refresh = detail(page).getByRole('button', {
+    name: 'Refresh Review',
+    exact: true,
+  });
+  await expect(refresh).toBeVisible();
+  let failRead = true;
+  await page.route(`**/api/reviews/${value.review.id}`, (route) => {
+    if (!failRead) return route.fallback();
+    return route.fulfill({
+      status: 503,
+      json: { error: 'This review could not be refreshed.' },
+    });
+  });
+  expect(
+    (
+      await mutate(page, `/rooms/${value.room.id}/messages`, {
+        requestId: randomUUID(),
+        content: 'An unrelated update must preserve review recovery.',
+        postOnly: true,
+      })
+    ).ok(),
+  ).toBe(true);
+  const retryRead = detail(page).getByRole('button', {
+    name: 'Retry Review',
+    exact: true,
+  });
+  await expect(retryRead).toBeVisible();
+  await expect(refresh).toBeVisible();
+  await expect(comment).toHaveValue('The saved proposal is ready.');
+  await expect(comment).toBeDisabled();
+  await expect(
+    detail(page).getByRole('button', { name: 'Retry Decision', exact: true }),
+  ).toBeEnabled();
+  failRead = false;
+  await retryRead.click();
+  await expect(retryRead).toHaveCount(0);
+  await expect(refresh).toBeVisible();
+  await expect(comment).toHaveValue('The saved proposal is ready.');
   await detail(page)
     .getByRole('button', { name: 'Refresh Review', exact: true })
     .click();
@@ -538,7 +577,7 @@ test('two people review, revise and deliver an exact document version', async ({
     expect(review.submittedCommit).toBe(submitted.commit);
     expect(review.threadRootId).not.toBe('');
 
-    await reviewer.getByRole('button', { name: /Inbox, 1 unread/ }).click();
+    await openInboxActivity(reviewer);
     await reviewer
       .getByRole('complementary', { name: 'Personal inbox' })
       .getByRole('button', { name: new RegExp(title) })
@@ -673,7 +712,7 @@ test('two people review, revise and deliver an exact document version', async ({
     const inbox = reviewer.getByRole('complementary', {
       name: 'Personal inbox',
     });
-    await reviewer.getByRole('button', { name: /Inbox, 1 unread/ }).click();
+    await openInboxActivity(reviewer);
     await inbox.getByRole('button', { name: /You were mentioned/ }).click();
     await expect(
       inbox.getByRole('button', { name: 'Close inbox' }),
@@ -692,7 +731,7 @@ test('two people review, revise and deliver an exact document version', async ({
       .getByRole('button', { name: 'Save My Draft', exact: true })
       .click();
     await expect(detail(reviewer).getByRole('alert')).toHaveCount(0);
-    await reviewer.getByRole('button', { name: /Inbox, 1 unread/ }).click();
+    await openInboxActivity(reviewer);
     await inbox.getByRole('button', { name: /You were mentioned/ }).click();
     await expect(
       inbox.getByRole('button', { name: 'Close inbox' }),

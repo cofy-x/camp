@@ -50,6 +50,7 @@ func New(store *storage.Store, logger *slog.Logger, managers ...RoomService) *AP
 	a.automationRoutes(mux)
 	a.automationEvaluationContextRoutes(mux)
 	a.workItemRoutes(mux)
+	a.attentionRoutes(mux)
 	a.workItemHistoryRoutes(mux)
 	a.memoryRoutes(mux)
 	a.taskRoutes(mux)

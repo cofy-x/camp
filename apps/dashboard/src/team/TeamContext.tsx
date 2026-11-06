@@ -11,6 +11,7 @@ import {
 import { teamApi, type InboxItem, type User } from './api';
 import { useAccount } from './AuthContext';
 import { flushPrivateDrafts } from './draftRegistry';
+import { APIError } from '../shared/api/http';
 import type {
   Message,
   Reference,
@@ -18,6 +19,7 @@ import type {
   WorkspaceEvent,
 } from '../features/workspace/api';
 import type { SourceEvent } from '../features/automation/api';
+import { attentionApi, type AttentionPage } from '../features/attention/api';
 
 export type NavigationTarget =
   | {
@@ -39,6 +41,7 @@ export type NavigationTarget =
       sourceMessage?: Message;
       sourceEvent?: SourceEvent;
       taskId?: string;
+      view?: 'needs_me';
     }
   | {
       app: 'library';
@@ -57,6 +60,8 @@ interface TeamState {
   name: string;
   members: User[];
   inbox: InboxItem[];
+  attention: AttentionPage | undefined;
+  attentionError: string;
   reads: Record<string, number>;
   revision: number;
   connection: 'connecting' | 'connected' | 'offline';
@@ -92,6 +97,14 @@ export function TeamProvider({
   const [name, setName] = useState('Camp');
   const [members, setMembers] = useState<User[]>([]);
   const [inbox, setInbox] = useState<InboxItem[]>([]);
+  const [attentionSnapshot, setAttentionSnapshot] = useState<{
+    userId: string;
+    page: AttentionPage;
+  }>();
+  const [attentionFailure, setAttentionFailure] = useState({
+    userId: '',
+    message: '',
+  });
   const [reads, setReads] = useState<Record<string, number>>({});
   const [revision, setRevision] = useState(0);
   const [event, setEvent] = useState<WorkspaceEvent | null>(null);
@@ -110,6 +123,37 @@ export function TeamProvider({
     () => navigationRequest.current,
     [],
   );
+  const attention =
+    attentionSnapshot?.userId === user.id ? attentionSnapshot.page : undefined;
+  const attentionError =
+    attentionFailure.userId === user.id ? attentionFailure.message : '';
+  useEffect(() => {
+    const controller = new AbortController();
+    void attentionApi
+      .list({}, controller.signal)
+      .then((page) => {
+        if (controller.signal.aborted) return;
+        setAttentionSnapshot({ userId: user.id, page });
+        setAttentionFailure({ userId: user.id, message: '' });
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          if (
+            error instanceof APIError &&
+            (error.status === 401 || error.status === 403)
+          )
+            setAttentionSnapshot(undefined);
+          setAttentionFailure({
+            userId: user.id,
+            message:
+              error instanceof Error
+                ? error.message
+                : 'Could not load what needs your attention.',
+          });
+        }
+      });
+    return () => controller.abort();
+  }, [revision, user.id]);
   useEffect(() => {
     const controller = new AbortController();
     void Promise.all([
@@ -231,6 +275,8 @@ export function TeamProvider({
       name,
       members,
       inbox,
+      attention,
+      attentionError,
       reads,
       revision,
       connection,
@@ -248,6 +294,8 @@ export function TeamProvider({
       name,
       members,
       inbox,
+      attention,
+      attentionError,
       reads,
       revision,
       connection,
