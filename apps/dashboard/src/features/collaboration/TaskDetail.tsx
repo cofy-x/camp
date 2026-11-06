@@ -219,16 +219,20 @@ export function TaskDetail({
       {notice && <p role="status">{notice}</p>}
       {task && (
         <>
-          <div className="collaboration-status">
-            <strong>{taskStatus[task.status]}</strong>
-            {currentAgent && ['queued', 'running'].includes(task.status) && (
-              <span>
-                {currentAgent.name}
-                {task.status === 'running' ? ' · working now' : ' · next turn'}
-              </span>
-            )}
+          <header className="collaboration-status">
             <TaskGoal goal={task.goal} />
-          </div>
+            <p className="collaboration-state">
+              <span>{taskStatus[task.status]}</span>
+              {currentAgent && ['queued', 'running'].includes(task.status) && (
+                <span>
+                  {currentAgent.name}
+                  {task.status === 'running'
+                    ? ' · working now'
+                    : ' · next turn'}
+                </span>
+              )}
+            </p>
+          </header>
           {task.error && (
             <p className="app-error" role="alert">
               {task.error}
