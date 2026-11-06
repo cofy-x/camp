@@ -608,7 +608,7 @@ test('failed, cancelled and interrupted work keeps its error and check facts vis
       await expect(
         files.getByRole('button', { name: 'Open proposal.md', exact: true }),
       ).toBeVisible();
-      await expect(files).toContainText('Retained result · not published');
+      await expect(files).toContainText('Saved files · not published');
     } else {
       await expect(result).toContainText('No result files captured');
       await expect(files).toHaveCount(0);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { configuredChecks, editableCheck } from './environmentChecks';
+import { configuredChecks, editableCheck } from './environmentCheckCommands';
 
 describe('structured environment checks', () => {
   it('round-trips literal command arguments without shell parsing or trimming', () => {

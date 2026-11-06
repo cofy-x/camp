@@ -12,7 +12,7 @@ import {
   sameEnvironment,
 } from './environmentState';
 import { EnvironmentChecks } from './EnvironmentChecks';
-import { configuredChecks, editableCheck } from './environmentChecks';
+import { configuredChecks, editableCheck } from './environmentCheckCommands';
 import './ResourceEnvironment.css';
 
 export function EnvironmentEditor({

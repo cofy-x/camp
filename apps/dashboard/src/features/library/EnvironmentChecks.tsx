@@ -1,5 +1,5 @@
 import { Button } from '@cofy-x/camp-platinum';
-import { editableCheck, type EditableCheck } from './environmentChecks';
+import { editableCheck, type EditableCheck } from './environmentCheckCommands';
 
 export function EnvironmentChecks({
   checks,
