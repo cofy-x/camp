@@ -39,7 +39,7 @@ func RemoteOverlayAt(persona string, readOnly bool, paths Paths, collaboration .
 	for _, id := range []string{"filesystem", "subprocess", "pty", "terminal-bash", "terminal-pwsh", "persistent-bash", "persistent-pwsh", "jobs", "tool-working-directory"} {
 		rows = append(rows, map[string]any{"id": id, "disabled": true})
 	}
-	rows = append(rows, map[string]any{"id": "tool-fs", "config": map[string]any{"read": true, "readImage": false, "write": !readOnly, "edit": !readOnly}})
+	rows = append(rows, map[string]any{"id": "tool-fs", "config": map[string]any{"read": true, "readImage": false, "write": !readOnly, "edit": !readOnly, "applyPatch": false}})
 	providers := []map[string]any{
 		{"id": "camp-filesystem", "name": module("filesystem")},
 		{"id": "camp-file-discovery", "name": module("discovery")},

@@ -261,7 +261,7 @@ try {
     pnpm: '12.11.2',
     ...licenses,
     ...linuxMetadata,
-    dsh: '0.2.1-rc.3',
+    dsh: '0.2.2-rc.1',
     prerequisites: linux
       ? [
           'Docker Engine with local Unix API and volumes',

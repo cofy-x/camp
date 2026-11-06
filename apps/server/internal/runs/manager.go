@@ -230,7 +230,7 @@ func (m *Manager) checkAvailability(ctx context.Context) string {
 	var version struct {
 		Version string `json:"version"`
 	}
-	if err != nil || json.Unmarshal(manifest, &version) != nil || version.Version != "0.2.1-rc.3" {
+	if err != nil || json.Unmarshal(manifest, &version) != nil || version.Version != "0.2.2-rc.1" {
 		return "Run make install-dsh to install the pinned version, or set CAMP_DSH_RUNTIME."
 	}
 	probeDir, err := os.MkdirTemp(m.dir, ".probe-")

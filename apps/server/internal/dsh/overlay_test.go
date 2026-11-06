@@ -35,3 +35,31 @@ func TestPersonaCannotInjectRuntimeConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestRemoteOverlayDisablesUnsupportedFilePatches(t *testing.T) {
+	for _, readOnly := range []bool{false, true} {
+		encoded, err := RemoteOverlay("Test persona", readOnly)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rows []struct {
+			ID     string         `yaml:"id"`
+			Config map[string]any `yaml:"config"`
+		}
+		if err := yaml.Unmarshal(encoded, &rows); err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, row := range rows {
+			if row.ID == "tool-fs" {
+				found = true
+				if row.Config["applyPatch"] != false {
+					t.Fatal("Unsupported file patch operations were enabled")
+				}
+			}
+		}
+		if !found {
+			t.Fatal("File tool configuration is missing")
+		}
+	}
+}

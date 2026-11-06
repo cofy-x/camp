@@ -8,10 +8,10 @@
     "pnpm": "12.11.2"
   },
   "dependencies": {
-    "@deepseek-ai/dsh": "0.2.1-rc.3",
-    "@deepseek-ai/dsh-fs": "0.2.1-rc.3",
-    "@deepseek-ai/dsh-fs-observation-policy": "0.2.1-rc.3",
-    "@deepseek-ai/dsh-shell": "0.2.1-rc.3",
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.3"
+    "@deepseek-ai/dsh": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-fs": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-fs-observation-policy": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-shell": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.1"
   }
 }

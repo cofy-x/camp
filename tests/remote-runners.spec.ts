@@ -1349,7 +1349,7 @@ test('Mac diagnostics show the reported native adapters without inventing LayerF
       workspace: 'native-local',
       sandbox: 'seatbelt',
       checkpoint: 'local-capture',
-      dshVersion: '0.2.1-rc.3',
+      dshVersion: '0.2.2-rc.1',
     },
   };
   await page.route('**/api/runners', (route) =>
