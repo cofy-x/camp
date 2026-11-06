@@ -284,6 +284,7 @@ test('profiles remove all local process tools and restrict read-only access', ()
     readImage: false,
     write: false,
     edit: false,
+    applyPatch: false,
   });
   assert.equal(
     read

@@ -71,8 +71,8 @@ func openLayerRuntime(ctx context.Context, config Config) (*layerRuntime, error)
 	var manifest struct {
 		Version string `json:"version"`
 	}
-	if json.Unmarshal(manifestBytes, &manifest) != nil || manifest.Version != "0.2.1-rc.3" {
-		return nil, errors.New("Native execution requires DSH 0.2.1-rc.3")
+	if json.Unmarshal(manifestBytes, &manifest) != nil || manifest.Version != "0.2.2-rc.1" {
+		return nil, errors.New("Native execution requires DSH 0.2.2-rc.1")
 	}
 	versionCmd := exec.CommandContext(ctx, config.NodePath, "--version")
 	version, err := versionCmd.Output()

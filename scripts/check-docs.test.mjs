@@ -20,7 +20,7 @@ function checkout(t, extra = {}) {
       engines: { node: '24.16.0', pnpm: '12.11.2' },
     }),
     'tools/dsh-runtime/package.json': JSON.stringify({
-      dependencies: { '@deepseek-ai/dsh': '0.2.1-rc.3' },
+      dependencies: { '@deepseek-ai/dsh': '0.2.2-rc.1' },
     }),
     'tools/project-runtime/package.json': JSON.stringify({
       dependencies: { pnpm: '12.11.2' },
@@ -57,9 +57,9 @@ test('checks unstaged Markdown, reference/image links and GitHub heading collisi
       '# Not a heading',
       '```',
       '[repeat]: <docs/A guide (new).md#repeat-2>',
-      'Go **1.27.3**, Node **24.16.0**, pnpm **12.11.2**, DSH **0.2.1-rc.3**.',
+      'Go **1.27.3**, Node **24.16.0**, pnpm **12.11.2**, DSH **0.2.2-rc.1**.',
       'npx --yes pnpm@12.11.2 exec playwright test',
-      'This guide describes DSH 0.2.1-rc.3.',
+      'This guide describes DSH 0.2.2-rc.1.',
     ].join('\n'),
     'docs/A guide (new).md':
       '# Repeat\n# Repeat\n# Repeat-1\n# Repeat\n# 团队 & `Runner`\n',
