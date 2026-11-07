@@ -288,8 +288,8 @@ func (s *Store) AppendRunEvent(ctx context.Context, id, kind, text string) (out 
 	return
 }
 func (s *Store) ListRunEvents(ctx context.Context, id string, after int64) ([]RunEvent, error) {
-	if _, e := s.GetRun(ctx, id); e != nil {
-		return nil, e
+	if _, e := s.queries().GetRunIdentity(ctx, id); e != nil {
+		return nil, missing(e, "The run")
 	}
 	rows, e := s.queries().ListRunEvents(ctx, sqlgen.ListRunEventsParams{RunID: id, Seq: after})
 	out := make([]RunEvent, 0, len(rows))

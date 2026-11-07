@@ -26,6 +26,8 @@ export function timelineFixture(run: Run): RunTimeline {
     published: run.published,
     checksDeferred: run.checksDeferred,
     testExitCode: run.testExitCode,
+    sessionMode: run.sessionMode,
+    sessionGeneration: run.sessionGeneration,
     agentSnapshot: {
       id: run.agentSnapshot.id,
       name: run.agentSnapshot.name,

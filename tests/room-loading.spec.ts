@@ -148,6 +148,8 @@ function completedRun(
       access: value.agent.access,
     },
     status: 'succeeded',
+    sessionMode: 'fresh',
+    sessionGeneration: 1,
     createdAt: timestamp,
     updatedAt: timestamp,
     finishedAt: timestamp,
@@ -241,42 +243,60 @@ for (const failed of ['members', 'timeline'] as const)
   }, info) => {
     const value = await fixture(page, `failed-${failed}-${info.project.name}`);
     const failure = `The ${failed} metadata could not be read.`;
+    const recovery = barrier();
     let broken = true;
     if (failed === 'members')
-      value.handlers.members = (route) =>
-        broken
-          ? route.fulfill({ status: 503, json: { error: failure } })
-          : route.fulfill({ json: { members: [value.agent] } });
+      value.handlers.members = async (route) => {
+        if (broken)
+          return route.fulfill({ status: 503, json: { error: failure } });
+        await recovery.held;
+        return route.fulfill({ json: { members: [value.agent] } });
+      };
     else
-      value.handlers.timeline = (route) =>
-        broken
-          ? route.fulfill({ status: 503, json: { error: failure } })
-          : route.fulfill({ json: { items: [], nextCursor: '' } });
-    await errors.get(page)!.reload();
-    const win = workspace(page);
-    const alert = win.getByRole('alert').filter({ hasText: failure });
-    await expect(alert).toBeVisible();
-    await expect(
-      win.getByText(value.messages[0].content, { exact: true }),
-    ).toBeVisible();
-    const input = win.getByRole('textbox', {
-      name: `Message ${value.room.name}`,
-      exact: true,
-    });
-    await expect(input).toBeEnabled();
-    const draft = 'This draft survives a metadata failure and its retry.';
-    await input.fill(draft);
-    const before = value.reads[failed];
-    broken = false;
-    await alert.getByRole('button', { name: 'Retry', exact: true }).click();
-    await expect.poll(() => value.reads[failed]).toBeGreaterThan(before);
-    await expect(alert).toHaveCount(0);
-    await expect(input).toHaveValue(draft);
-    await expect(
-      win.getByText(value.messages[0].content, { exact: true }),
-    ).toBeVisible();
-    expect(value.reads.fullRuns).toBe(0);
-    expect(value.reads.executionWrites).toBe(0);
+      value.handlers.timeline = async (route) => {
+        if (broken)
+          return route.fulfill({ status: 503, json: { error: failure } });
+        await recovery.held;
+        return route.fulfill({ json: { items: [], nextCursor: '' } });
+      };
+    try {
+      await errors.get(page)!.reload();
+      const win = workspace(page);
+      const alert = win.getByRole('alert').filter({ hasText: failure });
+      await expect(alert).toBeVisible();
+      await expect(
+        win.getByText(value.messages[0].content, { exact: true }),
+      ).toBeVisible();
+      const input = win.getByRole('textbox', {
+        name: `Message ${value.room.name}`,
+        exact: true,
+      });
+      await expect(input).toBeEnabled();
+      const draft = 'This draft survives a metadata failure and its retry.';
+      await input.fill(draft);
+      const before = value.reads[failed];
+      broken = false;
+      // A background refresh may already be recovering. Hold its successful
+      // response so it cannot remove Retry before the explicit click reaches it.
+      await refresh(page);
+      await expect.poll(() => value.reads[failed]).toBeGreaterThan(before);
+      await expect(alert).toBeVisible();
+      const beforeRetry = value.reads[failed];
+      await alert.getByRole('button', { name: 'Retry', exact: true }).click();
+      await expect.poll(() => value.reads[failed]).toBeGreaterThan(beforeRetry);
+      await expect(alert).toBeVisible();
+      await expect(input).toHaveValue(draft);
+      recovery.release();
+      await expect(alert).toHaveCount(0);
+      await expect(input).toHaveValue(draft);
+      await expect(
+        win.getByText(value.messages[0].content, { exact: true }),
+      ).toBeVisible();
+      expect(value.reads.fullRuns).toBe(0);
+      expect(value.reads.executionWrites).toBe(0);
+    } finally {
+      recovery.release();
+    }
   });
 
 type BufferedReads = {

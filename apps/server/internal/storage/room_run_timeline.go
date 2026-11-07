@@ -39,31 +39,33 @@ type RunTimelineEnvironment struct {
 // RunTimeline contains only display facts. Execution inputs and original file
 // bytes remain with the full Run and immutable resource readers.
 type RunTimeline struct {
-	ID              string                  `json:"id"`
-	RoomID          string                  `json:"roomId"`
-	ThreadRootID    string                  `json:"threadRootId"`
-	OriginMessageID string                  `json:"originMessageId"`
-	AgentID         string                  `json:"agentId"`
-	ResourceID      string                  `json:"resourceId"`
-	TaskID          string                  `json:"taskId,omitempty"`
-	RunnerID        string                  `json:"runnerId"`
-	RunnerName      string                  `json:"runnerName"`
-	Status          string                  `json:"status"`
-	CreatedAt       string                  `json:"createdAt"`
-	UpdatedAt       string                  `json:"updatedAt"`
-	FinishedAt      string                  `json:"finishedAt"`
-	WaitingReason   string                  `json:"waitingReason,omitempty"`
-	Error           string                  `json:"error"`
-	ResultCommit    string                  `json:"resultCommit"`
-	Published       bool                    `json:"published"`
-	ChecksDeferred  bool                    `json:"checksDeferred"`
-	TestExitCode    *int                    `json:"testExitCode"`
-	AgentSnapshot   RunTimelineAgent        `json:"agentSnapshot"`
-	Environment     *RunTimelineEnvironment `json:"environment"`
-	Checks          []RunTimelineCheck      `json:"checks"`
-	Files           []RunTimelineFile       `json:"files"`
-	FileCount       int                     `json:"fileCount"`
-	FilesLimited    bool                    `json:"filesLimited"`
+	ID                string                  `json:"id"`
+	RoomID            string                  `json:"roomId"`
+	ThreadRootID      string                  `json:"threadRootId"`
+	OriginMessageID   string                  `json:"originMessageId"`
+	AgentID           string                  `json:"agentId"`
+	ResourceID        string                  `json:"resourceId"`
+	TaskID            string                  `json:"taskId,omitempty"`
+	RunnerID          string                  `json:"runnerId"`
+	RunnerName        string                  `json:"runnerName"`
+	Status            string                  `json:"status"`
+	CreatedAt         string                  `json:"createdAt"`
+	UpdatedAt         string                  `json:"updatedAt"`
+	FinishedAt        string                  `json:"finishedAt"`
+	SessionMode       string                  `json:"sessionMode"`
+	SessionGeneration int64                   `json:"sessionGeneration"`
+	WaitingReason     string                  `json:"waitingReason,omitempty"`
+	Error             string                  `json:"error"`
+	ResultCommit      string                  `json:"resultCommit"`
+	Published         bool                    `json:"published"`
+	ChecksDeferred    bool                    `json:"checksDeferred"`
+	TestExitCode      *int                    `json:"testExitCode"`
+	AgentSnapshot     RunTimelineAgent        `json:"agentSnapshot"`
+	Environment       *RunTimelineEnvironment `json:"environment"`
+	Checks            []RunTimelineCheck      `json:"checks"`
+	Files             []RunTimelineFile       `json:"files"`
+	FileCount         int                     `json:"fileCount"`
+	FilesLimited      bool                    `json:"filesLimited"`
 }
 type roomRunTimelineCursor struct {
 	Room      string `json:"room"`
@@ -186,7 +188,7 @@ func (s *Store) RoomRunTimeline(ctx context.Context, room, cursor string, limit 
 
 // ProjectRunTimeline applies the same whitelist to an in-memory terminal result.
 func ProjectRunTimeline(run Run) RunTimeline {
-	out := RunTimeline{ID: run.ID, RoomID: run.RoomID, ThreadRootID: run.ThreadRootID, OriginMessageID: run.OriginMessageID, AgentID: run.AgentID, ResourceID: run.ResourceID, TaskID: run.TaskID, RunnerID: run.RunnerID, RunnerName: run.RunnerName, Status: run.Status, CreatedAt: run.CreatedAt, UpdatedAt: run.UpdatedAt, FinishedAt: run.FinishedAt, WaitingReason: run.WaitingReason, Error: run.Error, ResultCommit: run.ResultCommit, Published: run.Published, ChecksDeferred: run.ChecksDeferred, TestExitCode: run.TestExitCode, AgentSnapshot: RunTimelineAgent{ID: run.AgentSnapshot.ID, Name: run.AgentSnapshot.Name, Avatar: run.AgentSnapshot.Avatar, Access: run.AgentSnapshot.Access}, Checks: []RunTimelineCheck{}, Files: []RunTimelineFile{}, FileCount: len(run.Files), FilesLimited: len(run.Files) > 20}
+	out := RunTimeline{ID: run.ID, RoomID: run.RoomID, ThreadRootID: run.ThreadRootID, OriginMessageID: run.OriginMessageID, AgentID: run.AgentID, ResourceID: run.ResourceID, TaskID: run.TaskID, RunnerID: run.RunnerID, RunnerName: run.RunnerName, Status: run.Status, CreatedAt: run.CreatedAt, UpdatedAt: run.UpdatedAt, FinishedAt: run.FinishedAt, SessionMode: run.SessionMode, SessionGeneration: run.SessionGeneration, WaitingReason: run.WaitingReason, Error: run.Error, ResultCommit: run.ResultCommit, Published: run.Published, ChecksDeferred: run.ChecksDeferred, TestExitCode: run.TestExitCode, AgentSnapshot: RunTimelineAgent{ID: run.AgentSnapshot.ID, Name: run.AgentSnapshot.Name, Avatar: run.AgentSnapshot.Avatar, Access: run.AgentSnapshot.Access}, Checks: []RunTimelineCheck{}, Files: []RunTimelineFile{}, FileCount: len(run.Files), FilesLimited: len(run.Files) > 20}
 	if string(run.Environment) != "null" && len(run.Environment) > 0 {
 		var environment RunTimelineEnvironment
 		if json.Unmarshal(run.Environment, &environment) == nil {
@@ -212,4 +214,27 @@ func ProjectRunTimeline(run Run) RunTimeline {
 		out.Files = append(out.Files, RunTimelineFile{Path: file.Path, Status: file.Status})
 	}
 	return out
+}
+
+// BoundRunSummary applies the same exact-file preview bound to one Run.
+func BoundRunSummary(item RunTimeline) (RunTimeline, error) {
+	page := RoomRunTimelinePage{Items: []RunTimeline{item}}
+	if err := page.Bound(); err != nil {
+		return RunTimeline{}, err
+	}
+	return page.Items[0], nil
+}
+
+// GetRunSummary reads whitelisted display facts without materializing original
+// output, file bytes, Agent instructions or frozen execution configuration.
+func (s *Store) GetRunSummary(ctx context.Context, id string) (RunTimeline, error) {
+	raw, err := s.queries().GetRunSummary(ctx, id)
+	if err != nil {
+		return RunTimeline{}, missing(err, "The run")
+	}
+	var item RunTimeline
+	if err = json.Unmarshal([]byte(raw), &item); err != nil {
+		return item, err
+	}
+	return BoundRunSummary(item)
 }

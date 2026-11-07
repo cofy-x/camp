@@ -8,6 +8,17 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
+func (m *Manager) GetRunSummary(ctx context.Context, id string) (storage.RunTimeline, error) {
+	item, err := m.store.GetRunSummary(ctx, id)
+	if err == nil && item.Status == "queued" {
+		item.WaitingReason, err = m.queueReason(ctx, item.RunnerID, item.TaskID)
+	}
+	if err != nil {
+		return item, err
+	}
+	return storage.BoundRunSummary(item)
+}
+
 func (m *Manager) queueReason(ctx context.Context, runnerID, taskID string) (string, error) {
 	if runnerID == "" {
 		return "Choose a runner and submit a new request.", nil

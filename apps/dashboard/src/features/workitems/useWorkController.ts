@@ -14,6 +14,7 @@ import {
   type Message,
   type Room,
   type Run,
+  type RunTimeline,
   type WorkspaceStatus,
 } from '../workspace/api';
 import { findRunReply } from '../workspace/runMessages';
@@ -101,6 +102,7 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
     policies: AutomationPolicy[];
   }>();
   const [contextError, setContextError] = useState({ roomId: '', message: '' });
+  const [contextAttempt, setContextAttempt] = useState(0);
   const [actionError, setActionError] = useState('');
   const [retry, setRetry] = useState(0);
   const request = useRef(0);
@@ -385,7 +387,7 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
           });
       });
     return () => controller.abort();
-  }, [activeRoomId, team.revision, retry]);
+  }, [activeRoomId, team.revision, retry, contextAttempt]);
 
   const location =
     room?.name ?? rooms.find((item) => item.id === roomFilter)?.name;
@@ -442,27 +444,28 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
     setRetry((value) => value + 1);
   }
 
-  async function ask(run: Run) {
+  async function ask(run: Run | RunTimeline) {
     team.cancelNavigation();
     const teamRequest = team.getNavigationRevision();
     const expected = ++request.current;
     const activation = desktop.getActivationRevision();
+    const current = () =>
+      expected === request.current &&
+      teamRequest === team.getNavigationRevision() &&
+      activation === desktop.getActivationRevision();
     try {
-      const message = await findRunReply(run);
-      if (
-        expected !== request.current ||
-        teamRequest !== team.getNavigationRevision() ||
-        activation !== desktop.getActivationRevision()
-      )
-        return;
+      const fullRun = (await workspaceApi.run(run.id)).run;
+      if (!current()) return;
+      const message = await findRunReply(fullRun);
+      if (!current()) return;
       if (!message) throw new Error('The Agent reply is not available yet.');
       await team.navigate({
         roomId: message.roomId,
         threadId: message.threadRootId,
-        handoff: { message, run },
+        handoff: { message, run: fullRun },
       });
     } catch (error) {
-      if (expected === request.current)
+      if (current())
         setActionError(
           error instanceof Error
             ? error.message
@@ -493,6 +496,7 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
     itemError: itemError.id === unresolvedItem ? itemError.message : '',
     contextError:
       contextError.roomId === activeRoomId ? contextError.message : '',
+    retryContext: () => setContextAttempt((value) => value + 1),
     taskError: taskMismatch
       ? 'This collaboration belongs to another work item.'
       : unresolvedItem && itemError.id === unresolvedItem && itemError.message

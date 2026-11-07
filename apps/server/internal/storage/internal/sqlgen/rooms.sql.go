@@ -576,6 +576,22 @@ func (q *Queries) GetRun(ctx context.Context, id string) (string, error) {
 	return snapshot, err
 }
 
+const getRunIdentity = `-- name: GetRunIdentity :one
+SELECT id,room_id FROM runs WHERE id=?
+`
+
+type GetRunIdentityRow struct {
+	ID     string
+	RoomID string
+}
+
+func (q *Queries) GetRunIdentity(ctx context.Context, id string) (GetRunIdentityRow, error) {
+	row := q.db.QueryRowContext(ctx, getRunIdentity, id)
+	var i GetRunIdentityRow
+	err := row.Scan(&i.ID, &i.RoomID)
+	return i, err
+}
+
 const getRunNotice = `-- name: GetRunNotice :one
 SELECT id FROM messages WHERE run_id=? AND author_kind='system'
 `
@@ -585,6 +601,82 @@ func (q *Queries) GetRunNotice(ctx context.Context, runID string) (string, error
 	var id string
 	err := row.Scan(&id)
 	return id, err
+}
+
+const getRunReply = `-- name: GetRunReply :one
+SELECT m.id, m.room_id, m.thread_root_id, m.seq, m.author_kind, m.agent_id, m.run_id, m.content, m.request_id, m.fingerprint, m.created_at, m.updated_at, m.references_json, m.author_user_id, m.author_name, m.review_id, m.task_id FROM messages m JOIN runs r ON r.id=m.run_id AND r.room_id=m.room_id
+WHERE r.id=? AND m.author_kind='agent' AND m.run_id<>''
+`
+
+func (q *Queries) GetRunReply(ctx context.Context, id string) (Message, error) {
+	row := q.db.QueryRowContext(ctx, getRunReply, id)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.RoomID,
+		&i.ThreadRootID,
+		&i.Seq,
+		&i.AuthorKind,
+		&i.AgentID,
+		&i.RunID,
+		&i.Content,
+		&i.RequestID,
+		&i.Fingerprint,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ReferencesJson,
+		&i.AuthorUserID,
+		&i.AuthorName,
+		&i.ReviewID,
+		&i.TaskID,
+	)
+	return i, err
+}
+
+const getRunSummary = `-- name: GetRunSummary :one
+SELECT CAST(json_object(
+ 'id',r.id,'roomId',r.room_id,'threadRootId',coalesce(r.thread_root_id,''),
+ 'originMessageId',r.origin_message_id,'agentId',r.agent_id,'resourceId',r.resource_id,
+ 'taskId',coalesce(json_extract(r.snapshot,'$.taskId'),''),
+ 'runnerId',coalesce(json_extract(r.snapshot,'$.runnerId'),''),
+ 'runnerName',coalesce(json_extract(r.snapshot,'$.runnerName'),''),
+ 'status',r.status,'createdAt',r.created_at,'updatedAt',r.updated_at,
+ 'finishedAt',coalesce(json_extract(r.snapshot,'$.finishedAt'),''),
+ 'sessionMode',coalesce(json_extract(r.snapshot,'$.sessionMode'),''),
+ 'sessionGeneration',coalesce(json_extract(r.snapshot,'$.sessionGeneration'),0),
+ 'error',coalesce(json_extract(r.snapshot,'$.error'),''),
+ 'waitingReason',coalesce(json_extract(r.snapshot,'$.waitingReason'),''),
+ 'resultCommit',coalesce(json_extract(r.snapshot,'$.resultCommit'),''),
+ 'published',json(CASE WHEN json_extract(r.snapshot,'$.published') THEN 'true' ELSE 'false' END),
+ 'checksDeferred',json(CASE WHEN json_extract(r.snapshot,'$.checksDeferred') THEN 'true' ELSE 'false' END),
+ 'testExitCode',json_extract(r.snapshot,'$.testExitCode'),
+ 'agentSnapshot',json_object(
+  'id',coalesce(json_extract(r.snapshot,'$.agentSnapshot.id'),r.agent_id),
+  'name',coalesce(json_extract(r.snapshot,'$.agentSnapshot.name'),''),
+  'avatar',coalesce(json_extract(r.snapshot,'$.agentSnapshot.avatar'),''),
+  'access',coalesce(json_extract(r.snapshot,'$.agentSnapshot.access'),'')
+ ),
+ 'environment',CASE WHEN json_type(r.snapshot,'$.environment')='object' THEN json_object(
+  'checks',json((SELECT json_group_array(json_object('name',CASE WHEN c.type='object' AND json_type(c.value,'$.name')='text' THEN json_extract(c.value,'$.name') ELSE '' END))
+   FROM (SELECT type,CASE WHEN type='object' THEN value ELSE '{}' END AS value FROM json_each(r.snapshot,'$.environment.checks')) c))
+ ) ELSE NULL END,
+ 'checks',json((SELECT json_group_array(json_object('name',CASE WHEN c.type='object' AND json_type(c.value,'$.name')='text' THEN json_extract(c.value,'$.name') ELSE '' END,
+  'status',CASE WHEN c.type='object' AND json_type(c.value,'$.name')='text' AND json_extract(c.value,'$.name')<>'' AND json_type(c.value,'$.status')='text' THEN json_extract(c.value,'$.status') ELSE 'incomplete' END,
+  'exitCode',CASE WHEN c.type='object' AND json_type(c.value,'$.exitCode')='integer' THEN json_extract(c.value,'$.exitCode') ELSE NULL END))
+  FROM (SELECT type,CASE WHEN type='object' THEN value ELSE '{}' END AS value FROM json_each(r.snapshot,'$.checks')) c)),
+ 'fileCount',coalesce(json_array_length(r.snapshot,'$.files'),0),
+ 'filesLimited',json(CASE WHEN coalesce(json_array_length(r.snapshot,'$.files'),0)>20 THEN 'true' ELSE 'false' END),
+ 'files',json((SELECT json_group_array(json_object('path',json_extract(f.value,'$.path'),'status',json_extract(f.value,'$.status')))
+  FROM (SELECT value FROM json_each(r.snapshot,'$.files') LIMIT 20) f))
+) AS TEXT) AS metadata
+FROM runs r WHERE r.id=?
+`
+
+func (q *Queries) GetRunSummary(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getRunSummary, id)
+	var metadata string
+	err := row.Scan(&metadata)
+	return metadata, err
 }
 
 const joinRoom = `-- name: JoinRoom :exec
@@ -1002,6 +1094,41 @@ func (q *Queries) ListRunEvents(ctx context.Context, arg ListRunEventsParams) ([
 	return items, nil
 }
 
+const listRunStates = `-- name: ListRunStates :many
+SELECT id,agent_id,status FROM runs
+WHERE status IN ('queued','preparing','running','checking','cancelling')
+ORDER BY CASE WHEN status='queued' THEN 0 ELSE 1 END,created_at,id
+`
+
+type ListRunStatesRow struct {
+	ID      string
+	AgentID string
+	Status  string
+}
+
+func (q *Queries) ListRunStates(ctx context.Context) ([]ListRunStatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRunStates)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRunStatesRow{}
+	for rows.Next() {
+		var i ListRunStatesRow
+		if err := rows.Scan(&i.ID, &i.AgentID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUnfinishedRuns = `-- name: ListUnfinishedRuns :many
 SELECT snapshot FROM runs WHERE status IN ('preparing','running','checking','cancelling') ORDER BY created_at,id
 `
@@ -1191,6 +1318,8 @@ SELECT CAST(json_object(
  'runnerName',coalesce(json_extract(r.snapshot,'$.runnerName'),''),
  'status',r.status,'createdAt',r.created_at,'updatedAt',r.updated_at,
  'finishedAt',coalesce(json_extract(r.snapshot,'$.finishedAt'),''),
+ 'sessionMode',coalesce(json_extract(r.snapshot,'$.sessionMode'),''),
+ 'sessionGeneration',coalesce(json_extract(r.snapshot,'$.sessionGeneration'),0),
  'error',coalesce(json_extract(r.snapshot,'$.error'),''),
  'waitingReason',coalesce(json_extract(r.snapshot,'$.waitingReason'),''),
  'resultCommit',coalesce(json_extract(r.snapshot,'$.resultCommit'),''),

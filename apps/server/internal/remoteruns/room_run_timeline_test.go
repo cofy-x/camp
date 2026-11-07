@@ -23,6 +23,10 @@ func TestRoomRunTimelineRetainsCurrentQueueReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	summary, err := m.GetRunSummary(actor, full.ID)
+	if err != nil || summary.WaitingReason == "" || summary.WaitingReason != full.WaitingReason {
+		t.Fatal("single summary lost current queue reason", summary, err)
+	}
 	page, err := m.RoomRunTimeline(actor, original.RoomID, "", 20)
 	if err != nil {
 		t.Fatal(err)

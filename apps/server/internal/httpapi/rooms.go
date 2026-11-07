@@ -244,6 +244,10 @@ func (a *API) roomRoutes(mux *http.ServeMux) {
 		_, _ = w.Write(v)
 	})
 	register("GET /api/runs/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if _, present := r.URL.Query()["view"]; present {
+			a.runSummary(w, r)
+			return
+		}
 		var v storage.Run
 		var e error
 		if reader, ok := a.rooms.(runReader); ok {
@@ -252,6 +256,10 @@ func (a *API) roomRoutes(mux *http.ServeMux) {
 			v, e = a.store.GetRun(r.Context(), r.PathValue("id"))
 		}
 		a.respond(w, r, map[string]any{"run": v}, e)
+	})
+	register("GET /api/runs/{id}/reply", func(w http.ResponseWriter, r *http.Request) {
+		message, err := a.store.GetRunReply(r.Context(), r.PathValue("id"))
+		a.respond(w, r, map[string]any{"message": message}, err)
 	})
 	register("POST /api/runs/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
 		var in struct{}

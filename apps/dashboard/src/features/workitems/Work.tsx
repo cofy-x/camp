@@ -211,13 +211,14 @@ export function Work(props: AppWindowProps) {
                   <Button onClick={work.showList}>Back to Work</Button>
                 </div>
               )}
-              {context && (
+              {selection.roomId && (
                 <WorkItemDetail
                   key={selection.id}
                   id={selection.id}
                   initialRequest={selection.request}
-                  members={context.members}
-                  policies={context.policies}
+                  members={context?.members ?? []}
+                  policies={context?.policies ?? []}
+                  contextReady={Boolean(context)}
                   defaultAgentId={defaultAgentId}
                   availability={work.availability}
                   onBack={work.showList}
@@ -235,17 +236,9 @@ export function Work(props: AppWindowProps) {
           {work.contextError && (
             <p className="app-error" role="alert">
               {work.contextError}{' '}
-              <Button onClick={work.refresh}>Retry Room settings</Button>
+              <Button onClick={work.retryContext}>Retry Room settings</Button>
             </p>
           )}
-          {work.activeRoomId &&
-            !context &&
-            !inspection.taskId &&
-            selection.kind === 'item' && (
-              <div className="app-actions">
-                <Button onClick={work.showList}>Back to Work</Button>
-              </div>
-            )}
           {inspection.taskId && !work.inspectionReady && (
             <div className="work-item-detail">
               <div className="workspace-panel-heading">

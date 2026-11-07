@@ -79,6 +79,7 @@ export function WorkItemDetail({
   initialRequest,
   members,
   policies,
+  contextReady,
   defaultAgentId,
   availability,
   onBack,
@@ -90,6 +91,7 @@ export function WorkItemDetail({
   initialRequest?: number;
   members: Agent[];
   policies: AutomationPolicy[];
+  contextReady: boolean;
   defaultAgentId?: string;
   availability?: Pick<WorkspaceStatus, 'available' | 'reason'>;
   onBack: () => void;
@@ -314,6 +316,7 @@ export function WorkItemDetail({
               item={item}
               members={members}
               policies={policies}
+              contextReady={contextReady}
               defaultAgentId={defaultAgentId}
               availability={availability}
               operation={operation}

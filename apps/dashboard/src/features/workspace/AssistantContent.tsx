@@ -1,4 +1,4 @@
-import { createContext, useContext, useId } from 'react';
+import { createContext, memo, useContext, useId } from 'react';
 import type { ComponentProps } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -88,7 +88,11 @@ const markdownComponents: Components = {
   ),
 };
 
-export function AssistantContent({ content }: { content: string }) {
+export const AssistantContent = memo(function AssistantContent({
+  content,
+}: {
+  content: string;
+}) {
   const markdownId = useId();
   const footnotePrefix = `camp-markdown-${markdownId}-`;
   const footnoteLabelId = `${footnotePrefix}footnotes`;
@@ -107,4 +111,4 @@ export function AssistantContent({ content }: { content: string }) {
       </div>
     </MarkdownContext.Provider>
   );
-}
+});

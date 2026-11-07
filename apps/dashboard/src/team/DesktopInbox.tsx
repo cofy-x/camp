@@ -171,9 +171,20 @@ export function DesktopInbox() {
                 </>
               ) : (
                 <>
-                  {!team.inbox.length && (
-                    <p className="camp-inbox-empty">No activity yet.</p>
+                  {team.inboxError && (
+                    <p className="app-error" role="alert">
+                      {team.inboxError}{' '}
+                      <Button onClick={team.retryInbox}>Retry Activity</Button>
+                    </p>
                   )}
+                  {team.inboxLoading &&
+                    !team.inbox.length &&
+                    !team.inboxError && <p role="status">Loading activity…</p>}
+                  {!team.inbox.length &&
+                    !team.inboxLoading &&
+                    !team.inboxError && (
+                      <p className="camp-inbox-empty">No activity yet.</p>
+                    )}
                   <ul className="camp-inbox-activity" aria-label="Activity">
                     {team.inbox.map((item) => (
                       <li key={item.id}>

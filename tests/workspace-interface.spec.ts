@@ -448,6 +448,12 @@ test('work details lead with results, preserve failure evidence, and keep techni
     }),
   );
   for (const run of runs) {
+    await page.route(`**/api/runs/${run.id}?view=summary`, (route) =>
+      route.fulfill({ json: { run: timelineFixture(run) } }),
+    );
+    await page.route(`**/api/runs/${run.id}/reply`, (route) =>
+      route.fulfill({ json: { message: null } }),
+    );
     await page.route(`**/api/runs/${run.id}`, (route) =>
       route.fulfill({ json: { run } }),
     );
@@ -791,6 +797,12 @@ test('a member can stop work from details, recover a failed request, and keep th
       route.fulfill({
         json: { items: [timelineFixture(run)], nextCursor: '' },
       }),
+    );
+    await member.route(`**/api/runs/${run.id}?view=summary`, (route) =>
+      route.fulfill({ json: { run: timelineFixture(run) } }),
+    );
+    await member.route(`**/api/runs/${run.id}/reply`, (route) =>
+      route.fulfill({ json: { message: null } }),
     );
     await member.route(`**/api/runs/${run.id}`, (route) =>
       route.fulfill({ json: { run } }),

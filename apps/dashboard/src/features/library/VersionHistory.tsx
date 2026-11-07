@@ -106,7 +106,7 @@ export function VersionHistory({
       </div>
       {error ? (
         <p className="app-error" role="alert">
-          {error} <Button onClick={onRetry}>Retry Files</Button>
+          {error} <Button onClick={onRetry}>Retry History</Button>
         </p>
       ) : !publications.length ? (
         <p role={loading ? 'status' : undefined}>

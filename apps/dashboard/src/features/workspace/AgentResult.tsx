@@ -10,6 +10,7 @@ import { runChecksLabel, runFilesLabel } from './runPresentation';
 function AgentReply({ message }: { message: Message }) {
   const key = `reply-expanded:${message.id}`;
   const [expanded, setExpanded] = useState(() => readStored(key) === 'true');
+  const [opened, setOpened] = useState(expanded);
   const summary = useRef<HTMLElement>(null);
   const long =
     message.content.length > 800 || message.content.split('\n').length > 12;
@@ -17,6 +18,7 @@ function AgentReply({ message }: { message: Message }) {
   if (!long) return <div className="workspace-agent-reply-inline">{reply}</div>;
 
   function remember(open: boolean) {
+    if (open) setOpened(true);
     setExpanded(open);
     writeStored(key, open ? 'true' : '');
   }
@@ -30,21 +32,23 @@ function AgentReply({ message }: { message: Message }) {
       <summary ref={summary}>
         {expanded ? 'Full reply' : 'Read full reply'}
       </summary>
-      <div className="workspace-agent-reply-body">
-        {reply}
-        <Button
-          className="workspace-reply-collapse"
-          onClick={() => {
-            remember(false);
-            summary.current?.focus({ preventScroll: true });
-            requestAnimationFrame(() =>
-              summary.current?.scrollIntoView({ block: 'nearest' }),
-            );
-          }}
-        >
-          Collapse reply
-        </Button>
-      </div>
+      {(opened || expanded) && (
+        <div className="workspace-agent-reply-body">
+          {reply}
+          <Button
+            className="workspace-reply-collapse"
+            onClick={() => {
+              remember(false);
+              summary.current?.focus({ preventScroll: true });
+              requestAnimationFrame(() =>
+                summary.current?.scrollIntoView({ block: 'nearest' }),
+              );
+            }}
+          >
+            Collapse reply
+          </Button>
+        </div>
+      )}
     </details>
   );
 }

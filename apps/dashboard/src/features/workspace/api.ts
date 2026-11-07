@@ -192,6 +192,8 @@ export type RunTimeline = Pick<
   | 'published'
   | 'checksDeferred'
   | 'testExitCode'
+  | 'sessionMode'
+  | 'sessionGeneration'
 > & {
   agentSnapshot: Pick<AgentSnapshot, 'id' | 'name' | 'avatar' | 'access'>;
   environment: { checks?: Pick<EnvironmentCheck, 'name'>[] | null } | null;
@@ -361,6 +363,14 @@ export const workspaceApi = {
     ),
   run: (runId: string, signal?: AbortSignal) =>
     request<{ run: Run }>(`/runs/${id(runId)}`, { signal }),
+  runSummary: (runId: string, signal?: AbortSignal) =>
+    request<{ run: RunTimeline }>(`/runs/${id(runId)}?view=summary`, {
+      signal,
+    }),
+  runReply: (runId: string, signal?: AbortSignal) =>
+    request<{ message: Message | null }>(`/runs/${id(runId)}/reply`, {
+      signal,
+    }),
   events: (runId: string, after: number, signal?: AbortSignal) =>
     request<{ events: RunEvent[] }>(
       `/runs/${id(runId)}/events?after=${after}`,

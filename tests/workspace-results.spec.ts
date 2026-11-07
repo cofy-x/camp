@@ -140,6 +140,16 @@ async function completedWork(
   );
   const fullRunReads: string[] = [];
   for (const run of runs) {
+    await page.route(`**/api/runs/${run.id}?view=summary`, (route) =>
+      route.fulfill({ json: { run: timelineFixture(run) } }),
+    );
+    await page.route(`**/api/runs/${run.id}/reply`, (route) =>
+      route.fulfill({
+        json: {
+          message: replies.find((message) => message.runId === run.id) ?? null,
+        },
+      }),
+    );
     await page.route(`**/api/runs/${run.id}`, (route) => {
       fullRunReads.push(run.id);
       return route.fulfill({ json: { run } });
@@ -903,6 +913,7 @@ test('discussion keeps the complete file count while previewing only the bounded
     exact: true,
   });
   await expect(inspector).toBeVisible();
+  expect(fullRunReads).toEqual([]);
   await inspector.getByRole('tab', { name: /^Files/ }).click();
   await expect(
     inspector

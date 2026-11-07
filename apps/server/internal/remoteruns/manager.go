@@ -180,19 +180,12 @@ func (m *Manager) Get(ctx context.Context, id string) (storage.Run, error) {
 	return run, err
 }
 func (m *Manager) AgentStates(ctx context.Context) (map[string]string, error) {
-	queued, err := m.store.ListQueuedRuns(ctx)
-	if err != nil {
-		return nil, err
-	}
-	active, err := m.store.ListUnfinishedRuns(ctx)
+	items, err := m.store.ListRunStates(ctx)
 	if err != nil {
 		return nil, err
 	}
 	states := map[string]string{}
-	for _, r := range queued {
-		states[r.AgentID] = "queued"
-	}
-	for _, r := range active {
+	for _, r := range items {
 		states[r.AgentID] = r.Status
 	}
 	return states, nil

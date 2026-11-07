@@ -34,4 +34,12 @@ func TestRoomRunTimelinePreservesUnsavedTerminalOverlay(t *testing.T) {
 	if err != nil || stored.Status != "queued" {
 		t.Fatal("read persisted overlay", err)
 	}
+	summary, err := m.GetRunSummary(context.Background(), run.ID)
+	if err != nil || summary.Status != "failed" || summary.Error != run.Error || summary.FileCount != 1 {
+		t.Fatal("single summary lost terminal overlay", summary, err)
+	}
+	raw, _ = json.Marshal(summary)
+	if strings.Contains(string(raw), "PRIVATE_") {
+		t.Fatal("single overlay bypassed projection")
+	}
 }

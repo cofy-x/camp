@@ -56,11 +56,21 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     resourceId: string;
     items: Publication[];
   }>({ resourceId: '', items: [] });
+  const [historyState, setHistoryState] = useState({
+    resourceId: '',
+    loading: false,
+    error: '',
+  });
+  const [historyAttempt, setHistoryAttempt] = useState(0);
   const publications =
     publicationSnapshot.resourceId === resourceId
       ? publicationSnapshot.items
       : [];
   const [history, setHistory] = useState(false);
+  const historyLoading =
+    history && (historyState.resourceId !== resourceId || historyState.loading);
+  const historyError =
+    historyState.resourceId === resourceId ? historyState.error : '';
   const [environmentOpen, setEnvironmentOpen] = useState(false);
   const [version, setVersion] = useState<{
     commit: string;
@@ -292,17 +302,14 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
       filesErrorScope.current = scope;
       setFilesError('');
     }
-    void Promise.all([
-      workspaceApi.files(resourceId, controller.signal, version?.commit),
-      libraryApi.history(resourceId, controller.signal),
-    ])
-      .then(([listing, changes]) => {
+    void workspaceApi
+      .files(resourceId, controller.signal, version?.commit)
+      .then((listing) => {
         if (controller.signal.aborted) return;
         setFilesLoading(false);
         setFilesError('');
         setFiles(listing.files);
         setCommit(listing.commit);
-        setPublicationSnapshot({ resourceId, items: changes.publications });
         setPath((current) =>
           listing.files.includes(current) ? current : (listing.files[0] ?? ''),
         );
@@ -319,6 +326,34 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
       });
     return () => controller.abort();
   }, [resourceId, resource?.currentCommit, revision, version?.commit]);
+  useEffect(() => {
+    if (!history || !resourceId) return;
+    const controller = new AbortController();
+    setHistoryState((current) => ({
+      resourceId,
+      loading: true,
+      error: current.resourceId === resourceId ? current.error : '',
+    }));
+    void libraryApi
+      .history(resourceId, controller.signal)
+      .then(({ publications }) => {
+        if (controller.signal.aborted) return;
+        setPublicationSnapshot({ resourceId, items: publications });
+        setHistoryState({ resourceId, loading: false, error: '' });
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted)
+          setHistoryState({
+            resourceId,
+            loading: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Could not load version history.',
+          });
+      });
+    return () => controller.abort();
+  }, [history, resourceId, resource?.currentCommit, revision, historyAttempt]);
   const reference: Reference | null =
     resource && path
       ? {
@@ -628,6 +663,9 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     filesError,
     loading,
     filesLoading,
+    historyLoading,
+    historyError,
+    retryHistory: () => setHistoryAttempt((value) => value + 1),
     pending,
     invalidateEditorRequest,
     refresh,

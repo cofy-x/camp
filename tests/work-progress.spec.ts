@@ -12,6 +12,7 @@ import {
   workspace,
 } from './team-helpers';
 import { watchPageErrors } from './page-errors';
+import { timelineFixture } from './run-timeline-fixture';
 
 const detail = (page: Page) =>
   work(page).getByRole('region', { name: 'Work item detail', exact: true });
@@ -156,6 +157,13 @@ async function fixture(page: Page) {
     reads.task++;
     return route.fulfill({ json: { task } });
   });
+  await page.route(`**/api/runs/${runId}?view=summary`, (route) => {
+    reads.run++;
+    return route.fulfill({ json: { run: timelineFixture(run) } });
+  });
+  await page.route(`**/api/runs/${runId}/reply`, (route) =>
+    route.fulfill({ json: { message: null } }),
+  );
   await page.route(`**/api/runs/${runId}`, (route) => {
     reads.run++;
     return route.fulfill({ json: { run } });

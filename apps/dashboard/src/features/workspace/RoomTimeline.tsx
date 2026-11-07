@@ -176,6 +176,89 @@ function WorkCard({
   );
 }
 
+function RoomWelcome({
+  draftKey,
+  members,
+  membersReady,
+  available,
+  onSetup,
+  onAgents,
+  onPrepared,
+}: {
+  draftKey: string;
+  members: Agent[];
+  membersReady: boolean;
+  available: boolean;
+  onSetup?: () => void;
+  onAgents: () => void;
+  onPrepared: () => void;
+}) {
+  const draft = useSyncExternalStore(
+    useCallback(
+      (listener) => subscribeStored(`draft:${draftKey}`, listener),
+      [draftKey],
+    ),
+    () => readStored(`draft:${draftKey}`),
+    () => '',
+  );
+  const hasMember = members.some((agent) => agent.enabled);
+  return (
+    <div className="workspace-room-welcome">
+      <PixelIcon name="conversation" size={28} />
+      <h2>What would you like to work on?</h2>
+      {membersReady && !available && onSetup && (
+        <Button primary onClick={onSetup}>
+          Set Up Agent Work…
+        </Button>
+      )}
+      {membersReady &&
+        (hasMember ? (
+          <>
+            <div className="workspace-starters" aria-label="Starting points">
+              {starters.map((starter) => (
+                <Button
+                  key={starter.title}
+                  aria-label={starter.title}
+                  aria-description={starter.description}
+                  disabled={Boolean(draft.trim())}
+                  onClick={() => {
+                    if (readStored(`draft:${draftKey}`).trim()) return;
+                    writeStored(`draft:${draftKey}`, starter.prompt);
+                    const agent = members.find((member) => member.enabled);
+                    if (agent)
+                      writeStored(
+                        `recipients:${draftKey}`,
+                        JSON.stringify([agent.id]),
+                      );
+                    onPrepared();
+                  }}
+                >
+                  <PixelIcon name={starter.icon} size={24} />
+                  <span className="workspace-starter-copy">
+                    <span>{starter.title}</span>
+                    <span className="workspace-starter-description">
+                      {starter.description}
+                    </span>
+                  </span>
+                </Button>
+              ))}
+            </div>
+            <p className="workspace-starter-hint">
+              {draft.trim()
+                ? 'Edit your draft below, then send when ready.'
+                : 'Choose a starting point to edit below.'}
+            </p>
+          </>
+        ) : (
+          <div className="workspace-welcome-invite">
+            <p>Post a message or add an Agent to help.</p>
+            <Button onClick={onAgents}>Add an agent</Button>
+          </div>
+        ))}
+    </div>
+  );
+}
+
 export function RoomTimeline({
   desktop,
   room,
@@ -236,12 +319,6 @@ export function RoomTimeline({
   const [newActivity, setNewActivity] = useState(false);
   const key = conversationKey(room.id, threadId);
   const [focusRequest, setFocusRequest] = useState(0);
-  const draft = useSyncExternalStore(
-    useCallback((listener) => subscribeStored(`draft:${key}`, listener), [key]),
-    () => readStored(`draft:${key}`),
-    () => '',
-  );
-  const hasMember = members.some((agent) => agent.enabled);
   const conversationRuns = runs.filter((run) => run.threadRootId === threadId);
   useLayoutEffect(() => {
     const node = scroll.current;
@@ -307,64 +384,15 @@ export function RoomTimeline({
         }}
       >
         {!messages.length && !threadId && (
-          <div className="workspace-room-welcome">
-            <PixelIcon name="conversation" size={28} />
-            <h2>What would you like to work on?</h2>
-            {membersReady && !available && onSetup && (
-              <Button primary onClick={onSetup}>
-                Set Up Agent Work…
-              </Button>
-            )}
-            {membersReady &&
-              (hasMember ? (
-                <>
-                  <div
-                    className="workspace-starters"
-                    aria-label="Starting points"
-                  >
-                    {starters.map((starter) => (
-                      <Button
-                        key={starter.title}
-                        aria-label={starter.title}
-                        aria-description={starter.description}
-                        disabled={Boolean(draft.trim())}
-                        onClick={() => {
-                          if (readStored(`draft:${key}`).trim()) return;
-                          writeStored(`draft:${key}`, starter.prompt);
-                          const agent = members.find(
-                            (member) => member.enabled,
-                          );
-                          if (agent)
-                            writeStored(
-                              `recipients:${key}`,
-                              JSON.stringify([agent.id]),
-                            );
-                          setFocusRequest((value) => value + 1);
-                        }}
-                      >
-                        <PixelIcon name={starter.icon} size={24} />
-                        <span className="workspace-starter-copy">
-                          <span>{starter.title}</span>
-                          <span className="workspace-starter-description">
-                            {starter.description}
-                          </span>
-                        </span>
-                      </Button>
-                    ))}
-                  </div>
-                  <p className="workspace-starter-hint">
-                    {draft.trim()
-                      ? 'Edit your draft below, then send when ready.'
-                      : 'Choose a starting point to edit below.'}
-                  </p>
-                </>
-              ) : (
-                <div className="workspace-welcome-invite">
-                  <p>Post a message or add an Agent to help.</p>
-                  <Button onClick={onAgents}>Add an agent</Button>
-                </div>
-              ))}
-          </div>
+          <RoomWelcome
+            draftKey={key}
+            members={members}
+            membersReady={membersReady}
+            available={available}
+            onSetup={onSetup}
+            onAgents={onAgents}
+            onPrepared={() => setFocusRequest((value) => value + 1)}
+          />
         )}
         {messages.map((message) => {
           const run =

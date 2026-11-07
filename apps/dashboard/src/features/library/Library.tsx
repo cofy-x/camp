@@ -53,6 +53,9 @@ export function Library({ desktop, window }: AppWindowProps) {
     filesError,
     loading,
     filesLoading,
+    historyLoading,
+    historyError,
+    retryHistory,
     pending,
     invalidateEditorRequest,
     refresh,
@@ -370,9 +373,9 @@ export function Library({ desktop, window }: AppWindowProps) {
                   rooms.find((room) => room.resourceId === resource.id)?.id
                 }
                 pending={pending}
-                error={filesError}
-                loading={filesLoading}
-                onRetry={refresh}
+                error={historyError}
+                loading={historyLoading}
+                onRetry={retryHistory}
                 onView={viewVersion}
                 onCompare={compareVersion}
                 onRestore={restore}

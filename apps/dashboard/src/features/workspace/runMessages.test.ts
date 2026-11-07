@@ -27,38 +27,42 @@ function message(seq: number, overrides: Partial<Message> = {}): Message {
 afterEach(() => vi.restoreAllMocks());
 
 describe('completed run replies', () => {
-  it('reads beyond the first page and matches the agent reply for this run', async () => {
-    const first = Array.from({ length: 500 }, (_, index) => message(index + 1));
-    first[0] = message(1, { authorKind: 'system', runId: run.id });
-    first[1] = message(2, { authorKind: 'agent', runId: 'another-run' });
+  it('loads the exact reply without downloading the surrounding conversation', async () => {
     const reply = message(501, { authorKind: 'agent', runId: run.id });
     const fetch = vi
-      .spyOn(workspaceApi, 'messages')
-      .mockResolvedValueOnce({ messages: first })
-      .mockResolvedValueOnce({ messages: [reply] });
+      .spyOn(workspaceApi, 'runReply')
+      .mockResolvedValue({ message: reply });
+    const conversation = vi.spyOn(workspaceApi, 'messages');
     const signal = new AbortController().signal;
     expect(await findRunReply(run, signal)).toBe(reply);
-    expect(fetch.mock.calls).toEqual([
-      [run.roomId, run.threadRootId, 0, signal],
-      [run.roomId, run.threadRootId, 500, signal],
-    ]);
+    expect(fetch.mock.calls).toEqual([[run.id, signal]]);
+    expect(conversation).not.toHaveBeenCalled();
   });
 
-  it('returns no reply when a page is exhausted or fails to advance', async () => {
-    const fetch = vi.spyOn(workspaceApi, 'messages');
-    fetch.mockResolvedValueOnce({ messages: [message(1)] });
+  it('retains an existing execution with no Agent reply as an empty result', async () => {
+    vi.spyOn(workspaceApi, 'runReply').mockResolvedValue({ message: null });
     expect(await findRunReply(run)).toBeNull();
-    const page = Array.from({ length: 500 }, (_, index) => message(index + 1));
-    fetch.mockResolvedValue({ messages: page });
-    expect(await findRunReply(run)).toBeNull();
-    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    { authorKind: 'system' as const },
+    { runId: 'another-run' },
+    { roomId: 'another-room' },
+    { threadRootId: 'another-thread' },
+  ])('rejects a reply whose source identity changed: %j', async (changed) => {
+    vi.spyOn(workspaceApi, 'runReply').mockResolvedValue({
+      message: message(1, { authorKind: 'agent', runId: run.id, ...changed }),
+    });
+    await expect(findRunReply(run)).rejects.toThrow(
+      'Could not verify this Agent reply.',
+    );
   });
 
   it('does not return a reply after navigation cancels the request', async () => {
     const controller = new AbortController();
-    vi.spyOn(workspaceApi, 'messages').mockImplementation(async () => {
+    vi.spyOn(workspaceApi, 'runReply').mockImplementation(async () => {
       controller.abort();
-      return { messages: [message(1, { authorKind: 'agent', runId: run.id })] };
+      return { message: message(1, { authorKind: 'agent', runId: run.id }) };
     });
     await expect(findRunReply(run, controller.signal)).rejects.toMatchObject({
       name: 'AbortError',
@@ -66,8 +70,8 @@ describe('completed run replies', () => {
   });
 
   it('preserves a failed lookup for the caller to report', async () => {
-    const error = new Error('Could not load messages.');
-    vi.spyOn(workspaceApi, 'messages').mockRejectedValue(error);
+    const error = new Error('Could not load the reply.');
+    vi.spyOn(workspaceApi, 'runReply').mockRejectedValue(error);
     await expect(findRunReply(run)).rejects.toBe(error);
   });
 });

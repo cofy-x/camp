@@ -3,6 +3,7 @@ package storage
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -19,6 +20,7 @@ func TestRoomRunTimelineProjectsBoundedMetadataAndPagesCompleteHistory(t *testin
 		t.Fatal(err)
 	}
 	run.Output = "PRIVATE_RAW_OUTPUT"
+	run.SessionMode, run.SessionGeneration = "continued", 7
 	run.AgentSnapshot.Instructions = "PRIVATE_INSTRUCTIONS"
 	run.Checks = json.RawMessage(`[{"name":"unit","status":"passed","exitCode":0,"output":"PRIVATE_CHECK_OUTPUT"}]`)
 	run.Environment = json.RawMessage(`{"kind":"command","checks":[{"name":"unit","arguments":["PRIVATE_COMMAND"]}]}`)
@@ -40,6 +42,10 @@ func TestRoomRunTimelineProjectsBoundedMetadataAndPagesCompleteHistory(t *testin
 		}
 	}
 	item := first.Items[0]
+	summary, err := s.GetRunSummary(ctx, run.ID)
+	if err != nil || !reflect.DeepEqual(summary, item) || summary.SessionMode != "continued" || summary.SessionGeneration != 7 {
+		t.Fatal("single summary diverged from the timeline", summary, err)
+	}
 	if item.FileCount != 25 || len(item.Files) != 20 || !item.FilesLimited || item.Environment == nil || len(item.Environment.Checks) != 1 || len(item.Checks) != 1 || item.Checks[0].Status != "passed" {
 		t.Fatal("facts lost", item)
 	}
@@ -84,6 +90,52 @@ func TestRoomRunTimelineProjectsBoundedMetadataAndPagesCompleteHistory(t *testin
 	if err != nil || full.Output != run.Output || len(full.Files) != 25 {
 		t.Fatal("summary modified full original", err)
 	}
+}
+
+func TestRunSummaryKeepsHeavyOriginalsLazyAndEventsUseOnlyIdentity(t *testing.T) {
+	var reads []string
+	s := observedReadStore(t, func(query string) { reads = append(reads, query) })
+	room, err := s.SeedRoom(ctx, Resource{ID: "summary-files", Name: "Files", CurrentCommit: strings.Repeat("a", 40)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent := sendRoom(t, s, room, "large-summary")
+	run, err := s.GetRun(ctx, sent.Runs[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Output = strings.Repeat("PRIVATE_OUTPUT", 18000)
+	run.AgentSnapshot.Instructions = strings.Repeat("PRIVATE_INSTRUCTIONS", 4000)
+	run.Files = []RunFile{{Path: "app.txt", Status: "added", After: strings.Repeat("PRIVATE_FILE", 50000)}}
+	if err = saveRun(ctx, s.queries(), run); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := s.queries().GetRun(ctx, run.ID)
+	reads = nil
+	summary, err := s.GetRunSummary(ctx, run.ID)
+	if err != nil || summary.FileCount != 1 || summary.Files[0].Path != "app.txt" {
+		t.Fatal(summary, err)
+	}
+	if _, err = s.ListRunEvents(ctx, run.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range reads {
+		if strings.Contains(query, "-- name: GetRun :one") {
+			t.Fatal("display read materialized the original Run")
+		}
+	}
+	raw, _ := json.Marshal(summary)
+	if len(raw) > 2048 || strings.Contains(string(raw), "PRIVATE_") {
+		t.Fatal("heavy original escaped summary", len(raw))
+	}
+	after, _ := s.queries().GetRun(ctx, run.ID)
+	if before != after {
+		t.Fatal("summary modified the original")
+	}
+	_, err = s.GetRunSummary(ctx, "missing")
+	requireCode(t, err, "not_found")
+	_, err = s.ListRunEvents(ctx, "missing", 0)
+	requireCode(t, err, "not_found")
 }
 func TestRoomRunTimelineReboundsOverlayWithoutSkippingRows(t *testing.T) {
 	s, room, _ := roomFixture(t)

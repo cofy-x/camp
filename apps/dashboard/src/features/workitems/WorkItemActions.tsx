@@ -25,6 +25,7 @@ export function WorkItemActions({
   item,
   members,
   policies,
+  contextReady,
   defaultAgentId,
   availability,
   operation,
@@ -35,6 +36,7 @@ export function WorkItemActions({
   item: WorkItem;
   members: Agent[];
   policies: AutomationPolicy[];
+  contextReady: boolean;
   defaultAgentId?: string;
   availability?: Pick<WorkspaceStatus, 'available' | 'reason'>;
   operation: WorkOperation;
@@ -120,6 +122,7 @@ export function WorkItemActions({
     ? values.firstAgentId!
     : (participants[0] ?? '');
   const newExecution = intent === 'start' || intent === 'answer_continue';
+  const contextDependent = newExecution || intent === 'delegate';
   const invalidParticipants =
     !participants.length ||
     participants.some(
@@ -185,7 +188,8 @@ export function WorkItemActions({
   }
 
   function submit() {
-    if (!intent) return;
+    if (!intent || disabled || stale || (contextDependent && !contextReady))
+      return;
     if (
       intent === 'wait' &&
       !(Date.parse(values.resumeAt ?? '') > Date.now())
@@ -352,14 +356,19 @@ export function WorkItemActions({
           <option value="context">Context</option>
           <option value="following">Following</option>
           {(availablePolicies.length > 0 || item.policyId) && (
-            <option value="automatic">Automatic follow-up</option>
+            <option value="automatic" disabled={!contextReady}>
+              Automatic follow-up
+            </option>
           )}
           {completionQuestion && <option value="reply">Reply</option>}
           {hasQuestion && !question && (
             <option
               value="continue"
               disabled={
-                availability?.available === false || expired || exhausted
+                !contextReady ||
+                availability?.available === false ||
+                expired ||
+                exhausted
               }
             >
               Answer and start work
@@ -506,6 +515,7 @@ export function WorkItemActions({
               <>
                 <Select
                   label="Automatic follow-up"
+                  disabled={!contextReady}
                   value={chosenPolicyId}
                   onChange={(event) => edit({ policyId: event.target.value })}
                 >
@@ -585,7 +595,7 @@ export function WorkItemActions({
                 </label>
               </>
             )}
-            {newExecution && (
+            {newExecution && contextReady && (
               <WorkGrant
                 members={members}
                 selected={participants}
@@ -631,6 +641,7 @@ export function WorkItemActions({
               disabled={
                 disabled ||
                 stale ||
+                (contextDependent && !contextReady) ||
                 (newExecution &&
                   (executionUnavailable ||
                     invalidParticipants ||
@@ -744,6 +755,7 @@ export function WorkItemActions({
           onRecoveryChange={setAllowanceProblem}
           onDraftChange={setAllowanceDraft}
           readOnly={readOnly}
+          contextReady={contextReady}
         />
       </div>
     </div>
