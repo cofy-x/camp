@@ -51,7 +51,26 @@ export function EnvironmentEditor({
   if (observed !== snapshot) setSnapshot(observed);
   const updatedElsewhere = environmentChanged(observed);
   const currentEnvironment = observed.current;
-  const currentChecks = currentEnvironment?.checks ?? [];
+  const draftEnvironment: Environment | null =
+    kind === 'none'
+      ? null
+      : {
+          kind: kind as Environment['kind'],
+          checks: configuredChecks(checks),
+          ...(kind === 'node'
+            ? { nodeVersion: '24.16.0', packageManager: manager }
+            : {}),
+        };
+  const unsaved = !sameEnvironment(draftEnvironment, currentEnvironment);
+  const saveUnconfirmed = needsRefresh || unconfirmed !== undefined;
+  const saveStatus =
+    pending || saveUnconfirmed
+      ? ''
+      : unsaved
+        ? 'Unsaved changes'
+        : observed.saved
+          ? 'Environment saved.'
+          : '';
 
   function changed() {
     editVersion.current++;
@@ -131,17 +150,7 @@ export function EnvironmentEditor({
     let desired: Environment | null | undefined;
     const editing = editVersion.current;
     try {
-      const configured = kind === 'none' ? [] : configuredChecks(checks);
-      const environment: Environment | null =
-        kind === 'none'
-          ? null
-          : {
-              kind: kind as Environment['kind'],
-              checks: configured,
-              ...(kind === 'node'
-                ? { nodeVersion: '24.16.0', packageManager: manager }
-                : {}),
-            };
+      const environment = draftEnvironment;
       desired = environment;
       const result = await workspaceApi.saveResource(resource.id, {
         expectedRevision: observed.baselineRevision,
@@ -206,31 +215,14 @@ export function EnvironmentEditor({
         </Button>
       </header>
       <p className="library-environment-description">
-        Changes apply to future work. Queued work keeps its original
-        configuration.
+        Applies to future work; queued work keeps its configuration.
       </p>
-      <dl className="library-environment-summary">
-        <dt>Saved environment</dt>
-        <dd>
-          {currentEnvironment?.kind === 'node'
-            ? `Node ${currentEnvironment.nodeVersion ?? '24.16.0'} · ${currentEnvironment.packageManager === 'pnpm@12.11.2' ? 'pnpm 12.11.2' : 'No dependency installation'}`
-            : currentEnvironment?.kind === 'command'
-              ? 'Commands'
-              : 'None'}
-        </dd>
-        <dt>Checks</dt>
-        <dd>
-          {currentChecks.length > 0
-            ? currentChecks.map((check) => check.name).join(', ')
-            : 'Not configured'}
-        </dd>
-      </dl>
       {updatedElsewhere && (
         <div className="library-environment-notice" role="status">
           <p>
-            Saved settings changed in another session. Your edits are still
-            here. Compare the saved configuration with your entries below. Keep
-            your edits to continue reviewing, or reload to replace them.
+            Saved settings changed. Your edits are still here. Compare the saved
+            configuration with your entries below. Keep your edits to continue
+            reviewing, or reload to replace them.
           </p>
           <details open>
             <summary>Saved Configuration</summary>
@@ -255,6 +247,14 @@ export function EnvironmentEditor({
               ? 'A save outcome is unconfirmed. Check Saved Settings before choosing a conflict action.'
               : 'Keeping edits does not save them. Review your entries, then choose Save Environment.'}
           </p>
+        </div>
+      )}
+      {saveUnconfirmed && !updatedElsewhere && (
+        <div className="library-environment-notice">
+          <details open>
+            <summary>Last Known Saved Configuration</summary>
+            <pre>{JSON.stringify(currentEnvironment ?? {}, null, 2)}</pre>
+          </details>
         </div>
       )}
       <form
@@ -329,7 +329,7 @@ export function EnvironmentEditor({
           >
             {pending ? 'Saving…' : 'Save Environment'}
           </Button>
-          {observed.saved && <span role="status">Environment saved.</span>}
+          {saveStatus && <span role="status">{saveStatus}</span>}
           {notice && !observed.saved && !updatedElsewhere && (
             <span role="status">{notice}</span>
           )}

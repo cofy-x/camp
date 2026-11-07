@@ -26,3 +26,26 @@ export function configuredChecks(checks: EditableCheck[]): EnvironmentCheck[] {
     ...(check.arguments.length ? { arguments: [...check.arguments] } : {}),
   }));
 }
+
+function displayArgument(argument: string) {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(argument)
+    ? argument
+    : JSON.stringify(argument);
+}
+
+/** A read-only summary; execution always uses the separate original arguments. */
+export function checkCommandSummary(
+  check: EditableCheck,
+  kind: string,
+  manager: string,
+): string {
+  if (kind === 'command')
+    return check.arguments[0]
+      ? check.arguments.map(displayArgument).join(' ')
+      : '';
+  if (check.script)
+    return manager === 'pnpm@12.11.2'
+      ? `pnpm run ${displayArgument(check.script)}`
+      : `Package script: ${displayArgument(check.script)}`;
+  return 'node --test';
+}

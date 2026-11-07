@@ -25,26 +25,6 @@
   max-width: 64ch;
   margin: 14px 0;
 }
-.library-environment-summary {
-  display: grid;
-  grid-template-columns: minmax(0, 122px) minmax(0, 1fr);
-  gap: 6px 10px;
-  max-width: 560px;
-  margin: 0 0 16px;
-  padding: 10px;
-  border: 1px solid var(--p9-shadow);
-  box-shadow:
-    inset 1px 1px #bbb,
-    1px 1px #fff;
-  background: #fff;
-}
-.library-environment-summary dt {
-  font-weight: 600;
-}
-.library-environment-summary dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
 .library-environment form {
   max-width: 560px;
 }
@@ -53,6 +33,9 @@
   flex-direction: column;
   gap: 12px;
   margin: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
 }
 .library-environment .p9-field-label {
   display: flex;
@@ -104,41 +87,83 @@
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  align-items: flex-end;
+  align-items: center;
 }
-.library-check-heading > label {
-  flex: 1 1 160px;
+.library-check-overview {
+  flex: 1 1 240px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.library-check-overview strong {
+  font-weight: 600;
+}
+.library-check-command {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  margin-top: 2px;
+  font:
+    11px/1.5 ui-monospace,
+    monospace;
+}
+.library-check-location {
+  display: block;
+  margin-top: 2px;
+  color: #555;
+}
+.library-check-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.library-check-editor {
+  display: grid;
+  gap: 10px;
+}
+.library-check-editor[hidden] {
+  display: none;
+}
+.library-check-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: 10px;
 }
 .library-check-arguments {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 6px;
-}
-.library-check-arguments > span {
-  grid-column: 1 / -1;
 }
 .library-check-arguments > .p9-button {
   justify-self: start;
 }
 .library-check-argument {
   display: flex;
-  align-items: flex-start;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
 }
 .library-check-argument textarea {
   flex: 1;
   min-height: 26px;
-  resize: vertical;
+  max-height: 112px;
+  resize: none;
   font:
     11px/1.4 ui-monospace,
     monospace;
 }
-.library-check-argument > .p9-button {
+.library-check-argument > .library-check-remove-argument {
   flex-shrink: 0;
-  min-width: 22px;
-  padding-inline: 3px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0;
+  font: 16px/1 var(--p9-body-font);
 }
 .library-check-directory > summary {
   cursor: pointer;

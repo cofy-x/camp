@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { configuredChecks, editableCheck } from './environmentCheckCommands';
+import {
+  checkCommandSummary,
+  configuredChecks,
+  editableCheck,
+} from './environmentCheckCommands';
 
 describe('structured environment checks', () => {
   it('round-trips literal command arguments without shell parsing or trimming', () => {
@@ -42,5 +46,44 @@ describe('structured environment checks', () => {
     expect(saved[0].arguments).toEqual(['node', '']);
     saved[0].arguments!.push('later');
     expect(draft.arguments).toEqual(['node', '']);
+  });
+
+  it('makes literal whitespace and empty arguments visible without changing execution input', () => {
+    const source = {
+      name: 'literal',
+      arguments: [
+        'node',
+        '--test',
+        'test folder/a.test.mjs',
+        '',
+        '"quoted"',
+        '$HOME; echo nope',
+        'first\nsecond',
+        ' leading and trailing ',
+      ],
+    };
+    const draft = editableCheck(source);
+    expect(checkCommandSummary(draft, 'command', 'node')).toBe(
+      'node --test "test folder/a.test.mjs" "" "\\"quoted\\"" "$HOME; echo nope" "first\\nsecond" " leading and trailing "',
+    );
+    expect(configuredChecks([draft])).toEqual([source]);
+    expect(checkCommandSummary(editableCheck(), 'command', 'node')).toBe('');
+  });
+
+  it('distinguishes Node defaults, named scripts and an incompatible script draft', () => {
+    const defaultCheck = editableCheck({ name: 'unit' });
+    expect(checkCommandSummary(defaultCheck, 'node', 'node')).toBe(
+      'node --test',
+    );
+    expect(checkCommandSummary(defaultCheck, 'node', 'pnpm@12.11.2')).toBe(
+      'node --test',
+    );
+    const script = editableCheck({ name: 'unit', script: 'test:unit' });
+    expect(checkCommandSummary(script, 'node', 'pnpm@12.11.2')).toBe(
+      'pnpm run test:unit',
+    );
+    expect(checkCommandSummary(script, 'node', 'node')).toBe(
+      'Package script: test:unit',
+    );
   });
 });
