@@ -25,7 +25,15 @@ func (s *Store) GetMessage(ctx context.Context, id string) (Message, error) {
 	if e != nil {
 		return Message{}, missing(e, "The message")
 	}
-	return messageRow(m)
+	out, err := messageRow(m)
+	if err != nil {
+		return out, err
+	}
+	messages := []Message{out}
+	if err = s.messageWorkOrigins(ctx, messages); err != nil {
+		return Message{}, err
+	}
+	return messages[0], nil
 }
 func (s *Store) GetRoomMessage(ctx context.Context, room, id string) (Message, error) {
 	m, err := s.GetMessage(ctx, id)
@@ -49,6 +57,9 @@ func (s *Store) ListMessages(ctx context.Context, room, thread string, after int
 			return nil, err
 		}
 		out = append(out, message)
+	}
+	if e == nil {
+		e = s.messageWorkOrigins(ctx, out)
 	}
 	return out, e
 }

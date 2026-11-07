@@ -4,7 +4,11 @@ import type { Run } from './api';
 import { summarizeActivity } from './activity';
 import type { ActivitySummary } from './activity';
 
-export function WorkActivity({ run }: { run: Run }) {
+export function WorkActivity({
+  run,
+}: {
+  run: Pick<Run, 'id' | 'status' | 'waitingReason'>;
+}) {
   const [recent, setRecent] = useState<ActivitySummary[]>([]);
   const [error, setError] = useState(false);
   const queued = run.status === 'queued';

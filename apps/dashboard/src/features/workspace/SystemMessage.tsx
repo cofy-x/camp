@@ -16,6 +16,7 @@ export function SystemMessage({
   onReview,
   onTask,
   taskLabel = 'Open collaboration',
+  workOrigin = false,
   onInspect,
   onAsk,
   onFollowUp,
@@ -32,6 +33,7 @@ export function SystemMessage({
   onReview: (id: string) => void;
   onTask: (id: string) => void;
   taskLabel?: string;
+  workOrigin?: boolean;
   onInspect: (id: string) => void;
   onAsk: () => void;
   onFollowUp: () => void;
@@ -43,11 +45,13 @@ export function SystemMessage({
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const sources = useRef<HTMLDivElement>(null);
   const references = message.references ?? [];
-  const label = message.reviewId
-    ? 'Document review event'
-    : message.taskId
-      ? 'Collaboration event'
-      : 'System event';
+  const label = workOrigin
+    ? 'Work started'
+    : message.reviewId
+      ? 'Document review event'
+      : message.taskId
+        ? 'Collaboration event'
+        : 'System event';
   const icon = message.reviewId
     ? 'checklist'
     : message.taskId
@@ -86,7 +90,19 @@ export function SystemMessage({
       </span>
       <div className="workspace-message-copy">
         <div className="workspace-system-event-row">
-          <p className="workspace-message-text">{message.content}</p>
+          <p className="workspace-message-text">
+            {workOrigin && (
+              <>
+                <strong>
+                  {message.authorName
+                    ? `${message.authorName} started work`
+                    : 'Work started'}
+                </strong>
+                {' · '}
+              </>
+            )}
+            {message.content}
+          </p>
           <div className="workspace-system-event-actions">
             <time
               dateTime={message.createdAt}

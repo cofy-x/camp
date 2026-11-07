@@ -128,3 +128,43 @@ AND NOT EXISTS (
  WHERE copy.message_id=m.id AND copy.source_event_id<>''
 )
 ORDER BY m.seq DESC LIMIT 100;
+-- name: RoomRunTimelineFrontier :one
+SELECT created_at,id FROM runs WHERE room_id=? ORDER BY created_at DESC,id DESC LIMIT 1;
+-- name: RoomRunTimelinePage :many
+SELECT CAST(json_object(
+ 'id',r.id,'roomId',r.room_id,'threadRootId',coalesce(r.thread_root_id,''),
+ 'originMessageId',r.origin_message_id,'agentId',r.agent_id,'resourceId',r.resource_id,
+ 'taskId',coalesce(json_extract(r.snapshot,'$.taskId'),''),
+ 'runnerId',coalesce(json_extract(r.snapshot,'$.runnerId'),''),
+ 'runnerName',coalesce(json_extract(r.snapshot,'$.runnerName'),''),
+ 'status',r.status,'createdAt',r.created_at,'updatedAt',r.updated_at,
+ 'finishedAt',coalesce(json_extract(r.snapshot,'$.finishedAt'),''),
+ 'error',coalesce(json_extract(r.snapshot,'$.error'),''),
+ 'waitingReason',coalesce(json_extract(r.snapshot,'$.waitingReason'),''),
+ 'resultCommit',coalesce(json_extract(r.snapshot,'$.resultCommit'),''),
+ 'published',json(CASE WHEN json_extract(r.snapshot,'$.published') THEN 'true' ELSE 'false' END),
+ 'checksDeferred',json(CASE WHEN json_extract(r.snapshot,'$.checksDeferred') THEN 'true' ELSE 'false' END),
+ 'testExitCode',json_extract(r.snapshot,'$.testExitCode'),
+ 'agentSnapshot',json_object(
+  'id',coalesce(json_extract(r.snapshot,'$.agentSnapshot.id'),r.agent_id),
+  'name',coalesce(json_extract(r.snapshot,'$.agentSnapshot.name'),''),
+  'avatar',coalesce(json_extract(r.snapshot,'$.agentSnapshot.avatar'),''),
+  'access',coalesce(json_extract(r.snapshot,'$.agentSnapshot.access'),'')
+ ),
+ 'environment',CASE WHEN json_type(r.snapshot,'$.environment')='object' THEN json_object(
+  'checks',json((SELECT json_group_array(json_object('name',CASE WHEN c.type='object' AND json_type(c.value,'$.name')='text' THEN json_extract(c.value,'$.name') ELSE '' END))
+   FROM (SELECT type,CASE WHEN type='object' THEN value ELSE '{}' END AS value FROM json_each(r.snapshot,'$.environment.checks')) c))
+ ) ELSE NULL END,
+ 'checks',json((SELECT json_group_array(json_object('name',CASE WHEN c.type='object' AND json_type(c.value,'$.name')='text' THEN json_extract(c.value,'$.name') ELSE '' END,
+  'status',CASE WHEN c.type='object' AND json_type(c.value,'$.name')='text' AND json_extract(c.value,'$.name')<>'' AND json_type(c.value,'$.status')='text' THEN json_extract(c.value,'$.status') ELSE 'incomplete' END,
+  'exitCode',CASE WHEN c.type='object' AND json_type(c.value,'$.exitCode')='integer' THEN json_extract(c.value,'$.exitCode') ELSE NULL END))
+  FROM (SELECT type,CASE WHEN type='object' THEN value ELSE '{}' END AS value FROM json_each(r.snapshot,'$.checks')) c)),
+ 'fileCount',coalesce(json_array_length(r.snapshot,'$.files'),0),
+ 'filesLimited',json(CASE WHEN coalesce(json_array_length(r.snapshot,'$.files'),0)>20 THEN 'true' ELSE 'false' END),
+ 'files',json((SELECT json_group_array(json_object('path',json_extract(f.value,'$.path'),'status',json_extract(f.value,'$.status')))
+  FROM (SELECT value FROM json_each(r.snapshot,'$.files') LIMIT 20) f))
+) AS TEXT) AS metadata
+FROM runs r WHERE r.room_id=sqlc.arg(room_id)
+ AND (r.created_at>sqlc.arg(after_created_at) OR (r.created_at=sqlc.arg(after_created_at) AND r.id>sqlc.arg(after_id)))
+ AND (r.created_at<sqlc.arg(through_created_at) OR (r.created_at=sqlc.arg(through_created_at) AND r.id<=sqlc.arg(through_id)))
+ORDER BY r.created_at,r.id LIMIT sqlc.arg(page_limit);

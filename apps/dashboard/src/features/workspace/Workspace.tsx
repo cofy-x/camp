@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, PixelIcon, Select, StatusBar } from '@cofy-x/camp-platinum';
 import type { AppWindowProps } from '@cofy-x/camp-platinum';
-import type { Message, Reference, Run } from './api';
+import type { Message, Reference, Run, RunTimeline } from './api';
 import { isActiveRun, statusLabel, workspaceApi } from './api';
 import { AgentsPanel } from './AgentsPanel';
 import { RoomTimeline } from './RoomTimeline';
@@ -103,10 +103,18 @@ export function Workspace({ window, desktop }: AppWindowProps) {
       room &&
       !threadId &&
       panel === 'chat' &&
-      workspace.conversationReady
+      workspace.conversationComplete
     )
-      team.readRoom(room.id, room.lastMessageSeq);
-  }, [focused, room, threadId, panel, workspace.conversationReady, team]);
+      team.readRoom(room.id, workspace.conversationReadSeq);
+  }, [
+    focused,
+    room,
+    threadId,
+    panel,
+    workspace.conversationComplete,
+    workspace.conversationReadSeq,
+    team,
+  ]);
   useEffect(() => {
     const intent = team.navigation;
     if (!intent || handledNavigation.current === intent.revision) return;
@@ -392,7 +400,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
     }
   }
 
-  async function askAgent(message: Message, run?: Run) {
+  async function askAgent(message: Message, run?: Run | RunTimeline) {
     team.cancelNavigation();
     const teamRequest = team.getNavigationRevision();
     const activation = desktop.getActivationRevision();
@@ -406,10 +414,24 @@ export function Workspace({ window, desktop }: AppWindowProps) {
       return;
     if (!room) return;
     try {
+      // Handoffs require the complete frozen sources, which Discussion does
+      // not download until the user explicitly chooses this action.
+      const runId = run?.id || message.runId;
+      const fullRun = runId ? (await workspaceApi.run(runId)).run : undefined;
+      if (
+        navigationRequest.current !== request ||
+        teamRequest !== team.getNavigationRevision() ||
+        activation !== desktop.getActivationRevision() ||
+        !(await flushPrivateDrafts()) ||
+        navigationRequest.current !== request ||
+        teamRequest !== team.getNavigationRevision() ||
+        activation !== desktop.getActivationRevision()
+      )
+        return;
       prepareHandoff(
         room.id,
         message,
-        run,
+        fullRun,
         agents.find((agent) => agent.id === message.agentId)?.name,
       );
       workspace.selectThread(message.threadRootId);
@@ -417,6 +439,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
       setActionError('');
       back();
     } catch (error) {
+      if (navigationRequest.current !== request) return;
       setActionError(
         error instanceof Error
           ? error.message
@@ -602,8 +625,12 @@ export function Workspace({ window, desktop }: AppWindowProps) {
           )}
           {room && panel === 'chat' && !inspect && (
             <div className="workspace-members" aria-label="Room members">
-              {!workspace.conversationReady && !members.length ? (
-                <span>Loading members…</span>
+              {!workspace.membersReady ? (
+                <span>
+                  {workspace.membersFailed
+                    ? 'Room members unavailable'
+                    : 'Loading members…'}
+                </span>
               ) : members.length ? (
                 members.map((agent) => {
                   const work = active.find((run) => run.agentId === agent.id);
@@ -831,6 +858,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 tasks={collaborations.tasks}
                 agents={agents}
                 members={members}
+                membersReady={workspace.membersReady}
                 available={workspace.status?.available ?? false}
                 resources={workspace.resources}
                 sourceId={sourceId}

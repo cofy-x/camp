@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
-import type { Message, Reference, Run } from './api';
+import type { Message, Reference, RunTimeline } from './api';
+import { isActiveRun } from './api';
 import { AssistantContent } from './AssistantContent';
 import { readStored, writeStored } from './conversationState';
 import { ResultFiles } from './ResultFiles';
@@ -55,24 +56,27 @@ export function AgentResult({
   onReference,
 }: {
   message: Message;
-  run: Run;
+  run?: RunTimeline;
   onInspect: (id: string) => void;
   onReference: (reference: Reference) => void;
 }) {
+  const result = run && !isActiveRun(run) ? run : undefined;
   return (
     <section className="workspace-agent-result" aria-label="Work result">
-      <div className="workspace-result-facts">
-        <strong>{runFilesLabel(run)}</strong>
-        <span>Checks: {runChecksLabel(run)}</span>
-        <Button onClick={() => onInspect(run.id)}>
-          Details
-          {run.files?.length
-            ? ` · ${run.files.length} ${run.files.length === 1 ? 'file' : 'files'}`
-            : ''}
-        </Button>
-      </div>
-      {run.error && <p className="app-error">{run.error}</p>}
-      <ResultFiles run={run} onReference={onReference} />
+      {result && (
+        <div className="workspace-result-facts">
+          <strong>{runFilesLabel(result)}</strong>
+          <span>Checks: {runChecksLabel(result)}</span>
+          <Button onClick={() => onInspect(result.id)}>
+            Details
+            {(result.fileCount ?? result.files?.length)
+              ? ` · ${result.fileCount ?? result.files.length} ${(result.fileCount ?? result.files.length) === 1 ? 'file' : 'files'}`
+              : ''}
+          </Button>
+        </div>
+      )}
+      {run?.error && <p className="app-error">{run.error}</p>}
+      {result && <ResultFiles run={result} onReference={onReference} />}
       <AgentReply message={message} />
     </section>
   );

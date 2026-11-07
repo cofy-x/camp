@@ -74,6 +74,8 @@ Selected plus mentioned joined Agents produce at most one Run each, with at most
 
 Message references use `{kind:"message",messageId}` within the Room. File references can select any known team Resource revision; server resolves excerpts and identity. Admission freezes actual author, references, Agent, Resource identity, environment, model revision and budget atomically. The writable baseline is selected when an ordinary writer acquires its lease; it need not equal an older evidence version.
 
+Message reads optionally include `workOrigin:{workItemId}` only when the message is the exact recorded origin of a task linked to that Work Item in the same Room. This read-only projection supports compact activity display without requiring task history to load; it neither changes original authorship/content nor classifies later user inputs as starts. Missing historical author names remain unknown. New human task origins snapshot the known requester's name when their recorded author ID matches.
+
 Idempotency is user × Room × requestId. Identical canonical intent replays the original receipt before route/configuration changes; changed intent returns 409 `request_conflict`. Preserve the exact body/ID after an uncertain response. `runnerRevision` is required when a team Agent uses the saved Room route; see [routing](#runners-and-source-snapshots).
 
 ## Orchestration journal
@@ -241,11 +243,14 @@ Query `q` allows at most 512 UTF-8 bytes and matches a case-insensitive ASCII su
 | --- | --- | --- |
 | GET | `/api/workspace/status` | Execution availability and actionable reasons |
 | GET | `/api/rooms/:id/runs` | `{runs}` |
+| GET | `/api/rooms/:id/runs?view=timeline` | `{items,nextCursor}` bounded display metadata; `cursor?,limit?` |
 | GET | `/api/runs/:id` | `{run}` with captured/published files and check evidence |
 | GET | `/api/runs/:id/events?after=seq` | `{events}` persisted activity pages |
 | GET | `/api/runs/:id/patch` | Immutable patch for captured changes |
 | POST | `/api/runs/:id/cancel` | `{}`; requester/admin |
 | GET | `/api/workspace/events?after=cursor` | SSE with persistent IDs; Last-Event-ID supports reconnect |
+
+Room execution timelines use `view=timeline` without loading full Run snapshots. Pages contain at most 20 complete summaries and 320 KiB of encoded JSON including the newline. Their Room-bound ascending `(createdAt,id)` cursor retains the initial creation frontier; later Runs require a refresh, while status and queue observations remain current. Invalid, duplicate or unknown timeline query parameters and cross-Room cursors return `invalid_page` (400). Summaries retain identity, thread/origin/Task links, Agent identity/access, Runner, state/timestamps, errors, saved-result identity and check facts. `fileCount` is the complete changed-file count; `files` includes at most 20 exact path/status previews and `filesLimited` identifies additional entries. Output, check output, file bodies, instructions, references, memories, model configuration and grants remain in separately requested full details. Timeline reads preserve a Manager’s unpersisted terminal result and reapply the page bound after that overlay. They create no execution or state transition. Omitted `view` retains the original full Room Run list; `/api/runs/:id` remains the complete original.
 
 Run states are `queued`, `preparing`, `running`, `checking`, `cancelling`, `succeeded`, `failed`, `cancelled`, `interrupted`. Terminal persistence creates one completion Message; process exit alone is not acceptance. SSE consumers deduplicate IDs and refetch affected entities. Session revocation ends streams; browser/window closure does not end work. Message read positions differ from the event cursor.
 

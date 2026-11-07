@@ -247,6 +247,11 @@ func createTaskTx(ctx context.Context, q *sqlgen.Queries, roomID string, in Crea
 	if e != nil || !requester.Enabled {
 		return out, problem("forbidden", "The collaboration requester is unavailable.")
 	}
+	if grant.OriginAuthorKind == "user" && grant.OriginAuthorUserID == requester.ID && grant.OriginAuthorName == "" {
+		// Snapshot only a known new origin; never reinterpret historical names
+		// or attribute automatic work to its policy owner.
+		grant.OriginAuthorName = requester.Name
+	}
 	room, e := q.GetRoom(ctx, roomID)
 	if e != nil {
 		return out, missing(e, "The room")

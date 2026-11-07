@@ -161,6 +161,14 @@ func (a *API) roomRoutes(mux *http.ServeMux) {
 		a.respond(w, r, map[string]any{"message": v}, e)
 	})
 	register("GET /api/rooms/{id}/runs", func(w http.ResponseWriter, r *http.Request) {
+		if views, present := r.URL.Query()["view"]; present {
+			if len(views) != 1 || views[0] != "timeline" {
+				writeError(w, 400, "invalid_page", "Choose the timeline view or omit view for full Runs.")
+				return
+			}
+			a.roomRunTimeline(w, r)
+			return
+		}
 		var v []storage.Run
 		var e error
 		if reader, ok := a.rooms.(roomRunsReader); ok {

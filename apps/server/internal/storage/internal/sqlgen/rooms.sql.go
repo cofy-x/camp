@@ -1166,6 +1166,101 @@ func (q *Queries) RoomHasResource(ctx context.Context, arg RoomHasResourceParams
 	return column_1, err
 }
 
+const roomRunTimelineFrontier = `-- name: RoomRunTimelineFrontier :one
+SELECT created_at,id FROM runs WHERE room_id=? ORDER BY created_at DESC,id DESC LIMIT 1
+`
+
+type RoomRunTimelineFrontierRow struct {
+	CreatedAt string
+	ID        string
+}
+
+func (q *Queries) RoomRunTimelineFrontier(ctx context.Context, roomID string) (RoomRunTimelineFrontierRow, error) {
+	row := q.db.QueryRowContext(ctx, roomRunTimelineFrontier, roomID)
+	var i RoomRunTimelineFrontierRow
+	err := row.Scan(&i.CreatedAt, &i.ID)
+	return i, err
+}
+
+const roomRunTimelinePage = `-- name: RoomRunTimelinePage :many
+SELECT CAST(json_object(
+ 'id',r.id,'roomId',r.room_id,'threadRootId',coalesce(r.thread_root_id,''),
+ 'originMessageId',r.origin_message_id,'agentId',r.agent_id,'resourceId',r.resource_id,
+ 'taskId',coalesce(json_extract(r.snapshot,'$.taskId'),''),
+ 'runnerId',coalesce(json_extract(r.snapshot,'$.runnerId'),''),
+ 'runnerName',coalesce(json_extract(r.snapshot,'$.runnerName'),''),
+ 'status',r.status,'createdAt',r.created_at,'updatedAt',r.updated_at,
+ 'finishedAt',coalesce(json_extract(r.snapshot,'$.finishedAt'),''),
+ 'error',coalesce(json_extract(r.snapshot,'$.error'),''),
+ 'waitingReason',coalesce(json_extract(r.snapshot,'$.waitingReason'),''),
+ 'resultCommit',coalesce(json_extract(r.snapshot,'$.resultCommit'),''),
+ 'published',json(CASE WHEN json_extract(r.snapshot,'$.published') THEN 'true' ELSE 'false' END),
+ 'checksDeferred',json(CASE WHEN json_extract(r.snapshot,'$.checksDeferred') THEN 'true' ELSE 'false' END),
+ 'testExitCode',json_extract(r.snapshot,'$.testExitCode'),
+ 'agentSnapshot',json_object(
+  'id',coalesce(json_extract(r.snapshot,'$.agentSnapshot.id'),r.agent_id),
+  'name',coalesce(json_extract(r.snapshot,'$.agentSnapshot.name'),''),
+  'avatar',coalesce(json_extract(r.snapshot,'$.agentSnapshot.avatar'),''),
+  'access',coalesce(json_extract(r.snapshot,'$.agentSnapshot.access'),'')
+ ),
+ 'environment',CASE WHEN json_type(r.snapshot,'$.environment')='object' THEN json_object(
+  'checks',json((SELECT json_group_array(json_object('name',CASE WHEN c.type='object' AND json_type(c.value,'$.name')='text' THEN json_extract(c.value,'$.name') ELSE '' END))
+   FROM (SELECT type,CASE WHEN type='object' THEN value ELSE '{}' END AS value FROM json_each(r.snapshot,'$.environment.checks')) c))
+ ) ELSE NULL END,
+ 'checks',json((SELECT json_group_array(json_object('name',CASE WHEN c.type='object' AND json_type(c.value,'$.name')='text' THEN json_extract(c.value,'$.name') ELSE '' END,
+  'status',CASE WHEN c.type='object' AND json_type(c.value,'$.name')='text' AND json_extract(c.value,'$.name')<>'' AND json_type(c.value,'$.status')='text' THEN json_extract(c.value,'$.status') ELSE 'incomplete' END,
+  'exitCode',CASE WHEN c.type='object' AND json_type(c.value,'$.exitCode')='integer' THEN json_extract(c.value,'$.exitCode') ELSE NULL END))
+  FROM (SELECT type,CASE WHEN type='object' THEN value ELSE '{}' END AS value FROM json_each(r.snapshot,'$.checks')) c)),
+ 'fileCount',coalesce(json_array_length(r.snapshot,'$.files'),0),
+ 'filesLimited',json(CASE WHEN coalesce(json_array_length(r.snapshot,'$.files'),0)>20 THEN 'true' ELSE 'false' END),
+ 'files',json((SELECT json_group_array(json_object('path',json_extract(f.value,'$.path'),'status',json_extract(f.value,'$.status')))
+  FROM (SELECT value FROM json_each(r.snapshot,'$.files') LIMIT 20) f))
+) AS TEXT) AS metadata
+FROM runs r WHERE r.room_id=?1
+ AND (r.created_at>?2 OR (r.created_at=?2 AND r.id>?3))
+ AND (r.created_at<?4 OR (r.created_at=?4 AND r.id<=?5))
+ORDER BY r.created_at,r.id LIMIT ?6
+`
+
+type RoomRunTimelinePageParams struct {
+	RoomID           string
+	AfterCreatedAt   string
+	AfterID          string
+	ThroughCreatedAt string
+	ThroughID        string
+	PageLimit        int64
+}
+
+func (q *Queries) RoomRunTimelinePage(ctx context.Context, arg RoomRunTimelinePageParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, roomRunTimelinePage,
+		arg.RoomID,
+		arg.AfterCreatedAt,
+		arg.AfterID,
+		arg.ThroughCreatedAt,
+		arg.ThroughID,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var metadata string
+		if err := rows.Scan(&metadata); err != nil {
+			return nil, err
+		}
+		items = append(items, metadata)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const saveConversation = `-- name: SaveConversation :exec
 INSERT INTO agent_conversations(id,agent_id,room_id,thread_root_id,resource_id,agent_revision,runtime_key,generation,session_id,context_seq,resumable) VALUES(?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(agent_id,room_id,thread_root_id) DO UPDATE SET resource_id=excluded.resource_id,agent_revision=excluded.agent_revision,runtime_key=excluded.runtime_key,generation=excluded.generation,session_id=excluded.session_id,context_seq=excluded.context_seq,resumable=excluded.resumable
