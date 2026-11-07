@@ -121,8 +121,8 @@ test('an empty resource can configure its environment without starting agent wor
     name: 'Environment and checks',
   });
   await expect(
-    environment.getByText('Not configured', { exact: true }),
-  ).toBeVisible();
+    environment.getByRole('combobox', { name: 'Environment', exact: true }),
+  ).toHaveValue('none');
   await environment
     .getByRole('combobox', { name: 'Environment', exact: true })
     .selectOption('node');

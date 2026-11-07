@@ -9,33 +9,37 @@ import (
 	"context"
 )
 
-const latestWorkResultTask = `-- name: LatestWorkResultTask :one
-SELECT t.snapshot FROM work_item_tasks w JOIN collaboration_tasks t ON t.id=w.task_id
-WHERE w.work_item_id=? AND (coalesce(json_extract(t.snapshot,'$.publishedCommit'),'')<>'' OR (
- coalesce(json_extract(t.snapshot,'$.checkpointRevision'),0)>0 AND EXISTS(
-  SELECT 1 FROM runs r WHERE json_extract(r.snapshot,'$.taskId')=t.id AND r.status='succeeded'
-   AND json_extract(r.snapshot,'$.resultCommit')=json_extract(t.snapshot,'$.checkpointCommit')
-   AND coalesce(json_extract(r.snapshot,'$.resultCommit'),'')<>''
-  ))) ORDER BY w.seq DESC LIMIT 1
+const workExecutionView = `-- name: WorkExecutionView :one
+SELECT CAST(json_object(
+ 'taskId',t.id,'status',t.status,'revision',t.revision,
+ 'summary',coalesce(json_extract(t.snapshot,'$.summary'),''),
+ 'error',coalesce(json_extract(t.snapshot,'$.error'),''),
+ 'activeRunId',coalesce(json_extract(t.snapshot,'$.activeRunId'),''),
+ 'updatedAt',t.updated_at,
+ 'currentAgentName',coalesce((SELECT json_extract(p.value,'$.agent.name')
+  FROM json_each(t.snapshot,'$.participants') p
+  WHERE json_extract(p.value,'$.agent.id')=json_extract(t.snapshot,'$.currentAgentId') LIMIT 1),''),
+ 'question',CASE WHEN json_type(t.snapshot,'$.question')='object' THEN json_object(
+  'id',coalesce(json_extract(t.snapshot,'$.question.id'),''),
+  'text',coalesce(json_extract(t.snapshot,'$.question.text'),''),
+  'options',json(CASE WHEN json_type(t.snapshot,'$.question.options')='array' THEN json_extract(t.snapshot,'$.question.options') ELSE '[]' END),
+  'answer',coalesce(json_extract(t.snapshot,'$.question.answer'),'')
+ ) ELSE NULL END
+) AS TEXT) AS metadata
+FROM collaboration_tasks t WHERE t.id=CASE WHEN CAST(?1 AS TEXT)<>'' THEN ?1
+ ELSE (SELECT task_id FROM work_item_tasks WHERE work_item_id=?2 ORDER BY seq DESC LIMIT 1) END
 `
 
-func (q *Queries) LatestWorkResultTask(ctx context.Context, workItemID string) (string, error) {
-	row := q.db.QueryRowContext(ctx, latestWorkResultTask, workItemID)
-	var snapshot string
-	err := row.Scan(&snapshot)
-	return snapshot, err
+type WorkExecutionViewParams struct {
+	ActiveTaskID string
+	WorkItemID   string
 }
 
-const latestWorkTask = `-- name: LatestWorkTask :one
-SELECT t.snapshot FROM work_item_tasks w JOIN collaboration_tasks t ON t.id=w.task_id
-WHERE w.work_item_id=? ORDER BY w.seq DESC LIMIT 1
-`
-
-func (q *Queries) LatestWorkTask(ctx context.Context, workItemID string) (string, error) {
-	row := q.db.QueryRowContext(ctx, latestWorkTask, workItemID)
-	var snapshot string
-	err := row.Scan(&snapshot)
-	return snapshot, err
+func (q *Queries) WorkExecutionView(ctx context.Context, arg WorkExecutionViewParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, workExecutionView, arg.ActiveTaskID, arg.WorkItemID)
+	var metadata string
+	err := row.Scan(&metadata)
+	return metadata, err
 }
 
 const workItemsStatePage = `-- name: WorkItemsStatePage :many
@@ -96,19 +100,37 @@ func (q *Queries) WorkItemsStatePage(ctx context.Context, arg WorkItemsStatePage
 	return items, nil
 }
 
-const workResultRun = `-- name: WorkResultRun :one
-SELECT r.snapshot FROM runs r WHERE json_extract(r.snapshot,'$.taskId')=?1 AND json_extract(r.snapshot,'$.resultCommit')=?2
-AND r.status='succeeded' ORDER BY r.created_at DESC,r.id DESC LIMIT 1
+const workResultView = `-- name: WorkResultView :one
+WITH candidate AS (
+ SELECT t.id,t.snapshot FROM work_item_tasks w JOIN collaboration_tasks t ON t.id=w.task_id
+ WHERE w.work_item_id=?1 AND (coalesce(json_extract(t.snapshot,'$.publishedCommit'),'')<>'' OR (
+  coalesce(json_extract(t.snapshot,'$.checkpointRevision'),0)>0 AND EXISTS(
+   SELECT 1 FROM runs r WHERE json_extract(r.snapshot,'$.taskId')=t.id AND r.status='succeeded'
+    AND json_extract(r.snapshot,'$.resultCommit')=json_extract(t.snapshot,'$.checkpointCommit')
+    AND coalesce(json_extract(r.snapshot,'$.resultCommit'),'')<>''
+   ))) ORDER BY w.seq DESC LIMIT 1
+), saved AS (
+ SELECT id,snapshot,
+  CASE WHEN coalesce(json_extract(snapshot,'$.publishedCommit'),'')<>'' THEN json_extract(snapshot,'$.publishedCommit') ELSE coalesce(json_extract(snapshot,'$.checkpointCommit'),'') END AS result_commit
+ FROM candidate
+)
+SELECT CAST(json_object(
+ 'taskId',t.id,'summary',coalesce(json_extract(t.snapshot,'$.summary'),''),
+ 'resourceId',coalesce(json_extract(t.snapshot,'$.resourceId'),''),'commit',t.result_commit,
+ 'published',json(CASE WHEN coalesce(json_extract(t.snapshot,'$.publishedCommit'),'')<>'' THEN 'true' ELSE 'false' END),
+ 'filesLimited',json(CASE WHEN coalesce(json_array_length(r.snapshot,'$.files'),0)>20 THEN 'true' ELSE 'false' END),
+ 'files',json((SELECT json_group_array(json_object('path',json_extract(f.value,'$.path'),'status',json_extract(f.value,'$.status')))
+  FROM (SELECT value FROM json_each(r.snapshot,'$.files') LIMIT 20) f))
+) AS TEXT) AS metadata
+FROM saved t LEFT JOIN runs r ON r.id=(
+ SELECT id FROM runs WHERE json_extract(snapshot,'$.taskId')=t.id AND json_extract(snapshot,'$.resultCommit')=t.result_commit
+ AND status='succeeded' ORDER BY created_at DESC,id DESC LIMIT 1
+)
 `
 
-type WorkResultRunParams struct {
-	TaskID   string
-	CommitID string
-}
-
-func (q *Queries) WorkResultRun(ctx context.Context, arg WorkResultRunParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, workResultRun, arg.TaskID, arg.CommitID)
-	var snapshot string
-	err := row.Scan(&snapshot)
-	return snapshot, err
+func (q *Queries) WorkResultView(ctx context.Context, workItemID string) (string, error) {
+	row := q.db.QueryRowContext(ctx, workResultView, workItemID)
+	var metadata string
+	err := row.Scan(&metadata)
+	return metadata, err
 }

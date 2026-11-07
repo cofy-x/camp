@@ -96,6 +96,13 @@ export interface TaskRunPage {
   nextCursor: string;
 }
 
+export interface TaskRecoveryRun {
+  runId: string;
+  commit: string;
+  agentName: string;
+  fileCount: number;
+}
+
 const id = encodeURIComponent;
 const post = (body: unknown) => ({
   method: 'POST',
@@ -108,7 +115,10 @@ export const tasksApi = {
       signal,
     }),
   get: (taskId: string, signal?: AbortSignal) =>
-    request<{ task: Task }>(`/tasks/${id(taskId)}?view=summary`, { signal }),
+    request<{ task: Task; recoveryRun?: TaskRecoveryRun | null }>(
+      `/tasks/${id(taskId)}?view=summary`,
+      { signal },
+    ),
   inputs: (
     taskId: string,
     after: number,
@@ -176,6 +186,8 @@ export const tasksApi = {
       addTurns?: number;
       addModelRequests?: number;
       fromLatest?: boolean;
+      fromRunId?: string;
+      refreshModelSettings?: boolean;
       participantAgentIds?: string[];
     },
   ) =>

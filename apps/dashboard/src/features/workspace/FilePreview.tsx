@@ -3,8 +3,7 @@ import { Button } from '@cofy-x/camp-platinum';
 import type { Reference } from './api';
 import { workspaceApi } from './api';
 import { AssistantContent } from './AssistantContent';
-
-const previewLimit = 65536;
+import { readFilePreview, type FilePreviewRead } from './readFilePreview';
 
 // Always load the selected immutable version, never the current resource pointer.
 export function FilePreview({
@@ -18,10 +17,13 @@ export function FilePreview({
   onReady?: () => void;
   onEditableChange?: (editable: boolean) => void;
 }) {
-  const [content, setContent] = useState<string | null>(null);
-  const [error, setError] = useState('');
+  const [snapshot, setSnapshot] = useState<{
+    url: string;
+    attempt: number;
+    result?: FilePreviewRead;
+    error: string;
+  }>();
   const [source, setSource] = useState(false);
-  const [binary, setBinary] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const url = workspaceApi.fileURL(
     reference.resourceId!,
@@ -30,40 +32,42 @@ export function FilePreview({
   );
   const markdown = /\.(md|markdown)$/i.test(reference.path ?? '');
   const filename = reference.path?.split('/').at(-1);
+  const current =
+    snapshot?.url === url && snapshot.attempt === attempt
+      ? snapshot
+      : undefined;
+  const content = current?.result?.binary
+    ? null
+    : (current?.result?.content ?? null);
+  const error = current?.error ?? '';
+  const binary = current?.result?.binary ?? false;
+  const editable = current?.result?.editable ?? false;
   useEffect(() => {
     const controller = new AbortController();
-    setContent(null);
-    setError('');
-    setBinary(false);
     void fetch(url, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error('This file could not be loaded.');
-        const bytes = new Uint8Array(await response.arrayBuffer());
+        const result = await readFilePreview(response, controller.signal);
         if (controller.signal.aborted) return;
-        try {
-          const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-          if (text.includes('\0')) setBinary(true);
-          else setContent(text);
-        } catch {
-          setBinary(true);
-        }
+        setSnapshot({ url, attempt, result, error: '' });
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted)
-          setError(
-            error instanceof Error ? error.message : 'Could not load file.',
-          );
+          setSnapshot({
+            url,
+            attempt,
+            error:
+              error instanceof Error ? error.message : 'Could not load file.',
+          });
       });
     return () => controller.abort();
   }, [url, attempt]);
   useLayoutEffect(() => {
     if (content !== null || binary || error) onReady?.();
   }, [content, binary, error, onReady]);
-  useEffect(() => {
-    onEditableChange?.(
-      content !== null && new TextEncoder().encode(content).length <= 1048576,
-    );
-  }, [content, onEditableChange]);
+  useLayoutEffect(() => {
+    onEditableChange?.(editable);
+  }, [editable, onEditableChange]);
   return (
     <section
       className="workspace-file-preview"
@@ -107,14 +111,12 @@ export function FilePreview({
         <>
           <div className="workspace-preview-content" tabIndex={0}>
             {markdown && !source ? (
-              <AssistantContent
-                content={content.slice(0, previewLimit) || '(Empty file)'}
-              />
+              <AssistantContent content={content || '(Empty file)'} />
             ) : (
-              <pre>{content.slice(0, previewLimit) || '(Empty file)'}</pre>
+              <pre>{content || '(Empty file)'}</pre>
             )}
           </div>
-          {content.length > previewLimit && (
+          {current?.result?.shortened && (
             <p>Preview shortened. Download the complete file.</p>
           )}
         </>

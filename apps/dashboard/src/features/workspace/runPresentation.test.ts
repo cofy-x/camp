@@ -101,6 +101,15 @@ describe('recorded execution outcomes', () => {
       'No files changed',
     );
   });
+  it('distinguishes failed saved work from an accepted task checkpoint', () => {
+    for (const status of ['failed', 'interrupted', 'cancelled'] as const)
+      expect(
+        runFilesLabel(run({ status, taskId: 'task', resultCommit: 'partial' })),
+      ).toBe('Saved working files');
+    expect(runFilesLabel(run({ status: 'failed', taskId: 'task' }))).toBe(
+      'No result files captured',
+    );
+  });
 
   it('distinguishes shared publication from read-only work without a captured result', () => {
     expect(

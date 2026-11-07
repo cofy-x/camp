@@ -117,7 +117,7 @@ export function MenuOverlay({
     const item = level?.items[itemIndex];
     if (!item) return;
     const row =
-      refs.current[levelIndex]?.querySelectorAll<HTMLButtonElement>(
+      refs.current[levelIndex]?.querySelectorAll<HTMLElement>(
         '[role^="menuitem"]',
       )[
         level.items.slice(0, itemIndex).filter((entry) => !entry.separator)
@@ -150,6 +150,16 @@ export function MenuOverlay({
     if (!item || item.separator) return;
     if (item.disabled || item.children) {
       openSubmenu(levelIndex, itemIndex);
+      return;
+    }
+    if (item.href) {
+      refs.current[levelIndex]
+        ?.querySelectorAll<HTMLElement>('[role^="menuitem"]')
+        [
+          latest.current[levelIndex].items
+            .slice(0, itemIndex)
+            .filter((entry) => !entry.separator).length
+        ]?.click();
       return;
     }
     dismiss();
@@ -249,18 +259,24 @@ export function MenuOverlay({
             }
           }}
         >
-          {level.items.map((item, index) =>
-            item.separator ? (
-              <div
-                key={item.id ?? index}
-                role="separator"
-                className="p9-menu-separator"
-              />
-            ) : (
-              <button
+          {level.items.map((item, index) => {
+            if (item.separator)
+              return (
+                <div
+                  key={item.id ?? index}
+                  role="separator"
+                  className="p9-menu-separator"
+                />
+              );
+            const link = Boolean(item.href && !item.children);
+            const Element = link ? 'a' : 'button';
+            return (
+              <Element
                 id={`${menuId}-${levelIndex}-${index}`}
                 key={item.id ?? index}
-                type="button"
+                type={link ? undefined : 'button'}
+                href={link && !item.disabled ? item.href : undefined}
+                download={link && !item.disabled ? item.download : undefined}
                 role={
                   item.checked !== undefined ? 'menuitemcheckbox' : 'menuitem'
                 }
@@ -283,7 +299,18 @@ export function MenuOverlay({
                   )
                     openSubmenu(levelIndex, index);
                 }}
-                onClick={() => activate(levelIndex, index)}
+                onClick={(event) => {
+                  if (!link) {
+                    activate(levelIndex, index);
+                    return;
+                  }
+                  if (item.disabled) {
+                    event.preventDefault();
+                    return;
+                  }
+                  dismiss();
+                  item.action?.();
+                }}
               >
                 <span aria-hidden="true" className="p9-menu-mark">
                   {item.checked ? '✓' : ''}
@@ -297,9 +324,9 @@ export function MenuOverlay({
                     ▸
                   </span>
                 )}
-              </button>
-            ),
-          )}
+              </Element>
+            );
+          })}
         </div>
       ))}
     </div>

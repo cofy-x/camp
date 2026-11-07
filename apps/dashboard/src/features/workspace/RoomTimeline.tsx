@@ -8,10 +8,16 @@ import {
 import { Button, PixelIcon, type DesktopAPI } from '@cofy-x/camp-platinum';
 import { useTeam } from '../../team/TeamContext';
 import { IdentityAvatar } from '../identity/IdentityAvatar';
-import type { Agent, Message, Reference, Resource, Room, Run } from './api';
+import type {
+  Agent,
+  Message,
+  Reference,
+  Resource,
+  Room,
+  RunTimeline,
+} from './api';
 import { isActiveRun, statusLabel, workspaceApi } from './api';
 import { AgentResult } from './AgentResult';
-import { AssistantContent } from './AssistantContent';
 import { Composer } from './Composer';
 import { References } from './References';
 import { WorkActivity } from './WorkActivity';
@@ -88,7 +94,7 @@ function WorkCard({
   showTaskLink = true,
   workItemId,
 }: {
-  run: Run;
+  run: RunTimeline;
   avatar?: string;
   onInspect: (id: string) => void;
   onChange: () => void;
@@ -170,6 +176,89 @@ function WorkCard({
   );
 }
 
+function RoomWelcome({
+  draftKey,
+  members,
+  membersReady,
+  available,
+  onSetup,
+  onAgents,
+  onPrepared,
+}: {
+  draftKey: string;
+  members: Agent[];
+  membersReady: boolean;
+  available: boolean;
+  onSetup?: () => void;
+  onAgents: () => void;
+  onPrepared: () => void;
+}) {
+  const draft = useSyncExternalStore(
+    useCallback(
+      (listener) => subscribeStored(`draft:${draftKey}`, listener),
+      [draftKey],
+    ),
+    () => readStored(`draft:${draftKey}`),
+    () => '',
+  );
+  const hasMember = members.some((agent) => agent.enabled);
+  return (
+    <div className="workspace-room-welcome">
+      <PixelIcon name="conversation" size={28} />
+      <h2>What would you like to work on?</h2>
+      {membersReady && !available && onSetup && (
+        <Button primary onClick={onSetup}>
+          Set Up Agent Work…
+        </Button>
+      )}
+      {membersReady &&
+        (hasMember ? (
+          <>
+            <div className="workspace-starters" aria-label="Starting points">
+              {starters.map((starter) => (
+                <Button
+                  key={starter.title}
+                  aria-label={starter.title}
+                  aria-description={starter.description}
+                  disabled={Boolean(draft.trim())}
+                  onClick={() => {
+                    if (readStored(`draft:${draftKey}`).trim()) return;
+                    writeStored(`draft:${draftKey}`, starter.prompt);
+                    const agent = members.find((member) => member.enabled);
+                    if (agent)
+                      writeStored(
+                        `recipients:${draftKey}`,
+                        JSON.stringify([agent.id]),
+                      );
+                    onPrepared();
+                  }}
+                >
+                  <PixelIcon name={starter.icon} size={24} />
+                  <span className="workspace-starter-copy">
+                    <span>{starter.title}</span>
+                    <span className="workspace-starter-description">
+                      {starter.description}
+                    </span>
+                  </span>
+                </Button>
+              ))}
+            </div>
+            <p className="workspace-starter-hint">
+              {draft.trim()
+                ? 'Edit your draft below, then send when ready.'
+                : 'Choose a starting point to edit below.'}
+            </p>
+          </>
+        ) : (
+          <div className="workspace-welcome-invite">
+            <p>Post a message or add an Agent to help.</p>
+            <Button onClick={onAgents}>Add an agent</Button>
+          </div>
+        ))}
+    </div>
+  );
+}
+
 export function RoomTimeline({
   desktop,
   room,
@@ -179,6 +268,7 @@ export function RoomTimeline({
   tasks,
   agents,
   members,
+  membersReady = true,
   available,
   onThread,
   onInspect,
@@ -202,17 +292,18 @@ export function RoomTimeline({
   resources: Resource[];
   sourceId: string;
   sourceRequest: number;
-  onAsk: (message: Message, run?: Run) => void;
+  onAsk: (message: Message, run?: RunTimeline) => void;
   onFollowUp: (message: Message) => void;
   onRemember: (message: Message) => void;
   onSource: (messageId: string) => void;
   onReference: (reference: Reference) => void;
   onAgents: () => void;
   onSetup?: () => void;
-  runs: Run[];
+  runs: RunTimeline[];
   tasks: Task[];
   agents: Agent[];
   members: Agent[];
+  membersReady?: boolean;
   available: boolean;
   onThread: (id: string) => void;
   onInspect: (id: string) => void;
@@ -228,12 +319,6 @@ export function RoomTimeline({
   const [newActivity, setNewActivity] = useState(false);
   const key = conversationKey(room.id, threadId);
   const [focusRequest, setFocusRequest] = useState(0);
-  const draft = useSyncExternalStore(
-    useCallback((listener) => subscribeStored(`draft:${key}`, listener), [key]),
-    () => readStored(`draft:${key}`),
-    () => '',
-  );
-  const hasMember = members.some((agent) => agent.enabled);
   const conversationRuns = runs.filter((run) => run.threadRootId === threadId);
   useLayoutEffect(() => {
     const node = scroll.current;
@@ -299,61 +384,15 @@ export function RoomTimeline({
         }}
       >
         {!messages.length && !threadId && (
-          <div className="workspace-room-welcome">
-            <PixelIcon name="conversation" size={28} />
-            <h2>What would you like to work on?</h2>
-            {!available && onSetup && (
-              <Button primary onClick={onSetup}>
-                Set Up Agent Work…
-              </Button>
-            )}
-            {hasMember ? (
-              <>
-                <div
-                  className="workspace-starters"
-                  aria-label="Starting points"
-                >
-                  {starters.map((starter) => (
-                    <Button
-                      key={starter.title}
-                      aria-label={starter.title}
-                      aria-description={starter.description}
-                      disabled={Boolean(draft.trim())}
-                      onClick={() => {
-                        if (readStored(`draft:${key}`).trim()) return;
-                        writeStored(`draft:${key}`, starter.prompt);
-                        const agent = members.find((member) => member.enabled);
-                        if (agent)
-                          writeStored(
-                            `recipients:${key}`,
-                            JSON.stringify([agent.id]),
-                          );
-                        setFocusRequest((value) => value + 1);
-                      }}
-                    >
-                      <PixelIcon name={starter.icon} size={24} />
-                      <span className="workspace-starter-copy">
-                        <span>{starter.title}</span>
-                        <span className="workspace-starter-description">
-                          {starter.description}
-                        </span>
-                      </span>
-                    </Button>
-                  ))}
-                </div>
-                <p className="workspace-starter-hint">
-                  {draft.trim()
-                    ? 'Edit your draft below, then send when ready.'
-                    : 'Choose a starting point to edit below.'}
-                </p>
-              </>
-            ) : (
-              <div className="workspace-welcome-invite">
-                <p>Post a message or add an Agent to help.</p>
-                <Button onClick={onAgents}>Add an agent</Button>
-              </div>
-            )}
-          </div>
+          <RoomWelcome
+            draftKey={key}
+            members={members}
+            membersReady={membersReady}
+            available={available}
+            onSetup={onSetup}
+            onAgents={onAgents}
+            onPrepared={() => setFocusRequest((value) => value + 1)}
+          />
         )}
         {messages.map((message) => {
           const run =
@@ -366,9 +405,18 @@ export function RoomTimeline({
           const currentAgent = agents.find(
             (item) => item.id === message.agentId,
           );
-          const linkedItemId = tasks.find(
-            (task) => task.id === (message.taskId || run?.taskId),
-          )?.workItemId;
+          const linkedTask = tasks.find(
+            (task) =>
+              task.id === (message.taskId || run?.taskId) &&
+              task.roomId === message.roomId,
+          );
+          const linkedItemId =
+            message.workOrigin?.workItemId || linkedTask?.workItemId;
+          const workOrigin = Boolean(
+            message.workOrigin?.workItemId ||
+            (linkedTask?.workItemId &&
+              linkedTask.originMessageId === message.id),
+          );
           const person = team.members.find(
             (item) => item.id === message.authorUserId,
           );
@@ -403,13 +451,13 @@ export function RoomTimeline({
                 tasks.find((task) => task.id === item.taskId)?.workItemId
               }
               showTaskLink={
-                message.authorKind !== 'system' ||
+                (!workOrigin && message.authorKind !== 'system') ||
                 Boolean(message.reviewId) ||
                 message.taskId !== item.taskId
               }
             />
           ));
-          if (message.authorKind === 'system')
+          if (message.authorKind === 'system' || workOrigin)
             return (
               <SystemMessage
                 key={message.id}
@@ -428,11 +476,13 @@ export function RoomTimeline({
                     app: 'workspace',
                     roomId: room.id,
                     taskId: id,
-                    workItemId: tasks.find((task) => task.id === id)
-                      ?.workItemId,
+                    workItemId:
+                      linkedItemId ||
+                      tasks.find((task) => task.id === id)?.workItemId,
                   })
                 }
                 taskLabel={linkedItemId ? 'Open work' : 'Open collaboration'}
+                workOrigin={workOrigin}
                 onInspect={onInspect}
                 onAsk={() => onAsk(message)}
                 onFollowUp={() => onFollowUp(message)}
@@ -480,15 +530,13 @@ export function RoomTimeline({
                     </span>
                   )}
                 </header>
-                {run && !isActiveRun(run) ? (
+                {message.authorKind === 'agent' ? (
                   <AgentResult
                     message={message}
                     run={run}
                     onInspect={onInspect}
                     onReference={onReference}
                   />
-                ) : message.authorKind === 'agent' ? (
-                  <AssistantContent content={message.content} />
                 ) : (
                   <p className="workspace-message-text">{message.content}</p>
                 )}
@@ -561,6 +609,7 @@ export function RoomTimeline({
         key={key}
         room={room}
         members={members}
+        membersReady={membersReady}
         threadId={threadId}
         onSent={() => {
           follow.current = true;

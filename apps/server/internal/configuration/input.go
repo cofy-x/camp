@@ -5,10 +5,10 @@ import "time"
 // ModelInput contains only model defaults and explicit private overrides.
 // Native runtimes and document workers have separate configuration owners.
 type ModelInput struct {
-	APIKey, BaseURL, Model string
-	MaxTokens, MaxSteps    int
-	Timeout                time.Duration
-	ModelOverrides         *Overrides
+	APIKey, BaseURL, Model, ReasoningEffort string
+	MaxTokens, MaxSteps                     int
+	Timeout                                 time.Duration
+	ModelOverrides                          *Overrides
 }
 
 func (c ModelInput) ModelDefaults() Model {
@@ -17,6 +17,7 @@ func (c ModelInput) ModelDefaults() Model {
 		return model
 	}
 	model.APIKey = c.APIKey
+	model.ReasoningEffort = c.ReasoningEffort
 	if c.Model != "" {
 		model.Model = c.Model
 	}

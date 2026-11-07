@@ -18,7 +18,7 @@ import (
 )
 
 var serviceKeys = []string{
-	"DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "CAMP_DSH_MODEL",
+	"DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "CAMP_DSH_MODEL", "CAMP_DSH_REASONING_EFFORT",
 	"CAMP_DSH_MAX_TOKENS", "CAMP_DSH_MAX_STEPS", "CAMP_DSH_TIMEOUT_SECONDS",
 }
 
@@ -45,7 +45,7 @@ func readServiceSettings(options serveOptions, getenv func(string) string, cwd s
 	}
 
 	overrides := &configuration.Overrides{Environment: map[string]string{}, EnvFile: map[string]string{}}
-	modelFields := map[string]string{"DEEPSEEK_API_KEY": "apiKey", "DEEPSEEK_BASE_URL": "baseUrl", "CAMP_DSH_MODEL": "model", "CAMP_DSH_MAX_TOKENS": "maxTokens", "CAMP_DSH_MAX_STEPS": "maxSteps", "CAMP_DSH_TIMEOUT_SECONDS": "timeoutSeconds"}
+	modelFields := map[string]string{"DEEPSEEK_API_KEY": "apiKey", "DEEPSEEK_BASE_URL": "baseUrl", "CAMP_DSH_MODEL": "model", "CAMP_DSH_REASONING_EFFORT": "reasoningEffort", "CAMP_DSH_MAX_TOKENS": "maxTokens", "CAMP_DSH_MAX_STEPS": "maxSteps", "CAMP_DSH_TIMEOUT_SECONDS": "timeoutSeconds"}
 	for key, field := range modelFields {
 		if values[key] != "" {
 			overrides.EnvFile[field] = values[key]
@@ -69,11 +69,15 @@ func readServiceSettings(options serveOptions, getenv func(string) string, cwd s
 		return fallback
 	}
 	config := serviceSettings{ModelInput: configuration.ModelInput{
-		ModelOverrides: overrides,
-		APIKey:         values["DEEPSEEK_API_KEY"],
-		BaseURL:        value("DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic"),
-		Model:          value("CAMP_DSH_MODEL", "deepseek-v4-pro"),
+		ModelOverrides:  overrides,
+		APIKey:          values["DEEPSEEK_API_KEY"],
+		BaseURL:         value("DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic"),
+		Model:           value("CAMP_DSH_MODEL", "deepseek-v4-pro"),
+		ReasoningEffort: values["CAMP_DSH_REASONING_EFFORT"],
 	}}
+	if !configuration.ValidReasoningEffort(config.ReasoningEffort) {
+		return serviceSettings{}, errors.New("CAMP_DSH_REASONING_EFFORT must be off, low, high or max when set")
+	}
 	parsedURL, err := url.Parse(config.BaseURL)
 	if err != nil || parsedURL.Hostname() == "" || (parsedURL.Scheme != "https" && parsedURL.Scheme != "http") || parsedURL.User != nil || parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
 		return serviceSettings{}, errors.New("DEEPSEEK_BASE_URL must be an HTTP(S) URL without credentials, query parameters, or a fragment")

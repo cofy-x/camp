@@ -15,6 +15,7 @@ import {
   workspace,
 } from './team-helpers';
 import { watchPageErrors } from './page-errors';
+import { timelineFixture } from './run-timeline-fixture';
 
 const errors = new WeakMap<Page, ReturnType<typeof watchPageErrors>>();
 test.beforeEach(async ({ page, browserName }) => {
@@ -441,10 +442,18 @@ test('work details lead with results, preserve failure evidence, and keep techni
       published: false,
     });
   }
-  await page.route(`**/api/rooms/${room.id}/runs`, (route) =>
-    route.fulfill({ json: { runs } }),
+  await page.route(`**/api/rooms/${room.id}/runs?view=timeline*`, (route) =>
+    route.fulfill({
+      json: { items: runs.map(timelineFixture), nextCursor: '' },
+    }),
   );
   for (const run of runs) {
+    await page.route(`**/api/runs/${run.id}?view=summary`, (route) =>
+      route.fulfill({ json: { run: timelineFixture(run) } }),
+    );
+    await page.route(`**/api/runs/${run.id}/reply`, (route) =>
+      route.fulfill({ json: { message: null } }),
+    );
     await page.route(`**/api/runs/${run.id}`, (route) =>
       route.fulfill({ json: { run } }),
     );
@@ -784,8 +793,16 @@ test('a member can stop work from details, recover a failed request, and keep th
       sessionGeneration: 1,
       published: false,
     };
-    await member.route(`**/api/rooms/${room.id}/runs`, (route) =>
-      route.fulfill({ json: { runs: [run] } }),
+    await member.route(`**/api/rooms/${room.id}/runs?view=timeline*`, (route) =>
+      route.fulfill({
+        json: { items: [timelineFixture(run)], nextCursor: '' },
+      }),
+    );
+    await member.route(`**/api/runs/${run.id}?view=summary`, (route) =>
+      route.fulfill({ json: { run: timelineFixture(run) } }),
+    );
+    await member.route(`**/api/runs/${run.id}/reply`, (route) =>
+      route.fulfill({ json: { message: null } }),
     );
     await member.route(`**/api/runs/${run.id}`, (route) =>
       route.fulfill({ json: { run } }),

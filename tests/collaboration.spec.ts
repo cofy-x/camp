@@ -1,13 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
-import type { Task } from '../apps/dashboard/src/features/collaboration/api';
+import type {
+  Task,
+  TaskRecoveryRun,
+} from '../apps/dashboard/src/features/collaboration/api';
 import type { Agent, Run } from '../apps/dashboard/src/features/workspace/api';
 import {
   openRoomMore,
   createRoom,
   library,
   mutate,
+  openApp,
   signIn,
+  work,
   workspace,
 } from './team-helpers';
 
@@ -72,6 +77,7 @@ async function fixture(page: Page, name: string) {
   };
   let exists = false;
   let runs: Run[] = [];
+  let recoveryRun: TaskRecoveryRun | undefined;
   await page.route('**/api/agents', (route) =>
     route.fulfill({ json: { agents } }),
   );
@@ -107,7 +113,9 @@ async function fixture(page: Page, name: string) {
     route.fulfill({ json: { tasks: exists ? [task] : [] } }),
   );
   await page.route(`**/api/tasks/${task.id}?*`, (route) =>
-    route.fulfill({ json: { task: { ...task, inputs: undefined } } }),
+    route.fulfill({
+      json: { task: { ...task, inputs: undefined }, recoveryRun },
+    }),
   );
   await page.route(`**/api/tasks/${task.id}/inputs?*`, (route) => {
     if (route.request().method() !== 'GET') return route.fallback();
@@ -165,6 +173,9 @@ async function fixture(page: Page, name: string) {
     },
     setRuns(value: Run[]) {
       runs = value;
+    },
+    setRecoveryRun(value: TaskRecoveryRun | undefined) {
+      recoveryRun = value;
     },
     async refresh() {
       const response = await mutate(page, `/rooms/${room.id}/messages`, {
@@ -450,6 +461,12 @@ test('continuation authorizes additional work and changed Runners explicitly whi
   await value.open();
 
   const continuations: Record<string, unknown>[] = [];
+  await expect(detail(page).getByRole('status')).toContainText(
+    'Model request allowance exhausted (24/24). Add model requests in Continue to resume.',
+  );
+  await expect(detail(page).getByRole('alert')).toHaveText(
+    'Room files changed while the task was working.',
+  );
   await page.route(`**/api/tasks/${value.task.id}/continue?*`, (route) => {
     continuations.push(route.request().postDataJSON());
     value.setTask({
@@ -475,11 +492,8 @@ test('continuation authorizes additional work and changed Runners explicitly whi
     .getByLabel('Additional model requests', { exact: true })
     .fill('4');
   await detail(page)
-    .getByRole('checkbox', {
-      name: 'Continue from latest Room files',
-      exact: true,
-    })
-    .check();
+    .getByLabel('Starting files', { exact: true })
+    .selectOption('latest');
   await detail(page)
     .getByRole('checkbox', {
       name: 'Change participants or Runners',
@@ -505,6 +519,7 @@ test('continuation authorizes additional work and changed Runners explicitly whi
     .getByRole('button', { name: 'Continue collaboration', exact: true })
     .click();
   await expect(detail(page)).toContainText('Continuation requested.');
+  await expect(detail(page)).not.toContainText('allowance exhausted');
   expect(continuations).toHaveLength(1);
   expect(continuations[0]).toMatchObject({
     revision: 1,
@@ -980,3 +995,364 @@ test('legacy pending collaboration starts retain the original protocol and ident
   await expect(detail(page)).toBeVisible();
   expect(requests).toEqual([saved]);
 });
+
+test('model refresh is explicit and an uncertain continuation preserves its exact authorization', async ({
+  page,
+}, info) => {
+  const value = await fixture(page, `model-refresh-${info.project.name}`);
+  value.setTask({
+    status: 'needs_attention',
+    turnsUsed: 1,
+    modelRequestsUsed: 2,
+    error: 'The model response reached its output limit.',
+  });
+  await value.refresh();
+  await value.open();
+  await detail(page)
+    .getByRole('button', { name: 'Continue…', exact: true })
+    .click();
+  const refresh = detail(page).getByRole('checkbox', {
+    name: 'Use current model settings',
+    exact: true,
+  });
+  await expect(refresh).not.toBeChecked();
+  await refresh.check();
+  await expect(detail(page)).toContainText(
+    'Earlier executions keep their settings.',
+  );
+  await detail(page)
+    .getByLabel('What should happen next?', { exact: true })
+    .fill(
+      'Continue with the current model settings and the existing allowance.',
+    );
+  const requests: Record<string, unknown>[] = [];
+  let receipt: Task | undefined;
+  await page.route(
+    `**/api/tasks/${value.task.id}/continue?*`,
+    async (route) => {
+      requests.push(route.request().postDataJSON());
+      if (requests.length === 1) {
+        value.setTask({ status: 'queued', revision: 2, error: '' });
+        receipt = value.task;
+        return route.abort();
+      }
+      return route.fulfill({ json: { task: receipt } });
+    },
+  );
+  await detail(page)
+    .getByRole('button', { name: 'Continue collaboration', exact: true })
+    .click();
+  await expect(
+    detail(page).getByRole('button', { name: 'Retry Save', exact: true }),
+  ).toBeVisible();
+  await expect(refresh).toBeChecked();
+  await expect(refresh).toBeDisabled();
+  await page.reload();
+  await value.open();
+  await expect(refresh).toBeChecked();
+  await expect(refresh).toBeDisabled();
+  await detail(page)
+    .getByRole('button', { name: 'Retry Save', exact: true })
+    .click();
+  await expect(detail(page)).toContainText('Continuation requested.');
+  expect(requests).toHaveLength(2);
+  expect(requests[1]).toEqual(requests[0]);
+  expect(requests[0]).toMatchObject({
+    revision: 1,
+    refreshModelSettings: true,
+    addTurns: 0,
+    addModelRequests: 0,
+  });
+});
+
+test('captured partial files are an explicit starting choice preserved across uncertain recovery', async ({
+  page,
+}, info) => {
+  const value = await fixture(page, `captured-recovery-${info.project.name}`);
+  const runId = `captured-${randomUUID()}`;
+  value.setTask({
+    status: 'needs_attention',
+    turnsUsed: 2,
+    modelRequestsUsed: 18,
+    checkpointCommit: 'original-task-draft',
+    error: 'The last execution reached its step limit.',
+  });
+  value.setRecoveryRun({
+    runId,
+    commit: 'b'.repeat(40),
+    agentName: 'Writer',
+    fileCount: 6,
+  });
+  await value.refresh();
+  await value.open();
+  await detail(page)
+    .getByRole('button', { name: 'Continue…', exact: true })
+    .click();
+  const starting = detail(page).getByLabel('Starting files', { exact: true });
+  await expect(starting).toHaveValue('draft');
+  await starting.selectOption(`run:${runId}`);
+  await expect(detail(page)).toContainText(
+    'Checks have not passed; Room files stay unchanged.',
+  );
+  await expect(
+    detail(page).getByRole('button', {
+      name: 'Review Saved Files',
+      exact: true,
+    }),
+  ).toBeVisible();
+  await starting.selectOption('latest');
+  await expect(detail(page)).toContainText(
+    'Start a new draft from current Room files.',
+  );
+  await expect(
+    detail(page).getByRole('button', {
+      name: 'Review Saved Files',
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await starting.selectOption(`run:${runId}`);
+  await detail(page)
+    .getByLabel('What should happen next?', { exact: true })
+    .fill('Continue the captured implementation and run its checks.');
+  const requests: Record<string, unknown>[] = [];
+  let receipt: Task | undefined;
+  await page.route(
+    `**/api/tasks/${value.task.id}/continue?*`,
+    async (route) => {
+      requests.push(route.request().postDataJSON());
+      if (requests.length === 1) {
+        value.setTask({
+          status: 'queued',
+          revision: 2,
+          error: '',
+          checkpointCommit: 'captured-files',
+        });
+        value.setRecoveryRun(undefined);
+        receipt = value.task;
+        return route.abort();
+      }
+      return route.fulfill({ json: { task: receipt } });
+    },
+  );
+  await detail(page)
+    .getByRole('button', { name: 'Continue collaboration', exact: true })
+    .click();
+  await expect(
+    detail(page).getByRole('button', { name: 'Retry Save', exact: true }),
+  ).toBeVisible();
+  await expect(starting).toBeDisabled();
+  await page.reload();
+  await value.open();
+  await expect(starting).toHaveValue(`run:${runId}`);
+  await expect(starting).toBeDisabled();
+  await expect(starting.locator('option:checked')).toHaveText(
+    'Saved work from selected attempt',
+  );
+  await detail(page)
+    .getByRole('button', { name: 'Retry Save', exact: true })
+    .click();
+  await expect(detail(page)).toContainText('Continuation requested.');
+  expect(requests).toHaveLength(2);
+  expect(requests[1]).toEqual(requests[0]);
+  expect(requests[0]).toMatchObject({
+    fromRunId: runId,
+    fromLatest: false,
+    addTurns: 0,
+    addModelRequests: 0,
+  });
+});
+
+test('a stale saved-file choice remains visible and requires a new starting choice', async ({
+  page,
+}, info) => {
+  const value = await fixture(page, `stale-capture-${info.project.name}`);
+  const runId = `old-capture-${randomUUID()}`;
+  value.setTask({ status: 'needs_attention', turnsUsed: 1 });
+  value.setRecoveryRun({
+    runId,
+    commit: 'b'.repeat(40),
+    agentName: 'Writer',
+    fileCount: 3,
+  });
+  await value.refresh();
+  await value.open();
+  await detail(page)
+    .getByRole('button', { name: 'Continue…', exact: true })
+    .click();
+  const starting = detail(page).getByLabel('Starting files', { exact: true });
+  await starting.selectOption(`run:${runId}`);
+  await detail(page)
+    .getByLabel('What should happen next?', { exact: true })
+    .fill('Keep my continuation instruction.');
+  value.setTask({ revision: 2 });
+  value.setRecoveryRun(undefined);
+  await value.refresh();
+  await expect(starting).toHaveValue(`run:${runId}`);
+  await expect(detail(page)).toContainText('Choose starting files again.');
+  await expect(
+    detail(page).getByRole('button', {
+      name: 'Continue collaboration',
+      exact: true,
+    }),
+  ).toBeDisabled();
+  await starting.selectOption('draft');
+  await expect(
+    detail(page).getByRole('button', {
+      name: 'Continue collaboration',
+      exact: true,
+    }),
+  ).toBeEnabled();
+  await expect(
+    detail(page).getByLabel('What should happen next?', { exact: true }),
+  ).toHaveValue('Keep my continuation instruction.');
+});
+
+for (const host of ['Workspace', 'Work'] as const) {
+  test(`reviewing exact saved files preserves unfinished continuation in ${host}`, async ({
+    page,
+  }, info) => {
+    const value = await fixture(
+      page,
+      `review-partial-${host}-${info.project.name}`,
+    );
+    const initial = await (
+      await page.request.get(`/api/resources/${value.room.resourceId}/files`)
+    ).json();
+    const saved = await mutate(
+      page,
+      `/resources/${value.room.resourceId}/files`,
+      {
+        requestId: randomUUID(),
+        expectedCommit: initial.commit,
+        path: 'captured.md',
+        content:
+          '# Captured implementation\n\nPartial files from the failed attempt.',
+      },
+      'PUT',
+    );
+    expect(saved.ok()).toBe(true);
+    const captured = (await saved.json()).publication.commit as string;
+    const newer = await mutate(
+      page,
+      `/resources/${value.room.resourceId}/files`,
+      {
+        requestId: randomUUID(),
+        expectedCommit: captured,
+        path: 'captured.md',
+        content:
+          '# Newer shared files\n\nThis is not the selected captured version.',
+      },
+      'PUT',
+    );
+    expect(newer.ok()).toBe(true);
+    if (host === 'Work') {
+      const created = await mutate(page, `/rooms/${value.room.id}/work-items`, {
+        requestId: randomUUID(),
+        goal: value.task.goal,
+      });
+      expect(created.ok()).toBe(true);
+      value.setTask({ workItemId: (await created.json()).item.id });
+    }
+    const runId = `review-captured-${randomUUID()}`;
+    value.setTask({
+      status: 'needs_attention',
+      turnsUsed: 2,
+      modelRequestsUsed: 18,
+      checkpointCommit: initial.commit,
+    });
+    value.setRecoveryRun({
+      runId,
+      commit: captured,
+      agentName: 'Writer',
+      fileCount: 1,
+    });
+    await value.refresh();
+    await openRoomMore(page, 'Execution history…');
+    await workspace(page)
+      .getByRole('button', { name: value.task.goal })
+      .click();
+    const win = host === 'Work' ? work(page) : workspace(page);
+    const panel = win.getByRole('region', {
+      name: 'Collaboration details',
+      exact: true,
+    });
+    await expect(panel).toBeVisible();
+    await panel.getByRole('button', { name: 'Continue…', exact: true }).click();
+    await panel
+      .getByLabel('Starting files', { exact: true })
+      .selectOption(`run:${runId}`);
+    const instruction = `Keep this unfinished ${host} continuation while reviewing the captured files.`;
+    await panel
+      .getByLabel('What should happen next?', { exact: true })
+      .fill(instruction);
+    await panel
+      .getByLabel('Additional model requests', { exact: true })
+      .fill('16');
+    await panel
+      .getByRole('checkbox', {
+        name: 'Use current model settings',
+        exact: true,
+      })
+      .check();
+    const writes: string[] = [];
+    const fileReads: string[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (
+        request.method() === 'GET' &&
+        url.pathname === `/api/resources/${value.room.resourceId}/files`
+      )
+        fileReads.push(url.searchParams.get('commit') || '');
+      if (
+        !['GET', 'HEAD'].includes(request.method()) &&
+        (/^\/api\/(?:tasks\/|runs\/|daemon\/model\/|work-items\/[^/]+\/actions\/)/.test(
+          url.pathname,
+        ) ||
+          /^\/api\/rooms\/[^/]+\/(?:messages|tasks|work-items)$/.test(
+            url.pathname,
+          ) ||
+          /^\/api\/resources\/[^/]+\/(?:files|restore)$/.test(url.pathname))
+      )
+        writes.push(`${request.method()} ${url.pathname}`);
+    });
+    await panel
+      .getByRole('button', { name: 'Review Saved Files', exact: true })
+      .click();
+    await expect(library(page)).toBeVisible();
+    await expect(library(page)).toContainText('Historical version · read only');
+    await expect(
+      library(page).getByRole('heading', {
+        name: 'Captured implementation',
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      library(page).getByRole('heading', {
+        name: 'Newer shared files',
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    expect(fileReads).toContain(captured);
+    await library(page)
+      .getByRole('button', { name: /^Close .+ — Library$/ })
+      .click();
+    await openApp(page, host);
+    await expect(panel).toBeVisible();
+    await expect(
+      panel.getByLabel('What should happen next?', { exact: true }),
+    ).toHaveValue(instruction);
+    await expect(
+      panel.getByLabel('Starting files', { exact: true }),
+    ).toHaveValue(`run:${runId}`);
+    await expect(
+      panel.getByLabel('Additional model requests', { exact: true }),
+    ).toHaveValue('16');
+    await expect(
+      panel.getByRole('checkbox', {
+        name: 'Use current model settings',
+        exact: true,
+      }),
+    ).toBeChecked();
+    expect(writes).toEqual([]);
+  });
+}

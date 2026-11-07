@@ -1,11 +1,43 @@
 import { workStatus, type WorkItem } from './api';
 
-export function workItemStatus(
-  item: Pick<
-    WorkItem,
-    'status' | 'activeTaskId' | 'question' | 'execution' | 'result'
-  >,
-) {
+type PresentedWork = Pick<
+  WorkItem,
+  'status' | 'activeTaskId' | 'question' | 'execution' | 'result'
+>;
+
+function currentExecution(item: PresentedWork) {
+  return item.activeTaskId &&
+    item.execution?.taskId === item.activeTaskId &&
+    !['completed', 'cancelled', 'stopping'].includes(item.status)
+    ? item.execution
+    : undefined;
+}
+
+export function workItemQuestion(item: PresentedWork): string | undefined {
+  if (['completed', 'cancelled', 'stopping'].includes(item.status))
+    return undefined;
+  const execution = currentExecution(item);
+  return execution?.status === 'waiting_for_person' &&
+    execution.question &&
+    !execution.question.answer
+    ? execution.question.text
+    : item.question;
+}
+
+export function workItemStatus(item: PresentedWork) {
+  const execution = currentExecution(item);
+  const executionStatus =
+    execution &&
+    {
+      queued: 'Queued',
+      running: 'Working',
+      waiting_for_person: 'Needs your answer',
+      needs_attention: 'Needs attention',
+      interrupted: 'Interrupted',
+      publishing: 'Saving to Room files',
+      cancelling: 'Stopping',
+    }[execution.status];
+  if (executionStatus) return executionStatus;
   const question =
     item.question ||
     (item.execution?.question && !item.execution.question.answer);

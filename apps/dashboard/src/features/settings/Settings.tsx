@@ -61,6 +61,7 @@ function ModelPanel({ onSaved }: { onSaved: () => void }) {
     for (const field of [
       'model',
       'baseUrl',
+      'reasoningEffort',
       'maxTokens',
       'maxSteps',
       'timeoutSeconds',
@@ -90,7 +91,14 @@ function ModelPanel({ onSaved }: { onSaved: () => void }) {
     (value &&
       saved &&
       (
-        ['model', 'baseUrl', 'maxTokens', 'maxSteps', 'timeoutSeconds'] as const
+        [
+          'model',
+          'baseUrl',
+          'reasoningEffort',
+          'maxTokens',
+          'maxSteps',
+          'timeoutSeconds',
+        ] as const
       ).some((field) => value[field] !== saved[field])),
   );
   const source = (field: string) => {
@@ -204,6 +212,31 @@ function ModelPanel({ onSaved }: { onSaved: () => void }) {
         >
           <summary>Request limits</summary>
           <fieldset disabled={pending} aria-label="Request limits">
+            <Select
+              label="Reasoning effort"
+              value={value.reasoningEffort ?? ''}
+              disabled={saved?.fields.reasoningEffort?.overridden}
+              aria-describedby={`${fieldId}-reasoning-source`}
+              onChange={(event) =>
+                setValue({
+                  ...value,
+                  reasoningEffort: event.target
+                    .value as ModelSettings['reasoningEffort'],
+                })
+              }
+            >
+              <option value="">Provider default</option>
+              <option value="off">Off</option>
+              <option value="low">Low</option>
+              <option value="high">High</option>
+              <option value="max">Max</option>
+            </Select>
+            <small
+              id={`${fieldId}-reasoning-source`}
+              hidden={!saved?.fields.reasoningEffort?.overridden}
+            >
+              {source('reasoningEffort')}
+            </small>
             <div className="camp-budget-fields">
               {(['maxTokens', 'maxSteps', 'timeoutSeconds'] as const).map(
                 (field) => (
@@ -248,8 +281,9 @@ function ModelPanel({ onSaved }: { onSaved: () => void }) {
               )}
             </div>
             <p className="camp-settings-note">
-              Output tokens apply per model request; steps and timeout apply per
-              Run. These limits are not a billing cap.
+              Reasoning and answer tokens share the output allowance. Output
+              tokens apply per model request; steps and timeout apply per Run.
+              These limits are not a billing cap.
             </p>
           </fieldset>
         </details>
@@ -290,6 +324,7 @@ function ModelPanel({ onSaved }: { onSaved: () => void }) {
           <dl aria-label="Configuration sources">
             {[
               ['model', 'Model'],
+              ['reasoningEffort', 'Reasoning effort'],
               ['baseUrl', 'API base URL'],
               ['apiKey', 'API key'],
               ['maxTokens', 'Output tokens'],

@@ -66,6 +66,10 @@ func (m *Manager) modelProxy(w http.ResponseWriter, r *http.Request) {
 		machineError(w, 400, "Model or output budget differs from the frozen request.")
 		return
 	}
+	if !matchesReasoning(body, model.ReasoningEffort) {
+		machineError(w, 400, "Reasoning settings differ from the frozen request.")
+		return
+	}
 	for _, key := range []string{"base_url", "baseUrl", "api_key", "apiKey"} {
 		if _, ok := body[key]; ok {
 			machineError(w, 400, "Upstream connection fields are controlled by the server.")
@@ -139,6 +143,12 @@ func (m *Manager) modelProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	if err = m.store.BeginAttemptModel(ctx, id, a.RunnerID); err != nil {
+		if errorCode(err) == "task_budget_exhausted" {
+			// Keep a terminal 403: SDKs can retry conflict/rate-limit statuses.
+			// Current authorization was checked before this precise denial.
+			sendJSON(w, http.StatusForbidden, map[string]any{"error": map[string]string{"code": "task_budget_exhausted", "message": "The collaboration model request allowance is exhausted. Add an explicit allowance before continuing."}})
+			return
+		}
 		machineError(w, 403, "Model execution authorization ended.")
 		return
 	}
@@ -244,6 +254,30 @@ func (m *Manager) modelProxy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// The private model revision, not a Runner or provider default, owns an
+// explicitly selected reasoning mode. Reject mismatches before charging work.
+func matchesReasoning(body map[string]json.RawMessage, effort string) bool {
+	if effort == "" {
+		return true
+	}
+	var thinking struct {
+		Type string `json:"type"`
+	}
+	var output struct {
+		Effort string `json:"effort"`
+	}
+	if json.Unmarshal(body["thinking"], &thinking) != nil {
+		return false
+	}
+	if value, exists := body["output_config"]; exists && json.Unmarshal(value, &output) != nil {
+		return false
+	}
+	if effort == "off" {
+		return thinking.Type == "disabled" && output.Effort == ""
+	}
+	return thinking.Type == "enabled" && output.Effort == effort
 }
 
 func modelFailureCause(err error) string {

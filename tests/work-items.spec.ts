@@ -13,6 +13,7 @@ import {
   workspace,
 } from './team-helpers';
 import { watchPageErrors } from './page-errors';
+import { timelineFixture } from './run-timeline-fixture';
 import type {
   WorkItem,
   WorkItemInput,
@@ -1633,6 +1634,15 @@ test('blocked work opens its saved execution for an explicit continuation grant'
       },
     }),
   );
+  await openItems(page);
+  const pausedRow = work(page)
+    .getByRole('button')
+    .filter({ hasText: value.item.goal });
+  await expect(
+    pausedRow.getByText('Needs attention', { exact: true }),
+  ).toBeVisible();
+  await expect(pausedRow.getByText('Working', { exact: true })).toHaveCount(0);
+  await capture(page, 'paused-work-list');
   await value.open();
   await expect(
     detail(page).getByText('Needs attention · Writer', { exact: true }),
@@ -1797,6 +1807,12 @@ test('linked task and run inspection stay inside Work and return to the same mat
   };
   await page.route(`**/api/tasks/${taskId}?*`, (route) =>
     route.fulfill({ json: { task } }),
+  );
+  await page.route(`**/api/runs/${runId}?view=summary`, (route) =>
+    route.fulfill({ json: { run: timelineFixture(run) } }),
+  );
+  await page.route(`**/api/runs/${runId}/reply`, (route) =>
+    route.fulfill({ json: { message: null } }),
   );
   await page.route(`**/api/runs/${runId}`, (route) =>
     route.fulfill({ json: { run } }),

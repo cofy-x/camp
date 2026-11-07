@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Route } from '@playwright/test';
 import type {
   Agent,
   Message,
@@ -14,6 +14,7 @@ import {
   workspace,
 } from './team-helpers';
 import { watchPageErrors } from './page-errors';
+import { timelineFixture } from './run-timeline-fixture';
 
 const errors = new WeakMap<Page, ReturnType<typeof watchPageErrors>>();
 test.beforeEach(async ({ page, browserName }) => {
@@ -35,6 +36,7 @@ async function completedWork(
   page: Page,
   name: string,
   fixtures: ResultFixture[],
+  timeline?: (route: Route, runs: Run[]) => Promise<void>,
 ) {
   const room = await createRoom(page, `${name}-${randomUUID().slice(0, 8)}`);
   const reload = () => errors.get(page)!.reload();
@@ -129,19 +131,35 @@ async function completedWork(
     const message = messages.find((item) => item.id === id);
     return message ? route.fulfill({ json: { message } }) : route.continue();
   });
-  await page.route(`**/api/rooms/${room.id}/runs`, (route) =>
-    route.fulfill({ json: { runs } }),
+  await page.route(`**/api/rooms/${room.id}/runs?view=timeline*`, (route) =>
+    timeline
+      ? timeline(route, runs)
+      : route.fulfill({
+          json: { items: runs.map(timelineFixture), nextCursor: '' },
+        }),
   );
+  const fullRunReads: string[] = [];
   for (const run of runs) {
-    await page.route(`**/api/runs/${run.id}`, (route) =>
-      route.fulfill({ json: { run } }),
+    await page.route(`**/api/runs/${run.id}?view=summary`, (route) =>
+      route.fulfill({ json: { run: timelineFixture(run) } }),
     );
+    await page.route(`**/api/runs/${run.id}/reply`, (route) =>
+      route.fulfill({
+        json: {
+          message: replies.find((message) => message.runId === run.id) ?? null,
+        },
+      }),
+    );
+    await page.route(`**/api/runs/${run.id}`, (route) => {
+      fullRunReads.push(run.id);
+      return route.fulfill({ json: { run } });
+    });
     await page.route(`**/api/runs/${run.id}/events?*`, (route) =>
       route.fulfill({ json: { events: [] } }),
     );
   }
   await reload();
-  return { room, origin, replies, runs, reload };
+  return { room, origin, replies, runs, reload, fullRunReads };
 }
 
 const longReply = [
@@ -157,6 +175,96 @@ const longReply = [
   'The final recommendation remains part of the complete reply.',
   '[Read the source](https://example.com/review-guide)',
 ].join('\n\n');
+
+for (const outcome of ['arrives', 'fails'] as const) {
+  test(`initial work metadata ${outcome} without replacing an expanded reply, its selection or focused link`, async ({
+    page,
+  }, info) => {
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { replies } = await completedWork(
+      page,
+      `initial-metadata-${outcome}-${info.project.name}`,
+      [{ content: longReply, run: { published: true } }],
+      async (route, runs) => {
+        await waiting;
+        return outcome === 'arrives'
+          ? route.fulfill({
+              json: { items: runs.map(timelineFixture), nextCursor: '' },
+            })
+          : route.fulfill({
+              status: 503,
+              json: { error: 'Initial work activity unavailable.' },
+            });
+      },
+    );
+    try {
+      const message = workspace(page).locator(
+        `[data-message-id="${replies[0].id}"]`,
+      );
+      const reply = message.locator('.workspace-agent-reply');
+      await expect(reply).toBeVisible();
+      await expect(reply).not.toHaveAttribute('open');
+      await expect(message.locator('.workspace-result-facts')).toHaveCount(0);
+      await reply.locator(':scope > summary').click();
+      await expect(reply).toHaveAttribute('open');
+      const source = message.getByRole('link', {
+        name: 'Read the source',
+        exact: true,
+      });
+      const paragraph = reply.getByText(
+        'The proposal identifies an owner for each launch milestone.',
+        { exact: true },
+      );
+      await source.focus();
+      await expect(source).toBeFocused();
+      await paragraph.evaluate((node) => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+      });
+      const selection = await page.evaluate(() =>
+        window.getSelection()?.toString(),
+      );
+      expect(selection).toBe(
+        'The proposal identifies an owner for each launch milestone.',
+      );
+      const originalLink = await source.elementHandle();
+      expect(originalLink).not.toBeNull();
+      release();
+      if (outcome === 'arrives') {
+        await expect(message.locator('.workspace-result-facts')).toContainText(
+          'Saved to room files',
+        );
+      } else {
+        await expect(workspace(page)).toContainText(
+          'Initial work activity unavailable.',
+        );
+        await expect(message.locator('.workspace-result-facts')).toHaveCount(0);
+      }
+      await expect(reply).toHaveAttribute('open');
+      await expect(source).toBeFocused();
+      expect(
+        await source.evaluate(
+          (node, original) => node === original,
+          originalLink,
+        ),
+      ).toBe(true);
+      expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(
+        selection,
+      );
+      await expect(reply).toContainText(
+        'The final recommendation remains part of the complete reply.',
+      );
+    } finally {
+      release();
+    }
+  });
+}
 
 test('a delayed source lookup cannot close a newer Automation view or replace its draft', async ({
   page,
@@ -608,7 +716,7 @@ test('failed, cancelled and interrupted work keeps its error and check facts vis
       await expect(
         files.getByRole('button', { name: 'Open proposal.md', exact: true }),
       ).toBeVisible();
-      await expect(files).toContainText('Retained result · not published');
+      await expect(files).toContainText('Saved files · not published');
     } else {
       await expect(result).toContainText('No result files captured');
       await expect(files).toHaveCount(0);
@@ -755,5 +863,192 @@ for (const context of ['room', 'room details', 'thread'] as const) {
       (await (await page.request.get(`/api/rooms/${room.id}/runs`)).json())
         .runs,
     ).toEqual([]);
+  });
+}
+
+test('discussion keeps the complete file count while previewing only the bounded timeline paths', async ({
+  page,
+}, info) => {
+  const files = Array.from({ length: 25 }, (_, index) => ({
+    path: `notes-${String(index + 1).padStart(2, '0')}.md`,
+    status: 'added' as const,
+    before: '',
+    after: `# Note ${index + 1}\nThis full file body belongs only to explicit details.`,
+  }));
+  const { replies, fullRunReads } = await completedWork(
+    page,
+    `bounded-paths-${info.project.name}`,
+    [{ content: 'The complete set of notes is retained.', run: { files } }],
+  );
+  const win = workspace(page);
+  const result = win.locator(`[data-message-id="${replies[0].id}"]`);
+  const details = result.getByRole('button', {
+    name: 'Details · 25 files',
+    exact: true,
+  });
+  await expect(details).toBeVisible();
+  const documents = result.getByRole('region', {
+    name: 'Result files',
+    exact: true,
+  });
+  await expect(
+    documents.getByRole('button', { name: /^Open notes-/ }),
+  ).toHaveCount(3);
+  await documents
+    .getByRole('button', { name: 'Show 20 files', exact: true })
+    .click();
+  await expect(
+    documents.getByRole('button', { name: /^Open notes-/ }),
+  ).toHaveCount(20);
+  await expect(
+    documents.getByRole('button', { name: 'Open notes-25.md', exact: true }),
+  ).toHaveCount(0);
+  await expect(result).not.toContainText(
+    'This full file body belongs only to explicit details.',
+  );
+  expect(fullRunReads).toEqual([]);
+  await details.click();
+  const inspector = win.getByRole('region', {
+    name: 'Work details',
+    exact: true,
+  });
+  await expect(inspector).toBeVisible();
+  expect(fullRunReads).toEqual([]);
+  await inspector.getByRole('tab', { name: /^Files/ }).click();
+  await expect(
+    inspector
+      .locator('.workspace-file-change > summary')
+      .filter({ hasText: 'notes-25.md' }),
+  ).toBeVisible();
+  expect(fullRunReads).toHaveLength(1);
+});
+
+for (const timeline of ['ready', 'pending'] as const) {
+  test(`Ask agent loads frozen sources only on request and preserves their exact versions in the draft (${timeline} timeline)`, async ({
+    page,
+  }, info) => {
+    const frozenCommit = '3'.repeat(40);
+    const resultCommit = '4'.repeat(40);
+    let release = () => {};
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { room, replies, runs, fullRunReads } = await completedWork(
+      page,
+      `lazy-frozen-handoff-${timeline}-${info.project.name}`,
+      [
+        {
+          content: 'The reviewed result should travel with its original brief.',
+          run: {
+            references: [
+              {
+                kind: 'file',
+                resourceId: 'frozen-original-resource',
+                commit: frozenCommit,
+                path: 'original-brief.md',
+                title: 'Original brief',
+              },
+            ],
+            resultCommit,
+            files: [
+              {
+                path: 'result.md',
+                status: 'added',
+                before: '',
+                after: '# Retained result',
+              },
+            ],
+          },
+        },
+      ],
+      timeline === 'pending'
+        ? async (route, runs) => {
+            await waiting;
+            return route.fulfill({
+              json: { items: runs.map(timelineFixture), nextCursor: '' },
+            });
+          }
+        : undefined,
+    );
+    const executionWrites: string[] = [];
+    page.on('request', (request) => {
+      if (
+        request.method() === 'POST' &&
+        /\/api\/rooms\/[^/]+\/(?:messages|tasks)$/.test(
+          new URL(request.url()).pathname,
+        )
+      )
+        executionWrites.push(request.url());
+    });
+    try {
+      const win = workspace(page);
+      const reply = win.locator(`[data-message-id="${replies[0].id}"]`);
+      await expect(
+        reply.getByText(
+          'The reviewed result should travel with its original brief.',
+          { exact: true },
+        ),
+      ).toBeVisible();
+      expect(fullRunReads).toEqual([]);
+      if (timeline === 'pending')
+        await expect(reply.locator('.workspace-result-facts')).toHaveCount(0);
+      const input = win.getByRole('textbox', {
+        name: `Message ${room.name}`,
+        exact: true,
+      });
+      const draft =
+        'Review this against the original brief, retaining my text.';
+      await input.fill(draft);
+      await reply
+        .getByRole('button', { name: 'Ask agent…', exact: true })
+        .click();
+      await expect(
+        win.getByText('Choose a recipient to continue', { exact: true }),
+      ).toBeVisible();
+      await expect(input).toHaveValue(draft);
+      expect(fullRunReads).toEqual([runs[0].id]);
+      if (timeline === 'pending')
+        await expect(reply.locator('.workspace-result-facts')).toHaveCount(0);
+      await expect
+        .poll(async () => {
+          const body = await (
+            await page.request.get(
+              `/api/me/drafts/conversation?key=${room.id}:room`,
+            )
+          ).json();
+          return JSON.parse(body.draft.value?.references || '[]');
+        })
+        .toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              kind: 'file',
+              resourceId: 'frozen-original-resource',
+              commit: frozenCommit,
+              path: 'original-brief.md',
+            }),
+            expect.objectContaining({
+              kind: 'file',
+              resourceId: room.resourceId,
+              commit: resultCommit,
+              path: 'result.md',
+            }),
+            expect.objectContaining({
+              kind: 'message',
+              messageId: replies[0].id,
+            }),
+          ]),
+        );
+      const persisted = await (
+        await page.request.get(`/api/rooms/${room.id}/messages`)
+      ).json();
+      expect(persisted.messages).toHaveLength(1);
+      expect(
+        (await (await page.request.get(`/api/rooms/${room.id}/runs`)).json())
+          .runs,
+      ).toEqual([]);
+      expect(executionWrites).toEqual([]);
+    } finally {
+      release();
+    }
   });
 }

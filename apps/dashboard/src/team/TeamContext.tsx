@@ -60,6 +60,9 @@ interface TeamState {
   name: string;
   members: User[];
   inbox: InboxItem[];
+  inboxLoading: boolean;
+  inboxError: string;
+  retryInbox: () => void;
   attention: AttentionPage | undefined;
   attentionError: string;
   reads: Record<string, number>;
@@ -96,7 +99,16 @@ export function TeamProvider({
   const { user } = useAccount();
   const [name, setName] = useState('Camp');
   const [members, setMembers] = useState<User[]>([]);
-  const [inbox, setInbox] = useState<InboxItem[]>([]);
+  const [inboxSnapshot, setInboxSnapshot] = useState<{
+    userId: string;
+    items: InboxItem[];
+  }>();
+  const [inboxRead, setInboxRead] = useState({
+    userId: '',
+    loading: false,
+    error: '',
+  });
+  const [inboxAttempt, setInboxAttempt] = useState(0);
   const [attentionSnapshot, setAttentionSnapshot] = useState<{
     userId: string;
     page: AttentionPage;
@@ -116,6 +128,10 @@ export function TeamProvider({
   const cursor = useRef(0);
   const readPending = useRef(new Map<string, number>());
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
+  const retryInbox = useCallback(
+    () => setInboxAttempt((value) => value + 1),
+    [],
+  );
   const cancelNavigation = useCallback(() => {
     navigationRequest.current++;
   }, []);
@@ -127,6 +143,39 @@ export function TeamProvider({
     attentionSnapshot?.userId === user.id ? attentionSnapshot.page : undefined;
   const attentionError =
     attentionFailure.userId === user.id ? attentionFailure.message : '';
+  const inbox = useMemo(
+    () => (inboxSnapshot?.userId === user.id ? inboxSnapshot.items : []),
+    [inboxSnapshot, user.id],
+  );
+  const inboxLoading = inboxRead.userId !== user.id || inboxRead.loading;
+  const inboxError = inboxRead.userId === user.id ? inboxRead.error : '';
+  useEffect(() => {
+    const controller = new AbortController();
+    setInboxRead((current) => ({
+      userId: user.id,
+      loading: true,
+      error: current.userId === user.id ? current.error : '',
+    }));
+    void teamApi
+      .inbox(controller.signal)
+      .then(({ items }) => {
+        if (controller.signal.aborted) return;
+        setInboxSnapshot({ userId: user.id, items });
+        setInboxRead({ userId: user.id, loading: false, error: '' });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (error instanceof APIError && [401, 403].includes(error.status))
+          setInboxSnapshot(undefined);
+        setInboxRead({
+          userId: user.id,
+          loading: false,
+          error:
+            error instanceof Error ? error.message : 'Could not load activity.',
+        });
+      });
+    return () => controller.abort();
+  }, [revision, user.id, inboxAttempt]);
   useEffect(() => {
     const controller = new AbortController();
     void attentionApi
@@ -158,15 +207,13 @@ export function TeamProvider({
     const controller = new AbortController();
     void Promise.all([
       teamApi.members(controller.signal),
-      teamApi.inbox(controller.signal),
       teamApi.reads(controller.signal),
       teamApi.team(),
     ])
-      .then(([people, notifications, reading, team]) => {
+      .then(([people, reading, team]) => {
         if (controller.signal.aborted) return;
         setName(team.team.name);
         setMembers(people.members);
-        setInbox(notifications.items);
         setReads((current) =>
           Object.fromEntries(
             reading.reads.map((item) => [
@@ -275,6 +322,9 @@ export function TeamProvider({
       name,
       members,
       inbox,
+      inboxLoading,
+      inboxError,
+      retryInbox,
       attention,
       attentionError,
       reads,
@@ -294,6 +344,9 @@ export function TeamProvider({
       name,
       members,
       inbox,
+      inboxLoading,
+      inboxError,
+      retryInbox,
       attention,
       attentionError,
       reads,

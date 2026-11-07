@@ -363,12 +363,18 @@ func (m *Manager) ListRoomRuns(ctx context.Context, roomID string) ([]storage.Ru
 func (m *Manager) AgentStates(ctx context.Context) (map[string]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	queued, err := m.store.ListQueuedRuns(ctx)
+	items, err := m.store.ListRunStates(ctx)
 	if err != nil {
 		return nil, err
 	}
 	states := make(map[string]string)
-	for _, run := range queued {
+	for _, run := range items {
+		if run.Status != "queued" {
+			continue
+		}
+		if terminal, ok := m.unsaved[run.ID]; ok && !unfinished(terminal.Status) {
+			continue
+		}
 		states[run.AgentID] = "queued"
 	}
 	for _, e := range m.active {

@@ -175,50 +175,17 @@ func (m *Manager) Send(ctx context.Context, room string, input storage.SendMessa
 func (m *Manager) Get(ctx context.Context, id string) (storage.Run, error) {
 	run, err := m.store.GetRun(ctx, id)
 	if err == nil && run.Status == "queued" {
-		switch {
-		case run.RunnerID == "":
-			run.WaitingReason = "Choose a runner and submit a new request."
-		case !m.IsOnline(run.RunnerID):
-			run.WaitingReason = "Waiting for the assigned runner to connect."
-		default:
-			run.WaitingReason = "Waiting for an available execution slot or file writer."
-			if run.TaskID != "" {
-				task, e := m.store.GetTaskState(ctx, run.TaskID)
-				if e != nil {
-					return run, e
-				}
-				if task.InputProtocol == 1 {
-					runner, e := m.store.GetRunner(ctx, run.RunnerID)
-					if e != nil {
-						return run, e
-					}
-					var caps runnerprotocol.Capabilities
-					if e = json.Unmarshal(runner.Capabilities, &caps); e != nil {
-						return run, e
-					}
-					if caps.TaskInputsVersion != 1 {
-						run.WaitingReason = "Update the assigned Runner to process this collaboration's inputs."
-					}
-				}
-			}
-		}
+		run.WaitingReason, err = m.queueReason(ctx, run.RunnerID, run.TaskID)
 	}
 	return run, err
 }
 func (m *Manager) AgentStates(ctx context.Context) (map[string]string, error) {
-	queued, err := m.store.ListQueuedRuns(ctx)
-	if err != nil {
-		return nil, err
-	}
-	active, err := m.store.ListUnfinishedRuns(ctx)
+	items, err := m.store.ListRunStates(ctx)
 	if err != nil {
 		return nil, err
 	}
 	states := map[string]string{}
-	for _, r := range queued {
-		states[r.AgentID] = "queued"
-	}
-	for _, r := range active {
+	for _, r := range items {
 		states[r.AgentID] = r.Status
 	}
 	return states, nil
@@ -286,13 +253,18 @@ func (m *Manager) Readiness(ctx context.Context) (configuration.Readiness, error
 		return configuration.Readiness{}, err
 	}
 	ready := 0
+	upgradeReasoning := 0
 	firstTask := configuration.Diagnostic{Status: "unknown", Detail: "No successful native task has been recorded. Installation self-tests and fixture tasks do not verify model-backed native work."}
 	lastSelfTest := ""
 	for _, r := range runners {
 		var c runnerprotocol.Capabilities
 		_ = json.Unmarshal(r.Capabilities, &c)
 		if r.Online && r.Enabled && !r.Revoked && c.Ready {
-			ready++
+			if model.ReasoningEffort != "" && c.ReasoningEffortVersion != 1 {
+				upgradeReasoning++
+			} else {
+				ready++
+			}
 			if c.Readiness != nil && c.Readiness.CheckedAt > lastSelfTest {
 				lastSelfTest = c.Readiness.CheckedAt
 			}
@@ -304,6 +276,9 @@ func (m *Manager) Readiness(ctx context.Context) (configuration.Readiness, error
 		}
 	}
 	runnerState, runnerDetail := "missing", "Connect an execution machine in Runners."
+	if upgradeReasoning > 0 {
+		runnerDetail = "Update a connected Runner to use the configured reasoning setting."
+	}
 	if ready > 0 {
 		runnerState, runnerDetail = "ready", "Connected Runners report execution ready. Agent routing and access are checked separately when work is submitted."
 	}

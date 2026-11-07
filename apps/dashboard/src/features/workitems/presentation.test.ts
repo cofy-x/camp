@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { workItemOverviewFallback, workItemStatus } from './presentation';
+import {
+  workItemOverviewFallback,
+  workItemQuestion,
+  workItemStatus,
+} from './presentation';
 
 type PresentedWork = Parameters<typeof workItemStatus>[0];
 
@@ -87,6 +91,49 @@ describe('work result status', () => {
       },
       expected: 'Working',
     },
+    ...[
+      ['queued', 'Queued'],
+      ['needs_attention', 'Needs attention'],
+      ['waiting_for_person', 'Needs your answer'],
+      ['interrupted', 'Interrupted'],
+      ['publishing', 'Saving to Room files'],
+      ['cancelling', 'Stopping'],
+    ].map(([status, expected]) => ({
+      name: `matching current task is ${status} while the matter is running`,
+      changes: {
+        status: 'running',
+        activeTaskId: 'latest-task',
+        execution: { ...ready.execution!, status },
+      },
+      expected,
+    })),
+    {
+      name: 'an unrelated historical failure cannot replace current work',
+      changes: {
+        status: 'running',
+        activeTaskId: 'current-task',
+        execution: {
+          ...ready.execution!,
+          status: 'needs_attention',
+          error: 'An earlier attempt failed.',
+        },
+      },
+      expected: 'Working',
+    },
+    ...['completed', 'cancelled', 'stopping'].map((status) => ({
+      name: `${status} matter takes precedence over a paused task`,
+      changes: {
+        status,
+        activeTaskId: 'latest-task',
+        execution: { ...ready.execution!, status: 'needs_attention' },
+      },
+      expected:
+        status === 'completed'
+          ? 'Completed'
+          : status === 'cancelled'
+            ? 'Cancelled'
+            : 'Stopping',
+    })),
     {
       name: 'failed latest work cannot make retained files ready',
       changes: {
@@ -172,6 +219,56 @@ describe('work result status', () => {
     },
   ])('$name', ({ changes, expected }) => {
     expect(workItemStatus({ ...ready, ...changes })).toBe(expected);
+  });
+});
+
+describe('current work question', () => {
+  const waiting: PresentedWork = {
+    ...ready,
+    status: 'running',
+    activeTaskId: 'latest-task',
+    execution: {
+      ...ready.execution!,
+      status: 'waiting_for_person',
+      question: { id: 'q', text: 'Which date?', options: [], answer: '' },
+    },
+  };
+
+  it('shows the unanswered question from the matching current task', () => {
+    expect(workItemQuestion(waiting)).toBe('Which date?');
+  });
+
+  it('retains the current task question ahead of a matter judgment', () => {
+    expect(workItemQuestion({ ...waiting, question: 'Which customer?' })).toBe(
+      'Which date?',
+    );
+  });
+
+  it('shows a matter judgment when no current task question applies', () => {
+    expect(
+      workItemQuestion({
+        ...waiting,
+        activeTaskId: undefined,
+        question: 'Which customer?',
+      }),
+    ).toBe('Which customer?');
+  });
+
+  it.each<Partial<PresentedWork>>([
+    { activeTaskId: undefined },
+    { activeTaskId: 'different-task' },
+    { execution: { ...waiting.execution!, status: 'running' } },
+    {
+      execution: {
+        ...waiting.execution!,
+        question: { ...waiting.execution!.question!, answer: 'Tuesday' },
+      },
+    },
+    { status: 'completed' },
+    { status: 'cancelled' },
+    { status: 'stopping' },
+  ])('does not show a historical or resolved question: %j', (changes) => {
+    expect(workItemQuestion({ ...waiting, ...changes })).toBeUndefined();
   });
 });
 

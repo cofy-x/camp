@@ -77,7 +77,11 @@ func (a *API) taskRoutes(mux *http.ServeMux) {
 		}
 		if summary {
 			task, err := a.store.GetTaskState(r.Context(), r.PathValue("id"))
-			a.respond(w, r, map[string]any{"task": taskView(task, true)}, err)
+			var recovery *storage.TaskRecoveryRun
+			if err == nil {
+				recovery, err = a.store.TaskRecoveryCandidate(r.Context(), task.ID)
+			}
+			a.respond(w, r, map[string]any{"task": taskView(task, true), "recoveryRun": recovery}, err)
 			return
 		}
 		task, err := a.store.GetTask(r.Context(), r.PathValue("id"))

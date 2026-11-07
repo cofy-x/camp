@@ -194,7 +194,7 @@ func (e *Executor) Execute(ctx context.Context, input Request, emit Emit) (resul
 					case <-stopWatch:
 					}
 				}()
-				code, runErr := dsh.Run(ctx, cmd, dsh.Config{Model: input.Model, MaxTokens: input.MaxTokens, MaxSteps: input.MaxSteps, Resume: input.Resume, Cwd: active.Directory()}, input.SessionID, input.Prompt, func(event dsh.Event) error { return record(event.Type, event.Text) })
+				code, runErr := dsh.Run(ctx, cmd, dsh.Config{Model: input.Model, ReasoningEffort: input.ReasoningEffort, MaxTokens: input.MaxTokens, MaxSteps: input.MaxSteps, Resume: input.Resume, Cwd: active.Directory()}, input.SessionID, input.Prompt, func(event dsh.Event) error { return record(event.Type, event.Text) })
 				close(stopWatch)
 				cleanupErr := finishCommand()
 				if cleanupErr != nil {

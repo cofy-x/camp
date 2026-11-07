@@ -11,6 +11,7 @@ import { AssistantContent } from '../workspace/AssistantContent';
 import { TaskHistory } from './TaskHistory';
 import { useTaskController } from './useTaskController';
 import { TaskAutomation } from '../automation/TaskAutomation';
+import { TaskAllowanceNotice } from './TaskAllowanceNotice';
 
 function TaskGoal({ goal }: { goal: string }) {
   const id = useId();
@@ -86,8 +87,14 @@ export function TaskDetail({
     setContinueOpen,
     fromLatest,
     setFromLatest,
+    fromRunId,
+    setFromRunId,
+    recoveryRun,
+    recoveryLoaded,
     refreshRoutes,
     setRefreshRoutes,
+    refreshModelSettings,
+    setRefreshModelSettings,
     addTurns,
     setAddTurns,
     addModelRequests,
@@ -109,6 +116,12 @@ export function TaskDetail({
     cancel,
   } = useTaskController(id, desktop);
   const mutationLocked = pending || retryAvailable;
+  const invalidStartingFiles = Boolean(
+    fromRunId &&
+    recoveryLoaded &&
+    recoveryRun?.runId !== fromRunId &&
+    !retryAvailable,
+  );
   const currentAgent = task?.participants.find(
     ({ agent }) => agent.id === task.currentAgentId,
   )?.agent;
@@ -164,6 +177,7 @@ export function TaskDetail({
             disabled={
               mutationLocked ||
               !content.trim() ||
+              invalidStartingFiles ||
               (continueOpen && invalidParticipants)
             }
           >
@@ -233,6 +247,7 @@ export function TaskDetail({
               )}
             </p>
           </header>
+          <TaskAllowanceNotice task={task} canContinue={Boolean(canContinue)} />
           {task.error && (
             <p className="app-error" role="alert">
               {task.error}
@@ -362,6 +377,20 @@ export function TaskDetail({
                 </label>
               </div>
               <Checkbox
+                label="Use current model settings"
+                checked={refreshModelSettings}
+                disabled={mutationLocked || Boolean(task.activeRunId)}
+                onChange={(event) =>
+                  setRefreshModelSettings(event.target.checked)
+                }
+              />
+              {refreshModelSettings && (
+                <p className="workspace-description">
+                  New work uses the current model, reasoning and per-request
+                  limits. Earlier executions keep their settings.
+                </p>
+              )}
+              <Checkbox
                 label="Change participants or Runners"
                 checked={refreshRoutes}
                 disabled={mutationLocked || Boolean(task.activeRunId)}
@@ -457,12 +486,66 @@ export function TaskDetail({
                   )}
                 </div>
               )}
-              <Checkbox
-                label="Continue from latest Room files"
-                checked={fromLatest}
+              <Select
+                label="Starting files"
+                value={
+                  fromRunId
+                    ? `run:${fromRunId}`
+                    : fromLatest
+                      ? 'latest'
+                      : 'draft'
+                }
                 disabled={mutationLocked}
-                onChange={(event) => setFromLatest(event.target.checked)}
-              />
+                onChange={(event) => {
+                  setFromLatest(event.target.value === 'latest');
+                  setFromRunId(
+                    event.target.value.startsWith('run:')
+                      ? event.target.value.slice(4)
+                      : '',
+                  );
+                }}
+              >
+                <option value="draft">Task draft</option>
+                {recoveryRun && (
+                  <option value={`run:${recoveryRun.runId}`}>
+                    Saved work from last attempt
+                  </option>
+                )}
+                {fromRunId && recoveryRun?.runId !== fromRunId && (
+                  <option value={`run:${fromRunId}`} disabled>
+                    Saved work from selected attempt
+                  </option>
+                )}
+                <option value="latest">Latest Room files</option>
+              </Select>
+              {invalidStartingFiles && (
+                <p className="app-error" role="alert">
+                  The selected saved work is no longer available. Choose
+                  starting files again.
+                </p>
+              )}
+              {fromRunId && !invalidStartingFiles && (
+                <div>
+                  <p className="workspace-description">
+                    Continue with partial files from the failed attempt. Checks
+                    have not passed; Room files stay unchanged.
+                  </p>
+                  {recoveryRun?.runId === fromRunId && recoveryRun.commit && (
+                    <Button
+                      onClick={() =>
+                        void team.navigate({
+                          app: 'library',
+                          resourceId: task.resourceId,
+                          commit: recoveryRun.commit,
+                          contextRoomId: task.roomId,
+                        })
+                      }
+                    >
+                      Review Saved Files
+                    </Button>
+                  )}
+                </div>
+              )}
               {fromLatest && (
                 <p>
                   Start a new draft from current Room files. The previous task

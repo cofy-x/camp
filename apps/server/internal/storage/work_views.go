@@ -10,68 +10,37 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
 
+// populateWorkView reads only display facts from related Tasks and the exact
+// saved-result Run. Original inputs, instructions, output and file bytes remain
+// behind their explicit detail readers.
 func populateWorkView(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem) error {
 	w.Execution, w.Result = nil, nil
-	var task CollaborationTask
-	var err error
-	if w.ActiveTaskID != "" {
-		task, err = getTask(ctx, q, w.ActiveTaskID)
-	} else {
-		var raw string
-		raw, err = q.LatestWorkTask(ctx, w.ID)
-		if err == nil {
-			task, err = taskSnapshot(raw)
-		}
-	}
+	raw, err := q.WorkExecutionView(ctx, sqlgen.WorkExecutionViewParams{ActiveTaskID: w.ActiveTaskID, WorkItemID: w.ID})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if err == nil && task.ID != "" {
-		execution := &orchestration.WorkExecution{TaskID: task.ID, Status: task.Status, Revision: task.Revision, Summary: task.Summary, Error: task.Error, ActiveRunID: task.ActiveRunID, UpdatedAt: task.UpdatedAt}
-		for _, participant := range task.Participants {
-			if participant.Agent.ID == task.CurrentAgentID {
-				execution.CurrentAgentName = participant.Agent.Name
-				break
-			}
-		}
-		if task.Question != nil {
-			execution.Question = &orchestration.WorkTaskQuestion{ID: task.Question.ID, Text: task.Question.Text, Options: append([]string{}, task.Question.Options...), Answer: task.Question.Answer}
-		}
-		w.Execution = execution
+	if errors.Is(err, sql.ErrNoRows) && w.ActiveTaskID != "" {
+		return missing(err, "The collaboration")
 	}
-	raw, err := q.LatestWorkResultTask(ctx, w.ID)
+	if err == nil {
+		var execution orchestration.WorkExecution
+		if err = json.Unmarshal([]byte(raw), &execution); err != nil {
+			return err
+		}
+		w.Execution = &execution
+	}
+	raw, err = q.WorkResultView(ctx, w.ID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	task, err = taskSnapshot(raw)
-	if err != nil {
+	var result orchestration.WorkResult
+	if err = json.Unmarshal([]byte(raw), &result); err != nil {
 		return err
 	}
-	result := &orchestration.WorkResult{TaskID: task.ID, Summary: task.Summary, ResourceID: task.ResourceID, Commit: task.CheckpointCommit, Files: []orchestration.WorkResultFile{}}
-	if task.PublishedCommit != "" {
-		result.Commit, result.Published = task.PublishedCommit, true
-	}
-	runRaw, err := q.WorkResultRun(ctx, sqlgen.WorkResultRunParams{TaskID: task.ID, CommitID: result.Commit})
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	if err == nil {
-		var run Run
-		if err = json.Unmarshal([]byte(runRaw), &run); err != nil {
-			return err
-		}
-		for index, file := range run.Files {
-			if index == 20 {
-				result.FilesLimited = true
-				break
-			}
-			result.Files = append(result.Files, orchestration.WorkResultFile{Path: file.Path, Status: file.Status})
-		}
-	}
-	w.Result = result
+	w.Result = &result
 	return nil
 }
 

@@ -18,12 +18,13 @@ import (
 )
 
 type Model struct {
-	Model          string `json:"model"`
-	BaseURL        string `json:"baseUrl"`
-	APIKey         string `json:"-"`
-	MaxTokens      int    `json:"maxTokens"`
-	MaxSteps       int    `json:"maxSteps"`
-	TimeoutSeconds int    `json:"timeoutSeconds"`
+	Model           string `json:"model"`
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+	BaseURL         string `json:"baseUrl"`
+	APIKey          string `json:"-"`
+	MaxTokens       int    `json:"maxTokens"`
+	MaxSteps        int    `json:"maxSteps"`
+	TimeoutSeconds  int    `json:"timeoutSeconds"`
 }
 
 type Overrides struct{ Environment, EnvFile map[string]string }
@@ -38,13 +39,14 @@ type View struct {
 	Fields           map[string]Field `json:"fields"`
 }
 type Update struct {
-	Model          *string `json:"model,omitempty"`
-	BaseURL        *string `json:"baseUrl,omitempty"`
-	APIKey         *string `json:"apiKey,omitempty"`
-	ClearAPIKey    bool    `json:"clearApiKey,omitempty"`
-	MaxTokens      *int    `json:"maxTokens,omitempty"`
-	MaxSteps       *int    `json:"maxSteps,omitempty"`
-	TimeoutSeconds *int    `json:"timeoutSeconds,omitempty"`
+	Model           *string `json:"model,omitempty"`
+	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
+	BaseURL         *string `json:"baseUrl,omitempty"`
+	APIKey          *string `json:"apiKey,omitempty"`
+	ClearAPIKey     bool    `json:"clearApiKey,omitempty"`
+	MaxTokens       *int    `json:"maxTokens,omitempty"`
+	MaxSteps        *int    `json:"maxSteps,omitempty"`
+	TimeoutSeconds  *int    `json:"timeoutSeconds,omitempty"`
 }
 type Error struct{ Code, Message string }
 
@@ -70,7 +72,7 @@ type Models struct {
 	versions  map[string]Model
 }
 
-var fields = []string{"apiKey", "baseUrl", "model", "maxTokens", "maxSteps", "timeoutSeconds"}
+var fields = []string{"apiKey", "baseUrl", "model", "reasoningEffort", "maxTokens", "maxSteps", "timeoutSeconds"}
 
 func Defaults() Model {
 	return Model{Model: "deepseek-v4-pro", BaseURL: "https://api.deepseek.com/anthropic", MaxTokens: 4096, MaxSteps: 8, TimeoutSeconds: 180}
@@ -121,7 +123,7 @@ func Open(directory string, defaults Model, overrides Overrides) (*Models, error
 }
 
 func (m *Models) resolve(managed map[string]string) (Model, map[string]Field, error) {
-	values := map[string]string{"apiKey": m.defaults.APIKey, "baseUrl": m.defaults.BaseURL, "model": m.defaults.Model, "maxTokens": strconv.Itoa(m.defaults.MaxTokens), "maxSteps": strconv.Itoa(m.defaults.MaxSteps), "timeoutSeconds": strconv.Itoa(m.defaults.TimeoutSeconds)}
+	values := map[string]string{"apiKey": m.defaults.APIKey, "baseUrl": m.defaults.BaseURL, "model": m.defaults.Model, "reasoningEffort": m.defaults.ReasoningEffort, "maxTokens": strconv.Itoa(m.defaults.MaxTokens), "maxSteps": strconv.Itoa(m.defaults.MaxSteps), "timeoutSeconds": strconv.Itoa(m.defaults.TimeoutSeconds)}
 	metadata := map[string]Field{}
 	for _, key := range fields {
 		metadata[key] = Field{Source: "default"}
@@ -138,13 +140,16 @@ func (m *Models) resolve(managed map[string]string) (Model, map[string]Field, er
 			metadata[key] = Field{Source: "environment", Overridden: true}
 		}
 	}
-	result := Model{APIKey: values["apiKey"], BaseURL: values["baseUrl"], Model: values["model"]}
+	result := Model{APIKey: values["apiKey"], BaseURL: values["baseUrl"], Model: values["model"], ReasoningEffort: values["reasoningEffort"]}
 	result.MaxTokens, _ = strconv.Atoi(values["maxTokens"])
 	result.MaxSteps, _ = strconv.Atoi(values["maxSteps"])
 	result.TimeoutSeconds, _ = strconv.Atoi(values["timeoutSeconds"])
 	return result, metadata, validate(result)
 }
 func validate(m Model) error {
+	if !ValidReasoningEffort(m.ReasoningEffort) {
+		return &Error{"invalid_settings", "Choose provider default, off, low, high or max reasoning effort."}
+	}
 	for _, value := range []string{m.APIKey, m.BaseURL, m.Model} {
 		if !utf8.ValidString(value) || strings.ContainsAny(value, "\x00\r\n") || len(value) > 8192 {
 			return &Error{"invalid_settings", "Model settings must be bounded, single-line UTF-8 values."}
@@ -184,7 +189,7 @@ func (m *Models) Update(input Update) (View, error) {
 		return View{}, &Error{"invalid_settings", "Replace or clear the model key, not both."}
 	}
 	edits := map[string]string{}
-	for key, value := range map[string]*string{"model": input.Model, "baseUrl": input.BaseURL, "apiKey": input.APIKey} {
+	for key, value := range map[string]*string{"model": input.Model, "baseUrl": input.BaseURL, "apiKey": input.APIKey, "reasoningEffort": input.ReasoningEffort} {
 		if value != nil {
 			edits[key] = *value
 		}

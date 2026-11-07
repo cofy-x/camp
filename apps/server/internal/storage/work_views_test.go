@@ -2,13 +2,79 @@ package storage
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/cofy-x/camp/apps/server/internal/orchestration"
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
+
+func TestWorkViewReadsMetadataWithoutFrozenContentAndKeepsExactFacts(t *testing.T) {
+	s, actor, _, room, writer, _ := taskFixture(t)
+	w := createTestWork(t, s, actor, room)
+	w = decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{Kind: "execute", ParticipantAgentIDs: []string{writer.ID}, FirstAgentID: writer.ID})
+	task, err := s.GetTaskState(actor, w.ActiveTaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enableTaskInputs(t, s, task.Participants[0].RunnerID)
+	commit := strings.Repeat("b", 40)
+	run, _ := finishTaskTestRound(t, s, task, commit, CoordinationIntent{CallID: newID(), Kind: "ask_person", Question: "Which scope?", Options: []string{"Small", "Large"}})
+	task, err = s.GetTaskState(actor, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Summary, task.Error = "Saved a first draft.", "A current execution detail."
+	task.Participants[0].Agent.Instructions = strings.Repeat("PRIVATE_INSTRUCTIONS", 4000)
+	task.References = []Reference{{Kind: "message", Content: strings.Repeat("PRIVATE_REFERENCE", 4000)}}
+	run.Output = strings.Repeat("PRIVATE_OUTPUT", 18000)
+	for index := range 25 {
+		run.Files = append(run.Files, RunFile{Path: fmt.Sprintf("src/%02d.txt", index), Status: "added", After: strings.Repeat("PRIVATE_FILE", 1000)})
+	}
+	if err = s.transaction(actor, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		if err := saveRun(actor, q, run); err != nil {
+			return err
+		}
+		return saveTask(actor, q, &task)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	taskBefore, _ := s.queries().GetTask(actor, task.ID)
+	runBefore, _ := s.queries().GetRun(actor, run.ID)
+	executionRaw, err := s.queries().WorkExecutionView(actor, sqlgen.WorkExecutionViewParams{ActiveTaskID: task.ID, WorkItemID: w.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultRaw, err := s.queries().WorkResultView(actor, w.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(executionRaw)+len(resultRaw) > 4096 || strings.Contains(executionRaw+resultRaw, "PRIVATE_") {
+		t.Fatal("metadata read returned frozen content", len(executionRaw), len(resultRaw))
+	}
+	want := orchestration.WorkExecution{TaskID: task.ID, Status: task.Status, Revision: task.Revision, Summary: task.Summary, Error: task.Error, CurrentAgentName: writer.Name, ActiveRunID: task.ActiveRunID, UpdatedAt: task.UpdatedAt, Question: &orchestration.WorkTaskQuestion{ID: task.Question.ID, Text: task.Question.Text, Options: task.Question.Options, Answer: task.Question.Answer}}
+	detail, err := s.GetWorkItem(actor, w.ID)
+	if err != nil || !reflect.DeepEqual(detail.Execution, &want) || detail.Result == nil || detail.Result.Commit != commit || detail.Result.Published || len(detail.Result.Files) != 20 || !detail.Result.FilesLimited || detail.Result.Files[19].Path != "src/19.txt" {
+		t.Fatal("targeted projection changed current facts", detail.Execution, detail.Result, err)
+	}
+	list, err := s.ListWorkItems(actor, WorkListOptions{Scope: "team", View: "all"})
+	if err != nil || len(list.Items) != 1 || !reflect.DeepEqual(list.Items[0].Execution, detail.Execution) || !reflect.DeepEqual(list.Items[0].Result, detail.Result) {
+		t.Fatal("list and detail diverged", list, err)
+	}
+	raw, _ := json.Marshal(list)
+	if strings.Contains(string(raw), "PRIVATE_") {
+		t.Fatal("frozen content escaped the Work list")
+	}
+	taskAfter, _ := s.queries().GetTask(actor, task.ID)
+	runAfter, _ := s.queries().GetRun(actor, run.ID)
+	if taskBefore != taskAfter || runBefore != runAfter {
+		t.Fatal("display reads modified frozen originals")
+	}
+}
 
 func TestWorkViewPinsResultAndAnswersAtTheMatter(t *testing.T) {
 	s, admin, _, room, writer, _ := taskFixture(t)

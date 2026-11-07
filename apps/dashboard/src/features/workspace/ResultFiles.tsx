@@ -1,14 +1,15 @@
 import { useCallback, useRef, useState } from 'react';
 import { Button, PixelIcon } from '@cofy-x/camp-platinum';
-import type { Reference, Run } from './api';
+import type { Reference, RunTimeline } from './api';
 import { FilePreview } from './FilePreview';
 import { useTeam } from '../../team/TeamContext';
+import { isTaskDraftResult } from './runPresentation';
 
 export function ResultFiles({
   run,
   onReference,
 }: {
-  run: Run;
+  run: RunTimeline;
   onReference: (reference: Reference) => void;
 }) {
   const team = useTeam();
@@ -51,9 +52,9 @@ export function ResultFiles({
                 <small>
                   {run.published
                     ? 'Saved version'
-                    : run.taskId
+                    : isTaskDraftResult(run)
                       ? 'Task draft · not published'
-                      : 'Retained result · not published'}
+                      : 'Saved files · not published'}
                 </small>
               </span>
               <span className="workspace-document-action">
@@ -91,7 +92,9 @@ export function ResultFiles({
       })}
       {files.length > 3 && (
         <Button onClick={() => setAll(!all)}>
-          {all ? 'Show fewer files' : `Show all ${files.length} files`}
+          {all
+            ? 'Show fewer files'
+            : `Show ${run.filesLimited ? '' : 'all '}${files.length} files`}
         </Button>
       )}
     </section>

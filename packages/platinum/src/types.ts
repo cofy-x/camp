@@ -56,6 +56,8 @@ export interface MenuItem {
   disabled?: boolean;
   checked?: boolean;
   shortcut?: string;
+  href?: string;
+  download?: boolean | string;
   action?: () => void;
   children?: MenuItem[];
 }

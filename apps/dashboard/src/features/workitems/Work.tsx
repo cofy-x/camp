@@ -9,7 +9,7 @@ import { WorkItemForm } from './WorkItemForm';
 import { TaskDetail } from '../collaboration/TaskDetail';
 import { RunInspector } from '../workspace/RunInspector';
 import { useWorkController, type WorkView } from './useWorkController';
-import { workItemStatus } from './presentation';
+import { workItemQuestion, workItemStatus } from './presentation';
 import { AttentionList } from '../attention/AttentionList';
 import './workitems.css';
 
@@ -139,10 +139,7 @@ export function Work(props: AppWindowProps) {
                     >
                       <span className="work-item-row-title">{item.goal}</span>
                       <span>
-                        {item.execution?.question &&
-                        !item.execution.question.answer
-                          ? item.execution.question.text
-                          : item.question || workItemStatus(item)}
+                        {workItemQuestion(item) || workItemStatus(item)}
                       </span>
                       {(!work.roomFilter || item.dueAt) && (
                         <small className="work-item-row-context">
@@ -214,17 +211,19 @@ export function Work(props: AppWindowProps) {
                   <Button onClick={work.showList}>Back to Work</Button>
                 </div>
               )}
-              {context && (
+              {selection.roomId && (
                 <WorkItemDetail
                   key={selection.id}
                   id={selection.id}
                   initialRequest={selection.request}
-                  members={context.members}
-                  policies={context.policies}
+                  members={context?.members ?? []}
+                  policies={context?.policies ?? []}
+                  contextReady={Boolean(context)}
                   defaultAgentId={defaultAgentId}
                   availability={work.availability}
                   onBack={work.showList}
                   onOpenTask={work.openTask}
+                  onViewProgress={work.viewProgress}
                   onOpenRoom={openRoom}
                 />
               )}
@@ -237,17 +236,9 @@ export function Work(props: AppWindowProps) {
           {work.contextError && (
             <p className="app-error" role="alert">
               {work.contextError}{' '}
-              <Button onClick={work.refresh}>Retry Room settings</Button>
+              <Button onClick={work.retryContext}>Retry Room settings</Button>
             </p>
           )}
-          {work.activeRoomId &&
-            !context &&
-            !inspection.taskId &&
-            selection.kind === 'item' && (
-              <div className="app-actions">
-                <Button onClick={work.showList}>Back to Work</Button>
-              </div>
-            )}
           {inspection.taskId && !work.inspectionReady && (
             <div className="work-item-detail">
               <div className="workspace-panel-heading">
@@ -260,34 +251,48 @@ export function Work(props: AppWindowProps) {
               {work.taskError ? (
                 <p className="app-error" role="alert">
                   {work.taskError}{' '}
-                  <Button onClick={work.refresh}>Retry collaboration</Button>
+                  <Button onClick={work.refresh}>
+                    {inspection.fromItem
+                      ? 'Retry progress'
+                      : 'Retry collaboration'}
+                  </Button>
                 </p>
               ) : (
-                <p role="status">Loading collaboration…</p>
+                <p role="status">
+                  {inspection.fromItem
+                    ? 'Loading progress…'
+                    : 'Loading collaboration…'}
+                </p>
               )}
             </div>
           )}
-          {inspection.taskId && work.inspectionReady && (
-            <div hidden={Boolean(inspection.runId)}>
-              <TaskDetail
-                key={inspection.taskId}
-                id={inspection.taskId}
-                desktop={props.desktop}
-                backLabel={
-                  selection.kind === 'item'
-                    ? 'Back to Work Item'
-                    : 'Back to Work'
-                }
-                onClose={work.closeTask}
-                onInspect={work.inspectRun}
-              />
-            </div>
-          )}
+          {inspection.taskId &&
+            work.inspectionReady &&
+            !inspection.fromItem && (
+              <div hidden={Boolean(inspection.runId)}>
+                <TaskDetail
+                  key={inspection.taskId}
+                  id={inspection.taskId}
+                  desktop={props.desktop}
+                  backLabel={
+                    selection.kind === 'item'
+                      ? 'Back to Work Item'
+                      : 'Back to Work'
+                  }
+                  onClose={work.closeTask}
+                  onInspect={work.inspectRun}
+                />
+              </div>
+            )}
           {inspection.runId && work.inspectionReady && (
             <RunInspector
               key={inspection.runId}
               id={inspection.runId}
-              backLabel="Back to Collaboration"
+              backLabel={
+                inspection.fromItem
+                  ? 'Back to Work Item'
+                  : 'Back to Collaboration'
+              }
               onClose={work.closeRun}
               onOpenTask={work.openTask}
               onReference={(reference) =>
