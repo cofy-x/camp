@@ -105,7 +105,10 @@ export function Workspace({ window, desktop }: AppWindowProps) {
       panel === 'chat' &&
       workspace.conversationComplete
     )
-      team.readRoom(room.id, workspace.conversationReadSeq);
+      team.readRoom(
+        room.id,
+        Math.min(room.lastMessageSeq, workspace.conversationReadSeq),
+      );
   }, [
     focused,
     room,

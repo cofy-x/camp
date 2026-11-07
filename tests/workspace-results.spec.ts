@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Route } from '@playwright/test';
 import type {
   Agent,
   Message,
@@ -36,6 +36,7 @@ async function completedWork(
   page: Page,
   name: string,
   fixtures: ResultFixture[],
+  timeline?: (route: Route, runs: Run[]) => Promise<void>,
 ) {
   const room = await createRoom(page, `${name}-${randomUUID().slice(0, 8)}`);
   const reload = () => errors.get(page)!.reload();
@@ -131,9 +132,11 @@ async function completedWork(
     return message ? route.fulfill({ json: { message } }) : route.continue();
   });
   await page.route(`**/api/rooms/${room.id}/runs?view=timeline*`, (route) =>
-    route.fulfill({
-      json: { items: runs.map(timelineFixture), nextCursor: '' },
-    }),
+    timeline
+      ? timeline(route, runs)
+      : route.fulfill({
+          json: { items: runs.map(timelineFixture), nextCursor: '' },
+        }),
   );
   const fullRunReads: string[] = [];
   for (const run of runs) {
@@ -167,18 +170,15 @@ for (const outcome of ['arrives', 'fails'] as const) {
   test(`initial work metadata ${outcome} without replacing an expanded reply, its selection or focused link`, async ({
     page,
   }, info) => {
-    const { room, replies, runs, reload } = await completedWork(
-      page,
-      `initial-metadata-${outcome}-${info.project.name}`,
-      [{ content: longReply, run: { published: true } }],
-    );
     let release!: () => void;
     const waiting = new Promise<void>((resolve) => {
       release = resolve;
     });
-    await page.route(
-      `**/api/rooms/${room.id}/runs?view=timeline*`,
-      async (route) => {
+    const { replies } = await completedWork(
+      page,
+      `initial-metadata-${outcome}-${info.project.name}`,
+      [{ content: longReply, run: { published: true } }],
+      async (route, runs) => {
         await waiting;
         return outcome === 'arrives'
           ? route.fulfill({
@@ -191,7 +191,6 @@ for (const outcome of ['arrives', 'fails'] as const) {
       },
     );
     try {
-      await reload();
       const message = workspace(page).locator(
         `[data-message-id="${replies[0].id}"]`,
       );
@@ -209,6 +208,8 @@ for (const outcome of ['arrives', 'fails'] as const) {
         'The proposal identifies an owner for each launch milestone.',
         { exact: true },
       );
+      await source.focus();
+      await expect(source).toBeFocused();
       await paragraph.evaluate((node) => {
         const range = document.createRange();
         range.selectNodeContents(node);
@@ -216,8 +217,6 @@ for (const outcome of ['arrives', 'fails'] as const) {
         selection.removeAllRanges();
         selection.addRange(range);
       });
-      await source.focus();
-      await expect(source).toBeFocused();
       const selection = await page.evaluate(() =>
         window.getSelection()?.toString(),
       );
@@ -919,7 +918,11 @@ for (const timeline of ['ready', 'pending'] as const) {
   }, info) => {
     const frozenCommit = '3'.repeat(40);
     const resultCommit = '4'.repeat(40);
-    const { room, replies, runs, fullRunReads, reload } = await completedWork(
+    let release = () => {};
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { room, replies, runs, fullRunReads } = await completedWork(
       page,
       `lazy-frozen-handoff-${timeline}-${info.project.name}`,
       [
@@ -947,23 +950,15 @@ for (const timeline of ['ready', 'pending'] as const) {
           },
         },
       ],
+      timeline === 'pending'
+        ? async (route, runs) => {
+            await waiting;
+            return route.fulfill({
+              json: { items: runs.map(timelineFixture), nextCursor: '' },
+            });
+          }
+        : undefined,
     );
-    let release = () => {};
-    if (timeline === 'pending') {
-      const waiting = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      await page.route(
-        `**/api/rooms/${room.id}/runs?view=timeline*`,
-        async (route) => {
-          await waiting;
-          return route.fulfill({
-            json: { items: runs.map(timelineFixture), nextCursor: '' },
-          });
-        },
-      );
-      await reload();
-    }
     const executionWrites: string[] = [];
     page.on('request', (request) => {
       if (
