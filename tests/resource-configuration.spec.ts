@@ -77,23 +77,26 @@ test('a stale configuration save preserves edits and requires an explicit confli
   const baseline = (
     await (await page.request.get(`/api/resources/${room.resourceId}`)).json()
   ).resource;
+  const libraryBaseline = await (await page.request.get('/api/library')).json();
   // Keep both browser read paths stale while an independent client saves.
   // Otherwise the detail refresh can detect the conflict before any PATCH,
   // and this database-CAS case would wait for a request the UI correctly blocks.
-  let release!: () => void;
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+  let staleReads = true;
   await page.route('**/api/library', async (route) => {
-    const response = await route.fetch();
-    await held;
-    await route.fulfill({ response });
+    if (!staleReads) return route.continue();
+    await route.fulfill({ json: libraryBaseline });
   });
   await page.route(`**/api/resources/${room.resourceId}`, async (route) => {
-    if (route.request().method() !== 'GET') return route.continue();
-    const response = await route.fetch();
-    await held;
-    await route.fulfill({ response });
+    if (route.request().method() === 'PATCH' && staleReads) {
+      // Switch reads before delivering the actual storage response, so the
+      // conflict recovery always sees the independently saved configuration.
+      const response = await route.fetch();
+      staleReads = false;
+      return route.fulfill({ response });
+    }
+    if (route.request().method() === 'GET' && staleReads)
+      return route.fulfill({ json: { resource: baseline } });
+    return route.continue();
   });
   try {
     const saved = await mutate(
@@ -118,9 +121,6 @@ test('a stale configuration save preserves edits and requires an explicit confli
       .getByRole('button', { name: 'Save Environment', exact: true })
       .click();
     expect((await conflict).status()).toBe(409);
-    // The stale write has now reached storage. Let the conflict recovery read
-    // retrieve the saved version for comparison without releasing our draft.
-    release();
     await expect(
       panel.getByRole('button', { name: 'Keep My Edits', exact: true }),
     ).toBeVisible();
@@ -158,7 +158,6 @@ test('a stale configuration save preserves edits and requires an explicit confli
         .runs,
     ).toEqual([]);
   } finally {
-    release();
     await page.unrouteAll({ behavior: 'wait' });
   }
 });

@@ -444,9 +444,13 @@ for (const backgroundRecovery of [false, true]) {
         json: { error: 'Temporary event read failure', code: 'unavailable' },
       }),
     );
-    await panel(page)
-      .getByRole('button', { name: 'Refresh Event', exact: true })
-      .click();
+    // A background revision can encounter this same failure before the click
+    // and relabel the stable action. Either label must still perform the read.
+    const refresh = panel(page).getByRole('button', {
+      name: /^(Retry|Refresh) Event$/,
+      exact: true,
+    });
+    await refresh.click();
     await expect(panel(page).getByRole('alert')).toContainText(
       'Temporary event read failure',
     );
@@ -472,9 +476,7 @@ for (const backgroundRecovery of [false, true]) {
       ).toBeVisible();
     }
     // A successful background read changes the label, not this action's owner.
-    await panel(page)
-      .getByRole('button', { name: /^(Retry|Refresh) Event$/, exact: true })
-      .click();
+    await refresh.click();
     await expect(panel(page).getByRole('alert')).toHaveCount(0);
     await expect(
       panel(page).getByRole('button', {

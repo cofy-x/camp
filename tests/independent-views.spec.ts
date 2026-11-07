@@ -38,7 +38,7 @@ function barrier() {
   return { held, release };
 }
 
-async function document(page: Page, name: string, path = 'notes.md') {
+async function publishedDocument(page: Page, name: string, path = 'notes.md') {
   const room = await createRoom(page, `${name}-${randomUUID().slice(0, 6)}`);
   const original = await (
     await page.request.get(`/api/resources/${room.resourceId}/files`)
@@ -83,7 +83,10 @@ async function selectResource(page: Page, name: string) {
 test('accepted files and exact-version downloads never wait for an unopened or slow history', async ({
   page,
 }, info) => {
-  const value = await document(page, `Independent file ${info.project.name}`);
+  const value = await publishedDocument(
+    page,
+    `Independent file ${info.project.name}`,
+  );
   const gate = barrier();
   let historyReads = 0;
   await page.route(
@@ -145,7 +148,10 @@ test('accepted files and exact-version downloads never wait for an unopened or s
 test('history failure has a local retry and never marks an accepted file unavailable', async ({
   page,
 }, info) => {
-  const value = await document(page, `History recovery ${info.project.name}`);
+  const value = await publishedDocument(
+    page,
+    `History recovery ${info.project.name}`,
+  );
   let broken = true;
   let fileReads = 0;
   await page.route(
@@ -201,12 +207,12 @@ test('history failure has a local retry and never marks an accepted file unavail
 test('late history cannot paint another resource or replace its preview', async ({
   page,
 }, info) => {
-  const first = await document(
+  const first = await publishedDocument(
     page,
     `First source ${info.project.name}`,
     'first-only.md',
   );
-  const second = await document(
+  const second = await publishedDocument(
     page,
     `Second source ${info.project.name}`,
     'second-only.md',
@@ -452,14 +458,42 @@ test('a failed Room policy read keeps the question and draft with a local settin
   page,
 }, info) => {
   const value = await matter(page, `context-retry-${info.project.name}`);
-  let broken = true;
-  value.context.policies = async () =>
-    broken
-      ? {
+  await page.evaluate(() => {
+    const recovery = { clicked: false };
+    (
+      window as typeof window & { campWorkContextRetry: typeof recovery }
+    ).campWorkContextRetry = recovery;
+    document.addEventListener(
+      'click',
+      (event) => {
+        const button =
+          event.target instanceof Element
+            ? event.target.closest('button')
+            : null;
+        if (button?.textContent?.trim() === 'Retry Room settings')
+          recovery.clicked = true;
+      },
+      true,
+    );
+  });
+  value.context.policies = async () => {
+    // A global event can retry context while the pointer is approaching the
+    // control. Only delivery of the explicit Retry click permits success.
+    const clicked = await page.evaluate(
+      () =>
+        (
+          window as typeof window & {
+            campWorkContextRetry: { clicked: boolean };
+          }
+        ).campWorkContextRetry.clicked,
+    );
+    return clicked
+      ? { status: 200, json: { policies: [] } }
+      : {
           status: 503,
           json: { error: 'Room policies are temporarily unavailable.' },
-        }
-      : { status: 200, json: { policies: [] } };
+        };
+  };
   const detail = await openMatter(page, value.item);
   const failure = work(page)
     .getByRole('alert')
@@ -474,7 +508,6 @@ test('a failed Room policy read keeps the question and draft with a local settin
   await expect(
     detail.getByRole('button', { name: 'Send answer', exact: true }),
   ).toBeEnabled();
-  broken = false;
   await failure
     .getByRole('button', { name: 'Retry Room settings', exact: true })
     .click();
