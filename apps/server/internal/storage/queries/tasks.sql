@@ -10,6 +10,11 @@ SELECT snapshot FROM collaboration_tasks WHERE room_id=? ORDER BY created_at,id;
 SELECT snapshot FROM collaboration_tasks WHERE status NOT IN ('completed','cancelled','interrupted') ORDER BY created_at,id;
 -- name: ListTaskRuns :many
 SELECT snapshot FROM runs WHERE json_extract(snapshot,'$.taskId')=? ORDER BY created_at,id;
+-- name: GetTaskDraftRun :one
+SELECT id FROM runs
+WHERE json_extract(snapshot,'$.taskId')=CAST(sqlc.arg(task_id) AS TEXT)
+ AND CAST(json_extract(snapshot,'$.writerFence') AS INTEGER)=CAST(sqlc.arg(draft_fence) AS INTEGER)
+LIMIT 1;
 -- name: InsertTaskInput :exec
 INSERT INTO task_inputs(id,task_id,message_id,source_event_id,part_index,seq,content_bytes,value)
 VALUES(sqlc.arg(id),sqlc.arg(task_id),coalesce(nullif(sqlc.arg(message_id),''),sqlc.arg(id)),sqlc.arg(source_event_id),sqlc.arg(part_index),sqlc.arg(seq),sqlc.arg(content_bytes),sqlc.arg(value));

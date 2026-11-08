@@ -105,15 +105,17 @@ type CreateTaskInput struct {
 	References          []ReferenceInput `json:"references"`
 }
 type TaskOperation struct {
-	InputProtocol       int      `json:"inputProtocol,omitempty"`
-	PagedResponse       bool     `json:"-"`
-	RequestID           string   `json:"requestId"`
-	Revision            int64    `json:"revision"`
-	Content             string   `json:"content"`
-	QuestionID          string   `json:"questionId"`
-	AgentID             string   `json:"agentId"`
-	AddTurns            int      `json:"addTurns"`
-	AddModelRequests    int      `json:"addModelRequests"`
-	FromLatest          bool     `json:"fromLatest"`
-	ParticipantAgentIDs []string `json:"participantAgentIds,omitempty"`
+	InputProtocol        int      `json:"inputProtocol,omitempty"`
+	PagedResponse        bool     `json:"-"`
+	RequestID            string   `json:"requestId"`
+	Revision             int64    `json:"revision"`
+	Content              string   `json:"content"`
+	QuestionID           string   `json:"questionId"`
+	AgentID              string   `json:"agentId"`
+	AddTurns             int      `json:"addTurns"`
+	AddModelRequests     int      `json:"addModelRequests"`
+	FromLatest           bool     `json:"fromLatest"`
+	FromRunID            string   `json:"fromRunId,omitempty"`
+	RefreshModelSettings bool     `json:"refreshModelSettings,omitempty"`
+	ParticipantAgentIDs  []string `json:"participantAgentIds,omitempty"`
 }

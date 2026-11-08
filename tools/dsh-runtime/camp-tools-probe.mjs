@@ -24,6 +24,12 @@ const calls = [];
 let profile = 'write';
 let step = 0;
 let schemas;
+const reasoning = {
+  write: 'off',
+  read: 'low',
+  coordination: 'high',
+  history: 'max',
+};
 const scenarios = {
   history: [
     ['camp_read_task_inputs', { after: 0, limit: 1 }],
@@ -110,6 +116,14 @@ async function readJSON(request) {
 
 const model = createServer(async (request, response) => {
   const body = await readJSON(request);
+  const effort = reasoning[profile];
+  assert.deepEqual(body.thinking, {
+    type: effort === 'off' ? 'disabled' : 'enabled',
+  });
+  assert.equal(
+    body.output_config?.effort,
+    effort === 'off' ? undefined : effort,
+  );
   schemas = body.tools;
   const next = scenarios[profile][step++];
   response.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -461,6 +475,7 @@ async function run(access) {
       provider: 'deepseek-official',
       model: 'deepseek-v4-pro',
       maxTokens: 1024,
+      reasoningEffort: reasoning[access],
     });
     await rpc('session/prompt', {
       sessionId: `camp-${access}`,

@@ -1,6 +1,8 @@
 package collaboration
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -126,6 +128,24 @@ func TestPinnedFileReadsRetainReviewedVersionAfterPublication(t *testing.T) {
 			t.Fatalf("read %s: %q %v", commit, content, err)
 		}
 	}
+	archive, err := service.ResourceArchive(ctx, resource.ID, listingCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zipReader, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil || len(zipReader.File) != 1 || zipReader.File[0].Name != "brief.md" {
+		t.Fatal("Pinned archive lost its file", err)
+	}
+	reader, err := zipReader.File[0].Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var originalArchive bytes.Buffer
+	_, readErr := originalArchive.ReadFrom(reader)
+	_ = reader.Close()
+	if readErr != nil || originalArchive.String() != "Version originally reviewed." {
+		t.Fatal("Pinned archive followed a newer shared version", readErr)
+	}
 	if err := os.WriteFile(filepath.Join(working, "project", "brief.md"), []byte("Unregistered Git object."), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -140,6 +160,12 @@ func TestPinnedFileReadsRetainReviewedVersionAfterPublication(t *testing.T) {
 		if _, _, err := service.ResourceFiles(ctx, resource.ID, commit); err == nil {
 			t.Fatalf("unretained revision listed: %s", commit)
 		}
+		if _, err := service.ResourceArchive(ctx, resource.ID, commit); err == nil {
+			t.Fatalf("unretained revision archived: %s", commit)
+		}
+	}
+	if _, err := service.ResourceArchive(ctx, resource.ID, ""); err == nil {
+		t.Fatal("Archive without an exact revision was accepted")
 	}
 	original, err := os.ReadFile(filepath.Join(source, "brief.md"))
 	if err != nil || string(original) != "Version originally reviewed." {

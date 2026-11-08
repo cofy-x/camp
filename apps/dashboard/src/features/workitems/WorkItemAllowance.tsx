@@ -21,12 +21,14 @@ export function WorkItemAllowance({
   onRecoveryChange,
   onDraftChange,
   readOnly,
+  contextReady,
 }: {
   item: WorkItem;
   operation: WorkOperation;
   onRecoveryChange: (problem: string) => void;
   onDraftChange: (hasDraft: boolean) => void;
   readOnly: boolean;
+  contextReady: boolean;
 }) {
   const draft = usePrivateDraft<AllowanceDraft | null>(
     'conversation',
@@ -41,6 +43,7 @@ export function WorkItemAllowance({
   };
   const disabled =
     readOnly ||
+    !contextReady ||
     item.status === 'stopping' ||
     operation.blocked ||
     !draft.loaded ||
@@ -102,7 +105,7 @@ export function WorkItemAllowance({
           aria-label="Work allowance"
           onSubmit={(event) => {
             event.preventDefault();
-            if (readOnly) return;
+            if (disabled || stale) return;
             void operation.act(item.id, 'authorize', {
               revision: values.revision,
               comment: values.reason,

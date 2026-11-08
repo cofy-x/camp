@@ -94,6 +94,25 @@ func (q *Queries) GetTask(ctx context.Context, id string) (string, error) {
 	return snapshot, err
 }
 
+const getTaskDraftRun = `-- name: GetTaskDraftRun :one
+SELECT id FROM runs
+WHERE json_extract(snapshot,'$.taskId')=CAST(?1 AS TEXT)
+ AND CAST(json_extract(snapshot,'$.writerFence') AS INTEGER)=CAST(?2 AS INTEGER)
+LIMIT 1
+`
+
+type GetTaskDraftRunParams struct {
+	TaskID     string
+	DraftFence int64
+}
+
+func (q *Queries) GetTaskDraftRun(ctx context.Context, arg GetTaskDraftRunParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getTaskDraftRun, arg.TaskID, arg.DraftFence)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getTaskInputDelivery = `-- name: GetTaskInputDelivery :one
 SELECT value FROM task_inputs WHERE task_id=? AND source_event_id=? AND part_index=?
 `

@@ -10,7 +10,7 @@ import {
 } from '../../shared/sessionReceipt';
 import { useTeam } from '../../team/TeamContext';
 import { workspaceApi, type Agent } from '../workspace/api';
-import { tasksApi, type Task } from './api';
+import { tasksApi, type Task, type TaskRecoveryRun } from './api';
 
 interface PendingAction {
   inputProtocol?: 1;
@@ -24,6 +24,8 @@ interface PendingAction {
   addTurns: number;
   addModelRequests: number;
   fromLatest: boolean;
+  fromRunId?: string;
+  refreshModelSettings?: boolean;
   participantAgentIds?: string[];
 }
 
@@ -40,6 +42,9 @@ function isPendingAction(value: unknown): value is PendingAction {
     Number.isInteger(record.addTurns) &&
     Number.isInteger(record.addModelRequests) &&
     typeof record.fromLatest === 'boolean' &&
+    (record.fromRunId === undefined || typeof record.fromRunId === 'string') &&
+    (record.refreshModelSettings === undefined ||
+      typeof record.refreshModelSettings === 'boolean') &&
     (record.participantAgentIds === undefined ||
       (Array.isArray(record.participantAgentIds) &&
         record.participantAgentIds.every((id) => typeof id === 'string')))
@@ -55,6 +60,10 @@ export function useTaskController(id: string, desktop: DesktopAPI) {
     readSessionReceipt(key, isPendingAction),
   );
   const [task, setTask] = useState<Task | null>(null);
+  const [recovery, setRecovery] = useState<{
+    revision: number;
+    run?: TaskRecoveryRun | null;
+  }>();
   const [error, setError] = useState(
     savedRequest ? 'A previous action is awaiting confirmation.' : '',
   );
@@ -69,8 +78,12 @@ export function useTaskController(id: string, desktop: DesktopAPI) {
   const [fromLatest, setFromLatest] = useState(
     savedRequest?.fromLatest ?? false,
   );
+  const [fromRunId, setFromRunId] = useState(savedRequest?.fromRunId ?? '');
   const [refreshRoutes, setRefreshRoutes] = useState(
     Boolean(savedRequest?.participantAgentIds),
+  );
+  const [refreshModelSettings, setRefreshModelSettings] = useState(
+    savedRequest?.refreshModelSettings ?? false,
   );
   const [addTurns, setAddTurns] = useState(savedRequest?.addTurns ?? 0);
   const [addModelRequests, setAddModelRequests] = useState(
@@ -147,6 +160,10 @@ export function useTaskController(id: string, desktop: DesktopAPI) {
             ? result.task
             : current,
         );
+        setRecovery({
+          revision: result.task.revision,
+          run: result.recoveryRun,
+        });
         setLoadError('');
       })
       .catch((error: unknown) => {
@@ -177,6 +194,9 @@ export function useTaskController(id: string, desktop: DesktopAPI) {
       content: kind === 'cancel' ? undefined : content,
       agentId: kind === 'continue' ? agentId || task.currentAgentId : undefined,
       fromLatest: kind === 'continue' ? fromLatest : undefined,
+      fromRunId: kind === 'continue' && fromRunId ? fromRunId : undefined,
+      refreshModelSettings:
+        kind === 'continue' && refreshModelSettings ? true : undefined,
       participantAgentIds:
         kind === 'continue' && refreshRoutes
           ? selectedParticipantIds
@@ -199,6 +219,9 @@ export function useTaskController(id: string, desktop: DesktopAPI) {
         addTurns,
         addModelRequests,
         fromLatest,
+        fromRunId: kind === 'continue' && fromRunId ? fromRunId : undefined,
+        refreshModelSettings:
+          kind === 'continue' && refreshModelSettings ? true : undefined,
         participantAgentIds: refreshRoutes ? selectedParticipantIds : undefined,
       };
     const saved = request.current;
@@ -229,6 +252,8 @@ export function useTaskController(id: string, desktop: DesktopAPI) {
                 addTurns: saved.addTurns,
                 addModelRequests: saved.addModelRequests,
                 fromLatest: saved.fromLatest,
+                fromRunId: saved.fromRunId,
+                refreshModelSettings: saved.refreshModelSettings,
                 participantAgentIds: saved.participantAgentIds,
               })
             : kind === 'cancel'
@@ -251,7 +276,9 @@ export function useTaskController(id: string, desktop: DesktopAPI) {
       setAddTurns(0);
       setAddModelRequests(0);
       setFromLatest(false);
+      setFromRunId('');
       setRefreshRoutes(false);
+      setRefreshModelSettings(false);
       setParticipantIds(null);
       setRoomAgents(null);
       clearSessionReceipt(key);
@@ -326,8 +353,15 @@ export function useTaskController(id: string, desktop: DesktopAPI) {
     setContinueOpen,
     fromLatest,
     setFromLatest,
+    fromRunId,
+    setFromRunId,
+    recoveryRun:
+      recovery?.revision === task?.revision ? recovery?.run : undefined,
+    recoveryLoaded: recovery?.revision === task?.revision,
     refreshRoutes,
     setRefreshRoutes,
+    refreshModelSettings,
+    setRefreshModelSettings,
     addTurns,
     setAddTurns,
     addModelRequests,

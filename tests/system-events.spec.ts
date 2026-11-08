@@ -3,6 +3,8 @@ import { expect, test } from '@playwright/test';
 import { systemEventScene } from './system-event-helpers';
 import { mutate, workspace } from './team-helpers';
 import { watchPageErrors } from './page-errors';
+import { timelineFixture } from './run-timeline-fixture';
+import type { Run } from '../apps/dashboard/src/features/workspace/api';
 
 test('review events preserve exact sources, drafts and explicit work admission', async ({
   page,
@@ -166,7 +168,7 @@ test('system handoffs retain queued work and failures before an Agent reply arri
     createdAt: now,
     updatedAt: now,
   };
-  const run = {
+  const run: Run = {
     id: randomUUID(),
     roomId: room.id,
     taskId,
@@ -203,8 +205,8 @@ test('system handoffs retain queued work and failures before an Agent reply arri
   await page.route(`**/api/rooms/${room.id}/messages?*`, (route) =>
     route.fulfill({ json: { messages: [...messages, event] } }),
   );
-  await page.route(`**/api/rooms/${room.id}/runs`, (route) =>
-    route.fulfill({ json: { runs: [run] } }),
+  await page.route(`**/api/rooms/${room.id}/runs?view=timeline*`, (route) =>
+    route.fulfill({ json: { items: [timelineFixture(run)], nextCursor: '' } }),
   );
   await page.reload();
   const activity = workspace(page).locator(`[data-message-id="${eventId}"]`);

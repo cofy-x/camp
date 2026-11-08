@@ -2,6 +2,7 @@ import { request } from '../../shared/api/http';
 
 export interface ModelSettings {
   model: string;
+  reasoningEffort?: '' | 'off' | 'low' | 'high' | 'max';
   baseUrl: string;
   maxTokens: number;
   maxSteps: number;
@@ -57,7 +58,12 @@ export const settingsApi = {
     value: Partial<
       Pick<
         ModelSettings,
-        'model' | 'baseUrl' | 'maxTokens' | 'maxSteps' | 'timeoutSeconds'
+        | 'model'
+        | 'baseUrl'
+        | 'reasoningEffort'
+        | 'maxTokens'
+        | 'maxSteps'
+        | 'timeoutSeconds'
       >
     > & { apiKey?: string; clearApiKey?: boolean },
   ) =>

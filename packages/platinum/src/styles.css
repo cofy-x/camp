@@ -688,6 +688,9 @@ a {
   text-align: left;
   gap: 8px;
   white-space: nowrap;
+  color: inherit;
+  font-family: var(--p9-font);
+  text-decoration: none;
 }
 .p9-menu-mark {
   flex: 0 0 12px;

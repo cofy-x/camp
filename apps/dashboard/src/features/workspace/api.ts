@@ -96,6 +96,7 @@ export interface Reference extends ReferenceInput {
 }
 
 export interface Message {
+  workOrigin?: { workItemId: string };
   taskId?: string;
   reviewId?: string;
   id: string;
@@ -167,6 +168,40 @@ export interface Run {
   sessionGeneration: number;
   published: boolean;
 }
+
+// Discussion uses metadata only. Execution output, frozen inputs and complete
+// file contents remain behind the explicit Run details read.
+export type RunTimeline = Pick<
+  Run,
+  | 'id'
+  | 'roomId'
+  | 'threadRootId'
+  | 'originMessageId'
+  | 'agentId'
+  | 'resourceId'
+  | 'runnerId'
+  | 'runnerName'
+  | 'taskId'
+  | 'status'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'finishedAt'
+  | 'waitingReason'
+  | 'error'
+  | 'resultCommit'
+  | 'published'
+  | 'checksDeferred'
+  | 'testExitCode'
+  | 'sessionMode'
+  | 'sessionGeneration'
+> & {
+  agentSnapshot: Pick<AgentSnapshot, 'id' | 'name' | 'avatar' | 'access'>;
+  environment: { checks?: Pick<EnvironmentCheck, 'name'>[] | null } | null;
+  checks: Pick<CheckResult, 'name' | 'status' | 'exitCode'>[] | null;
+  files: Pick<Run['files'][number], 'path' | 'status'>[];
+  fileCount?: number;
+  filesLimited?: boolean;
+};
 
 export interface RunEvent {
   runId: string;
@@ -321,8 +356,21 @@ export const workspaceApi = {
     ),
   runs: (roomId: string, signal?: AbortSignal) =>
     request<{ runs: Run[] }>(`/rooms/${id(roomId)}/runs`, { signal }),
+  runTimeline: (roomId: string, cursor = '', signal?: AbortSignal) =>
+    request<{ items: RunTimeline[]; nextCursor: string }>(
+      `/rooms/${id(roomId)}/runs?view=timeline&cursor=${id(cursor)}`,
+      { signal },
+    ),
   run: (runId: string, signal?: AbortSignal) =>
     request<{ run: Run }>(`/runs/${id(runId)}`, { signal }),
+  runSummary: (runId: string, signal?: AbortSignal) =>
+    request<{ run: RunTimeline }>(`/runs/${id(runId)}?view=summary`, {
+      signal,
+    }),
+  runReply: (runId: string, signal?: AbortSignal) =>
+    request<{ message: Message | null }>(`/runs/${id(runId)}/reply`, {
+      signal,
+    }),
   events: (runId: string, after: number, signal?: AbortSignal) =>
     request<{ events: RunEvent[] }>(
       `/runs/${id(runId)}/events?after=${after}`,

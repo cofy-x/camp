@@ -52,6 +52,7 @@ export interface Runner {
     dshVersion?: string;
     layerfsVersion?: string;
     taskInputsVersion?: number;
+    reasoningEffortVersion?: number;
   };
 }
 

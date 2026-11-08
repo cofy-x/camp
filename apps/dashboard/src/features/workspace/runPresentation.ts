@@ -1,15 +1,25 @@
 import { isActiveRun } from './api';
-import type { CheckResult, Run } from './api';
+import type { CheckResult, RunTimeline } from './api';
 
-export function runFilesLabel(run: Run): string {
-  if (run.published) return 'Saved to room files';
-  if (run.taskId && run.resultCommit) return 'Saved to task draft';
-  if (run.agentSnapshot.access === 'read') return 'Read-only work';
-  if (!run.resultCommit) return 'No result files captured';
-  return run.files?.length ? 'Changes retained separately' : 'No files changed';
+export function isTaskDraftResult(run: RunTimeline): boolean {
+  return Boolean(run.taskId && run.resultCommit && run.status === 'succeeded');
 }
 
-export function checkResultLabel(check: CheckResult, run: Run): string {
+export function runFilesLabel(run: RunTimeline): string {
+  if (run.published) return 'Saved to room files';
+  if (isTaskDraftResult(run)) return 'Saved to task draft';
+  if (run.taskId && run.resultCommit) return 'Saved working files';
+  if (run.agentSnapshot.access === 'read') return 'Read-only work';
+  if (!run.resultCommit) return 'No result files captured';
+  return (run.fileCount ?? run.files?.length)
+    ? 'Changes retained separately'
+    : 'No files changed';
+}
+
+export function checkResultLabel(
+  check: Pick<CheckResult, 'status' | 'exitCode'>,
+  run: RunTimeline,
+): string {
   // Restart recovery may retain the last persisted running check.
   if (check.status === 'interrupted') return 'Interrupted';
   if (check.status === 'running')
@@ -23,7 +33,7 @@ export function checkResultLabel(check: CheckResult, run: Run): string {
   return 'Incomplete';
 }
 
-export function runChecksLabel(run: Run): string {
+export function runChecksLabel(run: RunTimeline): string {
   if (run.checksDeferred) return 'Deferred until finish';
   const expected = run.environment?.checks ?? [];
   if (!expected.length) return 'Not configured';

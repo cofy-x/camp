@@ -89,22 +89,23 @@ type Resource struct {
 	UpdatedAt     string          `json:"updatedAt"`
 }
 type Message struct {
-	TaskID       string      `json:"taskId,omitempty"`
-	ReviewID     string      `json:"reviewId,omitempty"`
-	AuthorUserID string      `json:"authorUserId"`
-	AuthorName   string      `json:"authorName"`
-	References   []Reference `json:"references"`
-	ID           string      `json:"id"`
-	RoomID       string      `json:"roomId"`
-	ThreadRootID string      `json:"threadRootId"`
-	AuthorKind   string      `json:"authorKind"`
-	AgentID      string      `json:"agentId"`
-	RunID        string      `json:"runId"`
-	Content      string      `json:"content"`
-	RequestID    string      `json:"requestId"`
-	Seq          int64       `json:"seq"`
-	CreatedAt    string      `json:"createdAt"`
-	UpdatedAt    string      `json:"updatedAt"`
+	WorkOrigin   *MessageWorkOrigin `json:"workOrigin,omitempty"`
+	TaskID       string             `json:"taskId,omitempty"`
+	ReviewID     string             `json:"reviewId,omitempty"`
+	AuthorUserID string             `json:"authorUserId"`
+	AuthorName   string             `json:"authorName"`
+	References   []Reference        `json:"references"`
+	ID           string             `json:"id"`
+	RoomID       string             `json:"roomId"`
+	ThreadRootID string             `json:"threadRootId"`
+	AuthorKind   string             `json:"authorKind"`
+	AgentID      string             `json:"agentId"`
+	RunID        string             `json:"runId"`
+	Content      string             `json:"content"`
+	RequestID    string             `json:"requestId"`
+	Seq          int64              `json:"seq"`
+	CreatedAt    string             `json:"createdAt"`
+	UpdatedAt    string             `json:"updatedAt"`
 }
 type Run struct {
 	TaskInputProtocol   int                    `json:"taskInputProtocol,omitempty"`

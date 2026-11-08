@@ -33,6 +33,7 @@ import { automationApi } from '../automation/api';
 export function Composer({
   room,
   members,
+  membersReady = true,
   threadId,
   onSent,
   available,
@@ -42,6 +43,7 @@ export function Composer({
 }: {
   room: Room;
   members: Agent[];
+  membersReady?: boolean;
   threadId: string;
   onSent: () => void;
   available: boolean;
@@ -219,6 +221,7 @@ export function Composer({
       pending ||
       uploads.length > 0 ||
       needsRecipient ||
+      (!membersReady && !postOnly && !retry) ||
       !content.trim() ||
       (!available && hasAgentWork && !retry)
     )
@@ -275,19 +278,22 @@ export function Composer({
     }
   }
 
-  const recipientLabel = needsRecipient
-    ? 'Choose an agent'
-    : postOnly
-      ? 'Post only'
-      : effective.length
-        ? effective
-            .map(
-              (id) =>
-                members.find((member) => member.id === id)?.name ??
-                'Unavailable agent',
-            )
-            .join(', ')
-        : 'Room discussion';
+  const recipientLabel =
+    !membersReady && !postOnly
+      ? 'Choose recipients'
+      : needsRecipient
+        ? 'Choose an agent'
+        : postOnly
+          ? 'Post only'
+          : effective.length
+            ? effective
+                .map(
+                  (id) =>
+                    members.find((member) => member.id === id)?.name ??
+                    'Unavailable agent',
+                )
+                .join(', ')
+            : 'Room discussion';
 
   return (
     <form
@@ -590,6 +596,7 @@ export function Composer({
             pending ||
             uploads.length > 0 ||
             needsRecipient ||
+            (!membersReady && !postOnly && !retry) ||
             !content.trim() ||
             (!available && hasAgentWork && !retry)
           }

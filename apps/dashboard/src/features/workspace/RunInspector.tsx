@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Tabs } from '@cofy-x/camp-platinum';
 import { useTeam } from '../../team/TeamContext';
 import { isActiveRun, statusLabel, workspaceApi } from './api';
-import type { Message, Reference, Run, RunEvent } from './api';
-import { mergeEvents } from './events';
+import type { Message, Reference, Run, RunEvent, RunTimeline } from './api';
+import { newerRun, useRunInspector } from './useRunInspector';
 import { summarizeActivity } from './activity';
 import { AssistantContent } from './AssistantContent';
 import { References } from './References';
@@ -15,19 +15,6 @@ import {
   runChecksLabel,
   runFilesLabel,
 } from './runPresentation';
-
-function newerRun(current: Run | null, incoming: Run): Run {
-  if (
-    current &&
-    (Date.parse(incoming.updatedAt) < Date.parse(current.updatedAt) ||
-      (!isActiveRun(current) && isActiveRun(incoming)) ||
-      (current.status === 'cancelling' &&
-        isActiveRun(incoming) &&
-        incoming.status !== 'cancelling'))
-  )
-    return current;
-  return incoming;
-}
 
 function activityLabel(event: RunEvent) {
   const summary = summarizeActivity(event);
@@ -59,42 +46,59 @@ export function RunInspector({
   onClose: () => void;
   backLabel?: string;
   onReference: (reference: Reference) => void;
-  onAsk: (run: Run) => void;
+  onAsk: (run: RunTimeline) => void;
   onSource: (messageId: string) => void;
   onOpenTask?: (taskId: string) => void;
 }) {
   const team = useTeam();
-  const [run, setRun] = useState<Run | null>(null);
-  const [events, setEvents] = useState<RunEvent[]>([]);
-  const [eventsLoaded, setEventsLoaded] = useState(false);
-  const [error, setError] = useState('');
+  const inspector = useRunInspector(id);
+  const {
+    run,
+    setRun,
+    tab,
+    setTab,
+    details,
+    detailsError,
+    events,
+    eventsPending,
+    eventsError,
+    error,
+  } = inspector;
   const [stopError, setStopError] = useState('');
   const [stopping, setStopping] = useState(false);
-  const [tab, setTab] = useState('');
   const [reply, setReply] = useState<Message | null>(null);
   const [replyError, setReplyError] = useState('');
   const [replyLoading, setReplyLoading] = useState(false);
   const [replyAttempt, setReplyAttempt] = useState(0);
   const [replyExpanded, setReplyExpanded] = useState(false);
+  const [replyOpened, setReplyOpened] = useState(false);
+  const acceptedReply = useRef<{ key: string; messageId?: string } | null>(
+    null,
+  );
   const active = !run || isActiveRun(run);
   const roomId = run?.roomId;
   const threadRootId = run?.threadRootId;
   useEffect(() => {
-    if (active || !roomId || threadRootId === undefined) return;
+    if (active || tab !== 'overview' || !roomId || threadRootId === undefined)
+      return;
+    const key = `${id}:${replyAttempt}`;
+    if (acceptedReply.current?.key === key) return;
     const controller = new AbortController();
     setReplyLoading(true);
-    setReplyError('');
     void findRunReply({ id, roomId, threadRootId }, controller.signal)
       .then((message) => {
         if (controller.signal.aborted) return;
         setReply(message);
-        setReplyExpanded(
-          Boolean(
-            message &&
-            message.content.length <= 800 &&
-            message.content.split('\n').length <= 12,
-          ),
-        );
+        if (acceptedReply.current?.messageId !== message?.id)
+          setReplyExpanded(
+            Boolean(
+              message &&
+              message.content.length <= 800 &&
+              message.content.split('\n').length <= 12,
+            ),
+          );
+        acceptedReply.current = { key, messageId: message?.id };
+        setReplyError('');
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted)
@@ -108,58 +112,20 @@ export function RunInspector({
         if (!controller.signal.aborted) setReplyLoading(false);
       });
     return () => controller.abort();
-  }, [id, active, roomId, threadRootId, replyAttempt]);
-  useEffect(() => {
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    let saved: RunEvent[] = [];
-
-    async function poll() {
-      let active = true;
-      try {
-        const result = await workspaceApi.run(id, controller.signal);
-        if (controller.signal.aborted) return;
-        active = isActiveRun(result.run);
-        setRun((current) => newerRun(current, result.run));
-        setTab((current) => current || (active ? 'activity' : 'overview'));
-        setEventsLoaded(false);
-        for (;;) {
-          const page = await workspaceApi.events(
-            id,
-            saved.at(-1)?.seq ?? 0,
-            controller.signal,
-          );
-          if (controller.signal.aborted) return;
-          saved = mergeEvents(saved, page.events ?? []);
-          setEvents(saved);
-          if (page.events.length < 500) break;
-        }
-        // Completeness belongs to this fetch's terminal snapshot. A concurrent
-        // cancel response cannot make an earlier active scan complete.
-        setEventsLoaded(!active);
-        setError('');
-      } catch (error) {
-        active = true;
-        if (!controller.signal.aborted) {
-          setEventsLoaded(false);
-          setError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load this result.',
-          );
-        }
-      } finally {
-        if (!controller.signal.aborted && active)
-          timer = setTimeout(() => void poll(), 1200);
-      }
-    }
-
-    void poll();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [id]);
+  }, [id, active, tab, roomId, threadRootId, replyAttempt]);
+  const detailsFeedback = detailsError ? (
+    <p className="app-error" role="alert">
+      {detailsError}{' '}
+      <Button
+        onClick={inspector.retryDetails}
+        disabled={inspector.detailsPending}
+      >
+        Retry details
+      </Button>
+    </p>
+  ) : !details ? (
+    <p role="status">Loading execution details…</p>
+  ) : null;
 
   async function stop() {
     setStopping(true);
@@ -176,10 +142,14 @@ export function RunInspector({
     }
   }
 
-  const activity = events.flatMap((event) => {
-    const summary = activityLabel(event);
-    return summary ? [{ ...summary, event }] : [];
-  });
+  const activity = useMemo(
+    () =>
+      events.flatMap((event) => {
+        const summary = activityLabel(event);
+        return summary ? [{ ...summary, event }] : [];
+      }),
+    [events],
+  );
   return (
     <section
       className="workspace-inspector workspace-panel"
@@ -192,7 +162,8 @@ export function RunInspector({
         </div>
         {error && (
           <p className="app-error" role="alert">
-            {error} Existing output is preserved.
+            {error} Existing output is preserved.{' '}
+            <Button onClick={inspector.retry}>Retry</Button>
           </p>
         )}
         {run ? (
@@ -282,7 +253,7 @@ export function RunInspector({
                 { id: 'overview', label: 'Overview' },
                 {
                   id: 'files',
-                  label: `Files (${run.files?.length ?? 0})`,
+                  label: `Files (${run.fileCount ?? run.files?.length ?? 0})`,
                 },
                 { id: 'activity', label: 'Activity' },
                 { id: 'checks', label: 'Checks' },
@@ -293,20 +264,22 @@ export function RunInspector({
               {tab === 'overview' && (
                 <div className="workspace-run-overview">
                   <ResultFiles run={run} onReference={onReference} />
-                  {!run.files?.length && (
+                  {!(run.fileCount ?? run.files?.length) && (
                     <p>
                       {isActiveRun(run)
                         ? 'Files will appear here after work finishes.'
                         : 'No file changes were collected.'}
                     </p>
                   )}
-                  {run.files?.length > 0 && !run.resultCommit && (
-                    <p>
-                      File changes were reported, but no captured version is
-                      available.
-                    </p>
-                  )}
-                  {run.files?.length > 0 &&
+                  {(run.fileCount ?? run.files?.length) > 0 &&
+                    !run.resultCommit && (
+                      <p>
+                        File changes were reported, but no captured version is
+                        available.
+                      </p>
+                    )}
+                  {(run.fileCount ?? run.files?.length) > 0 &&
+                    !run.filesLimited &&
                     run.files.every((file) => file.status === 'deleted') && (
                       <p>
                         Files were removed. Open Files to inspect the removals.
@@ -327,19 +300,31 @@ export function RunInspector({
                     <details
                       className="workspace-inspector-reply"
                       open={replyExpanded}
-                      onToggle={(event) =>
-                        setReplyExpanded(event.currentTarget.open)
-                      }
+                      onToggle={(event) => {
+                        if (event.currentTarget.open) setReplyOpened(true);
+                        setReplyExpanded(event.currentTarget.open);
+                      }}
                     >
                       <summary>Agent reply</summary>
-                      <AssistantContent content={reply.content} />
+                      {(replyOpened || replyExpanded) && (
+                        <AssistantContent content={reply.content} />
+                      )}
                     </details>
                   )}
-                  <details className="workspace-run-request">
+                  <details
+                    className="workspace-run-request"
+                    open={inspector.requestOpen}
+                    onToggle={(event) =>
+                      inspector.setRequestOpen(event.currentTarget.open)
+                    }
+                  >
                     <summary>Original request</summary>
-                    <p className="workspace-message-text">{run.prompt}</p>
+                    {detailsFeedback}
+                    {details && (
+                      <p className="workspace-message-text">{details.prompt}</p>
+                    )}
                     <References
-                      references={run.references ?? []}
+                      references={details?.references ?? []}
                       resources={[]}
                       onSource={onSource}
                     />
@@ -351,6 +336,17 @@ export function RunInspector({
               )}
               {tab === 'activity' && (
                 <>
+                  {eventsError && (
+                    <p className="app-error" role="alert">
+                      {eventsError}{' '}
+                      <Button onClick={inspector.retryEvents}>
+                        Retry activity
+                      </Button>
+                    </p>
+                  )}
+                  {eventsPending && !events.length && (
+                    <p role="status">Loading activity…</p>
+                  )}
                   <ol
                     className="workspace-event-log"
                     aria-label="Execution activity"
@@ -367,7 +363,7 @@ export function RunInspector({
                       </li>
                     ))}
                   </ol>
-                  {!activity.length && (
+                  {!activity.length && !eventsPending && !eventsError && (
                     <p>
                       {events.length
                         ? 'No summarized activity is available. Recorded logs are included in diagnostics.'
@@ -378,6 +374,7 @@ export function RunInspector({
               )}
               {tab === 'files' && (
                 <>
+                  {detailsFeedback}
                   {run.resultCommit && Boolean(run.files?.length) && (
                     <div className="app-actions">
                       <a
@@ -388,14 +385,14 @@ export function RunInspector({
                       </a>
                     </div>
                   )}
-                  {!run.files?.length && (
+                  {!(run.fileCount ?? run.files?.length) && (
                     <p>
                       {isActiveRun(run)
                         ? 'Changes are collected after the agent finishes.'
                         : 'No file changes were collected.'}
                     </p>
                   )}
-                  {run.files?.map((file) => (
+                  {details?.files?.map((file) => (
                     <details className="workspace-file-change" key={file.path}>
                       <summary>
                         {file.path} · {file.status}
@@ -469,10 +466,11 @@ export function RunInspector({
               )}
               {tab === 'checks' && (
                 <>
+                  {detailsFeedback}
                   <p>
                     Checks: <strong>{runChecksLabel(run)}</strong>
                   </p>
-                  {run.checks?.map((check, index) => (
+                  {details?.checks?.map((check, index) => (
                     <details
                       className="workspace-run-check"
                       key={index}
@@ -493,11 +491,7 @@ export function RunInspector({
                 </>
               )}
             </Tabs>
-            <RunDiagnostics
-              run={run}
-              events={events}
-              complete={eventsLoaded && !isActiveRun(run)}
-            />
+            <RunDiagnostics id={run.id} />
           </>
         ) : (
           <p role="status">Loading work details…</p>

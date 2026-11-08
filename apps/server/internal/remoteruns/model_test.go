@@ -20,7 +20,7 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
-func proxyFixture(t *testing.T, upstream string) (*Manager, *storage.Store, context.Context, storage.Attempt, p.Command) {
+func proxyFixture(t *testing.T, upstream string, reasoning ...string) (*Manager, *storage.Store, context.Context, storage.Attempt, p.Command) {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -46,7 +46,7 @@ func proxyFixture(t *testing.T, upstream string) (*Manager, *storage.Store, cont
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = store.ConnectRunner(ctx, runner.ID, storage.RunnerConnection{StorageID: runner.StorageID, Runtime: "native", Slots: 1, Capabilities: json.RawMessage(`{"executor":"native","ready":true}`)})
+	_, err = store.ConnectRunner(ctx, runner.ID, storage.RunnerConnection{StorageID: runner.StorageID, Runtime: "native", Slots: 1, Capabilities: json.RawMessage(`{"executor":"native","ready":true,"reasoningEffortVersion":1}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,11 @@ func proxyFixture(t *testing.T, upstream string) (*Manager, *storage.Store, cont
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager, err := New(ctx, store, Config{DataDir: dir, Models: configuration.ModelInput{BaseURL: upstream, APIKey: "private-upstream-key", Model: "test-model"}}, nil)
+	effort := ""
+	if len(reasoning) > 0 {
+		effort = reasoning[0]
+	}
+	manager, err := New(ctx, store, Config{DataDir: dir, Models: configuration.ModelInput{BaseURL: upstream, APIKey: "private-upstream-key", Model: "test-model", ReasoningEffort: effort}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

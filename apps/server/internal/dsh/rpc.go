@@ -17,11 +17,12 @@ import (
 )
 
 type Config struct {
-	Model     string
-	MaxTokens int
-	MaxSteps  int
-	Resume    bool
-	Cwd       string
+	Model           string
+	ReasoningEffort string
+	MaxTokens       int
+	MaxSteps        int
+	Resume          bool
+	Cwd             string
 }
 
 type Event struct {
@@ -222,7 +223,11 @@ func Run(ctx context.Context, cmd *exec.Cmd, c Config, session, prompt string, e
 		if cwd == "" {
 			cwd = "/workspace"
 		}
-		result, err := rpc("initialize", map[string]any{"cwd": cwd, "provider": "deepseek-official", "model": c.Model, "maxTokens": c.MaxTokens})
+		initialize := map[string]any{"cwd": cwd, "provider": "deepseek-official", "model": c.Model, "maxTokens": c.MaxTokens}
+		if c.ReasoningEffort != "" {
+			initialize["reasoningEffort"] = c.ReasoningEffort
+		}
+		result, err := rpc("initialize", initialize)
 		if err != nil {
 			return nil, err
 		}

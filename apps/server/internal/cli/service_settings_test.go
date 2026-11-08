@@ -21,6 +21,34 @@ func privateEnv(t *testing.T, filename, content string) {
 	}
 }
 
+func TestReasoningEffortPrivateConfigurationPrecedence(t *testing.T) {
+	cwd := t.TempDir()
+	privateEnv(t, filepath.Join(cwd, ".env"), "CAMP_DSH_REASONING_EFFORT=low\n")
+	for _, effort := range []string{"off", "low", "high", "max", ""} {
+		settings, err := readServiceSettings(serveOptions{}, func(key string) string {
+			if key == "CAMP_DSH_REASONING_EFFORT" {
+				return effort
+			}
+			return ""
+		}, cwd)
+		want := effort
+		if want == "" {
+			want = "low"
+		}
+		if err != nil || settings.ReasoningEffort != want || settings.ModelOverrides.EnvFile["reasoningEffort"] != "low" {
+			t.Fatalf("reasoning effort %q lost precedence: %v", effort, err)
+		}
+	}
+	if _, err := readServiceSettings(serveOptions{}, func(key string) string {
+		if key == "CAMP_DSH_REASONING_EFFORT" {
+			return "unsupported"
+		}
+		return ""
+	}, cwd); err == nil {
+		t.Fatal("unknown reasoning effort accepted")
+	}
+}
+
 func TestDSHConfigDefaultsAndEnvironmentAllowlist(t *testing.T) {
 	cwd := t.TempDir()
 	accessed := make(map[string]bool)

@@ -1,0 +1,431 @@
+import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { expect, test, type Page, type Route } from '@playwright/test';
+import type {
+  Message,
+  Run,
+  RunEvent,
+} from '../apps/dashboard/src/features/workspace/api';
+import { createRoom, mutate, signIn, workspace } from './team-helpers';
+import { timelineFixture } from './run-timeline-fixture';
+import { watchPageErrors } from './page-errors';
+
+const failures = new WeakMap<Page, ReturnType<typeof watchPageErrors>>();
+test.beforeEach(async ({ page, browserName }) => {
+  failures.set(page, watchPageErrors(page, browserName));
+  await signIn(page);
+});
+test.afterEach(async ({ page }) =>
+  expect(failures.get(page)?.errors).toEqual([]),
+);
+
+function barrier() {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { held, release };
+}
+
+async function fixture(
+  page: Page,
+  active = false,
+  activityGate?: ReturnType<typeof barrier>,
+) {
+  const room = await createRoom(page, `Inspector ${randomUUID().slice(0, 6)}`);
+  const posted = await mutate(page, `/rooms/${room.id}/messages`, {
+    requestId: randomUUID(),
+    content: 'Prepare the reviewed notes release.',
+    postOnly: true,
+  });
+  expect(posted.ok()).toBe(true);
+  const { message: origin } = (await posted.json()) as { message: Message };
+  const now = new Date().toISOString();
+  let run: Run = {
+    id: `inspector-${randomUUID()}`,
+    roomId: room.id,
+    resourceId: room.resourceId,
+    originMessageId: origin.id,
+    threadRootId: '',
+    agentId: 'inspector-agent',
+    agentSnapshot: {
+      id: 'inspector-agent',
+      name: 'Notes Writer',
+      handle: 'notes-writer',
+      icon: 'document',
+      avatar: 'agent-robot-teal-v1',
+      instructions: 'Private frozen instructions.',
+      access: 'write',
+      enabled: true,
+      revision: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+    runnerId: 'notes-runner',
+    runnerName: 'Notes Runner',
+    prompt: 'Frozen original request.',
+    references: [
+      {
+        kind: 'file',
+        resourceId: room.resourceId,
+        path: 'brief.md',
+        commit: 'a'.repeat(40),
+        title: 'Frozen brief',
+      },
+    ],
+    status: active ? 'running' : 'succeeded',
+    createdAt: now,
+    updatedAt: now,
+    finishedAt: active ? '' : now,
+    waitingReason: '',
+    error: '',
+    output: 'RAW_TRANSCRIPT_ONLY_IN_DETAILS\n'.repeat(16000),
+    sessionId: 'private-session',
+    sessionMode: 'fresh',
+    sessionGeneration: 1,
+    baselineCommit: 'a'.repeat(40),
+    resultCommit: active ? '' : 'b'.repeat(40),
+    environment: {
+      kind: 'command',
+      checks: [{ name: 'unit', arguments: ['node', '--test'] }],
+    },
+    checks: [
+      {
+        name: 'unit',
+        command: 'node --test',
+        status: active ? 'pending' : 'passed',
+        exitCode: active ? null : 0,
+        output: 'LARGE_CHECK_OUTPUT\n'.repeat(2000),
+        startedAt: now,
+        finishedAt: active ? '' : now,
+      },
+    ],
+    files: Array.from({ length: 25 }, (_, index) => ({
+      path: `note-${String(index).padStart(2, '0')}.md`,
+      status: 'added',
+      before: '',
+      after: 'LARGE_FILE_BODY\n'.repeat(2000),
+    })),
+    exitCode: active ? null : 0,
+    testExitCode: active ? null : 0,
+    maxTokens: 4096,
+    maxSteps: 8,
+    timeoutSeconds: 180,
+    published: !active,
+  };
+  const reply: Message = {
+    ...origin,
+    id: `reply-${randomUUID()}`,
+    authorKind: 'agent',
+    authorUserId: '',
+    authorName: '',
+    agentId: run.agentId,
+    runId: run.id,
+    content: `# Reviewed notes\n\n${'The original reply remains available.\n\n'.repeat(40)}Exact final recommendation.`,
+    seq: origin.seq + 1,
+  };
+  const reads = {
+    summary: 0,
+    reply: 0,
+    full: 0,
+    events: [] as number[],
+    threadScans: 0,
+    writes: 0,
+  };
+  let inspecting = false;
+  const handlers = {
+    full: (route: Route) => route.fulfill({ json: { run } }),
+    events: async (route: Route, _after: number) => {
+      if (activityGate) await activityGate.held;
+      return route.fulfill({ json: { events: [] } });
+    },
+  };
+  await page.route(`**/api/rooms/${room.id}/runs?view=timeline*`, (route) =>
+    route.fulfill({ json: { items: [timelineFixture(run)], nextCursor: '' } }),
+  );
+  await page.route(`**/api/runs/${run.id}?view=summary`, (route) => {
+    reads.summary++;
+    return route.fulfill({ json: { run: timelineFixture(run) } });
+  });
+  await page.route(`**/api/runs/${run.id}/reply`, (route) => {
+    reads.reply++;
+    return route.fulfill({ json: { message: reply } });
+  });
+  await page.route(`**/api/runs/${run.id}`, (route) => {
+    reads.full++;
+    return handlers.full(route);
+  });
+  await page.route(`**/api/runs/${run.id}/events?*`, (route) => {
+    const after = Number(
+      new URL(route.request().url()).searchParams.get('after') || 0,
+    );
+    reads.events.push(after);
+    return handlers.events(route, after);
+  });
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (
+      inspecting &&
+      url.pathname === `/api/rooms/${room.id}/messages` &&
+      url.searchParams.get('after') === '0'
+    )
+      reads.threadScans++;
+    if (
+      request.method() === 'POST' &&
+      /^\/api\/(?:rooms\/[^/]+\/(?:messages|tasks)|runs\/)/.test(url.pathname)
+    )
+      reads.writes++;
+  });
+  await failures.get(page)!.reload();
+  const win = workspace(page);
+  await expect(win.getByTestId('agent-work')).toBeVisible();
+  inspecting = true;
+  await win
+    .getByTestId('agent-work')
+    .getByRole('button', { name: active ? 'Activity' : 'Details', exact: true })
+    .click();
+  const inspector = win.getByRole('region', {
+    name: 'Work details',
+    exact: true,
+  });
+  await expect(
+    inspector.getByRole('heading', { name: 'Notes Writer', exact: true }),
+  ).toBeVisible();
+  return {
+    room,
+    reads,
+    handlers,
+    inspector,
+    reply,
+    get run() {
+      return run;
+    },
+    setRun(value: Partial<Run>) {
+      run = { ...run, ...value };
+    },
+  };
+}
+
+test('completed Overview reads only summary and exact reply, without raw execution or thread scans', async ({
+  page,
+}) => {
+  const value = await fixture(page);
+  const { inspector, reads } = value;
+  await expect(
+    inspector.getByRole('tab', { name: 'Overview', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true');
+  const reply = inspector.locator('.workspace-inspector-reply');
+  await expect(reply).toBeVisible();
+  await reply.locator('summary').click();
+  await expect(reply).toContainText('Exact final recommendation.');
+  expect(await reply.locator('.workspace-markdown').textContent()).toContain(
+    'The original reply remains available.',
+  );
+  expect(reads.summary).toBeGreaterThan(0);
+  expect(reads.reply).toBe(1);
+  expect(reads.full).toBe(0);
+  expect(reads.events).toEqual([]);
+  expect(reads.threadScans).toBe(0);
+  expect(reads.writes).toBe(0);
+  await expect(inspector).not.toContainText('RAW_TRANSCRIPT_ONLY_IN_DETAILS');
+  await expect(inspector).not.toContainText('LARGE_FILE_BODY');
+});
+
+test('Files loading and local retry preserve summary and cached reply, and leaving aborts the read', async ({
+  page,
+}) => {
+  const value = await fixture(page);
+  const { inspector, reads } = value;
+  await expect(inspector.locator('.workspace-inspector-reply')).toBeVisible();
+  const held = barrier();
+  let mode: 'pending' | 'failure' | 'success' = 'pending';
+  value.handlers.full = async (route) => {
+    if (mode === 'pending') await held.held;
+    return mode === 'success'
+      ? route.fulfill({ json: { run: value.run } })
+      : route.fulfill({
+          status: 503,
+          json: { error: 'The file details could not be read.' },
+        });
+  };
+  await page.evaluate((id) => {
+    const state = window as typeof window & { inspectorAborts: number };
+    state.inspectorAborts = 0;
+    const original = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = new URL(
+        input instanceof Request ? input.url : String(input),
+        location.href,
+      );
+      if (url.pathname === `/api/runs/${id}` && !url.search)
+        (
+          init?.signal ?? (input instanceof Request ? input.signal : null)
+        )?.addEventListener(
+          'abort',
+          () => {
+            state.inspectorAborts++;
+          },
+          { once: true },
+        );
+      return original(input, init);
+    };
+  }, value.run.id);
+  try {
+    await inspector.getByRole('tab', { name: /^Files/ }).click();
+    await expect(
+      inspector.getByText('Loading execution details…', { exact: true }),
+    ).toBeVisible();
+    await expect.poll(() => reads.full).toBe(1);
+    await expect(inspector.locator('.workspace-run-outcome')).toContainText(
+      'Completed',
+    );
+    await inspector.getByRole('tab', { name: 'Overview', exact: true }).click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as typeof window & { inspectorAborts: number })
+              .inspectorAborts,
+        ),
+      )
+      .toBe(1);
+    held.release();
+    await expect(inspector.locator('.workspace-inspector-reply')).toBeVisible();
+    mode = 'failure';
+    await inspector.getByRole('tab', { name: /^Files/ }).click();
+    const failure = inspector
+      .getByRole('alert')
+      .filter({ hasText: 'The file details could not be read.' });
+    await expect(failure).toBeVisible();
+    await expect(inspector.locator('.workspace-run-outcome')).toContainText(
+      'Completed',
+    );
+    mode = 'success';
+    await failure
+      .getByRole('button', { name: 'Retry details', exact: true })
+      .click();
+    await expect(
+      inspector.locator('.workspace-file-change > summary'),
+    ).toHaveCount(25);
+    await inspector.locator('.workspace-file-change > summary').first().click();
+    await expect(
+      inspector
+        .getByRole('link', { name: 'Download File', exact: true })
+        .first(),
+    ).toHaveAttribute('href', new RegExp(`commit=${value.run.resultCommit}`));
+    await expect(failure).toHaveCount(0);
+    expect(reads.full).toBe(3);
+    expect(reads.events).toEqual([]);
+    await inspector.getByRole('tab', { name: 'Overview', exact: true }).click();
+    await expect(inspector.locator('.workspace-inspector-reply')).toBeVisible();
+    expect(reads.reply).toBe(1);
+  } finally {
+    held.release();
+  }
+});
+
+test('summary polling reaches terminal state while Activity is blocked and leaving Activity stops its reads', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const held = barrier();
+  const value = await fixture(page, true, held);
+  const { inspector, reads } = value;
+  try {
+    await expect.poll(() => reads.events.length).toBeGreaterThan(0);
+    await expect(
+      inspector.getByText('Loading activity…', { exact: true }),
+    ).toBeVisible();
+    value.setRun({
+      status: 'succeeded',
+      updatedAt: new Date(Date.now() + 1000).toISOString(),
+      finishedAt: new Date().toISOString(),
+      resultCommit: 'b'.repeat(40),
+      published: true,
+    });
+    await expect(inspector.locator('.workspace-run-outcome')).toContainText(
+      'Completed',
+    );
+    await inspector.getByRole('tab', { name: 'Overview', exact: true }).click();
+    held.release();
+    await expect(inspector.locator('.workspace-inspector-reply')).toBeVisible();
+    const count = reads.events.length;
+    // Advancing browser time proves the inactive owner has no polling timer.
+    await page.clock.fastForward(3600);
+    expect(reads.events).toHaveLength(count);
+    expect(reads.full).toBe(0);
+  } finally {
+    held.release();
+  }
+});
+
+test('diagnostics wait for every log page and certify completeness only from a terminal pre-log snapshot', async ({
+  page,
+}) => {
+  const value = await fixture(page, true);
+  const { inspector, reads } = value;
+  await inspector.getByRole('tab', { name: 'Overview', exact: true }).click();
+  const tail = barrier();
+  const events: RunEvent[] = Array.from({ length: 501 }, (_, index) => ({
+    runId: value.run.id,
+    seq: index + 1,
+    type: 'tool_output',
+    text: `Retained event ${index + 1}: ${'x'.repeat(512)}`,
+    createdAt: value.run.createdAt,
+  }));
+  value.handlers.events = async (route, after) => {
+    if (after === 500) await tail.held;
+    return route.fulfill({
+      json: {
+        events: events.filter((event) => event.seq > after).slice(0, 500),
+      },
+    });
+  };
+  const downloads: string[] = [];
+  page.on('download', (download) =>
+    downloads.push(download.suggestedFilename()),
+  );
+  try {
+    const downloaded = page.waitForEvent('download');
+    await inspector
+      .getByRole('button', { name: 'Download diagnostics', exact: true })
+      .click();
+    await expect.poll(() => reads.events.includes(500)).toBe(true);
+    await expect(
+      inspector.getByRole('button', {
+        name: 'Preparing diagnostics…',
+        exact: true,
+      }),
+    ).toBeDisabled();
+    expect(downloads).toEqual([]);
+    value.setRun({
+      status: 'succeeded',
+      updatedAt: new Date(Date.now() + 1000).toISOString(),
+      finishedAt: new Date().toISOString(),
+      resultCommit: 'b'.repeat(40),
+      published: true,
+    });
+    await expect(inspector.locator('.workspace-run-outcome')).toContainText(
+      'Completed',
+    );
+    tail.release();
+    const first = await downloaded;
+    const initial = JSON.parse(await readFile((await first.path())!, 'utf8'));
+    expect(initial.activity).toEqual(events);
+    expect(initial.activityComplete).toBe(false);
+    expect(initial.rawOutput).toBe(value.run.output);
+    const completedDownload = page.waitForEvent('download');
+    await inspector
+      .getByRole('button', { name: 'Download diagnostics', exact: true })
+      .click();
+    const completed = JSON.parse(
+      await readFile((await (await completedDownload).path())!, 'utf8'),
+    );
+    expect(completed.activity).toEqual(events);
+    expect(completed.activityComplete).toBe(true);
+    expect(reads.full).toBe(2);
+    expect(reads.writes).toBe(0);
+  } finally {
+    tail.release();
+  }
+});
