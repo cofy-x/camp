@@ -122,6 +122,7 @@ jobs:
       - name: Retain native installation evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
+        timeout-minutes: 5
         with:
           name: native-installation-${{ matrix.host }}
           path: |
@@ -132,8 +133,10 @@ jobs:
       - name: Retain native sandbox denials on failure
         if: failure()
         run: sudo /usr/bin/log show --last 3m --style compact --predicate 'subsystem == "com.apple.sandbox.reporting"' | tee dist/native-mac/sandbox-denials.log > /dev/null
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Retain native boundary evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
+        timeout-minutes: 5
         with:
           name: native-boundary-${{ matrix.host }}
           path: dist/native-mac/

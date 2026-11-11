@@ -76,6 +76,8 @@ Validation-only runs also collect Linux and both Mac host reports through the sa
 
 ## Release evidence
 
+Small verification reports have a five-minute upload step budget, separate from native execution and large package transfers. A missing, timed-out or failed required report blocks qualification. After the artifact service recovers, retry only failed jobs against the same fixed packages.
+
 Retain sanitized evidence for the release's supported lifetime; temporary CI links alone are insufficient. Record source and test-driver modifications, artifact/runtime identities, actual host/engine, commands, outcomes, failures, skips and untested scope. Source, browser, fixture, native isolation, public installation and paid-provider results establish separate guarantees. A changed recheck driver does not change package provenance or replace an earlier failed outcome.
 
 Keep raw logs, screenshots, credentials and provider ledgers private. Current guides contain contracts/procedures; fixed-version Release assets contain dated results. Report cached acquisition, powered-off VM startup and physical-host boot separately. Distinguish assigned memory, sampled guest usage, process RSS, charged cache and disk allocation; missing/unsupported samples are not zero-cost successes. Paid-provider checks require the [separate finite authorization](dsh.md#real-provider-verification).
