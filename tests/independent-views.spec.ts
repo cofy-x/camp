@@ -380,7 +380,7 @@ async function matter(page: Page, name: string, question = true) {
 
 async function openMatter(page: Page, item: WorkItem) {
   // Install the complete fixture before a cold shared-read cache is created.
-  await page.reload();
+  await errors.get(page)!.reload();
   await openApp(page, 'Work');
   await work(page)
     .locator('.work-item-list')
@@ -590,7 +590,7 @@ test('a late Room context cannot replace another Work item or enable its grants 
     }),
   );
   try {
-    await page.reload();
+    await errors.get(page)!.reload();
     await openApp(page, 'Work');
     const win = work(page);
     const list = win.locator('.work-item-list');
