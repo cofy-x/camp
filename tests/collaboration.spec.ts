@@ -919,17 +919,19 @@ test('history pages keep their frozen position and drafts through refresh and fa
   try {
     await value.open();
     expect(headReads).toBe(0);
-    await panel.getByRole('tab', { name: 'Activity', exact: true }).click();
-    await expect.poll(() => headReads).toBeGreaterThan(0);
     const note = panel.getByLabel('Add input for the next turn', {
       exact: true,
     });
     const reopenedDraft = 'Keep my note while the latest input range loads.';
     await note.fill(reopenedDraft);
+    await panel.getByRole('tab', { name: 'Activity', exact: true }).click();
+    await expect.poll(() => headReads).toBeGreaterThan(0);
     expect(pinnedRanges).toEqual([]);
     releaseHead();
     await expect.poll(() => pinnedRanges).toContain('47');
+    await panel.getByRole('tab', { name: 'Overview', exact: true }).click();
     await expect(note).toHaveValue(reopenedDraft);
+    await panel.getByRole('tab', { name: 'Activity', exact: true }).click();
     await history
       .getByRole('button', { name: 'Next Inputs', exact: true })
       .click();
