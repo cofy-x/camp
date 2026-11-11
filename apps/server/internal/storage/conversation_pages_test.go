@@ -30,8 +30,7 @@ func largeConversation(t *testing.T) (*Store, Room) {
 			}
 			if i%10 == 0 {
 				run := Run{ID: fmt.Sprintf("execution-%05d", i), RoomID: room.ID, OriginMessageID: name, AgentID: agent.ID, ResourceID: room.ResourceID, Status: "succeeded", CreatedAt: now, UpdatedAt: now, Output: "PRIVATE_ORIGINAL_OUTPUT", AgentSnapshot: Agent{ID: agent.ID, Name: agent.Name, Instructions: strings.Repeat("PRIVATE_INSTRUCTIONS ", 100)}, Files: []RunFile{{Path: "note.md", Status: "added", After: "PRIVATE_FILE_BODY"}}}
-				raw, _ := json.Marshal(run)
-				if err = q.CreateRun(ctx, sqlgen.CreateRunParams{ID: run.ID, RoomID: room.ID, OriginMessageID: name, AgentID: agent.ID, ResourceID: room.ResourceID, Status: run.Status, Snapshot: string(raw), CreatedAt: now, UpdatedAt: now}); err != nil {
+				if err = createRun(ctx, q, run); err != nil {
 					return err
 				}
 			}

@@ -85,7 +85,7 @@ UPDATE inbox SET read_at=? WHERE id=? AND user_id=? AND read_at='';
 -- name: GetInboxReadState :one
 SELECT read_at FROM inbox WHERE id=? AND user_id=?;
 -- name: ListUserActiveRuns :many
-SELECT snapshot FROM runs WHERE requested_by_user_id=? AND status IN ('queued','preparing','running','checking','cancelling') ORDER BY created_at,id;
+SELECT snapshot FROM run_records WHERE requested_by_user_id=? AND status IN ('queued','preparing','running','checking','cancelling') ORDER BY created_at,id;
 
 -- name: ListDrafts :many
 SELECT kind,draft_key,revision,updated_at,COALESCE(json_extract(value,'$.title'),'') AS title,COALESCE(json_extract(value,'$.resourceId'),'') AS resource_id,COALESCE(json_extract(value,'$.path'),'') AS path FROM user_drafts WHERE user_id=? AND kind=? AND json_type(value)='object' ORDER BY updated_at DESC,draft_key LIMIT 100;

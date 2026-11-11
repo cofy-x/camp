@@ -238,7 +238,7 @@ func (q *Queries) ListRoomTasks(ctx context.Context, roomID string) ([]string, e
 }
 
 const listTaskRuns = `-- name: ListTaskRuns :many
-SELECT snapshot FROM runs WHERE json_extract(snapshot,'$.taskId')=? ORDER BY created_at,id
+SELECT v.snapshot FROM run_records v WHERE v.id IN (SELECT r.id FROM runs r WHERE json_extract(r.snapshot,'$.taskId')=?) ORDER BY v.created_at,v.id
 `
 
 func (q *Queries) ListTaskRuns(ctx context.Context, snapshot string) ([]string, error) {
@@ -364,7 +364,7 @@ func (q *Queries) TaskInputRange(ctx context.Context, arg TaskInputRangeParams) 
 }
 
 const taskRunsPage = `-- name: TaskRunsPage :many
-SELECT id,status,created_at,updated_at,agent_id,
+SELECT id,status,created_at,CAST(coalesce((SELECT p.updated_at FROM run_progress p WHERE p.run_id=runs.id),updated_at) AS TEXT) AS updated_at,agent_id,
  CAST(coalesce(json_extract(snapshot,'$.agentSnapshot.name'),'') AS TEXT) AS agent_name,
  CAST(coalesce(json_extract(snapshot,'$.runnerName'),'') AS TEXT) AS runner_name,
  CAST(coalesce(json_extract(snapshot,'$.checksDeferred'),0) AS INTEGER) AS checks_deferred

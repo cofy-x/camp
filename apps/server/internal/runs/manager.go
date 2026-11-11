@@ -147,7 +147,7 @@ func (m *Manager) recover(ctx context.Context) error {
 		run.Files, run.ResultCommit = files, commit
 		m.redactFiles(run.Files)
 		if captureErr != nil {
-			run.Output = boundedOutput(run.Output, "[Recovery] "+m.redact(captureErr.Error())+"\n")
+			run.Output = storage.AppendOutputTail(run.Output, "[Recovery] "+m.redact(captureErr.Error())+"\n")
 		}
 		run.Output = m.redact(run.Output)
 		run.Status = "interrupted"
@@ -671,14 +671,6 @@ func (m *Manager) redactFiles(files []storage.RunFile) {
 		files[i].Before = m.redact(files[i].Before)
 		files[i].After = m.redact(files[i].After)
 	}
-}
-func boundedOutput(old, addition string) string {
-	text := strings.ToValidUTF8(old+addition, "�")
-	if len(text) <= storage.MaxRunOutputSize {
-		return text
-	}
-	const marker = "[Earlier output was truncated; retention is limited to 256 KiB]\n"
-	return marker + strings.ToValidUTF8(text[len(text)-(storage.MaxRunOutputSize-len(marker)-3):], "�")
 }
 func unfinished(status string) bool {
 	return status == "queued" || status == "preparing" || status == "running" || status == "checking" || status == "cancelling"

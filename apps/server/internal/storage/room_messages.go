@@ -234,11 +234,7 @@ func (s *Store) SendMessage(ctx context.Context, room string, input SendMessageI
 		for _, agent := range agents {
 			run := Run{RequestedByUserID: actor.ID, Model: b.Model, RuntimeKey: b.RuntimeKey, ID: newID(), RoomID: room, ThreadRootID: in.ThreadRootID, OriginMessageID: m.ID, AgentID: agent.ID, AgentSnapshot: agent, ResourceID: r.ResourceID, Environment: json.RawMessage(resource.Environment), Prompt: in.Content, Status: "queued", CreatedAt: stamp, UpdatedAt: stamp, Files: []RunFile{}, Checks: json.RawMessage(`[]`), MaxTokens: b.MaxTokens, MaxSteps: b.MaxSteps, TimeoutSeconds: b.TimeoutSeconds, References: references}
 			run.RunnerID, run.RunnerName = targets[agent.ID].ID, targets[agent.ID].Name
-			snapshot, e := json.Marshal(run)
-			if e != nil {
-				return e
-			}
-			if e = q.CreateRun(ctx, sqlgen.CreateRunParams{RequestedByUserID: actor.ID, ID: run.ID, RoomID: room, ThreadRootID: nullableParent(run.ThreadRootID), OriginMessageID: m.ID, AgentID: agent.ID, ResourceID: r.ResourceID, Status: "queued", Snapshot: string(snapshot), CreatedAt: stamp, UpdatedAt: stamp}); e != nil {
+			if e = createRun(ctx, q, run); e != nil {
 				return e
 			}
 			result.Runs = append(result.Runs, run)

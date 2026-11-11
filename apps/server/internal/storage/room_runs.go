@@ -98,11 +98,14 @@ func saveRun(ctx context.Context, q *sqlgen.Queries, r Run) error {
 	if e := validateRun(r); e != nil {
 		return e
 	}
-	b, e := json.Marshal(r)
+	b, e := coldRunJSON(r)
 	if e != nil {
 		return e
 	}
-	return q.SaveRun(ctx, sqlgen.SaveRunParams{ID: r.ID, Status: r.Status, Snapshot: string(b), UpdatedAt: r.UpdatedAt})
+	if e = q.SaveRun(ctx, sqlgen.SaveRunParams{ID: r.ID, Status: r.Status, Snapshot: string(b), UpdatedAt: r.UpdatedAt}); e != nil {
+		return e
+	}
+	return replaceRunOutput(ctx, q, r.ID, r.Output, r.UpdatedAt)
 }
 func (s *Store) ClaimRun(ctx context.Context, id string) (out Run, err error) {
 	err = s.transaction(ctx, func(tx *sql.Tx) error {

@@ -566,7 +566,7 @@ func (q *Queries) GetRoom(ctx context.Context, id string) (Room, error) {
 }
 
 const getRun = `-- name: GetRun :one
-SELECT snapshot FROM runs WHERE id=?
+SELECT snapshot FROM run_records WHERE id=?
 `
 
 func (q *Queries) GetRun(ctx context.Context, id string) (string, error) {
@@ -640,7 +640,7 @@ SELECT CAST(json_object(
  'taskId',coalesce(json_extract(r.snapshot,'$.taskId'),''),
  'runnerId',coalesce(json_extract(r.snapshot,'$.runnerId'),''),
  'runnerName',coalesce(json_extract(r.snapshot,'$.runnerName'),''),
- 'status',r.status,'createdAt',r.created_at,'updatedAt',r.updated_at,
+ 'status',r.status,'createdAt',r.created_at,'updatedAt',coalesce((SELECT p.updated_at FROM run_progress p WHERE p.run_id=r.id),r.updated_at),
  'finishedAt',coalesce(json_extract(r.snapshot,'$.finishedAt'),''),
  'sessionMode',coalesce(json_extract(r.snapshot,'$.sessionMode'),''),
  'sessionGeneration',coalesce(json_extract(r.snapshot,'$.sessionGeneration'),0),
@@ -850,7 +850,7 @@ func (q *Queries) ListMembers(ctx context.Context, roomID string) ([]Agent, erro
 }
 
 const listMessageRuns = `-- name: ListMessageRuns :many
-SELECT snapshot FROM runs WHERE origin_message_id=? ORDER BY created_at,id
+SELECT snapshot FROM run_records WHERE origin_message_id=? ORDER BY created_at,id
 `
 
 func (q *Queries) ListMessageRuns(ctx context.Context, originMessageID string) ([]string, error) {
@@ -955,7 +955,7 @@ func (q *Queries) ListMissingAgentAvatars(ctx context.Context) ([]string, error)
 }
 
 const listQueuedRuns = `-- name: ListQueuedRuns :many
-SELECT snapshot FROM runs WHERE status='queued' ORDER BY created_at,id
+SELECT snapshot FROM run_records WHERE status='queued' ORDER BY created_at,id
 `
 
 func (q *Queries) ListQueuedRuns(ctx context.Context) ([]string, error) {
@@ -1018,7 +1018,7 @@ func (q *Queries) ListResources(ctx context.Context) ([]Resource, error) {
 }
 
 const listRoomRuns = `-- name: ListRoomRuns :many
-SELECT snapshot FROM runs WHERE room_id=? ORDER BY created_at,id
+SELECT snapshot FROM run_records WHERE room_id=? ORDER BY created_at,id
 `
 
 func (q *Queries) ListRoomRuns(ctx context.Context, roomID string) ([]string, error) {
@@ -1157,7 +1157,7 @@ func (q *Queries) ListRunStates(ctx context.Context) ([]ListRunStatesRow, error)
 }
 
 const listUnfinishedRuns = `-- name: ListUnfinishedRuns :many
-SELECT snapshot FROM runs WHERE status IN ('preparing','running','checking','cancelling') ORDER BY created_at,id
+SELECT snapshot FROM run_records WHERE status IN ('preparing','running','checking','cancelling') ORDER BY created_at,id
 `
 
 func (q *Queries) ListUnfinishedRuns(ctx context.Context) ([]string, error) {
@@ -1263,8 +1263,9 @@ func (q *Queries) PublishResource(ctx context.Context, arg PublishResourceParams
 }
 
 const resourceResultRun = `-- name: ResourceResultRun :one
-SELECT snapshot FROM runs WHERE room_id=?1 AND resource_id=?2
-    AND json_extract(snapshot,'$.resultCommit')=?3 ORDER BY created_at DESC,id DESC LIMIT 1
+SELECT v.snapshot FROM run_records v WHERE v.id=(SELECT r.id FROM runs r
+ WHERE r.room_id=?1 AND r.resource_id=?2
+ AND json_extract(r.snapshot,'$.resultCommit')=?3 ORDER BY r.created_at DESC,r.id DESC LIMIT 1)
 `
 
 type ResourceResultRunParams struct {
@@ -1343,7 +1344,7 @@ SELECT CAST(json_object(
  'taskId',coalesce(json_extract(r.snapshot,'$.taskId'),''),
  'runnerId',coalesce(json_extract(r.snapshot,'$.runnerId'),''),
  'runnerName',coalesce(json_extract(r.snapshot,'$.runnerName'),''),
- 'status',r.status,'createdAt',r.created_at,'updatedAt',r.updated_at,
+ 'status',r.status,'createdAt',r.created_at,'updatedAt',coalesce((SELECT p.updated_at FROM run_progress p WHERE p.run_id=r.id),r.updated_at),
  'finishedAt',coalesce(json_extract(r.snapshot,'$.finishedAt'),''),
  'sessionMode',coalesce(json_extract(r.snapshot,'$.sessionMode'),''),
  'sessionGeneration',coalesce(json_extract(r.snapshot,'$.sessionGeneration'),0),

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
@@ -276,9 +275,19 @@ func validateAttempt(ctx context.Context, q *sqlgen.Queries, a Attempt, runnerID
 	if !allowCancelled && a.CancelRequested {
 		return problem("run_cancelled", "Cancellation was requested before this operation.")
 	}
-	r, err := getRun(ctx, q, a.RunID)
+	var r Run
+	var err error
+	if allowCancelled {
+		var raw string
+		raw, err = q.GetRunAttemptState(ctx, a.RunID)
+		if err == nil {
+			err = json.Unmarshal([]byte(raw), &r)
+		}
+	} else {
+		r, err = getRun(ctx, q, a.RunID)
+	}
 	if err != nil {
-		return err
+		return missing(err, "The run")
 	}
 	if r.AttemptID != a.ID || r.RunnerID != runnerID || runTerminal(r.Status) {
 		return problem("stale_attempt", "This execution attempt is no longer current.")
@@ -480,10 +489,12 @@ func (s *Store) RecordAttemptEvent(ctx context.Context, runnerID, id string, seq
 	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
-		a, e := getAttempt(ctx, q, id)
+		row, e := q.GetAttemptStreamState(ctx, id)
 		if e != nil {
-			return e
+			return missing(e, "The execution attempt")
 		}
+		a := Attempt{ID: row.ID, RunID: row.RunID, RunnerID: row.RunnerID, Phase: row.Status, LeaseUntil: row.LeaseExpiresAt, WriterFence: row.Fence, CancelRequested: row.CancelRequested != 0}
+
 		if a.RunnerID != runnerID {
 			return problem("runner_mismatch", "This event belongs to another runner.")
 		}
@@ -514,39 +525,41 @@ func (s *Store) RecordAttemptEvent(ctx context.Context, runnerID, id string, seq
 		if e = q.CreateRunnerEventReceipt(ctx, sqlgen.CreateRunnerEventReceiptParams{OperationID: id, Sequence: seq, PayloadHash: hash, Kind: kind, Text: text, CreatedAt: now()}); e != nil {
 			return e
 		}
-		r, e := getRun(ctx, q, a.RunID)
+		r, e := q.GetRunStreamIdentity(ctx, a.RunID)
 		if e != nil {
 			return e
 		}
-		previousStatus := r.Status
-		if kind == "status" && (text == "running" || text == "checking") && r.Status != "cancelling" {
-			if r.Status == "preparing" || text == "checking" {
-				r.Status = text
+		status := r.Status
+		if kind == "status" && (text == "running" || text == "checking") && status != "cancelling" {
+			if status == "preparing" || text == "checking" {
+				status = text
 			}
 		}
+		stamp := now()
 		if kind != "status" {
-			r.Output = remoteOutput(r.Output, text)
+			if e = appendRunOutput(ctx, q, a.RunID, text, stamp); e != nil {
+				return e
+			}
+		} else {
+			progress, e := q.GetRunProgress(ctx, a.RunID)
+			if e != nil {
+				return e
+			}
+			if e = q.SaveRunProgress(ctx, sqlgen.SaveRunProgressParams{RunID: a.RunID, UpdatedAt: stamp, OutputBytes: progress.OutputBytes, OutputPrefix: progress.OutputPrefix}); e != nil {
+				return e
+			}
 		}
-		r.UpdatedAt = now()
-		if e = saveRun(ctx, q, r); e != nil {
-			return e
+		if status != r.Status {
+			if e = q.SetRunStreamStatus(ctx, sqlgen.SetRunStreamStatusParams{ID: a.RunID, Status: status, UpdatedAt: stamp}); e != nil {
+				return e
+			}
+			return event(ctx, q, "run.updated", r.RoomID, a.RunID)
 		}
-		if r.Status != previousStatus {
-			return event(ctx, q, "run.updated", r.RoomID, r.ID)
-		}
-		return event(ctx, q, "run.activity", r.RoomID, r.ID)
+		return event(ctx, q, "run.activity", r.RoomID, a.RunID)
 	})
 	return
 }
 
-func remoteOutput(old, addition string) string {
-	text := strings.ToValidUTF8(old+addition, "�")
-	if len(text) <= MaxRunOutputSize {
-		return text
-	}
-	const marker = "[Earlier output was truncated; retention is limited to 256 KiB]\n"
-	return marker + strings.ToValidUTF8(text[len(text)-(MaxRunOutputSize-len(marker)-3):], "�")
-}
 func (s *Store) CancelRemoteRun(ctx context.Context, id, reason string) (out Run, err error) {
 	if !validText(reason, MaxRunErrorSize, false) {
 		return out, problem("invalid_run", "A cancellation reason is required.")

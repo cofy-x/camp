@@ -332,8 +332,7 @@ func enqueueTaskRound(ctx context.Context, q *sqlgen.Queries, t *CollaborationTa
 	if err := authorizeRunExecution(ctx, q, r); err != nil {
 		return err
 	}
-	raw, _ := json.Marshal(r)
-	if err := q.CreateRun(ctx, sqlgen.CreateRunParams{ID: r.ID, RoomID: r.RoomID, ThreadRootID: nullableParent(r.ThreadRootID), OriginMessageID: r.OriginMessageID, AgentID: r.AgentID, ResourceID: r.ResourceID, Status: r.Status, Snapshot: string(raw), RequestedByUserID: r.RequestedByUserID, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}); err != nil {
+	if err := createRun(ctx, q, r); err != nil {
 		return err
 	}
 	t.ActiveRunID = r.ID

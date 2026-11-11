@@ -60,19 +60,19 @@ SELECT * FROM messages WHERE room_id=@room_id AND (COALESCE(thread_root_id,'')=@
 -- name: ContextMessages :many
 SELECT * FROM messages WHERE room_id=@room_id AND (COALESCE(thread_root_id,'')=@thread_root_id OR id=@thread_root_id) AND seq>@after_seq AND seq<=@through_seq ORDER BY seq DESC LIMIT 100;
 -- name: GetRun :one
-SELECT snapshot FROM runs WHERE id=?;
+SELECT snapshot FROM run_records WHERE id=?;
 -- name: CreateRun :exec
 INSERT INTO runs(id,room_id,thread_root_id,origin_message_id,agent_id,resource_id,status,snapshot,created_at,updated_at,requested_by_user_id) VALUES(?,?,?,?,?,?,?,?,?,?,?);
 -- name: SaveRun :exec
 UPDATE runs SET status=?,snapshot=?,updated_at=? WHERE id=?;
 -- name: ListQueuedRuns :many
-SELECT snapshot FROM runs WHERE status='queued' ORDER BY created_at,id;
+SELECT snapshot FROM run_records WHERE status='queued' ORDER BY created_at,id;
 -- name: ListUnfinishedRuns :many
-SELECT snapshot FROM runs WHERE status IN ('preparing','running','checking','cancelling') ORDER BY created_at,id;
+SELECT snapshot FROM run_records WHERE status IN ('preparing','running','checking','cancelling') ORDER BY created_at,id;
 -- name: ListRoomRuns :many
-SELECT snapshot FROM runs WHERE room_id=? ORDER BY created_at,id;
+SELECT snapshot FROM run_records WHERE room_id=? ORDER BY created_at,id;
 -- name: ListMessageRuns :many
-SELECT snapshot FROM runs WHERE origin_message_id=? ORDER BY created_at,id;
+SELECT snapshot FROM run_records WHERE origin_message_id=? ORDER BY created_at,id;
 -- name: ResourceRevisionKnown :one
 SELECT EXISTS(SELECT 1 FROM resources r WHERE r.id=@resource_id AND r.current_commit=@commit_id)
     OR EXISTS(SELECT 1 FROM runs w WHERE w.resource_id=@resource_id
@@ -86,8 +86,9 @@ SELECT EXISTS(SELECT 1 FROM rooms r WHERE r.id=@room_id AND r.resource_id=@resou
     OR EXISTS(SELECT 1 FROM runs w WHERE w.room_id=@room_id AND w.resource_id=@resource_id)
     OR EXISTS(SELECT 1 FROM room_uploads u WHERE u.room_id=@room_id AND u.resource_id=@resource_id);
 -- name: ResourceResultRun :one
-SELECT snapshot FROM runs WHERE room_id=@room_id AND resource_id=@resource_id
-    AND json_extract(snapshot,'$.resultCommit')=@commit_id ORDER BY created_at DESC,id DESC LIMIT 1;
+SELECT v.snapshot FROM run_records v WHERE v.id=(SELECT r.id FROM runs r
+ WHERE r.room_id=@room_id AND r.resource_id=@resource_id
+ AND json_extract(r.snapshot,'$.resultCommit')=@commit_id ORDER BY r.created_at DESC,r.id DESC LIMIT 1);
 -- name: ActiveAgentRun :one
 SELECT id FROM runs WHERE agent_id=? AND status IN ('preparing','running','checking','cancelling') LIMIT 1;
 -- name: FirstQueuedAgentRun :one
@@ -141,7 +142,7 @@ SELECT CAST(json_object(
  'taskId',coalesce(json_extract(r.snapshot,'$.taskId'),''),
  'runnerId',coalesce(json_extract(r.snapshot,'$.runnerId'),''),
  'runnerName',coalesce(json_extract(r.snapshot,'$.runnerName'),''),
- 'status',r.status,'createdAt',r.created_at,'updatedAt',r.updated_at,
+ 'status',r.status,'createdAt',r.created_at,'updatedAt',coalesce((SELECT p.updated_at FROM run_progress p WHERE p.run_id=r.id),r.updated_at),
  'finishedAt',coalesce(json_extract(r.snapshot,'$.finishedAt'),''),
  'sessionMode',coalesce(json_extract(r.snapshot,'$.sessionMode'),''),
  'sessionGeneration',coalesce(json_extract(r.snapshot,'$.sessionGeneration'),0),
@@ -182,7 +183,7 @@ SELECT CAST(json_object(
  'taskId',coalesce(json_extract(r.snapshot,'$.taskId'),''),
  'runnerId',coalesce(json_extract(r.snapshot,'$.runnerId'),''),
  'runnerName',coalesce(json_extract(r.snapshot,'$.runnerName'),''),
- 'status',r.status,'createdAt',r.created_at,'updatedAt',r.updated_at,
+ 'status',r.status,'createdAt',r.created_at,'updatedAt',coalesce((SELECT p.updated_at FROM run_progress p WHERE p.run_id=r.id),r.updated_at),
  'finishedAt',coalesce(json_extract(r.snapshot,'$.finishedAt'),''),
  'sessionMode',coalesce(json_extract(r.snapshot,'$.sessionMode'),''),
  'sessionGeneration',coalesce(json_extract(r.snapshot,'$.sessionGeneration'),0),

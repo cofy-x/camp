@@ -1,8 +1,11 @@
 package storage
 
 import (
+	"database/sql"
 	"encoding/json"
+	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/cofy-x/camp/apps/server/internal/orchestration"
@@ -94,7 +97,18 @@ func TestAutomationJournalMigrationPreservesLegacyRecordsAndConstrainsSystemAdmi
 	actor, _ := teamUsers(t, s)
 	runner, _ := enrollTestRunner(t, s, actor, "legacy")
 	room, writer := remoteTestRoom(t, s, actor, runner)
-	manual := startTask(t, s, actor, room, writer)
+	manual := seedLegacyTask(t, s, actor, room, writer)
+	request := orchestration.RequestRef{Scope: "create:" + room.ID, ID: "historical-manual", Hash: strings.Repeat("f", 64)}
+	if err := s.transaction(actor, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		if err := recordTaskAdmission(actor, q, manual, orchestration.TaskStart, request, manual.OriginMessageID); err != nil {
+			return err
+		}
+		return saveTaskReceipt(actor, q, request.Scope, request.ID, request.Hash, manual)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	var before string
 	var sequence int64
 	if err := s.db.QueryRow("SELECT seq,value FROM orchestration_records").Scan(&sequence, &before); err != nil {

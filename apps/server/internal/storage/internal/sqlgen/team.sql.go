@@ -645,7 +645,7 @@ func (q *Queries) ListRoomReads(ctx context.Context, userID string) ([]RoomRead,
 }
 
 const listUserActiveRuns = `-- name: ListUserActiveRuns :many
-SELECT snapshot FROM runs WHERE requested_by_user_id=? AND status IN ('queued','preparing','running','checking','cancelling') ORDER BY created_at,id
+SELECT snapshot FROM run_records WHERE requested_by_user_id=? AND status IN ('queued','preparing','running','checking','cancelling') ORDER BY created_at,id
 `
 
 func (q *Queries) ListUserActiveRuns(ctx context.Context, requestedByUserID string) ([]string, error) {

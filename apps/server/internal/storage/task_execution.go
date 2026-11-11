@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -46,9 +47,19 @@ func authorizeTaskEffects(ctx context.Context, q *sqlgen.Queries, t Collaboratio
 	return nil
 }
 func validateTaskAttempt(ctx context.Context, q *sqlgen.Queries, r Run, a Attempt, allowCancelled bool) error {
-	t, e := getTask(ctx, q, r.TaskID)
+	var t CollaborationTask
+	var e error
+	if allowCancelled {
+		var raw string
+		raw, e = q.GetTaskAttemptState(ctx, r.TaskID)
+		if e == nil {
+			e = json.Unmarshal([]byte(raw), &t)
+		}
+	} else {
+		t, e = getTask(ctx, q, r.TaskID)
+	}
 	if e != nil {
-		return e
+		return missing(e, "The collaboration")
 	}
 	if t.ActiveRunID != r.ID || t.ActiveAttemptID != a.ID || t.DraftFence != a.WriterFence {
 		return problem("stale_attempt", "The collaboration execution fence is no longer current.")

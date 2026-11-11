@@ -36,7 +36,10 @@ func TestRunStatesReadOnlyCurrentColumnsWithoutSnapshots(t *testing.T) {
 	if len(reads) != 1 || strings.Contains(strings.ToLower(reads[0]), "snapshot") {
 		t.Fatal("workspace state materialized frozen content", reads)
 	}
-	after, _ := s.queries().GetRun(ctx, active.ID)
+	var after string
+	if err := s.db.QueryRow("SELECT snapshot FROM runs WHERE id=?", active.ID).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
 	if after != string(raw) {
 		t.Fatal("state read modified the original")
 	}
