@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Button, type DesktopAPI } from '@cofy-x/camp-platinum';
 import { useTeam } from '../../team/TeamContext';
-import { useRead } from '../../shared/reads/useRead';
+import { useRead, useReadStore } from '../../shared/reads/useRead';
 import { flushPrivateDrafts } from '../../team/draftRegistry';
 import { FilePreview } from '../workspace/FilePreview';
 import { ReviewActions } from './ReviewActions';
@@ -29,7 +29,9 @@ export function ReviewPanel({
 }) {
   const team = useTeam();
   const [result, setResult] = useState<ReviewResult | null>(null);
-  const read = useRead<ReviewResult>(`/reviews/${encodeURIComponent(id)}`);
+  const store = useReadStore();
+  const path = `/reviews/${encodeURIComponent(id)}`;
+  const read = useRead<ReviewResult>(path);
   const error = read.error;
   const [incoming, setIncoming] = useState<ReviewResult | null>(null);
   const displayed = useRef<ReviewResult | null>(null);
@@ -80,16 +82,19 @@ export function ReviewPanel({
   }, [result]);
 
   useEffect(() => {
-    const value = read.data;
-    if (!value) return;
+    const accepted = store.snapshot<ReviewResult>(path);
+    const value = accepted.data;
     const current = displayed.current;
+    // Reopening establishes a current baseline before offering actions;
+    // later changes still require explicit inspection in the mounted view.
+    if (!value || (!current && (accepted.refreshing || accepted.error))) return;
     if (!current || current.review.revision === value.review.revision) {
       displayed.current = value;
       setResult(value);
     } else if (value.review.revision > current.review.revision) {
       setIncoming(value);
     }
-  }, [read.data]);
+  }, [path, read.data, read.error, read.refreshing, store]);
   const review = result?.review;
   const feedback = result?.events
     .filter((event) => event.action === 'request_changes')

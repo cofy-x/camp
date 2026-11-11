@@ -888,6 +888,60 @@ test('history pages keep their frozen position and drafts through refresh and fa
   expect(
     await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
   ).toBe(true);
+
+  await panel
+    .getByRole('button', { name: 'Back to Collaborations', exact: true })
+    .click();
+  value.setTask({
+    revision: 3,
+    inputs: [
+      ...value.task.inputs!,
+      { ...inputs[0], id: 'input-47', seq: 47, content: 'New constraint 47.' },
+    ],
+  });
+  let releaseHead = () => {};
+  const headGate = new Promise<void>((resolve) => {
+    releaseHead = resolve;
+  });
+  let headReads = 0;
+  const pinnedRanges: string[] = [];
+  await page.route(`**/api/tasks/${value.task.id}/inputs?*`, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const query = new URL(route.request().url()).searchParams;
+    const through = query.get('through');
+    if (through) pinnedRanges.push(through);
+    else {
+      headReads++;
+      await headGate;
+    }
+    return route.fallback();
+  });
+  try {
+    await value.open();
+    expect(headReads).toBe(0);
+    await panel.getByRole('tab', { name: 'Activity', exact: true }).click();
+    await expect.poll(() => headReads).toBeGreaterThan(0);
+    const note = panel.getByLabel('Add input for the next turn', {
+      exact: true,
+    });
+    const reopenedDraft = 'Keep my note while the latest input range loads.';
+    await note.fill(reopenedDraft);
+    expect(pinnedRanges).toEqual([]);
+    releaseHead();
+    await expect.poll(() => pinnedRanges).toContain('47');
+    await expect(note).toHaveValue(reopenedDraft);
+    await history
+      .getByRole('button', { name: 'Next Inputs', exact: true })
+      .click();
+    await expect(history).toContainText('Original constraint 21.');
+    await history
+      .getByRole('button', { name: 'Next Inputs', exact: true })
+      .click();
+    await expect(history).toContainText('New constraint 47.');
+  } finally {
+    releaseHead();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
 });
 
 test('legacy pending task actions retry their original body after the input protocol upgrade', async ({

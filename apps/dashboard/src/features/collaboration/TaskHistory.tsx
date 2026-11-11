@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
-import { useRead } from '../../shared/reads/useRead';
+import { useRead, useReadStore } from '../../shared/reads/useRead';
 import { statusLabel } from '../workspace/api';
 import { type Task, type TaskInputPage, type TaskRunPage } from './api';
 
@@ -14,13 +14,26 @@ function useHistoryPage<T, C>(
 ) {
   const [cursor, setCursor] = useState(initial);
   const [previous, setPrevious] = useState<C[]>([]);
-  const read = useRead<T>(path(cursor), { enabled: active });
+  const store = useReadStore();
+  const readPath = path(cursor);
+  const read = useRead<T>(readPath, { enabled: active });
   const page = read.data;
   useEffect(() => {
-    if (!page || !freeze) return;
-    const frozen = freeze(cursor, page);
+    if (!active || !freeze) return;
+    const accepted = store.snapshot<T>(readPath);
+    if (!accepted.data || accepted.refreshing || accepted.error) return;
+    const frozen = freeze(cursor, accepted.data);
     if (frozen !== cursor) setCursor(frozen);
-  }, [cursor, page, freeze]);
+  }, [
+    active,
+    cursor,
+    readPath,
+    read.data,
+    read.refreshing,
+    read.error,
+    freeze,
+    store,
+  ]);
   return {
     cursor,
     page,
