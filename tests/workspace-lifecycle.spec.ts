@@ -80,7 +80,7 @@ test('page hide aborts workspace reads and a restored page resumes without losin
 
   // Repeated refreshes share a pending read rather than cancelling it before
   // either response body can be buffered.
-  const readPaths = new Set(['/api/rooms', `/api/rooms/${room.id}/runs`]);
+  const readPaths = new Set(['/api/rooms', `/api/rooms/${room.id}/messages`]);
   const deferred = new Set<string>();
   let releaseNetwork = () => {};
   const networkGate = new Promise<void>((resolve) => {
@@ -104,7 +104,7 @@ test('page hide aborts workspace reads and a restored page resumes without losin
   await page.evaluate((roomId) => {
     const scoped = window as typeof window & { campReadBarrier: ReadBarrier };
     const original = window.fetch.bind(window);
-    const targets = new Set(['/api/rooms', `/api/rooms/${roomId}/runs`]);
+    const targets = new Set(['/api/rooms', `/api/rooms/${roomId}/messages`]);
     const releases = new Set<() => void>();
     const barrier: ReadBarrier = {
       held: [],

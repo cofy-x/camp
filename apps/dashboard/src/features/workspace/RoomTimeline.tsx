@@ -484,14 +484,23 @@ export function RoomTimeline({
         onWheel={() => {
           scrollIntent.current = true;
         }}
-        onTouchStart={() => {
+        onTouchMove={() => {
           scrollIntent.current = true;
         }}
-        onPointerDown={() => {
-          scrollIntent.current = true;
+        onPointerDown={(event) => {
+          // The scrollbar targets its scroll container. Buttons and previews
+          // may move it programmatically without choosing a historical window.
+          scrollIntent.current = event.target === event.currentTarget;
         }}
         onKeyDown={(event) => {
-          if (
+          scrollIntent.current =
+            !event.defaultPrevented &&
+            !(
+              event.target instanceof HTMLElement &&
+              event.target.closest(
+                'input,textarea,select,[contenteditable="true"],[role="textbox"]',
+              )
+            ) &&
             [
               'PageUp',
               'PageDown',
@@ -499,9 +508,7 @@ export function RoomTimeline({
               'End',
               'ArrowUp',
               'ArrowDown',
-            ].includes(event.key)
-          )
-            scrollIntent.current = true;
+            ].includes(event.key);
         }}
         onScroll={() => {
           const node = scroll.current;
