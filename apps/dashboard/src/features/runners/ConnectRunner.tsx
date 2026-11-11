@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button, Select } from '@cofy-x/camp-platinum';
-import { useTeam } from '../../team/TeamContext';
+import { useRead } from '../../shared/reads/useRead';
 import { runnersApi, type Enrollment, type EnrollmentRecord } from './api';
 import { runnerSetupCommand } from './presentation';
 
@@ -13,7 +13,6 @@ export function ConnectRunner({
 }: {
   onConnected: (id: string) => void;
 }) {
-  const { revision, refresh } = useTeam();
   const [name, setName] = useState('');
   const [platform, setPlatform] = useState('');
   const [platforms, setPlatforms] = useState<{ id: string; name: string }[]>(
@@ -24,63 +23,46 @@ export function ConnectRunner({
   > | null>(null);
   const [installationError, setInstallationError] = useState('');
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
-  const [enrollments, setEnrollments] = useState<EnrollmentRecord[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [codesError, setCodesError] = useState('');
+  const installationRead = useRead<
+    Awaited<ReturnType<typeof runnersApi.installation>>
+  >(
+    `/runner-installation${platform && platform !== 'linux-amd64' ? `?platform=${encodeURIComponent(platform)}` : ''}`,
+  );
+  const codesRead = useRead<{ enrollments: EnrollmentRecord[] }>(
+    '/runner-enrollments',
+  );
+  const enrollments = codesRead.data?.enrollments ?? [];
+  const codesError = codesRead.error;
+  const refresh = () => {
+    void installationRead.refresh();
+    void codesRead.refresh();
+  };
   useEffect(() => {
-    const controller = new AbortController();
-    void runnersApi
-      .installation(controller.signal, platform || undefined)
-      .then((value) => {
-        if (!controller.signal.aborted) {
-          if (platform && value.target !== platform)
-            throw new Error(
-              'The download does not match the selected platform. Retry the download.',
-            );
-          const catalog = value.platforms?.length
-            ? value.platforms
-            : [{ id: value.target, name: value.platform }];
-          setPlatforms(catalog);
-          if (platform && !catalog.some((item) => item.id === platform))
-            throw new Error(
-              'This platform is no longer available. Choose another platform.',
-            );
-          setInstallation(platform ? value : null);
-          setInstallationError('');
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setInstallationError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load the Runner download.',
-          );
-      });
-    return () => controller.abort();
-  }, [revision, platform]);
-  useEffect(() => {
-    const controller = new AbortController();
-    void runnersApi
-      .enrollments(controller.signal)
-      .then(({ enrollments }) => {
-        if (!controller.signal.aborted) {
-          setEnrollments(enrollments ?? []);
-          setCodesError('');
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setCodesError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load connection codes.',
-          );
-      });
-    return () => controller.abort();
-  }, [revision]);
+    const value = installationRead.data;
+    if (!value) return;
+    const catalog = value.platforms?.length
+      ? value.platforms
+      : [{ id: value.target, name: value.platform }];
+    setPlatforms(catalog);
+    if (platform && value.target !== platform) {
+      setInstallationError(
+        'The download does not match the selected platform. Retry the download.',
+      );
+      return;
+    }
+    if (platform && !catalog.some((item) => item.id === platform)) {
+      setInstallationError(
+        'This platform is no longer available. Choose another platform.',
+      );
+      return;
+    }
+    setInstallation(platform ? value : null);
+    setInstallationError('');
+  }, [installationRead.data, platform]);
+  const downloadError = installationError || installationRead.error;
   const mac = platform === 'darwin-arm64';
   const linux = platform === 'linux-amd64';
   const platformName =
@@ -187,10 +169,9 @@ export function ConnectRunner({
                 : 'Follow the installation guide for this platform.'}
           </p>
         )}
-        {installationError ? (
+        {downloadError ? (
           <p className="app-error" role="alert">
-            {installationError}{' '}
-            <Button onClick={refresh}>Retry Download</Button>
+            {downloadError} <Button onClick={refresh}>Retry Download</Button>
           </p>
         ) : !platform ? null : !installation ? (
           <p role="status">Checking download…</p>

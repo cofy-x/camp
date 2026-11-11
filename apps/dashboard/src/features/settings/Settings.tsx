@@ -20,6 +20,7 @@ import { GettingReady } from './GettingReady';
 import { useReadiness } from './useReadiness';
 import { IdentityAvatar } from '../identity/IdentityAvatar';
 import { AccountAvatar } from '../identity/AccountAvatar';
+import { useRead } from '../../shared/reads/useRead';
 
 function ModelPanel({ onSaved }: { onSaved: () => void }) {
   const fieldId = useId();
@@ -346,43 +347,13 @@ function ModelPanel({ onSaved }: { onSaved: () => void }) {
 function TeamPanel({ desktop }: { desktop: AppWindowProps['desktop'] }) {
   const { user } = useAccount();
   const team = useTeam();
-  const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const invitationsRead = useRead<{ invites: Invitation[] }>('/team/invites');
+  const invitations = invitationsRead.data?.invites ?? [];
   const [name, setName] = useState(team.name);
   const [link, setLink] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
-  const refresh = () => {
-    void teamApi
-      .invitations()
-      .then((result) => setInvitations(result.invites))
-      .catch((error: unknown) =>
-        setError(
-          error instanceof Error
-            ? error.message
-            : 'Could not load invitations.',
-        ),
-      );
-    team.refresh();
-  };
-  useEffect(() => {
-    let mounted = true;
-    void teamApi
-      .invitations()
-      .then((result) => {
-        if (mounted) setInvitations(result.invites);
-      })
-      .catch((error: unknown) => {
-        if (mounted)
-          setError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load invitations.',
-          );
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [team.revision]);
+  const refresh = team.refresh;
 
   async function invite() {
     setPending(true);
@@ -584,9 +555,9 @@ function TeamPanel({ desktop }: { desktop: AppWindowProps['desktop'] }) {
           </ul>
         )}
       </details>
-      {error && (
+      {(error || invitationsRead.error) && (
         <p className="app-error" role="alert">
-          {error}
+          {error || invitationsRead.error}
         </p>
       )}
     </section>
@@ -605,47 +576,24 @@ export function Settings(props: AppWindowProps) {
       props.desktop.activeWindowId === props.window.id &&
       !props.window.shaded,
   );
-  const [panelLoading, setPanelLoading] = useState(false);
-  const [panelError, setPanelError] = useState('');
-  const [panelRevision, setPanelRevision] = useState(0);
-  const [environment, setEnvironment] = useState<EnvironmentSettings | null>(
-    null,
+  const environmentRead = useRead<EnvironmentSettings>(
+    '/settings/environments',
+    { enabled: user.role === 'admin' && section === 'environments' },
   );
-  const [storage, setStorage] = useState<StorageSettings | null>(null);
+  const storageRead = useRead<StorageSettings>('/settings/storage', {
+    enabled: user.role === 'admin' && section === 'storage',
+  });
+  const environment = environmentRead.data ?? null;
+  const storage = storageRead.data ?? null;
+  const panelRead = section === 'environments' ? environmentRead : storageRead;
+  const panelLoading = panelRead.loading;
+  const panelError = panelRead.error;
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
   const [importName, setImportName] = useState('');
   const [importPath, setImportPath] = useState('');
   const [notice, setNotice] = useState('');
 
-  useEffect(() => {
-    if (user.role !== 'admin' || !['environments', 'storage'].includes(section))
-      return;
-    let mounted = true;
-    setPanelLoading(true);
-    setPanelError('');
-    const load =
-      section === 'environments'
-        ? settingsApi.environments().then((value) => {
-            if (mounted) setEnvironment(value);
-          })
-        : settingsApi.storage().then((value) => {
-            if (mounted) setStorage(value);
-          });
-    void load
-      .catch((error: unknown) => {
-        if (mounted)
-          setPanelError(
-            error instanceof Error ? error.message : 'Could not load settings.',
-          );
-      })
-      .finally(() => {
-        if (mounted) setPanelLoading(false);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [user.role, section, panelRevision]);
   useEffect(() => {
     const intent = team.navigation;
     if (intent?.app === 'settings' && intent.section) {
@@ -725,7 +673,7 @@ export function Settings(props: AppWindowProps) {
           {['environments', 'storage'].includes(section) && panelError && (
             <div className="app-error" role="alert">
               <p>{panelError}</p>
-              <Button onClick={() => setPanelRevision((value) => value + 1)}>
+              <Button onClick={() => void panelRead.refresh()}>
                 Retry Settings
               </Button>
             </div>

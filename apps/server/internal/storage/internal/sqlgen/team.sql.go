@@ -251,6 +251,22 @@ func (q *Queries) GetDraft(ctx context.Context, arg GetDraftParams) (UserDraft, 
 	return i, err
 }
 
+const getInboxReadState = `-- name: GetInboxReadState :one
+SELECT read_at FROM inbox WHERE id=? AND user_id=?
+`
+
+type GetInboxReadStateParams struct {
+	ID     string
+	UserID string
+}
+
+func (q *Queries) GetInboxReadState(ctx context.Context, arg GetInboxReadStateParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getInboxReadState, arg.ID, arg.UserID)
+	var read_at string
+	err := row.Scan(&read_at)
+	return read_at, err
+}
+
 const getInviteByToken = `-- name: GetInviteByToken :one
 SELECT id, token_hash, created_by_user_id, created_at, expires_at, consumed_at, revoked_at FROM invites WHERE token_hash=?
 `
@@ -725,7 +741,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 }
 
 const readInboxItem = `-- name: ReadInboxItem :execrows
-UPDATE inbox SET read_at=? WHERE id=? AND user_id=?
+UPDATE inbox SET read_at=? WHERE id=? AND user_id=? AND read_at=''
 `
 
 type ReadInboxItemParams struct {
@@ -785,8 +801,8 @@ func (q *Queries) SaveDraft(ctx context.Context, arg SaveDraftParams) error {
 	return err
 }
 
-const saveRoomRead = `-- name: SaveRoomRead :exec
-INSERT INTO room_reads(user_id,room_id,seq) VALUES(?,?,?) ON CONFLICT(user_id,room_id) DO UPDATE SET seq=max(room_reads.seq,excluded.seq)
+const saveRoomRead = `-- name: SaveRoomRead :execrows
+INSERT INTO room_reads(user_id,room_id,seq) VALUES(?,?,?) ON CONFLICT(user_id,room_id) DO UPDATE SET seq=excluded.seq WHERE excluded.seq>room_reads.seq
 `
 
 type SaveRoomReadParams struct {
@@ -795,9 +811,12 @@ type SaveRoomReadParams struct {
 	Seq    int64
 }
 
-func (q *Queries) SaveRoomRead(ctx context.Context, arg SaveRoomReadParams) error {
-	_, err := q.db.ExecContext(ctx, saveRoomRead, arg.UserID, arg.RoomID, arg.Seq)
-	return err
+func (q *Queries) SaveRoomRead(ctx context.Context, arg SaveRoomReadParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, saveRoomRead, arg.UserID, arg.RoomID, arg.Seq)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const saveTeamName = `-- name: SaveTeamName :exec

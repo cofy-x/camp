@@ -1,10 +1,11 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Button, type DesktopAPI } from '@cofy-x/camp-platinum';
 import { useTeam } from '../../team/TeamContext';
+import { useRead, useReadStore } from '../../shared/reads/useRead';
 import { flushPrivateDrafts } from '../../team/draftRegistry';
 import { FilePreview } from '../workspace/FilePreview';
 import { ReviewActions } from './ReviewActions';
-import { reviewsApi, reviewLabels, type ReviewResult } from './api';
+import { reviewLabels, type ReviewResult } from './api';
 
 const actionLabels: Record<string, string> = {
   request: 'Requested review',
@@ -28,8 +29,10 @@ export function ReviewPanel({
 }) {
   const team = useTeam();
   const [result, setResult] = useState<ReviewResult | null>(null);
-  const [error, setError] = useState('');
-  const [attempt, setAttempt] = useState(0);
+  const store = useReadStore();
+  const path = `/reviews/${encodeURIComponent(id)}`;
+  const read = useRead<ReviewResult>(path);
+  const error = read.error;
   const [incoming, setIncoming] = useState<ReviewResult | null>(null);
   const displayed = useRef<ReviewResult | null>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -79,31 +82,19 @@ export function ReviewPanel({
   }, [result]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void reviewsApi
-      .get(id, controller.signal)
-      .then((value) => {
-        if (!controller.signal.aborted) {
-          const current = displayed.current;
-          if (!current || current.review.revision === value.review.revision) {
-            displayed.current = value;
-            setResult(value);
-          } else if (value.review.revision > current.review.revision) {
-            setIncoming(value);
-          }
-          setError('');
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load this review.',
-          );
-      });
-    return () => controller.abort();
-  }, [id, team.revision, attempt]);
+    const accepted = store.snapshot<ReviewResult>(path);
+    const value = accepted.data;
+    const current = displayed.current;
+    // Reopening establishes a current baseline before offering actions;
+    // later changes still require explicit inspection in the mounted view.
+    if (!value || (!current && (accepted.refreshing || accepted.error))) return;
+    if (!current || current.review.revision === value.review.revision) {
+      displayed.current = value;
+      setResult(value);
+    } else if (value.review.revision > current.review.revision) {
+      setIncoming(value);
+    }
+  }, [path, read.data, read.error, read.refreshing, store]);
   const review = result?.review;
   const feedback = result?.events
     .filter((event) => event.action === 'request_changes')
@@ -118,9 +109,7 @@ export function ReviewPanel({
           {error && (
             <div role="alert" className="app-error">
               {error}{' '}
-              <Button onClick={() => setAttempt((value) => value + 1)}>
-                Retry Review
-              </Button>
+              <Button onClick={() => void read.refresh()}>Retry Review</Button>
             </div>
           )}
           {!review && !error && <p role="status">Loading review…</p>}

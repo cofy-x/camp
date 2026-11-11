@@ -179,6 +179,11 @@ test('an uncertain review decision freezes its original body and recovers after 
       })
     ).ok(),
   ).toBe(true);
+  // Unrelated Room activity does not reload this review. Reconcile on return
+  // to the foreground while its decision receipt is still unresolved.
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event('visibilitychange')),
+  );
   const retryRead = detail(page).getByRole('button', {
     name: 'Retry Review',
     exact: true,
@@ -477,6 +482,61 @@ test('a recorded review decision updates in the background without taking focus 
         .locator('.camp-review-content > .camp-section-heading > h2')
         .evaluate((element) => element === document.activeElement),
     ).toBe(false);
+    expect(errors.errors).toEqual([]);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
+});
+
+test('reopening a cached review loads the current decision before offering actions and keeps its comment', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  await signIn(page);
+  const value = await reviewFixture(page, 'Reopen current review');
+  await openReview(page, value.title);
+  const note = 'Keep this unfinished review comment.';
+  await detail(page).getByLabel('Review comment', { exact: true }).fill(note);
+  await detail(page)
+    .getByRole('button', { name: 'Back to Reviews', exact: true })
+    .click();
+  const decision = await mutate(page, `/reviews/${value.review.id}/actions`, {
+    requestId: randomUUID(),
+    revision: value.review.revision,
+    action: 'request_changes',
+    comment: 'Name the owner before delivery.',
+  });
+  expect(decision.ok()).toBe(true);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let reads = 0;
+  await page.route(`**/api/reviews/${value.review.id}`, async (route) => {
+    const response = await route.fetch();
+    reads++;
+    await held;
+    await route.fulfill({ response });
+  });
+  try {
+    await openReview(page, value.title);
+    await expect.poll(() => reads).toBeGreaterThan(0);
+    await expect(
+      detail(page).getByText('Loading review…', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      detail(page).getByRole('button', { name: 'Approve', exact: true }),
+    ).toHaveCount(0);
+    release();
+    await expect(detail(page)).toContainText('Name the owner before delivery.');
+    await expect(
+      detail(page).getByLabel('Review comment', { exact: true }),
+    ).toHaveValue(note);
+    await expect(
+      detail(page).getByRole('button', { name: 'Refresh Review', exact: true }),
+    ).toHaveCount(0);
     expect(errors.errors).toEqual([]);
   } finally {
     release();

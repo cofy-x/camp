@@ -9,6 +9,7 @@ import type {
 import { createRoom, mutate, signIn, workspace } from './team-helpers';
 import { timelineFixture } from './run-timeline-fixture';
 import { watchPageErrors } from './page-errors';
+import { fixtureNotifications } from './fixture-notifications';
 
 const failures = new WeakMap<Page, ReturnType<typeof watchPageErrors>>();
 test.beforeEach(async ({ page, browserName }) => {
@@ -32,6 +33,7 @@ async function fixture(
   active = false,
   activityGate?: ReturnType<typeof barrier>,
 ) {
+  const notify = await fixtureNotifications(page);
   const room = await createRoom(page, `Inspector ${randomUUID().slice(0, 6)}`);
   const posted = await mutate(page, `/rooms/${room.id}/messages`, {
     requestId: randomUUID(),
@@ -200,8 +202,9 @@ async function fixture(
     get run() {
       return run;
     },
-    setRun(value: Partial<Run>) {
+    async setRun(value: Partial<Run>) {
       run = { ...run, ...value };
+      await notify('run.updated', room.id, run.id);
     },
   };
 }
@@ -324,7 +327,7 @@ test('Files loading and local retry preserve summary and cached reply, and leavi
   }
 });
 
-test('summary polling reaches terminal state while Activity is blocked and leaving Activity stops its reads', async ({
+test('summary notifications reach terminal state while Activity is blocked and leaving Activity stops its reads', async ({
   page,
 }) => {
   await page.clock.install();
@@ -336,7 +339,7 @@ test('summary polling reaches terminal state while Activity is blocked and leavi
     await expect(
       inspector.getByText('Loading activity…', { exact: true }),
     ).toBeVisible();
-    value.setRun({
+    await value.setRun({
       status: 'succeeded',
       updatedAt: new Date(Date.now() + 1000).toISOString(),
       finishedAt: new Date().toISOString(),
@@ -398,7 +401,7 @@ test('diagnostics wait for every log page and certify completeness only from a t
       }),
     ).toBeDisabled();
     expect(downloads).toEqual([]);
-    value.setRun({
+    await value.setRun({
       status: 'succeeded',
       updatedAt: new Date(Date.now() + 1000).toISOString(),
       finishedAt: new Date().toISOString(),

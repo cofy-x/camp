@@ -120,6 +120,7 @@ async function completedWork(
     const after = Number(requested.get('after') || '0');
     return route.fulfill({
       json: {
+        through: messages.at(-1)?.seq ?? 0,
         messages: messages.filter(
           (message) => message.threadRootId === thread && message.seq > after,
         ),

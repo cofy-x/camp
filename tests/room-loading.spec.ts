@@ -79,6 +79,7 @@ async function fixture(page: Page, name: string) {
       const after = Number(url.searchParams.get('after') ?? 0);
       return route.fulfill({
         json: {
+          through: Math.max(0, ...messages.map((item) => item.seq)),
           messages: messages.filter(
             (item) => item.threadRootId === thread && item.seq > after,
           ),
@@ -283,10 +284,13 @@ for (const failed of ['members', 'timeline'] as const)
       await expect(alert).toBeVisible();
       const beforeRetry = value.reads[failed];
       await alert.getByRole('button', { name: 'Retry', exact: true }).click();
-      await expect.poll(() => value.reads[failed]).toBeGreaterThan(beforeRetry);
+      // Retry marks the accepted in-flight read dirty instead of starting a
+      // duplicate or cancelling it. Its one catch-up read follows completion.
+      expect(value.reads[failed]).toBe(beforeRetry);
       await expect(alert).toBeVisible();
       await expect(input).toHaveValue(draft);
       recovery.release();
+      await expect.poll(() => value.reads[failed]).toBe(beforeRetry + 1);
       await expect(alert).toHaveCount(0);
       await expect(input).toHaveValue(draft);
       await expect(
@@ -541,8 +545,10 @@ test('message pages are readable before completion and failed later pages retry 
   value.handlers.messages = async (route, url) => {
     const after = Number(url.searchParams.get('after') ?? 0);
     afterReads.push(after);
-    if (!after) return route.fulfill({ json: { messages: firstPage } });
-    if (after >= 501) return route.fulfill({ json: { messages: [] } });
+    if (!after)
+      return route.fulfill({ json: { messages: firstPage, through: 501 } });
+    if (after >= 501)
+      return route.fulfill({ json: { messages: [], through: 501 } });
     tailReads++;
     await gate.held;
     return tailFails
@@ -550,7 +556,7 @@ test('message pages are readable before completion and failed later pages retry 
           status: 503,
           json: { error: 'The next discussion page failed.' },
         })
-      : route.fulfill({ json: { messages: [final] } });
+      : route.fulfill({ json: { messages: [final], through: 501 } });
   };
   try {
     await errors.get(page)!.reload();

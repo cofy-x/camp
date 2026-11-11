@@ -1,5 +1,11 @@
 import type { AppDefinition } from '@cofy-x/camp-platinum';
-import { Runners } from './Runners';
+import { lazyApplication } from '../../shared/desktop/lazyApplication';
+
+const Runners = lazyApplication(
+  'src/features/runners/Runners.tsx',
+  () => import('./Runners'),
+  (module) => module.Runners,
+);
 
 export const runnersApp: AppDefinition = {
   id: 'runners',

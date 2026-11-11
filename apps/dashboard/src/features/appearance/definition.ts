@@ -1,5 +1,11 @@
 import type { AppDefinition } from '@cofy-x/camp-platinum';
-import { Appearance } from './Appearance';
+import { lazyApplication } from '../../shared/desktop/lazyApplication';
+
+const Appearance = lazyApplication(
+  'src/features/appearance/Appearance.tsx',
+  () => import('./Appearance'),
+  (module) => module.Appearance,
+);
 
 export const appearanceApp: AppDefinition = {
   id: 'appearance',

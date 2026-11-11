@@ -203,7 +203,15 @@ test('system handoffs retain queued work and failures before an Agent reply arri
     published: false,
   };
   await page.route(`**/api/rooms/${room.id}/messages?*`, (route) =>
-    route.fulfill({ json: { messages: [...messages, event] } }),
+    route.fulfill({
+      json: {
+        messages: [...messages, event],
+        through: Math.max(
+          event.seq,
+          ...messages.map((message: { seq: number }) => message.seq),
+        ),
+      },
+    }),
   );
   await page.route(`**/api/rooms/${room.id}/runs?view=timeline*`, (route) =>
     route.fulfill({ json: { items: [timelineFixture(run)], nextCursor: '' } }),

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { AppWindowProps, MenuItem } from '@cofy-x/camp-platinum';
 import { libraryApi, type LibraryResource, type Publication } from './api';
-import { workspaceApi, type Reference, type Room } from '../workspace/api';
+import type { Reference, Room } from '../workspace/api';
 import { useTeam } from '../../team/TeamContext';
+import { useRead } from '../../shared/reads/useRead';
 import { useAccount } from '../../team/AuthContext';
 import { flushPrivateDrafts } from '../../team/draftRegistry';
 import { teamApi } from '../../team/api';
@@ -50,27 +51,14 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [resourceId, setResourceId] = useState(window.params.resourceId ?? '');
   const [path, setPath] = useState('');
-  const [files, setFiles] = useState<string[]>([]);
-  const [commit, setCommit] = useState('');
-  const [publicationSnapshot, setPublicationSnapshot] = useState<{
-    resourceId: string;
-    items: Publication[];
-  }>({ resourceId: '', items: [] });
-  const [historyState, setHistoryState] = useState({
-    resourceId: '',
-    loading: false,
-    error: '',
-  });
-  const [historyAttempt, setHistoryAttempt] = useState(0);
-  const publications =
-    publicationSnapshot.resourceId === resourceId
-      ? publicationSnapshot.items
-      : [];
   const [history, setHistory] = useState(false);
-  const historyLoading =
-    history && (historyState.resourceId !== resourceId || historyState.loading);
-  const historyError =
-    historyState.resourceId === resourceId ? historyState.error : '';
+  const historyRead = useRead<{ publications: Publication[] }>(
+    resourceId ? `/resources/${encodeURIComponent(resourceId)}/history` : null,
+    { enabled: history },
+  );
+  const publications = historyRead.data?.publications ?? [];
+  const historyError = historyRead.error;
+  const historyLoading = history && historyRead.loading;
   const [environmentOpen, setEnvironmentOpen] = useState(false);
   const [version, setVersion] = useState<{
     commit: string;
@@ -85,15 +73,23 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   } | null>(null);
   const [targetRoom, setTargetRoom] = useState('');
   const [error, setError] = useState('');
-  const [libraryError, setLibraryError] = useState('');
-  const [filesError, setFilesError] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [filesLoading, setFilesLoading] = useState(true);
+  const libraryRead =
+    useRead<Awaited<ReturnType<typeof libraryApi.list>>>('/library');
+  const libraryError = libraryRead.error;
+  const loading = libraryRead.loading;
+  const filesRead = useRead<{ files: string[]; commit: string }>(
+    resourceId
+      ? `/resources/${encodeURIComponent(resourceId)}/files${version ? `?commit=${encodeURIComponent(version.commit)}` : ''}`
+      : null,
+  );
+  const filesError = filesRead.error;
+  const filesLoading = filesRead.loading;
+  const files = filesRead.data?.files ?? [];
+  const commit = filesRead.data?.commit ?? '';
   const [pending, setPending] = useState(false);
   const [revision, setRevision] = useState(0);
   const editorRequest = useRef(0);
   const editorController = useRef<AbortController | null>(null);
-  const filesErrorScope = useRef('');
   const invalidateEditorRequest = useCallback(() => {
     editorRequest.current += 1;
     if (editorController.current) {
@@ -188,48 +184,30 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
       .catch(() => {});
   }, [revision]);
   useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    void libraryApi
-      .list(controller.signal)
-      .then((result) => {
-        if (controller.signal.aborted) return;
-        setLoading(false);
-        setLibraryError('');
-        setResources(result.resources);
-        setRooms(result.rooms);
-        setResourceId((current) =>
-          result.resources.some((item) => item.id === current)
-            ? current
-            : (result.resources.find((item) => !item.immutable)?.id ??
-              result.resources[0]?.id ??
-              ''),
-        );
-        setTargetRoom((current) =>
-          result.rooms.some((item) => item.id === current)
-            ? current
-            : (result.rooms.find(
-                (room) =>
-                  room.resourceId ===
-                  (selectedResource.current ||
-                    result.resources.find((item) => !item.immutable)?.id),
-              )?.id ??
-              result.rooms[0]?.id ??
-              ''),
-        );
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-          setLibraryError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load the library.',
-          );
-        }
-      });
-    return () => controller.abort();
-  }, [team.revision, revision]);
+    const result = libraryRead.data;
+    if (!result) return;
+    setResources(result.resources);
+    setRooms(result.rooms);
+    setResourceId((current) =>
+      result.resources.some((item) => item.id === current)
+        ? current
+        : (result.resources.find((item) => !item.immutable)?.id ??
+          result.resources[0]?.id ??
+          ''),
+    );
+    setTargetRoom((current) =>
+      result.rooms.some((item) => item.id === current)
+        ? current
+        : (result.rooms.find(
+            (room) =>
+              room.resourceId ===
+              (selectedResource.current ||
+                result.resources.find((item) => !item.immutable)?.id),
+          )?.id ??
+          result.rooms[0]?.id ??
+          ''),
+    );
+  }, [libraryRead.data]);
   useEffect(() => {
     const intent = team.navigation;
     if (
@@ -254,13 +232,9 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     setVersion(intent.commit ? { commit: intent.commit } : null);
     setComparison(null);
     if (intent.resourceId) {
-      if (selectedResource.current !== intent.resourceId)
-        setPublicationSnapshot({ resourceId: intent.resourceId, items: [] });
       setResourceId(intent.resourceId);
       setEditor(null);
       setHistory(false);
-      setFiles([]);
-      setCommit('');
     }
     if (intent.path) setPath(intent.path);
   }, [team.navigation, rooms, invalidateEditorRequest]);
@@ -294,66 +268,12 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
       (item) => item.resourceId === resourceId && item.id === targetRoom,
     ) ?? rooms.find((item) => item.resourceId === resourceId);
   useEffect(() => {
-    if (!resourceId) return;
-    const controller = new AbortController();
-    setFilesLoading(true);
-    const scope = JSON.stringify([resourceId, version?.commit]);
-    if (filesErrorScope.current !== scope) {
-      filesErrorScope.current = scope;
-      setFilesError('');
-    }
-    void workspaceApi
-      .files(resourceId, controller.signal, version?.commit)
-      .then((listing) => {
-        if (controller.signal.aborted) return;
-        setFilesLoading(false);
-        setFilesError('');
-        setFiles(listing.files);
-        setCommit(listing.commit);
-        setPath((current) =>
-          listing.files.includes(current) ? current : (listing.files[0] ?? ''),
-        );
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted) {
-          setFilesLoading(false);
-          setFilesError(
-            error instanceof Error
-              ? error.message
-              : 'Could not read these files.',
-          );
-        }
-      });
-    return () => controller.abort();
-  }, [resourceId, resource?.currentCommit, revision, version?.commit]);
-  useEffect(() => {
-    if (!history || !resourceId) return;
-    const controller = new AbortController();
-    setHistoryState((current) => ({
-      resourceId,
-      loading: true,
-      error: current.resourceId === resourceId ? current.error : '',
-    }));
-    void libraryApi
-      .history(resourceId, controller.signal)
-      .then(({ publications }) => {
-        if (controller.signal.aborted) return;
-        setPublicationSnapshot({ resourceId, items: publications });
-        setHistoryState({ resourceId, loading: false, error: '' });
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setHistoryState({
-            resourceId,
-            loading: false,
-            error:
-              error instanceof Error
-                ? error.message
-                : 'Could not load version history.',
-          });
-      });
-    return () => controller.abort();
-  }, [history, resourceId, resource?.currentCommit, revision, historyAttempt]);
+    const listing = filesRead.data;
+    if (!listing) return;
+    setPath((current) =>
+      listing.files.includes(current) ? current : (listing.files[0] ?? ''),
+    );
+  }, [filesRead.data]);
   const reference: Reference | null =
     resource && path
       ? {
@@ -385,11 +305,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     if (owner) setTargetRoom(owner.id);
     setEditor(null);
     setPath('');
-    setFiles([]);
-    setCommit('');
-    setPublicationSnapshot({ resourceId: id, items: [] });
     setError('');
-    setFilesError('');
     setHistory(false);
   }
 
@@ -665,7 +581,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     filesLoading,
     historyLoading,
     historyError,
-    retryHistory: () => setHistoryAttempt((value) => value + 1),
+    retryHistory: () => void historyRead.refresh(),
     pending,
     invalidateEditorRequest,
     refresh,

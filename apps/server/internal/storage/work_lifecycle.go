@@ -127,6 +127,9 @@ func ensureWorkSource(ctx context.Context, q *sqlgen.Queries, room, sourceID, me
 			if _, e = q.InsertAutomationEvent(ctx, sqlgen.InsertAutomationEventParams{ID: ev.ID, RoomID: room, SourceID: ev.SourceID, ThreadKey: ev.ThreadKey, Kind: ev.Kind, ActorID: ev.ActorID, ActorKind: ev.ActorKind, MessageID: ev.MessageID, Status: "context", Value: string(raw)}); e != nil {
 				return "", e
 			}
+			if e = event(ctx, q, "automation.event.updated", room, ev.ID); e != nil {
+				return "", e
+			}
 		} else if e != nil {
 			return "", e
 		}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { isActiveRun, workspaceApi } from './api';
-import type { Run } from './api';
+import { isActiveRun } from './api';
+import { useRead } from '../../shared/reads/useRead';
+import type { Run, RunEvent } from './api';
 import { summarizeActivity } from './activity';
 import type { ActivitySummary } from './activity';
 
@@ -10,51 +11,25 @@ export function WorkActivity({
   run: Pick<Run, 'id' | 'status' | 'waitingReason'>;
 }) {
   const [recent, setRecent] = useState<ActivitySummary[]>([]);
-  const [error, setError] = useState(false);
+  const [after, setAfter] = useState(0);
   const queued = run.status === 'queued';
   const active = isActiveRun(run);
+  const activity = useRead<{ events: RunEvent[] }>(
+    `/runs/${encodeURIComponent(run.id)}/events?after=${after}`,
+    { enabled: !queued && active },
+  );
+  const error = Boolean(activity.error);
   useEffect(() => {
-    if (queued || !active) return;
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    let after = 0;
-
-    async function poll() {
-      try {
-        for (;;) {
-          const { events } = await workspaceApi.events(
-            run.id,
-            after,
-            controller.signal,
-          );
-          if (controller.signal.aborted) return;
-          const additions = events.filter((event) => event.seq > after);
-          const summaries = additions
-            .map(summarizeActivity)
-            .filter((item) => item !== null);
-          if (summaries.length)
-            setRecent((current) => [...current, ...summaries].slice(-6));
-          setError(false);
-          const next = additions.at(-1)?.seq ?? after;
-          if (events.length < 500 || next <= after) {
-            after = next;
-            break;
-          }
-          after = next;
-        }
-      } catch {
-        if (!controller.signal.aborted) setError(true);
-      }
-      if (!controller.signal.aborted)
-        timer = setTimeout(() => void poll(), 1200);
-    }
-
-    void poll();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [run.id, queued, active]);
+    if (!activity.data) return;
+    const additions = activity.data.events.filter((event) => event.seq > after);
+    const summaries = additions
+      .map(summarizeActivity)
+      .filter((item) => item !== null);
+    if (summaries.length)
+      setRecent((current) => [...current, ...summaries].slice(-6));
+    const next = additions.at(-1)?.seq ?? after;
+    if (next > after) setAfter(next);
+  }, [activity.data, after]);
   const latest = recent.at(-1);
   const stage =
     run.status === 'preparing'

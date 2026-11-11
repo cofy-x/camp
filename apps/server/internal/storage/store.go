@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
@@ -16,7 +17,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-type Store struct{ db *sql.DB }
+type Store struct {
+	db            *sql.DB
+	eventsMu      sync.Mutex
+	eventsChanged chan struct{}
+}
 
 func Open(filename string) (*Store, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -131,7 +136,34 @@ func (s *Store) withTransaction(ctx context.Context, opts *sql.TxOptions, fn fun
 	if err = fn(tx); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	if opts == nil || !opts.ReadOnly {
+		s.notifyCommitted()
+	}
+	return nil
+}
+
+// WorkspaceEventsChanged is a process-local wakeup, never an event source.
+// Capture it before reading the durable log so a concurrent commit cannot be
+// missed between the read and the subscription's wait.
+func (s *Store) WorkspaceEventsChanged() <-chan struct{} {
+	s.eventsMu.Lock()
+	defer s.eventsMu.Unlock()
+	if s.eventsChanged == nil {
+		s.eventsChanged = make(chan struct{})
+	}
+	return s.eventsChanged
+}
+
+func (s *Store) notifyCommitted() {
+	s.eventsMu.Lock()
+	defer s.eventsMu.Unlock()
+	if s.eventsChanged != nil {
+		close(s.eventsChanged)
+		s.eventsChanged = make(chan struct{})
+	}
 }
 
 func sqliteBusy(err error) bool {

@@ -468,8 +468,5 @@ func recordReviewTransition(ctx context.Context, q *sqlgen.Queries, r Review, ac
 			return err
 		}
 	}
-	if err := event(ctx, q, "message.created", r.RoomID, m.ID); err != nil {
-		return err
-	}
 	return event(ctx, q, "review.updated", r.RoomID, r.ID)
 }

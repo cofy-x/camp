@@ -168,7 +168,10 @@ func (s *Store) CreateRunnerEnrollment(ctx context.Context, name string, expires
 		if err := q.CreateRunnerEnrollment(ctx, sqlgen.CreateRunnerEnrollmentParams{ID: out.ID, Name: name, TokenHash: remoteHash([]byte(token)), ExpiresAt: out.ExpiresAt, CreatedAt: out.CreatedAt}); err != nil {
 			return err
 		}
-		return q.SetEnrollmentOwner(ctx, sqlgen.SetEnrollmentOwnerParams{ID: out.ID, OwnerUserID: nullableParent(out.OwnerUserID)})
+		if err := q.SetEnrollmentOwner(ctx, sqlgen.SetEnrollmentOwnerParams{ID: out.ID, OwnerUserID: nullableParent(out.OwnerUserID)}); err != nil {
+			return err
+		}
+		return event(ctx, q, "runner_enrollment.updated", "", out.ID)
 	})
 	return
 }
@@ -212,7 +215,10 @@ func (s *Store) RevokeRunnerEnrollment(ctx context.Context, id string) error {
 		if err == nil && n == 0 {
 			return problem("not_found", "The enrollment does not exist.")
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		return event(ctx, q, "runner_enrollment.updated", "", id)
 	})
 }
 
@@ -271,6 +277,9 @@ func (s *Store) JoinRunner(ctx context.Context, in JoinRunnerInput) (out Runner,
 			}
 		}
 		if err := q.ConsumeRunnerEnrollment(ctx, sqlgen.ConsumeRunnerEnrollmentParams{ID: enrollment.ID, RegistrationID: in.RegistrationID, RunnerID: nullableParent(id)}); err != nil {
+			return err
+		}
+		if err := event(ctx, q, "runner_enrollment.updated", "", enrollment.ID); err != nil {
 			return err
 		}
 		row, err := q.GetRunner(ctx, id)

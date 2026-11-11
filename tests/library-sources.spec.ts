@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { library, openApp, signIn, workspace } from './team-helpers';
+import { fixtureNotifications } from './fixture-notifications';
 import type { Runner } from '../apps/dashboard/src/features/runners/api';
 
 test('a member can import from owned Runners while shared execution does not grant source access', async ({
@@ -58,11 +59,15 @@ test('a member can import from owned Runners while shared execution does not gra
       },
     });
   });
+  const notify = await fixtureNotifications(page);
   await page.reload();
   await expect(workspace(page)).toBeVisible();
   await openApp(page, 'Library');
   const win = library(page);
   const openImport = async () => {
+    await expect(
+      win.getByRole('button', { name: 'More Library actions', exact: true }),
+    ).toBeVisible();
     const sources = win.getByRole('button', { name: 'Sources', exact: true });
     if (await sources.isVisible()) await sources.click();
     await expect(
@@ -101,6 +106,7 @@ test('a member can import from owned Runners while shared execution does not gra
     .getByRole('button', { name: 'Back to Files', exact: true })
     .click();
   runners = [];
+  await notify('runner.updated', '', owned.id);
   panel = await openImport();
   await expect(
     panel.getByRole('button', { name: 'Open Runners', exact: true }),

@@ -255,7 +255,7 @@ export function useFirstTask(
     setPending(true);
     setError('');
     try {
-      const { run } = await workspaceApi.run(attempt.runId);
+      const { run } = await workspaceApi.runSummary(attempt.runId);
       if (!current()) return;
       if (run.id !== attempt.runId || run.roomId !== attempt.roomId)
         throw new Error('The task response does not match the saved request.');

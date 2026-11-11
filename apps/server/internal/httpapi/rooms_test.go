@@ -236,7 +236,7 @@ func TestWorkspaceSSEReconnectUsesCommittedCursor(t *testing.T) {
 		t.Fatal(e)
 	}
 	last := events[len(events)-1].ID
-	request, e := http.NewRequest("GET", server.URL+"/api/workspace/events", nil)
+	request, e := http.NewRequest("GET", server.URL+"/api/workspace/events?after=999999", nil)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -261,8 +261,12 @@ func TestWorkspaceSSEReconnectUsesCommittedCursor(t *testing.T) {
 			if e = json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); e != nil {
 				t.Fatal(e)
 			}
-			if event.ID <= last || event.Type != "message.created" || event.RoomID != room.ID {
+			if event.ID <= last || event.RoomID != room.ID {
 				t.Fatal(event)
+			}
+			last = event.ID
+			if event.Type != "message.created" {
+				continue
 			}
 			found = true
 			break

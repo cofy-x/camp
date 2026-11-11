@@ -12,11 +12,16 @@ import (
 func (s *Store) Bootstrap(ctx context.Context, clientID string) (Bootstrap, error) {
 	out := Bootstrap{Preferences: Preferences{Wallpaper: "lavender", IconSnap: true, ControlStrip: true}, Layout: json.RawMessage("null")}
 	uid := actorID(ctx)
-	if uid == "" {
-		return out, nil
-	}
 	err := s.readTransaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
+		var e error
+		// Domain reads mount only after bootstrap. Start notifications at this
+		// frontier, before any initial snapshot, so none of those reads can miss
+		// a change committed while the browser is starting.
+		out.WorkspaceEventCursor, e = q.WorkspaceEventCursor(ctx)
+		if e != nil || uid == "" {
+			return e
+		}
 		raw, e := q.GetUserPreferences(ctx, uid)
 		if e != nil && !errors.Is(e, sql.ErrNoRows) {
 			return e

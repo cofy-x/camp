@@ -45,7 +45,7 @@ func event(ctx context.Context, q *sqlgen.Queries, kind, room, id string) error 
 	if err != nil {
 		return err
 	}
-	if room != "" {
+	if room != "" && kind != "run.activity" {
 		return q.TouchRoom(ctx, sqlgen.TouchRoomParams{ActivitySeq: sequence, UpdatedAt: now(), ID: room})
 	}
 	return nil
@@ -70,6 +70,13 @@ func (s *Store) ListAgents(ctx context.Context) ([]Agent, error) {
 		out = append(out, agentRow(r))
 	}
 	return out, e
+}
+
+func (s *Store) ListAgentRooms(ctx context.Context, id string) ([]string, error) {
+	if _, err := s.GetAgent(ctx, id); err != nil {
+		return nil, err
+	}
+	return s.queries().ListAgentRooms(ctx, id)
 }
 func (s *Store) SaveAgent(ctx context.Context, a Agent) (Agent, error) {
 	var saved Agent

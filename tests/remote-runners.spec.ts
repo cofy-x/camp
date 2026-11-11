@@ -146,7 +146,9 @@ async function openImport(page: Page) {
   const drawer = library(page).getByRole('button', {
     name: 'Sources',
     exact: true,
+    includeHidden: true,
   });
+  await expect(drawer).toBeAttached();
   if (await drawer.isVisible()) await drawer.click();
   await library(page)
     .getByRole('button', { name: 'Import from Runner…', exact: true })
@@ -1804,7 +1806,7 @@ test('A known admitted sample requires an observed terminal Run before a new sam
     runnerDetail(page).getByRole('button', { name: 'Open Task', exact: true }),
   ).toBeEnabled();
   let status = 'running';
-  await page.route('**/api/runs/sample-run', (r) =>
+  await page.route('**/api/runs/sample-run?view=summary', (r) =>
     r.fulfill({
       json: { run: { id: 'sample-run', roomId: scene.room.id, status } },
     }),
@@ -1850,7 +1852,7 @@ test('A late diagnostic task lookup cannot replace a newer Runner selection', as
     .click();
   const arrived = deferred(),
     release = deferred();
-  await page.route('**/api/runs/earlier-run', async (route) => {
+  await page.route('**/api/runs/earlier-run?view=summary', async (route) => {
     arrived.release();
     await release.promise;
     return route.fulfill({
@@ -1862,7 +1864,9 @@ test('A late diagnostic task lookup cannot replace a newer Runner selection', as
     .click();
   await arrived.promise;
   await selectRunner(page, scene.machines[1]);
-  const completed = page.waitForResponse('**/api/runs/earlier-run');
+  const completed = page.waitForResponse(
+    '**/api/runs/earlier-run?view=summary',
+  );
   release.release();
   await completed;
   await expect(runnerApp(page)).toHaveClass(/is-active/);
@@ -1995,7 +1999,7 @@ test('An old admitted reply cannot replace an explicitly started newer sample', 
   expect(scene.sends[1]).toEqual(scene.sends[0]);
   await openApp(page, 'Runners');
   await scene.openSample();
-  await page.route('**/api/runs/replayed-run', (r) =>
+  await page.route('**/api/runs/replayed-run?view=summary', (r) =>
     r.fulfill({
       json: {
         run: { id: 'replayed-run', roomId: scene.room.id, status: 'failed' },

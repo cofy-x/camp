@@ -1,57 +1,43 @@
 import { useCallback, useEffect, useId, useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
+import { useRead, useReadStore } from '../../shared/reads/useRead';
 import { statusLabel } from '../workspace/api';
-import {
-  tasksApi,
-  type Task,
-  type TaskInputPage,
-  type TaskRunPage,
-} from './api';
+import { type Task, type TaskInputPage, type TaskRunPage } from './api';
 
 // Keep one bounded page and its navigation anchors. Live updates refresh the
 // same range, without replacing the user's location or the parent write form.
 function useHistoryPage<T, C>(
   initial: C,
-  load: (cursor: C, signal: AbortSignal) => Promise<T>,
+  path: (cursor: C) => string,
   active: boolean,
-  revision: number,
   freeze?: (cursor: C, page: T) => C,
 ) {
   const [cursor, setCursor] = useState(initial);
   const [previous, setPrevious] = useState<C[]>([]);
-  const [retry, setRetry] = useState(0);
-  const [state, setState] = useState<{ cursor: C; page?: T; error: string }>({
-    cursor: initial,
-    error: '',
-  });
+  const store = useReadStore();
+  const readPath = path(cursor);
+  const read = useRead<T>(readPath, { enabled: active });
+  const page = read.data;
   useEffect(() => {
-    if (!active) return;
-    const controller = new AbortController();
-    void load(cursor, controller.signal)
-      .then((page) => {
-        if (!controller.signal.aborted) {
-          const frozen = freeze?.(cursor, page) ?? cursor;
-          setState({ cursor: frozen, page, error: '' });
-          if (frozen !== cursor) setCursor(frozen);
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setState((current) => ({
-            cursor,
-            page: current.cursor === cursor ? current.page : undefined,
-            error:
-              error instanceof Error
-                ? error.message
-                : 'Could not load history.',
-          }));
-      });
-    return () => controller.abort();
-  }, [active, cursor, load, revision, retry, freeze]);
+    if (!active || !freeze) return;
+    const accepted = store.snapshot<T>(readPath);
+    if (!accepted.data || accepted.refreshing || accepted.error) return;
+    const frozen = freeze(cursor, accepted.data);
+    if (frozen !== cursor) setCursor(frozen);
+  }, [
+    active,
+    cursor,
+    readPath,
+    read.data,
+    read.refreshing,
+    read.error,
+    freeze,
+    store,
+  ]);
   return {
     cursor,
-    page: state.cursor === cursor ? state.page : undefined,
-    error: state.cursor === cursor ? state.error : '',
+    page,
+    error: read.error,
     canBack: previous.length > 0,
     next(next: C, current = cursor) {
       setPrevious((anchors) => [...anchors, current]);
@@ -64,7 +50,7 @@ function useHistoryPage<T, C>(
       setCursor(last);
     },
     retry() {
-      setRetry((value) => value + 1);
+      void read.refresh();
     },
   };
 }
@@ -85,28 +71,26 @@ export function TaskHistory({
 }) {
   const descriptionId = useId();
   const loadInputs = useCallback(
-    (cursor: InputCursor, signal: AbortSignal) =>
-      tasksApi.inputs(task.id, cursor.after, cursor.through, signal),
+    (cursor: InputCursor) => {
+      const query = new URLSearchParams({ after: String(cursor.after) });
+      if (cursor.through !== undefined)
+        query.set('through', String(cursor.through));
+      return `/tasks/${encodeURIComponent(task.id)}/inputs?${query}`;
+    },
     [task.id],
   );
   const loadRuns = useCallback(
-    (cursor: string, signal: AbortSignal) =>
-      tasksApi.runs(task.id, cursor, signal),
+    (cursor: string) =>
+      `/tasks/${encodeURIComponent(task.id)}/runs?${new URLSearchParams({ cursor })}`,
     [task.id],
   );
   const inputs = useHistoryPage(
     firstInput,
     loadInputs,
     active && task.inputRevision > 0,
-    task.revision,
     freezeInput,
   );
-  const runs = useHistoryPage<TaskRunPage, string>(
-    '',
-    loadRuns,
-    active,
-    task.revision,
-  );
+  const runs = useHistoryPage<TaskRunPage, string>('', loadRuns, active);
   const inputPage = inputs.page;
   const frozenCursor = inputPage
     ? { after: inputs.cursor.after, through: inputPage.through }

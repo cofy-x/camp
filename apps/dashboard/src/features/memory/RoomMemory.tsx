@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Button, PixelIcon, Select } from '@cofy-x/camp-platinum';
 import { useAccount } from '../../team/AuthContext';
 import { useTeam } from '../../team/TeamContext';
+import { useRead } from '../../shared/reads/useRead';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
 import { flushPrivateDrafts } from '../../team/draftRegistry';
 import { useRecordedOperation } from '../../shared/useRecordedOperation';
@@ -294,7 +295,10 @@ export function RoomMemory({
   const team = useTeam();
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState('');
-  const [memories, setMemories] = useState<Memory[] | null>(null);
+  const read = useRead<{ memories: Memory[] }>(
+    `/rooms/${encodeURIComponent(roomId)}/memories?${new URLSearchParams({ q: search, limit: '20' })}`,
+  );
+  const memories = read.data?.memories ?? null;
   const [editing, setEditing] = useState<string | null>(null);
   const [selectedMemory, setSelectedMemory] = useState<Memory | undefined>();
   const [sourceMessage, setSourceMessage] = useState(initialMessage);
@@ -310,28 +314,7 @@ export function RoomMemory({
     },
     [],
   );
-  const [error, setError] = useState('');
-  const [retry, setRetry] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    void memoryApi
-      .list(roomId, search, controller.signal)
-      .then(({ memories }) => {
-        if (!controller.signal.aborted) {
-          setMemories(memories);
-          setError('');
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setError(
-            error instanceof Error
-              ? error.message
-              : 'Could not read room memory.',
-          );
-      });
-    return () => controller.abort();
-  }, [roomId, search, team.revision, retry]);
+  const error = read.error;
 
   async function select(value: string | null) {
     const expected = ++navigation.current;
@@ -352,7 +335,7 @@ export function RoomMemory({
           onSubmit={(event) => {
             event.preventDefault();
             setSearch(query);
-            setRetry((value) => value + 1);
+            if (query === search) void read.refresh();
           }}
         >
           <label>
@@ -372,9 +355,7 @@ export function RoomMemory({
         {error && (
           <p className="app-error" role="alert">
             {error}{' '}
-            <Button onClick={() => setRetry((value) => value + 1)}>
-              Retry notes
-            </Button>
+            <Button onClick={() => void read.refresh()}>Retry notes</Button>
           </p>
         )}
         {!memories && !error && <p role="status">Loading notes…</p>}
@@ -391,7 +372,7 @@ export function RoomMemory({
               memory={memory}
               onEdit={() => void select(memory.id)}
               onChanged={() => {
-                setRetry((value) => value + 1);
+                if (query === search) void read.refresh();
                 team.refresh();
               }}
             />
@@ -410,7 +391,7 @@ export function RoomMemory({
           onClose={() => void select(null)}
           onSaved={() => {
             setEditing(null);
-            setRetry((value) => value + 1);
+            if (query === search) void read.refresh();
             team.refresh();
           }}
         />

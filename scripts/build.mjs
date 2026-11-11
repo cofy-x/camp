@@ -2,6 +2,7 @@ import { cp, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { binary, command, go, root } from './lib.mjs';
 import { releaseIdentity, serverBuildFlags } from './release.mjs';
+import { compressDashboardAssets } from './webui-assets.mjs';
 
 const identity = await releaseIdentity();
 const args = process.argv.slice(2);
@@ -18,6 +19,7 @@ if (!args.length)
 const destination = join(root, 'apps/server/internal/webui/dist');
 await rm(destination, { recursive: true, force: true });
 await cp(join(root, 'apps/dashboard/dist'), destination, { recursive: true });
+await compressDashboardAssets(destination);
 await mkdir(join(root, 'dist'), { recursive: true });
 await command(
   go,

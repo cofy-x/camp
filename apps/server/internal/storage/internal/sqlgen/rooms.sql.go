@@ -740,6 +740,33 @@ func (q *Queries) ListAgentAvatarCounts(ctx context.Context) ([]ListAgentAvatarC
 	return items, nil
 }
 
+const listAgentRooms = `-- name: ListAgentRooms :many
+SELECT r.id FROM rooms r JOIN memberships m ON m.room_id=r.id WHERE m.agent_id=? ORDER BY r.created_at,r.id
+`
+
+func (q *Queries) ListAgentRooms(ctx context.Context, agentID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentRooms, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAgents = `-- name: ListAgents :many
 SELECT id, name, handle, icon, instructions, access, enabled, revision, created_at, updated_at, owner_user_id, preferred_runner_id, avatar FROM agents ORDER BY created_at,id
 `
@@ -1633,4 +1660,15 @@ func (q *Queries) UpdateRoom(ctx context.Context, arg UpdateRoomParams) error {
 		arg.ID,
 	)
 	return err
+}
+
+const workspaceEventCursor = `-- name: WorkspaceEventCursor :one
+SELECT CAST(COALESCE(MAX(id),0) AS INTEGER) FROM workspace_events
+`
+
+func (q *Queries) WorkspaceEventCursor(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, workspaceEventCursor)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }

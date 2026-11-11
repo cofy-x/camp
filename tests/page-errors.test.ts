@@ -13,6 +13,16 @@ function diagnostic(url = `${origin}/api/me/room-reads/room`) {
   return error;
 }
 
+function streamDiagnostic(url = `${origin}/api/workspace/events?after=325`) {
+  const error = new Error();
+  const protocol = new URL(url).protocol.slice(0, -1);
+  error.name = `EventSource cannot load ${protocol}`;
+  error.message =
+    url.slice(`${protocol}:/`.length) + ' due to access control checks.';
+  error.stack = '';
+  return error;
+}
+
 describe('browser page error guard', () => {
   it('recognizes only the native WebKit same-origin API navigation diagnostic', () => {
     const native = diagnostic();
@@ -43,6 +53,59 @@ describe('browser page error guard', () => {
     expect(
       isNavigationCancellation(diagnostic('http://['), 'webkit', origin),
     ).toBe(false);
+  });
+
+  it('recognizes the empty-stack native EventSource diagnostic only for the departing workspace stream', () => {
+    const native = streamDiagnostic();
+    expect(isNavigationCancellation(native, 'webkit', origin)).toBe(true);
+    for (const browser of ['chromium', 'firefox'])
+      expect(isNavigationCancellation(native, browser, origin)).toBe(false);
+    expect(isNavigationCancellation(native, 'webkit', null)).toBe(false);
+    expect(
+      isNavigationCancellation(
+        streamDiagnostic('http://other.test/api/workspace/events'),
+        'webkit',
+        origin,
+      ),
+    ).toBe(false);
+    expect(
+      isNavigationCancellation(
+        streamDiagnostic(`${origin}/api/other-events`),
+        'webkit',
+        origin,
+      ),
+    ).toBe(false);
+    const plain = new Error();
+    plain.stack = '';
+    expect(isNavigationCancellation(plain, 'webkit', origin)).toBe(false);
+    native.name = 'Another EventSource error';
+    expect(isNavigationCancellation(native, 'webkit', origin)).toBe(false);
+  });
+
+  it('keeps empty-stack errors readable and fails stream diagnostics outside the departing document', async () => {
+    const frame = {};
+    const events = new EventEmitter();
+    const page = Object.assign(events, {
+      mainFrame: () => frame,
+      url: () => origin,
+      reload: async () => {
+        events.emit('pageerror', streamDiagnostic());
+        const ordinary = new Error('Application failed during navigation');
+        ordinary.stack = '';
+        events.emit('pageerror', ordinary);
+        events.emit('framenavigated', frame);
+        events.emit('pageerror', streamDiagnostic());
+      },
+    }) as unknown as Page;
+    const guard = watchPageErrors(page, 'webkit');
+    events.emit('pageerror', streamDiagnostic());
+    await guard.reload();
+    expect(guard.navigationCancellations).toHaveLength(1);
+    expect(guard.errors).toHaveLength(3);
+    expect(guard.errors[0]).toContain('EventSource cannot load http');
+    expect(guard.errors[1]).toBe('Error: Application failed during navigation');
+    expect(guard.errors[2]).toContain('EventSource cannot load http');
+    expect(guard.errors).not.toContain('');
   });
 
   it('retains ordinary errors during navigation and every error after document commit', async () => {

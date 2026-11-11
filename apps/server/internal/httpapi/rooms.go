@@ -121,6 +121,10 @@ func (a *API) roomRoutes(mux *http.ServeMux) {
 	register("POST /api/agents", a.createAgent)
 	register("POST /api/rooms/{id}/agents", a.createRoomAgent)
 	register("PATCH /api/agents/{id}", a.updateAgent)
+	register("GET /api/agents/{id}/rooms", func(w http.ResponseWriter, r *http.Request) {
+		v, e := a.store.ListAgentRooms(r.Context(), r.PathValue("id"))
+		a.respond(w, r, map[string]any{"roomIds": v}, e)
+	})
 	register("GET /api/rooms/{id}/members", func(w http.ResponseWriter, r *http.Request) {
 		v, e := a.store.ListMembers(r.Context(), r.PathValue("id"))
 		a.respond(w, r, map[string]any{"members": v}, e)
@@ -145,8 +149,8 @@ func (a *API) roomRoutes(mux *http.ServeMux) {
 		if !ok {
 			return
 		}
-		v, e := a.store.ListMessages(r.Context(), r.PathValue("id"), r.URL.Query().Get("threadRootId"), after)
-		a.respond(w, r, map[string]any{"messages": v}, e)
+		v, e := a.store.RoomMessagePage(r.Context(), r.PathValue("id"), r.URL.Query().Get("threadRootId"), after)
+		a.respond(w, r, v, e)
 	})
 	register("POST /api/rooms/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		var in storage.SendMessageInput
@@ -435,7 +439,7 @@ func (a *API) updateResource(w http.ResponseWriter, r *http.Request) {
 	a.respond(w, r, map[string]any{"resource": v}, e)
 }
 
-// The event log is the source of truth; polling it only wakes this connection.
+// The event log is the source of truth; commit wakeups only avoid repeated reads.
 // Reconnection resumes after the last committed event without process-local state.
 func (a *API) workspaceEvents(w http.ResponseWriter, r *http.Request) {
 	if a.streams.Err() != nil {
@@ -458,6 +462,7 @@ func (a *API) workspaceEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		after = n
 	}
+	changed := a.store.WorkspaceEventsChanged()
 	events, e := a.store.ListWorkspaceEvents(ctx, after)
 	if e != nil {
 		a.fail(w, r, e)
@@ -476,8 +481,6 @@ func (a *API) workspaceEvents(w http.ResponseWriter, r *http.Request) {
 	if e := control.Flush(); e != nil {
 		return
 	}
-	ticker := time.NewTicker(300 * time.Millisecond)
-	defer ticker.Stop()
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 	for {
@@ -500,19 +503,24 @@ func (a *API) workspaceEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-heartbeat.C:
-			_ = control.SetWriteDeadline(time.Now().Add(30 * time.Second))
-			if _, e := fmt.Fprint(w, ": heartbeat\n\n"); e != nil {
+		if len(events) == 0 {
+			select {
+			case <-ctx.Done():
 				return
+			case <-heartbeat.C:
+				_ = control.SetWriteDeadline(time.Now().Add(30 * time.Second))
+				if _, e := fmt.Fprint(w, ": heartbeat\n\n"); e != nil {
+					return
+				}
+				if e := control.Flush(); e != nil {
+					return
+				}
+			case <-changed:
 			}
-			if e := control.Flush(); e != nil {
-				return
-			}
-		case <-ticker.C:
 		}
+		// Subscribe before querying. A commit during the query closes this
+		// generation; a nonempty page drains immediately without a timer.
+		changed = a.store.WorkspaceEventsChanged()
 		events, e = a.store.ListWorkspaceEvents(ctx, after)
 		if e != nil {
 			return

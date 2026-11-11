@@ -398,6 +398,9 @@ func (s *Store) CompleteAutomationEvaluation(ctx context.Context, id string, a o
 					if e = q.DecideGitHubEvent(ctx, sqlgen.DecideGitHubEventParams{EventID: v.ExternalEventID, Outcome: "accepted", ActorID: p.OwnerUserID, TaskID: sql.NullString{String: taskID, Valid: true}, Reason: "Automation policy " + p.ID + ": " + a.Reason, CreatedAt: now()}); e != nil {
 						return e
 					}
+					if e = event(ctx, q, "github.event.decided", c.Policy.RoomID, v.ExternalEventID); e != nil {
+						return e
+					}
 				}
 			}
 		case a.Outcome == "wait" || a.Outcome == "request_judgment" || a.Outcome == "complete" || a.Outcome == "ignore":

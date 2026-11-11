@@ -2,12 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { AppWindowProps } from '@cofy-x/camp-platinum';
 import { useTeam } from '../../team/TeamContext';
 import { flushPrivateDrafts } from '../../team/draftRegistry';
-import { APIError } from '../../shared/api/http';
-import {
-  attentionApi,
-  type AttentionItem,
-  type AttentionPage,
-} from '../attention/api';
+import { useRead } from '../../shared/reads/useRead';
+import { type AttentionItem, type AttentionPage } from '../attention/api';
 import {
   workspaceApi,
   type Agent,
@@ -18,14 +14,9 @@ import {
   type WorkspaceStatus,
 } from '../workspace/api';
 import { findRunReply } from '../workspace/runMessages';
-import { tasksApi, type Task } from '../collaboration/api';
+import type { tasksApi } from '../collaboration/api';
+import { type AutomationPolicy, type SourceEvent } from '../automation/api';
 import {
-  automationApi,
-  type AutomationPolicy,
-  type SourceEvent,
-} from '../automation/api';
-import {
-  workItemsApi,
   type WorkItem,
   type WorkListItem,
   type WorkListPage,
@@ -77,38 +68,25 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
     taskId: '',
     runId: '',
   });
-  const [taskSnapshot, setTaskSnapshot] =
-    useState<Pick<Task, 'id' | 'roomId' | 'workItemId'>>();
-  const [taskError, setTaskError] = useState({ id: '', message: '' });
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [roomsError, setRoomsError] = useState('');
-  const [availability, setAvailability] =
-    useState<Pick<WorkspaceStatus, 'available' | 'reason'>>();
   const [cursor, setCursor] = useState('');
   const [previous, setPrevious] = useState<string[]>([]);
-  const [pageSnapshot, setPageSnapshot] = useState<{
-    key: string;
-    page: WorkListPage;
-  }>();
-  const [attentionSnapshot, setAttentionSnapshot] = useState<{
-    key: string;
-    page: AttentionPage;
-  }>();
-  const [listError, setListError] = useState({ key: '', message: '' });
-  const [itemError, setItemError] = useState({ id: '', message: '' });
-  const [contextSnapshot, setContextSnapshot] = useState<{
-    roomId: string;
-    members: Agent[];
-    policies: AutomationPolicy[];
-  }>();
-  const [contextError, setContextError] = useState({ roomId: '', message: '' });
-  const [contextAttempt, setContextAttempt] = useState(0);
   const [actionError, setActionError] = useState('');
-  const [retry, setRetry] = useState(0);
   const request = useRef(0);
   const appliedNavigation = useRef(0);
-  const task =
-    taskSnapshot?.id === inspection.taskId ? taskSnapshot : undefined;
+  const roomsRead = useRead<{ rooms: Room[] }>('/rooms');
+  const rooms = roomsRead.data?.rooms ?? [];
+  const statusRead = useRead<WorkspaceStatus>('/workspace/status', {
+    enabled: selection.kind !== 'list' || Boolean(inspection.taskId),
+  });
+  const availability = statusRead.error
+    ? { available: false, reason: statusRead.error }
+    : statusRead.data;
+  const taskRead = useRead<Awaited<ReturnType<typeof tasksApi.get>>>(
+    inspection.taskId
+      ? `/tasks/${encodeURIComponent(inspection.taskId)}?view=summary`
+      : null,
+  );
+  const task = taskRead.data?.task;
   const activeRoomId =
     selection.kind === 'list' ? (task?.roomId ?? '') : selection.roomId;
   const taskMismatch =
@@ -119,27 +97,52 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
       (task.workItemId && task.workItemId !== selection.id),
     );
   const inspectionReady = Boolean(task && activeRoomId && !taskMismatch);
+  const membersRead = useRead<{ members: Agent[] }>(
+    activeRoomId ? `/rooms/${encodeURIComponent(activeRoomId)}/members` : null,
+  );
+  const policiesRead = useRead<{ policies: AutomationPolicy[] }>(
+    activeRoomId
+      ? `/rooms/${encodeURIComponent(activeRoomId)}/automation-policies`
+      : null,
+  );
   const context =
-    contextSnapshot?.roomId === activeRoomId ? contextSnapshot : undefined;
+    membersRead.data && policiesRead.data
+      ? {
+          roomId: activeRoomId,
+          members: membersRead.data.members,
+          policies: policiesRead.data.policies,
+        }
+      : undefined;
   const room = rooms.find((item) => item.id === activeRoomId);
   const query = { ...views[view], roomId: roomFilter, cursor };
-  const queryKey = JSON.stringify(query);
-  const page = pageSnapshot?.key === queryKey ? pageSnapshot.page : undefined;
+  const listVisible = selection.kind === 'list' && !inspection.taskId;
+  const listRead = useRead<WorkListPage>(
+    `/work-items?${new URLSearchParams({ ...query, limit: '20' })}`,
+    { enabled: listVisible && view !== 'needs_me' },
+  );
+  const page = listRead.data;
   const sharedAttention = view === 'needs_me' && !roomFilter && !cursor;
+  const attentionParams = new URLSearchParams({ limit: '20' });
+  if (roomFilter) attentionParams.set('roomId', roomFilter);
+  if (cursor) attentionParams.set('cursor', cursor);
+  const attentionRead = useRead<AttentionPage>(
+    `/attention?${attentionParams}`,
+    {
+      enabled: listVisible && view === 'needs_me' && !sharedAttention,
+    },
+  );
   const attentionPage =
     view !== 'needs_me'
       ? undefined
       : sharedAttention
         ? team.attention
-        : attentionSnapshot?.key === queryKey
-          ? attentionSnapshot.page
-          : undefined;
+        : attentionRead.data;
   const listing = view === 'needs_me' ? attentionPage : page;
   const error = sharedAttention
     ? team.attentionError
-    : listError.key === queryKey
-      ? listError.message
-      : '';
+    : view === 'needs_me'
+      ? attentionRead.error
+      : listRead.error;
 
   function resetPage() {
     setCursor('');
@@ -219,175 +222,20 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
     } else setSelection({ kind: 'list' });
   }, [team.navigation]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    void workspaceApi
-      .rooms(controller.signal)
-      .then(({ rooms }) => {
-        if (controller.signal.aborted) return;
-        setRooms(rooms);
-        setRoomsError('');
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setRoomsError(
-            error instanceof Error ? error.message : 'Could not load Rooms.',
-          );
-      });
-    void workspaceApi
-      .status(controller.signal)
-      .then((status) => {
-        if (!controller.signal.aborted) setAvailability(status);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted)
-          setAvailability({
-            available: false,
-            reason: 'Could not read Agent availability.',
-          });
-      });
-    return () => controller.abort();
-  }, [team.revision, retry]);
-
-  useEffect(() => {
-    if (view === 'needs_me') return;
-    const controller = new AbortController();
-    void workItemsApi
-      .work(JSON.parse(queryKey) as WorkListQuery, controller.signal)
-      .then((page) => {
-        if (controller.signal.aborted) return;
-        setPageSnapshot({ key: queryKey, page });
-        setListError({ key: queryKey, message: '' });
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setListError({
-            key: queryKey,
-            message:
-              error instanceof Error ? error.message : 'Could not load work.',
-          });
-      });
-    return () => controller.abort();
-  }, [queryKey, view, team.revision, retry]);
-
-  useEffect(() => {
-    if (view !== 'needs_me' || sharedAttention) return;
-    const controller = new AbortController();
-    void attentionApi
-      .list({ roomId: roomFilter, cursor }, controller.signal)
-      .then((page) => {
-        if (controller.signal.aborted) return;
-        setAttentionSnapshot({ key: queryKey, page });
-        setListError({ key: queryKey, message: '' });
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        if (error instanceof APIError && [401, 403, 404].includes(error.status))
-          setAttentionSnapshot(undefined);
-        setListError({
-          key: queryKey,
-          message:
-            error instanceof Error
-              ? error.message
-              : 'Could not load what needs your attention.',
-        });
-      });
-    return () => controller.abort();
-  }, [
-    view,
-    sharedAttention,
-    roomFilter,
-    cursor,
-    queryKey,
-    team.revision,
-    retry,
-  ]);
-
   const unresolvedItem =
     selection.kind === 'item' && !selection.roomId ? selection.id : '';
+  const itemRead = useRead<{ item: WorkItem }>(
+    unresolvedItem ? `/work-items/${encodeURIComponent(unresolvedItem)}` : null,
+  );
   useEffect(() => {
-    if (!unresolvedItem) return;
-    const controller = new AbortController();
-    void workItemsApi
-      .item(unresolvedItem, controller.signal)
-      .then(({ item }) => {
-        if (controller.signal.aborted) return;
-        setSelection((current) =>
-          current.kind === 'item' && current.id === item.id && !current.roomId
-            ? { ...current, roomId: item.roomId }
-            : current,
-        );
-        setItemError({ id: unresolvedItem, message: '' });
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setItemError({
-            id: unresolvedItem,
-            message:
-              error instanceof Error
-                ? error.message
-                : 'Could not read this work.',
-          });
-      });
-    return () => controller.abort();
-  }, [unresolvedItem, retry]);
-
-  useEffect(() => {
-    if (!inspection.taskId) return;
-    const controller = new AbortController();
-    const id = inspection.taskId;
-    void tasksApi
-      .get(id, controller.signal)
-      .then(({ task }) => {
-        if (controller.signal.aborted) return;
-        setTaskSnapshot({
-          id: task.id,
-          roomId: task.roomId,
-          workItemId: task.workItemId,
-        });
-        setTaskError({ id, message: '' });
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setTaskError({
-            id,
-            message:
-              error instanceof Error
-                ? error.message
-                : 'Could not read this collaboration.',
-          });
-      });
-    return () => controller.abort();
-  }, [inspection.taskId, retry]);
-
-  useEffect(() => {
-    if (!activeRoomId) return;
-    const controller = new AbortController();
-    void Promise.all([
-      workspaceApi.members(activeRoomId, controller.signal),
-      automationApi.policies(activeRoomId, controller.signal),
-    ])
-      .then(([people, rules]) => {
-        if (controller.signal.aborted) return;
-        setContextSnapshot({
-          roomId: activeRoomId,
-          members: people.members,
-          policies: rules.policies,
-        });
-        setContextError({ roomId: activeRoomId, message: '' });
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setContextError({
-            roomId: activeRoomId,
-            message:
-              error instanceof Error
-                ? error.message
-                : 'Could not load Room settings.',
-          });
-      });
-    return () => controller.abort();
-  }, [activeRoomId, team.revision, retry, contextAttempt]);
+    const item = itemRead.data?.item;
+    if (!item) return;
+    setSelection((current) =>
+      current.kind === 'item' && current.id === item.id && !current.roomId
+        ? { ...current, roomId: item.roomId }
+        : current,
+    );
+  }, [itemRead.data]);
 
   const location =
     room?.name ?? rooms.find((item) => item.id === roomFilter)?.name;
@@ -441,7 +289,7 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
         : current,
     );
     resetPage();
-    setRetry((value) => value + 1);
+    team.refresh();
   }
 
   async function ask(run: Run | RunTimeline) {
@@ -482,7 +330,7 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
     rooms,
     roomFilter,
     view,
-    roomsError,
+    roomsError: roomsRead.error,
     availability,
     activeRoomId,
     room,
@@ -493,20 +341,17 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
     error,
     actionError,
     previous,
-    itemError: itemError.id === unresolvedItem ? itemError.message : '',
-    contextError:
-      contextError.roomId === activeRoomId ? contextError.message : '',
-    retryContext: () => setContextAttempt((value) => value + 1),
+    itemError: itemRead.error,
+    contextError: membersRead.error || policiesRead.error,
+    retryContext: () => {
+      void membersRead.refresh();
+      void policiesRead.refresh();
+    },
     taskError: taskMismatch
       ? 'This collaboration belongs to another work item.'
-      : unresolvedItem && itemError.id === unresolvedItem && itemError.message
-        ? itemError.message
-        : taskError.id === inspection.taskId
-          ? taskError.message
-          : '',
+      : itemRead.error || taskRead.error,
     refresh: () => {
       resetPage();
-      setRetry((value) => value + 1);
       team.refresh();
     },
     showList,

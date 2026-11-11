@@ -3,6 +3,8 @@ package storage
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
 
 // MessageWorkOrigin is derived from the exact task origin and canonical Work
@@ -13,6 +15,10 @@ type MessageWorkOrigin struct {
 
 // Batch one bounded message page instead of reading Task snapshots per message.
 func (s *Store) messageWorkOrigins(ctx context.Context, messages []Message) error {
+	return messageWorkOrigins(ctx, s.queries(), messages)
+}
+
+func messageWorkOrigins(ctx context.Context, q *sqlgen.Queries, messages []Message) error {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -24,7 +30,7 @@ func (s *Store) messageWorkOrigins(ctx context.Context, messages []Message) erro
 	if err != nil {
 		return err
 	}
-	rows, err := s.queries().MessageWorkOrigins(ctx, string(raw))
+	rows, err := q.MessageWorkOrigins(ctx, string(raw))
 	if err != nil {
 		return err
 	}

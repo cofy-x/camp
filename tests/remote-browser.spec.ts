@@ -153,7 +153,9 @@ async function importPanel(page: Page) {
   const drawer = library(page).getByRole('button', {
     name: 'Sources',
     exact: true,
+    includeHidden: true,
   });
+  await expect(drawer).toBeAttached();
   if (await drawer.isVisible()) await drawer.click();
   await library(page)
     .getByRole('button', { name: 'Import from Runner…', exact: true })
@@ -190,6 +192,9 @@ test('real fixture work keeps its queued Runner, cancels once, and delivers the 
   await runStatus(page, first.id, 'running');
   const activityURL = `**/api/runs/${first.id}/events?*`;
   await page.route(activityURL, (route) => route.abort());
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event('visibilitychange')),
+  );
   await expect(workspace(page)).toContainText(
     'Reconnecting to activity. The last reported state is shown.',
   );

@@ -114,6 +114,7 @@ export function FileDetail({
           </div>
           <div className="camp-file-tab" hidden={tab !== 'reviews'}>
             <ReviewList
+              active={tab === 'reviews'}
               resourceId={resource.id}
               path={reference.path}
               onOpen={(review) =>

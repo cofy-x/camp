@@ -44,11 +44,12 @@ The append-only schema upgrade transactionally assigns missing avatars before se
 | PATCH | `/api/rooms/:id` | Metadata, `resourceId` and joined `defaultAgentId` |
 | GET / POST | `/api/agents` | `{agents}`; member creates owned identity |
 | PATCH | `/api/agents/:id` | Owner/admin update including current `revision` |
+| GET | `/api/agents/:id/rooms` | `{roomIds}` for the selected Agent's current memberships |
 | GET | `/api/rooms/:id/members` | `{members}` |
 | PUT | `/api/rooms/:id/members/:agentId` | `{}`; member may join enabled team Agent, owned Agent requires owner/admin |
 | DELETE | `/api/rooms/:id/members/:agentId` | Owner/admin leave; cancel this membership's work |
 | POST | `/api/rooms/:id/agents` | Create owned identity and membership atomically; no execution |
-| GET | `/api/rooms/:id/messages?after=seq&threadRootId=...` | `{messages}` |
+| GET | `/api/rooms/:id/messages?after=seq&threadRootId=...` | `{messages,through}`; at most 500 original messages |
 | GET | `/api/rooms/:id/messages/:messageId` | `{message}` |
 | POST | `/api/rooms/:id/messages` | Send input → `{message,runs,replayed}` |
 
@@ -74,7 +75,7 @@ Selected plus mentioned joined Agents produce at most one Run each, with at most
 
 Message references use `{kind:"message",messageId}` within the Room. File references can select any known team Resource revision; server resolves excerpts and identity. Admission freezes actual author, references, Agent, Resource identity, environment, model revision and budget atomically. The writable baseline is selected when an ordinary writer acquires its lease; it need not equal an older evidence version.
 
-Message reads optionally include `workOrigin:{workItemId}` only when the message is the exact recorded origin of a task linked to that Work Item in the same Room. This read-only projection supports compact activity display without requiring task history to load; it neither changes original authorship/content nor classifies later user inputs as starts. Missing historical author names remain unknown. New human task origins snapshot the known requester's name when their recorded author ID matches.
+Message pages capture the Room's `through` message frontier before reading their rows and origin projections in one storage snapshot. A newer Room metadata read cannot certify an older cached message page as read. The existing ascending `after` sequence and Thread filtering remain unchanged. Message reads optionally include `workOrigin:{workItemId}` only when the message is the exact recorded origin of a task linked to that Work Item in the same Room. This read-only projection supports compact activity display without requiring task history to load; it neither changes original authorship/content nor classifies later user inputs as starts. Missing historical author names remain unknown. New human task origins snapshot the known requester's name when their recorded author ID matches.
 
 Idempotency is user × Room × requestId. Identical canonical intent replays the original receipt before route/configuration changes; changed intent returns 409 `request_conflict`. Preserve the exact body/ID after an uncertain response. `runnerRevision` is required when a team Agent uses the saved Room route; see [routing](#runners-and-source-snapshots).
 
@@ -164,6 +165,10 @@ The evaluation view returns whole frozen `workItems` and `memories` with `totalW
 Activity defaults to the original ascending sequence order when `direction` is omitted or `asc`: use exclusive `after` (default zero) and carry `through` plus `nextAfter`. For recent events, use `direction=desc`, omit `before` and `through` on the first request, then carry its `through` frontier and exclusive `nextBefore` as `before` to load older events. `before` must be positive and no greater than `through`; first-page omission includes the event at `through`. Descending reads reject `after`, ascending reads reject `before`, and the unused next cursor is `null`. Omitting `through` captures the current Room frontier; new arrivals are excluded from subsequent frozen pages. Refreshing or changing the source starts a new traversal. Optional `sourceId` filters matching rows before ordering/limiting: empty means all sources, `room` and `task` select built-in sources, and a retained GitHub source ID must belong to the Room. Disabled source history remains readable. Invalid or duplicate cursor, order or source parameters return `invalid_page` (400).
 
 Activity pages contain at most 20 whole events and 64 KiB of encoded JSON including its newline. `status`, `reason` and recorded assessment fields remain current within the frozen event identity range. Optional `preview` summarizes visible Room/task messages or the original GitHub title in at most 320 UTF-8 bytes. `assessmentOutcome` is the recorded `accept`, `ignore` or `unavailable` outcome; `assessmentReason` is a summary of its reason in at most 512 bytes. Previews collapse whitespace and use `...` when shortened. They are read projections, never authority or replacements for the complete source/assessment; `content` stays empty in Activity items. Reading a suggested acceptance never changes an event's status or starts work.
+
+Canonical source intake and subsequent state writes atomically emit `automation.event.updated` with the canonical event identity and Room. Consumers refresh that event's reads without inferring source identity or status from Room, GitHub or execution notifications. The notification contains no original body or credentials; reads and identical intake replays emit no new event.
+
+Automatic GitHub acceptance also commits `github.event.decided` for its original GitHub identity, keeping that source's list and detail projections current under the same decision as canonical Activity.
 
 Policy `:source` is `room` or a GitHub source ID belonging to that Room. The initial expected revision is zero; subsequent writes compare the observed revision. `mode` is `observe` or `auto`. Enabled policies require nonempty rules, allowed actors, approved participants, a first Agent among those participants and positive daily limits. Rules are bounded at 8192 UTF-8 bytes, actor IDs at 128 entries and participants at 8 distinct Agents. GitHub actor IDs are immutable positive numeric IDs and never map to Camp membership. Task allowance defaults are 6 turns and 24 model requests, with maxima 24 and 96. Daily assessment/task limits are at most 1000/100 and reset at 00:00 UTC. An assessment slot is charged before model access; changing a policy does not refund it. These are request bounds, not billing caps.
 
@@ -256,7 +261,7 @@ Room execution timelines use `view=timeline` without loading full Run snapshots.
 
 `/api/runs/:id/reply` selects only the recorded Agent reply matching that Run and its Room; it never scans the conversation or materializes execution output. An existing Run without a reply returns `{message:null}`, and a missing Run returns 404. The returned Message preserves its original content, authorship, references and timestamps. Summary, reply and event reads require the same enabled team member access as full Run reads; they create no messages, approvals or execution.
 
-Run states are `queued`, `preparing`, `running`, `checking`, `cancelling`, `succeeded`, `failed`, `cancelled`, `interrupted`. Workspace Agent availability reads only Run identity, Agent identity and indexed state; active executions take precedence over queued requests. The local Manager retains actual in-process state and excludes queued rows whose terminal result remains in its unsaved overlay. Terminal persistence creates one completion Message; process exit alone is not acceptance. SSE consumers deduplicate IDs and refetch affected entities. Session revocation ends streams; browser/window closure does not end work. Message read positions differ from the event cursor.
+Run states are `queued`, `preparing`, `running`, `checking`, `cancelling`, `succeeded`, `failed`, `cancelled`, `interrupted`. Workspace Agent availability reads only Run identity, Agent identity and indexed state; active executions take precedence over queued requests. The local Manager retains actual in-process state and excludes queued rows whose terminal result remains in its unsaved overlay. Terminal persistence creates one completion Message; process exit alone is not acceptance. SSE consumers deduplicate IDs and refetch affected entities. Every actual Message insertion emits one `message.created` with its sequence update in the owning transaction, including execution completion, Task origins/inputs/notices, Work notices and review transitions; rolled-back writes and identical replays emit none. `run.activity` announces appended execution activity without changing Room activity/order; an actual execution state change still emits `run.updated`. Activity, exact output and replay receipts remain durably retained. Streams wake after a successful storage commit, drain available event pages immediately and use their 15-second heartbeat for repair reads; process-local wakeups are not the event source. Session revocation ends streams; browser/window closure does not end work. Message read positions differ from the event cursor.
 
 ## Library and publication
 
@@ -329,7 +334,7 @@ Stale `revision` returns 409 `revision_conflict`; invalid transitions return `re
 
 | Method | Path | Contract |
 | --- | --- | --- |
-| GET | `/api/bootstrap?clientId=...` | Personal preferences/layout |
+| GET | `/api/bootstrap?clientId=...` | Personal preferences/layout and `workspaceEventCursor` |
 | PUT | `/api/preferences` | Personal appearance |
 | PUT | `/api/layout` | `{clientId,layout}` for signed-in person/browser |
 | GET | `/api/me/drafts?kind=document` | Private draft metadata |
@@ -337,6 +342,10 @@ Stale `revision` returns 409 `revision_conflict`; invalid transitions return `re
 | GET / PUT | `/api/me/room-reads` / `/api/me/room-reads/:roomId` | `{reads}` / `{seq}` using message sequence |
 | GET | `/api/me/inbox` | `{items}` for mentions, results, tasks and reviews |
 | POST | `/api/me/inbox/:id/read` | `{}` |
+
+Bootstrap captures `workspaceEventCursor` before its initial snapshot reads. New browser views subscribe after that frontier and then read their current data, so changes committed during startup remain available without replaying all historical notifications. Reconnection of the existing SSE subscription uses its `Last-Event-ID` in preference to the original `after` query.
+
+Advancing a Room read frontier or first reading an Inbox notice atomically emits `personal_read.updated` with the person's identity and no Room/content payload. Consumers apply it only to that person's read-position and Inbox queries; it never resolves attention responsibility. Repeated or older Room positions and repeated Inbox reads emit no new event, and repeated Inbox reads retain the first accepted timestamp.
 
 Draft kinds are conversation/document/review. Responses wrap `{draft}`. An absent draft has null value/revision 0; saves require current revision. Deletion keeps a revision tombstone. Conflicts preserve local text; callers cannot select another user ID. Keys allow 1200 bytes; conversation/review JSON is bounded to 256 KiB, document JSON to 2 MiB and text to 1 MiB. See [personal storage](../apps/server/internal/storage/team_personal.go).
 
@@ -360,7 +369,7 @@ GET `/api/settings/readiness` refreshes model configuration, revision-specific p
 
 ## Runners and source snapshots
 
-Members list Runners and create their own enrollment credentials. Owner/admin controls personal machine changes, grants and source import. Team defaults and Room routes require an administrator. Metadata exposes no machine/model secrets; enrollment tokens are returned once, with revocable metadata retained. Safe public capabilities include optional `taskInputsVersion` and `reasoningEffortVersion` for read-only protocol preflight, without exposing private Runner capabilities or starting work.
+Members list Runners and create their own enrollment credentials. Owner/admin controls personal machine changes, grants and source import. Team defaults and Room routes require an administrator. Metadata exposes no machine/model secrets; enrollment tokens are returned once, with revocable metadata retained. Creating, consuming or revoking an enrollment atomically emits `runner_enrollment.updated` with its identity, never its token or token hash. Safe public capabilities include optional `taskInputsVersion` and `reasoningEffortVersion` for read-only protocol preflight, without exposing private Runner capabilities or starting work.
 
 | Method | Path | Contract |
 | --- | --- | --- |

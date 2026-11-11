@@ -1,4 +1,5 @@
 import type { PointerEvent } from 'react';
+import { WindowVisibility } from './WindowVisibility';
 import {
   MENU_HEIGHT,
   STRIP_HEIGHT,
@@ -138,7 +139,11 @@ export function WindowFrame({
         />
       </div>
       <div className="p9-window-content" hidden={win.shaded && !overview}>
-        <Content window={win} desktop={api} />
+        <WindowVisibility.Provider
+          value={!win.shaded && !overview && (!mobile || active)}
+        >
+          <Content window={win} desktop={api} />
+        </WindowVisibility.Provider>
       </div>
       {!win.shaded &&
         !mobile &&

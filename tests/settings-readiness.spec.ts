@@ -55,6 +55,7 @@ function statusRow(page: Page, label: string) {
 }
 
 async function selectPanel(page: Page, id: string, title: string) {
+  await expect(settings(page).getByRole('main')).toBeVisible();
   const chooser = settings(page).getByLabel('Control panel', { exact: true });
   if (await chooser.isVisible()) await chooser.selectOption(id);
   else
@@ -575,7 +576,7 @@ test('status loading can be retried without running checks and refreshes after r
   expect(checks).toBe(0);
 });
 
-test('panel navigation refreshes status and ignores an older pending response', async ({
+test('panel navigation refreshes status and aborts an older pending read', async ({
   page,
 }) => {
   await signIn(page);
@@ -612,15 +613,19 @@ test('panel navigation refreshes status and ignores an older pending response', 
     .click();
   try {
     await expect.poll(() => reads).toBe(2);
+    const olderRequestFailed = page.waitForEvent(
+      'requestfailed',
+      (request) =>
+        new URL(request.url()).pathname === '/api/settings/readiness',
+    );
     await selectPanel(page, 'models', 'Models');
+    expect((await olderRequestFailed).failure()).not.toBeNull();
     await selectPanel(page, 'readiness', 'Getting Ready');
     await expect(statusRow(page, 'Model connection')).toContainText(
       'Response observed',
     );
     expect(reads).toBe(3);
-    const olderResponse = page.waitForResponse('**/api/settings/readiness');
     releaseOlderRead();
-    await (await olderResponse).finished();
     await page.evaluate(
       () =>
         new Promise<void>((resolve) =>

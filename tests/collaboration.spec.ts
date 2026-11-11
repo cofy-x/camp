@@ -5,6 +5,7 @@ import type {
   TaskRecoveryRun,
 } from '../apps/dashboard/src/features/collaboration/api';
 import type { Agent, Run } from '../apps/dashboard/src/features/workspace/api';
+import { fixtureNotifications } from './fixture-notifications';
 import {
   openRoomMore,
   createRoom,
@@ -152,10 +153,13 @@ async function fixture(page: Page, name: string) {
       },
     }),
   );
+  const notify = await fixtureNotifications(page);
   await page.reload();
+  await expect(workspace(page)).toBeVisible();
   return {
     room,
     agents,
+    notify,
     get task() {
       return task;
     },
@@ -178,14 +182,10 @@ async function fixture(page: Page, name: string) {
       recoveryRun = value;
     },
     async refresh() {
-      const response = await mutate(page, `/rooms/${room.id}/messages`, {
-        requestId: randomUUID(),
-        content: 'Presentation fixture update.',
-        postOnly: true,
-      });
-      expect(response.ok()).toBeTruthy();
+      await notify('task.updated', room.id, task.id);
     },
     async open() {
+      await notify('task.updated', room.id, task.id);
       await openRoomMore(page, 'Execution history…');
       await workspace(page).getByRole('button', { name: task.goal }).click();
       await expect(detail(page)).toBeVisible();
@@ -457,6 +457,7 @@ test('continuation authorizes additional work and changed Runners explicitly whi
   await page.route(`**/api/rooms/${value.room.id}/members`, (route) =>
     route.fulfill({ json: { members: [value.agents[1], replacement] } }),
   );
+  await value.notify('membership.updated', value.room.id, replacement.id);
   await value.refresh();
   await value.open();
 
@@ -887,6 +888,62 @@ test('history pages keep their frozen position and drafts through refresh and fa
   expect(
     await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
   ).toBe(true);
+
+  await panel
+    .getByRole('button', { name: 'Back to Collaborations', exact: true })
+    .click();
+  value.setTask({
+    revision: 3,
+    inputs: [
+      ...value.task.inputs!,
+      { ...inputs[0], id: 'input-47', seq: 47, content: 'New constraint 47.' },
+    ],
+  });
+  let releaseHead = () => {};
+  const headGate = new Promise<void>((resolve) => {
+    releaseHead = resolve;
+  });
+  let headReads = 0;
+  const pinnedRanges: string[] = [];
+  await page.route(`**/api/tasks/${value.task.id}/inputs?*`, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const query = new URL(route.request().url()).searchParams;
+    const through = query.get('through');
+    if (through) pinnedRanges.push(through);
+    else {
+      headReads++;
+      await headGate;
+    }
+    return route.fallback();
+  });
+  try {
+    await value.open();
+    expect(headReads).toBe(0);
+    const note = panel.getByLabel('Add input for the next turn', {
+      exact: true,
+    });
+    const reopenedDraft = 'Keep my note while the latest input range loads.';
+    await note.fill(reopenedDraft);
+    await panel.getByRole('tab', { name: 'Activity', exact: true }).click();
+    await expect.poll(() => headReads).toBeGreaterThan(0);
+    expect(pinnedRanges).toEqual([]);
+    releaseHead();
+    await expect.poll(() => pinnedRanges).toContain('47');
+    await panel.getByRole('tab', { name: 'Overview', exact: true }).click();
+    await expect(note).toHaveValue(reopenedDraft);
+    await panel.getByRole('tab', { name: 'Activity', exact: true }).click();
+    await history
+      .getByRole('button', { name: 'Next Inputs', exact: true })
+      .click();
+    await expect(history).toContainText('Original constraint 21.');
+    await history
+      .getByRole('button', { name: 'Next Inputs', exact: true })
+      .click();
+    await expect(history).toContainText('New constraint 47.');
+  } finally {
+    releaseHead();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
 });
 
 test('legacy pending task actions retry their original body after the input protocol upgrade', async ({

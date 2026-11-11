@@ -1,20 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button, Select } from '@cofy-x/camp-platinum';
 import { useAccount } from '../../team/AuthContext';
-import { useTeam } from '../../team/TeamContext';
+import { useRead } from '../../shared/reads/useRead';
 import {
   clearSessionReceipt,
   readSessionReceipt,
   receiptKey,
   writeSessionReceipt,
 } from '../../shared/sessionReceipt';
-import { tasksApi, type Task } from '../collaboration/api';
+import type { Task } from '../collaboration/api';
 import { automationApi, type SourceEvent, type Subscription } from './api';
 import { useAutomationOperation } from './useAutomationOperation';
 
 export function FollowEvent({ event }: { event: SourceEvent }) {
   const { user } = useAccount();
-  const team = useTeam();
   const targetKey = receiptKey(user.id, 'automation-follow-target', event.id);
   const [target, setTarget] = useState(
     () =>
@@ -24,15 +23,7 @@ export function FollowEvent({ event }: { event: SourceEvent }) {
       ) ?? '',
   );
   const [open, setOpen] = useState(Boolean(target));
-  const [tasks, setTasks] = useState<Task[] | null>(null);
-  const [subscription, setSubscription] = useState<{
-    taskId: string;
-    current?: Subscription;
-  } | null>(null);
   const [error, setError] = useState('');
-  const [tasksError, setTasksError] = useState('');
-  const [subscriptionError, setSubscriptionError] = useState('');
-  const [retry, setRetry] = useState(0);
   const [saved, setSaved] = useState('');
   const operation = useAutomationOperation(`follow:${event.id}`, (receipt) => {
     setSaved(receipt.subscription?.taskId ?? target);
@@ -40,69 +31,35 @@ export function FollowEvent({ event }: { event: SourceEvent }) {
     setTarget('');
     setOpen(false);
   });
-  useEffect(() => {
-    if (!open) return;
-    const controller = new AbortController();
-    void tasksApi
-      .list(event.roomId, controller.signal)
-      .then(({ tasks }) => {
-        if (!controller.signal.aborted) {
-          setTasks(
-            tasks.filter(
-              (task) =>
-                ![
-                  'completed',
-                  'cancelled',
-                  'interrupted',
-                  'cancelling',
-                ].includes(task.status) &&
-                (user.role === 'admin' || task.requestedByUserId === user.id),
-            ),
-          );
-          setTasksError('');
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setTasksError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load active collaborations.',
-          );
-      });
-    return () => controller.abort();
-  }, [event.roomId, open, retry, team.revision, user.id, user.role]);
-  useEffect(() => {
-    if (!target || !open) return;
-    const controller = new AbortController();
-    void automationApi
-      .subscriptions(target, controller.signal)
-      .then(({ subscriptions }) => {
-        if (!controller.signal.aborted) {
-          setSubscription({
-            taskId: target,
-            current: subscriptions.find(
-              (subscription) =>
-                subscription.sourceId === event.sourceId &&
-                subscription.threadKey === event.threadKey,
-            ),
-          });
-          setSubscriptionError('');
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setSubscriptionError(
-            error instanceof Error
-              ? error.message
-              : 'Could not check followed conversations.',
-          );
-      });
-    return () => controller.abort();
-  }, [event.sourceId, event.threadKey, target, open, retry, team.revision]);
-  const observed = subscription?.taskId === target ? subscription : null;
+  const tasksRead = useRead<{ tasks: Task[] }>(
+    `/rooms/${encodeURIComponent(event.roomId)}/tasks?view=summary`,
+    { enabled: open },
+  );
+  const subscriptionRead = useRead<{ subscriptions: Subscription[] }>(
+    target ? `/tasks/${encodeURIComponent(target)}/subscriptions` : null,
+    { enabled: open },
+  );
+  const tasks = tasksRead.data
+    ? tasksRead.data.tasks.filter(
+        (task) =>
+          !['completed', 'cancelled', 'interrupted', 'cancelling'].includes(
+            task.status,
+          ) &&
+          (user.role === 'admin' || task.requestedByUserId === user.id),
+      )
+    : null;
+  const observed = subscriptionRead.data
+    ? {
+        taskId: target,
+        current: subscriptionRead.data.subscriptions.find(
+          (subscription) =>
+            subscription.sourceId === event.sourceId &&
+            subscription.threadKey === event.threadKey,
+        ),
+      }
+    : null;
   const validTarget = tasks?.some((task) => task.id === target);
-  const readError = tasksError || subscriptionError;
+  const readError = tasksRead.error || subscriptionRead.error;
   return (
     <div className="automation-follow">
       {!open ? (
@@ -113,7 +70,12 @@ export function FollowEvent({ event }: { event: SourceEvent }) {
           {(error || readError) && (
             <p className="app-error" role="alert">
               {error || readError}{' '}
-              <Button onClick={() => setRetry((value) => value + 1)}>
+              <Button
+                onClick={() => {
+                  void tasksRead.refresh();
+                  void subscriptionRead.refresh();
+                }}
+              >
                 Retry Collaborations
               </Button>
             </p>

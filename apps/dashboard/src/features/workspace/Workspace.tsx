@@ -800,7 +800,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
               ) : (
                 <TaskList
                   {...collaborations}
-                  onRetry={collaborations.refresh}
+                  onRetry={() => void collaborations.refresh()}
                   onOpen={(id) => {
                     const workItemId = collaborations.tasks.find(
                       (task) => task.id === id,
