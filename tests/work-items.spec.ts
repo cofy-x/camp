@@ -132,7 +132,11 @@ async function capture(page: Page, scene: string) {
   );
 }
 
-async function presentation(page: Page, initial: Partial<WorkItem> = {}) {
+async function presentation(
+  page: Page,
+  reload: () => Promise<void>,
+  initial: Partial<WorkItem> = {},
+) {
   await signIn(page);
   const room = await createRoom(
     page,
@@ -244,7 +248,7 @@ async function presentation(page: Page, initial: Partial<WorkItem> = {}) {
       'evidence' | 'decisions' | 'tasks' | 'timers' | 'actions';
     return route.fulfill({ json: { items: item[kind], nextCursor: '' } });
   });
-  await page.reload();
+  await reload();
   return {
     room,
     agent,
@@ -911,7 +915,7 @@ test('starting work freezes the actual finite grant and recovers the same reques
   browserName,
 }) => {
   const errors = watchPageErrors(page, browserName);
-  const value = await presentation(page);
+  const value = await presentation(page, errors.reload);
   let receipt: WorkItem | null = null;
   const bodies: WorkItemInput[] = [];
   await page.route(
@@ -1101,7 +1105,7 @@ test('the current task question answers in place with task revision and an exact
   browserName,
 }) => {
   const errors = watchPageErrors(page, browserName);
-  const value = await presentation(page, {
+  const value = await presentation(page, errors.reload, {
     status: 'waiting_for_person',
     completionCriteria: 'The proposal addresses the confirmed audience.',
     question: 'Who should the proposal address?',
@@ -1316,7 +1320,7 @@ test('results expose exact files and the final finite grant; stop remains visibl
   browserName,
 }) => {
   const errors = watchPageErrors(page, browserName);
-  const value = await presentation(page, {
+  const value = await presentation(page, errors.reload, {
     status: 'open',
     execution: {
       taskId: 'result-task',
@@ -1510,7 +1514,7 @@ test('completion confirmation is explicit and waits for unresolved external acti
   browserName,
 }) => {
   const errors = watchPageErrors(page, browserName);
-  const value = await presentation(page, {
+  const value = await presentation(page, errors.reload, {
     status: 'waiting_for_person',
     questionKind: 'completion',
     question: 'The proposal is ready. Confirm that this work is done.',
@@ -1583,7 +1587,7 @@ test('blocked work opens its saved execution for an explicit continuation grant'
   browserName,
 }) => {
   const errors = watchPageErrors(page, browserName);
-  const value = await presentation(page, {
+  const value = await presentation(page, errors.reload, {
     status: 'running',
     activeTaskId: 'blocked-task',
     execution: {
@@ -1736,7 +1740,7 @@ test('linked task and run inspection stay inside Work and return to the same mat
   const taskId = `work-task-${randomUUID()}`;
   const runId = `work-run-${randomUUID()}`;
   const createdAt = new Date().toISOString();
-  const value = await presentation(page, {
+  const value = await presentation(page, errors.reload, {
     status: 'running',
     activeTaskId: taskId,
     tasks: [{ id: taskId, status: 'running', summary: '', createdAt }],

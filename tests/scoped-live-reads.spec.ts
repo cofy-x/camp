@@ -42,7 +42,7 @@ test('a fresh desktop starts notifications at its bootstrap frontier and receive
       }
     };
   });
-  await page.reload();
+  await errors.get(page)!.reload();
   await expect(
     workspace(page).getByLabel(`Message ${room.name}`, { exact: true }),
   ).toBeVisible();
