@@ -153,6 +153,7 @@ async function importPanel(page: Page) {
   const drawer = library(page).getByRole('button', {
     name: 'Sources',
     exact: true,
+    includeHidden: true,
   });
   await expect(drawer).toBeAttached();
   if (await drawer.isVisible()) await drawer.click();
