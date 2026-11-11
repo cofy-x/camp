@@ -79,6 +79,9 @@ export function AgentResult({
           </Button>
         </div>
       )}
+      {!run && message.runId && (
+        <Button onClick={() => onInspect(message.runId)}>Details</Button>
+      )}
       {run?.error && <p className="app-error">{run.error}</p>}
       {result && <ResultFiles run={result} onReference={onReference} />}
       <AgentReply message={message} />

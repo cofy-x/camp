@@ -145,6 +145,14 @@ func (a *API) roomRoutes(mux *http.ServeMux) {
 		a.respond(w, r, map[string]bool{"ok": true}, e)
 	})
 	register("GET /api/rooms/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("view") == "window" {
+			a.roomMessageWindow(w, r)
+			return
+		}
+		if r.URL.Query().Has("view") {
+			writeError(w, 400, "invalid_page", "Choose the window view or omit view.")
+			return
+		}
 		after, ok := queryCursor(w, r, "after")
 		if !ok {
 			return
@@ -166,6 +174,10 @@ func (a *API) roomRoutes(mux *http.ServeMux) {
 	})
 	register("GET /api/rooms/{id}/runs", func(w http.ResponseWriter, r *http.Request) {
 		if views, present := r.URL.Query()["view"]; present {
+			if len(views) == 1 && views[0] == "conversation" {
+				a.conversationActivity(w, r)
+				return
+			}
 			if len(views) != 1 || views[0] != "timeline" {
 				writeError(w, 400, "invalid_page", "Choose the timeline view or omit view for full Runs.")
 				return

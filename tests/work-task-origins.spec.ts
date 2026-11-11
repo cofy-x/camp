@@ -104,7 +104,7 @@ async function fixture(page: Page, projected: boolean) {
     route.fulfill({ json: { message: root } }),
   );
   await page.route(`**/api/rooms/${room.id}/runs?*`, (route) =>
-    route.fulfill({ json: { items: [], nextCursor: '' } }),
+    route.fulfill({ json: { items: [], tasks } }),
   );
   await page.route(`**/api/rooms/${room.id}/tasks?*`, (route) =>
     projected

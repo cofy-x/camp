@@ -23,7 +23,7 @@ import { Composer } from './Composer';
 import { References } from './References';
 import { WorkActivity } from './WorkActivity';
 import { SystemMessage } from './SystemMessage';
-import type { Task } from '../collaboration/api';
+import type { ConversationTask, useWorkspace } from './useWorkspace';
 import {
   conversationKey,
   readStored,
@@ -267,6 +267,7 @@ export function RoomTimeline({
   messages,
   runs,
   tasks,
+  history,
   agents,
   members,
   membersReady = true,
@@ -301,7 +302,8 @@ export function RoomTimeline({
   onAgents: () => void;
   onSetup?: () => void;
   runs: RunTimeline[];
-  tasks: Task[];
+  tasks: ConversationTask[];
+  history: ReturnType<typeof useWorkspace>['history'];
   agents: Agent[];
   members: Agent[];
   membersReady?: boolean;
@@ -317,6 +319,8 @@ export function RoomTimeline({
   const initialized = useRef(false);
   const focusedSource = useRef(-1);
   const activity = useRef('');
+  const acceptedPosition = useRef('');
+  const scrollIntent = useRef(false);
   const [newActivity, setNewActivity] = useState(false);
   const key = conversationKey(room.id, threadId);
   const [focusRequest, setFocusRequest] = useState(0);
@@ -361,17 +365,43 @@ export function RoomTimeline({
     const signature = `${messages.at(-1)?.id ?? ''}:${messages.at(-1)?.updatedAt ?? ''}:${conversationRuns.map((run) => `${run.id}:${run.updatedAt}:${run.status}`).join(',')}`;
     const changed = signature !== activity.current;
     activity.current = signature;
-    const saved = readStored(`scroll:${key}`);
-    const position = Number(saved);
-    if (!initialized.current) {
+    const moved = acceptedPosition.current !== history.position;
+    if (!initialized.current || moved) {
       if (!messages.length && !conversationRuns.length) return;
-      node.scrollTop = saved ? position : node.scrollHeight;
+      const saved = readStored(`window-anchor:${key}`);
+      let restored = false;
+      if (saved) {
+        try {
+          const anchor = JSON.parse(saved) as { id: string; offset: number };
+          const target = node.querySelector<HTMLElement>(
+            `[data-message-id="${CSS.escape(anchor.id)}"]`,
+          );
+          if (target && Number.isFinite(anchor.offset)) {
+            node.scrollTop +=
+              target.getBoundingClientRect().top -
+              node.getBoundingClientRect().top -
+              anchor.offset;
+            restored = true;
+          }
+        } catch {
+          /* Ignore an obsolete reading position. */
+        }
+      }
+      if (!restored)
+        node.scrollTop =
+          moved && initialized.current && history.position.includes('&after=')
+            ? 0
+            : node.scrollHeight;
+      acceptedPosition.current = history.position;
+      scrollIntent.current = false;
       follow.current =
+        !history.anchored &&
         node.scrollHeight - node.clientHeight - node.scrollTop < 80;
       initialized.current = true;
+      setNewActivity(false);
     } else if (follow.current && changed) node.scrollTop = node.scrollHeight;
     else if (changed) setNewActivity(true);
-  }, [messages, runs, threadId, key]);
+  }, [messages, runs, threadId, key, history.position, history.anchored]);
 
   useLayoutEffect(() => {
     if (!sourceId || focusedSource.current === sourceRequest) return;
@@ -389,6 +419,7 @@ export function RoomTimeline({
     if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
     follow.current = true;
     setNewActivity(false);
+    history.latest();
   }
 
   return (
@@ -402,16 +433,69 @@ export function RoomTimeline({
           <Button onClick={() => onThread('')}>Back to Room</Button>
         </div>
       )}
+      {(history.hasOlder || history.hasNewer || history.anchored) && (
+        <nav
+          className="workspace-history-pages app-actions"
+          aria-label="Message history"
+        >
+          {history.hasOlder && (
+            <Button disabled={history.loading} onClick={history.earlier}>
+              Earlier
+            </Button>
+          )}
+          {history.hasNewer && (
+            <Button disabled={history.loading} onClick={history.later}>
+              Later
+            </Button>
+          )}
+          {history.anchored && <Button onClick={bottom}>Latest</Button>}
+          {history.loading && <span role="status">Loading…</span>}
+        </nav>
+      )}
       <div
         className="workspace-message-scroll"
         ref={scroll}
+        onWheel={() => {
+          scrollIntent.current = true;
+        }}
+        onTouchStart={() => {
+          scrollIntent.current = true;
+        }}
+        onPointerDown={() => {
+          scrollIntent.current = true;
+        }}
+        onKeyDown={(event) => {
+          if (
+            [
+              'PageUp',
+              'PageDown',
+              'Home',
+              'End',
+              'ArrowUp',
+              'ArrowDown',
+            ].includes(event.key)
+          )
+            scrollIntent.current = true;
+        }}
         onScroll={() => {
           const node = scroll.current;
           if (node) {
-            writeStored(`scroll:${key}`, String(node.scrollTop));
+            const top = node.getBoundingClientRect().top;
+            const anchor = [
+              ...node.querySelectorAll<HTMLElement>('[data-message-id]'),
+            ].find((item) => item.getBoundingClientRect().bottom > top);
+            if (anchor)
+              writeStored(
+                `window-anchor:${key}`,
+                JSON.stringify({
+                  id: anchor.dataset.messageId,
+                  offset: anchor.getBoundingClientRect().top - top,
+                }),
+              );
             follow.current =
               node.scrollHeight - node.clientHeight - node.scrollTop < 80;
             if (follow.current) setNewActivity(false);
+            else if (scrollIntent.current) history.pin();
           }
         }}
       >
@@ -623,6 +707,7 @@ export function RoomTimeline({
         threadId={threadId}
         onSent={() => {
           follow.current = true;
+          history.latest();
           onChange();
         }}
         available={available}

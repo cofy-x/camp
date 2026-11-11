@@ -265,6 +265,22 @@ test('linked execution attention and system records open the matter without read
       },
     });
   });
+  await page.route(`**/api/rooms/${room.id}/runs?view=conversation*`, (route) =>
+    route.fulfill({
+      json: {
+        items: [],
+        tasks: [
+          {
+            id: taskId,
+            roomId: room.id,
+            workItemId: item.id,
+            originMessageId: system.id,
+            status: 'waiting_for_person',
+          },
+        ],
+      },
+    }),
+  );
   let taskReads = 0;
   await page.route(`**/api/tasks/${taskId}?*`, (route) => {
     taskReads++;

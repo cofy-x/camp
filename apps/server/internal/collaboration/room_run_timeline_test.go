@@ -46,3 +46,16 @@ func TestRunSummaryDelegatesOnceWithoutFullRunRead(t *testing.T) {
 		t.Fatal("unsupported managed reader silently omitted its current state")
 	}
 }
+
+func (m *timelineManagerFixture) ConversationRuns(context.Context, string, []string) (storage.ConversationActivity, error) {
+	m.calls++
+	return storage.ConversationActivity{Items: []storage.RunTimeline{{ID: "one"}}}, nil
+}
+func TestConversationActivityDelegatesWithoutFullRunRead(t *testing.T) {
+	manager := &timelineManagerFixture{}
+	service := &Service{runs: manager}
+	page, err := service.ConversationRuns(context.Background(), "room", []string{"message"})
+	if err != nil || len(page.Items) != 1 || manager.calls != 1 || manager.getCalls != 0 {
+		t.Fatal(page, manager, err)
+	}
+}

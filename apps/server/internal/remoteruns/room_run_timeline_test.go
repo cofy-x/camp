@@ -27,6 +27,11 @@ func TestRoomRunTimelineRetainsCurrentQueueReason(t *testing.T) {
 	if err != nil || summary.WaitingReason == "" || summary.WaitingReason != full.WaitingReason {
 		t.Fatal("single summary lost current queue reason", summary, err)
 	}
+	activity, err := m.ConversationRuns(actor, room.ID, []string{sent.Message.ID})
+	if err != nil || len(activity.Items) != 1 || activity.Items[0].WaitingReason != full.WaitingReason {
+		t.Fatal("conversation queue observation lost", activity, err)
+	}
+
 	page, err := m.RoomRunTimeline(actor, original.RoomID, "", 20)
 	if err != nil {
 		t.Fatal(err)
