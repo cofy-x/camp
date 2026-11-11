@@ -117,7 +117,7 @@ export function RunInspector({
     <p className="app-error" role="alert">
       {detailsError}{' '}
       <Button
-        onClick={inspector.retryDetails}
+        onClick={() => void inspector.retryDetails()}
         disabled={inspector.detailsPending}
       >
         Retry details
@@ -163,7 +163,7 @@ export function RunInspector({
         {error && (
           <p className="app-error" role="alert">
             {error} Existing output is preserved.{' '}
-            <Button onClick={inspector.retry}>Retry</Button>
+            <Button onClick={() => void inspector.retry()}>Retry</Button>
           </p>
         )}
         {run ? (
@@ -339,7 +339,7 @@ export function RunInspector({
                   {eventsError && (
                     <p className="app-error" role="alert">
                       {eventsError}{' '}
-                      <Button onClick={inspector.retryEvents}>
+                      <Button onClick={() => void inspector.retryEvents()}>
                         Retry activity
                       </Button>
                     </p>

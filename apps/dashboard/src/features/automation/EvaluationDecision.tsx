@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
-import { useTeam } from '../../team/TeamContext';
-import { automationApi, type Evaluation } from './api';
+import { useRead } from '../../shared/reads/useRead';
+import type { Evaluation } from './api';
 import { taskStatus, type Task } from '../collaboration/api';
 import { decisionLabel, workStatus } from '../workitems/api';
 import { EvaluationContext } from './EvaluationContext';
@@ -16,32 +16,13 @@ export function EvaluationDecision({
   onOpenTask: (id: string) => void;
   onOpenWorkItem?: (id: string) => void;
 }) {
-  const team = useTeam();
   const [open, setOpen] = useState(false);
-  const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
-  const [error, setError] = useState('');
-  const [retry, setRetry] = useState(0);
-  useEffect(() => {
-    if (!open) return;
-    const controller = new AbortController();
-    void automationApi
-      .evaluation(id, controller.signal)
-      .then((result) => {
-        if (!controller.signal.aborted) {
-          setEvaluation(result);
-          setError('');
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setError(
-            error instanceof Error
-              ? error.message
-              : 'Could not read this assessment.',
-          );
-      });
-    return () => controller.abort();
-  }, [id, open, retry, team.revision]);
+  const read = useRead<Evaluation>(
+    `/automation-evaluations/${encodeURIComponent(id)}`,
+    { enabled: open },
+  );
+  const evaluation = read.data;
+  const error = read.error;
   const assessment = evaluation?.assessment;
   return (
     <details
@@ -52,9 +33,7 @@ export function EvaluationDecision({
       {error && (
         <p className="app-error" role="alert">
           {error}{' '}
-          <Button onClick={() => setRetry((value) => value + 1)}>
-            Retry Assessment
-          </Button>
+          <Button onClick={() => void read.refresh()}>Retry Assessment</Button>
         </p>
       )}
       {open && !evaluation && !error && (

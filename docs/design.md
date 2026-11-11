@@ -49,6 +49,8 @@ Inbox keeps its outer frame and one tab content boundary. Tabs and the Work shor
 
 Activity loads independently of team metadata. An unknown initial read shows loading; a failed read keeps accepted rows with its own retry, and revoked access clears them. Neither state becomes an empty feed or changes Needs me responsibility.
 
+Visible readers share accepted data and in-flight requests. Unrelated notifications do not restart them, and a slow read completes before a needed follow-up. Folding a window pauses its reads while preserving its drafts, selection and reading position. Reopening revalidates the retained view. Optional application code loads inside its existing window; a failed download offers a local retry without reloading the desktop.
+
 Preserve text selection, copy/paste, editing shortcuts and IME composition. Shading/hiding retains drafts and live work. Use the shared menu, Select, tabs, Radio and Progress rather than imitating them with feature-specific markup. Native wheel/touch scrolling remains usable even where host scrollbar artwork differs. Menus and dialogs stay inside visible bounds.
 
 Adapt to application-window width through wrapping, stacking and scrolling. Narrow Settings/Agents/Runners replace sidebars with the shared pop-up. Narrow Workspace uses one Room identity/switcher with unread indicators and a separate action row. Long paths/titles wrap without widening the window. Narrow desktop mode keeps active-app identity and access to inactive windows.

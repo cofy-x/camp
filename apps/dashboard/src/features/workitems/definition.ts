@@ -1,5 +1,11 @@
 import type { AppDefinition } from '@cofy-x/camp-platinum';
-import { Work } from './Work';
+import { lazyApplication } from '../../shared/desktop/lazyApplication';
+
+const Work = lazyApplication(
+  'src/features/workitems/Work.tsx',
+  () => import('./Work'),
+  (module) => module.Work,
+);
 
 export const workApp: AppDefinition = {
   id: 'work',

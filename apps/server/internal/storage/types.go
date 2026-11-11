@@ -20,6 +20,7 @@ type Preferences struct {
 }
 
 type Bootstrap struct {
-	Preferences Preferences     `json:"preferences"`
-	Layout      json.RawMessage `json:"layout"`
+	Preferences          Preferences     `json:"preferences"`
+	Layout               json.RawMessage `json:"layout"`
+	WorkspaceEventCursor int64           `json:"workspaceEventCursor"`
 }

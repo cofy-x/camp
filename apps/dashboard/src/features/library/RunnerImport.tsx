@@ -3,6 +3,7 @@ import { Button, PixelIcon, Select } from '@cofy-x/camp-platinum';
 import { useAccount } from '../../team/AuthContext';
 import { useTeam } from '../../team/TeamContext';
 import { APIError } from '../../shared/api/http';
+import { useRead } from '../../shared/reads/useRead';
 import {
   runnersApi,
   type RunnerSource,
@@ -35,16 +36,12 @@ export function RunnerImport({
   const [runnerId, setRunnerId] = useState(receipt?.input?.runnerId ?? '');
   const [sourceId, setSourceId] = useState(receipt?.input?.sourceId ?? '');
   const [roomName, setRoomName] = useState(receipt?.input?.roomName ?? '');
-  const [imports, setImports] = useState<SourceImport[]>([]);
-  const [historyError, setHistoryError] = useState('');
   const [sources, setSources] = useState<{
     runnerId: string;
     items: RunnerSource[];
   } | null>(null);
-  const [sourceError, setSourceError] = useState('');
-  const [sourceRevision, setSourceRevision] = useState(0);
   const [value, setValue] = useState<SourceImport | null>(null);
-  const [error, setError] = useState('');
+  const [operationError, setError] = useState('');
   const [pending, setPending] = useState(false);
   const [navigation, setNavigation] = useState(0);
   const announced = useRef('');
@@ -62,7 +59,26 @@ export function RunnerImport({
       (user.role === 'admin' || item.ownerUserId === user.id),
   );
   const active = Boolean(receipt && (!value || importPending(value)));
-  const recentImports = imports.filter((item) => item.id !== value?.id);
+  const historyRead = useRead<{ sourceImports: SourceImport[] }>(
+    '/source-imports',
+    { enabled: !active },
+  );
+  const sourcesRead = useRead<{ sources: RunnerSource[] }>(
+    runnerId ? `/runners/${encodeURIComponent(runnerId)}/sources` : null,
+    { enabled: !receipt },
+  );
+  const importId = receipt?.importId;
+  const terminal = value !== null && !importPending(value);
+  const importRead = useRead<{ sourceImport: SourceImport }>(
+    importId ? `/source-imports/${encodeURIComponent(importId)}` : null,
+    { enabled: !terminal },
+  );
+  const historyError = historyRead.error;
+  const sourceError = sourcesRead.error;
+  const error = operationError || importRead.error;
+  const recentImports = (historyRead.data?.sourceImports ?? []).filter(
+    (item) => item.id !== value?.id,
+  );
 
   useEffect(() => {
     content.current?.scrollTo({ top: 0 });
@@ -75,82 +91,18 @@ export function RunnerImport({
   }
 
   useEffect(() => {
-    if (active) return;
-    const controller = new AbortController();
-    void runnersApi
-      .sourceImports(controller.signal)
-      .then(({ sourceImports }) => {
-        if (controller.signal.aborted) return;
-        setImports(sourceImports ?? []);
-        setHistoryError('');
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setHistoryError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load import history.',
-          );
-      });
-    return () => controller.abort();
-  }, [active, team.revision]);
+    setSources(
+      sourcesRead.data ? { runnerId, items: sourcesRead.data.sources } : null,
+    );
+  }, [runnerId, sourcesRead.data]);
 
   useEffect(() => {
-    if (!runnerId || receipt) return;
-    const controller = new AbortController();
-    void runnersApi
-      .sources(runnerId, controller.signal)
-      .then(({ sources }) => {
-        if (controller.signal.aborted) return;
-        setSources({ runnerId, items: sources ?? [] });
-        setSourceError('');
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setSourceError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load Runner sources.',
-          );
-      });
-    return () => controller.abort();
-  }, [runnerId, receipt, sourceRevision]);
-
-  const importId = receipt?.importId;
-  const terminal = value !== null && !importPending(value);
-  useEffect(() => {
-    if (!importId || terminal) return;
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-
-    async function poll() {
-      try {
-        const result = await runnersApi.sourceImport(
-          importId!,
-          controller.signal,
-        );
-        if (controller.signal.aborted) return;
-        setValue((current) => mergeImportStatus(current, result.sourceImport));
-        setError('');
-        if (!importPending(result.sourceImport)) return;
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        setError(
-          error instanceof Error
-            ? error.message
-            : 'Could not check this import.',
-        );
-      }
-      if (!controller.signal.aborted)
-        timer = setTimeout(() => void poll(), 1500);
-    }
-
-    void poll();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [importId, terminal]);
+    if (!importRead.data) return;
+    setValue((current) =>
+      mergeImportStatus(current, importRead.data!.sourceImport),
+    );
+    setError('');
+  }, [importRead.data]);
 
   useEffect(() => {
     if (value?.status === 'succeeded' && announced.current !== value.id) {
@@ -199,7 +151,7 @@ export function RunnerImport({
       ) {
         remember(null);
         setSources(null);
-        setSourceRevision((current) => current + 1);
+        void sourcesRead.refresh();
         refresh();
       }
       setError(
@@ -270,7 +222,6 @@ export function RunnerImport({
                       setRunnerId(next);
                       setSourceId('');
                       setSources(null);
-                      setSourceError('');
                     }}
                   >
                     <option value="" disabled>
@@ -334,9 +285,7 @@ export function RunnerImport({
                 {sourceError && (
                   <p className="app-error" role="alert">
                     {sourceError}{' '}
-                    <Button
-                      onClick={() => setSourceRevision((value) => value + 1)}
-                    >
+                    <Button onClick={() => void sourcesRead.refresh()}>
                       Retry Sources
                     </Button>
                   </p>
@@ -517,7 +466,9 @@ export function RunnerImport({
               {historyError && (
                 <p className="app-error" role="alert">
                   {historyError}{' '}
-                  <Button onClick={refresh}>Retry History</Button>
+                  <Button onClick={() => void historyRead.refresh()}>
+                    Retry History
+                  </Button>
                 </p>
               )}
               {recentImports.length > 0 && (
@@ -540,7 +491,6 @@ export function RunnerImport({
                             setSourceId(item.sourceId);
                             setRoomName(item.roomName);
                             setSources(null);
-                            setSourceError('');
                             setError('');
                             setNavigation((current) => current + 1);
                           }}

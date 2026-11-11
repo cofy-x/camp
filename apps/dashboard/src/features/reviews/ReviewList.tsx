@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react';
 import { Button, PixelIcon } from '@cofy-x/camp-platinum';
-import { useTeam } from '../../team/TeamContext';
-import { reviewsApi, reviewLabels, type Review } from './api';
+import { useRead } from '../../shared/reads/useRead';
+import { reviewLabels, type Review } from './api';
 
 export function ReviewList({
   roomId,
@@ -9,50 +8,23 @@ export function ReviewList({
   path,
   onOpen,
   onClose,
+  active = true,
 }: {
   roomId?: string;
   resourceId?: string;
   path?: string;
   onOpen: (review: Review) => void;
   onClose?: () => void;
+  active?: boolean;
 }) {
-  const team = useTeam();
-  const [snapshot, setSnapshot] = useState<{
-    scope: string;
-    reviews: Review[];
-  }>();
-  const [failure, setFailure] = useState({ scope: '', message: '' });
-  const [attempt, setAttempt] = useState(0);
-  const scope = JSON.stringify([roomId ?? '', resourceId ?? '']);
-  const reviews = snapshot?.scope === scope ? snapshot.reviews : undefined;
-  const error = failure.scope === scope ? failure.message : '';
-  useEffect(() => {
-    const controller = new AbortController();
-    void reviewsApi
-      .list(
-        {
-          ...(roomId ? { roomId } : {}),
-          ...(resourceId ? { resourceId } : {}),
-        },
-        controller.signal,
-      )
-      .then((result) => {
-        if (controller.signal.aborted) return;
-        setSnapshot({ scope, reviews: result.reviews });
-        setFailure({ scope, message: '' });
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setFailure({
-            scope,
-            message:
-              error instanceof Error
-                ? error.message
-                : 'Could not load reviews.',
-          });
-      });
-    return () => controller.abort();
-  }, [roomId, resourceId, scope, team.revision, attempt]);
+  const params = new URLSearchParams();
+  if (roomId) params.set('roomId', roomId);
+  if (resourceId) params.set('resourceId', resourceId);
+  const read = useRead<{ reviews: Review[] }>(`/reviews?${params}`, {
+    enabled: active,
+  });
+  const reviews = read.data?.reviews;
+  const error = read.error;
   const visible = reviews?.filter((review) => !path || review.path === path);
   return (
     <section
@@ -69,10 +41,7 @@ export function ReviewList({
       )}
       {error ? (
         <div className="app-error" role="alert">
-          {error}{' '}
-          <Button onClick={() => setAttempt((value) => value + 1)}>
-            Retry
-          </Button>
+          {error} <Button onClick={() => void read.refresh()}>Retry</Button>
         </div>
       ) : !reviews ? (
         <p role="status">Loading reviews…</p>

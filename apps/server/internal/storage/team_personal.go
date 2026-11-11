@@ -158,7 +158,11 @@ func (s *Store) SaveRoomRead(ctx context.Context, room string, seq int64) error 
 		if seq >= next {
 			return problem("invalid_cursor", "The read position is beyond the room's messages.")
 		}
-		return q.SaveRoomRead(ctx, sqlgen.SaveRoomReadParams{UserID: actorID(ctx), RoomID: room, Seq: seq})
+		changed, err := q.SaveRoomRead(ctx, sqlgen.SaveRoomReadParams{UserID: actorID(ctx), RoomID: room, Seq: seq})
+		if err != nil || changed == 0 || seq == 0 {
+			return err
+		}
+		return event(ctx, q, "personal_read.updated", "", actorID(ctx))
 	})
 }
 
@@ -194,11 +198,18 @@ func (s *Store) ReadInboxItem(ctx context.Context, id string) error {
 		if err := requireActor(ctx, q, false); err != nil {
 			return err
 		}
-		n, err := q.ReadInboxItem(ctx, sqlgen.ReadInboxItemParams{ID: id, UserID: actorID(ctx), ReadAt: now()})
-		if err == nil && n == 0 {
-			return problem("not_found", "The notification does not exist.")
+		readAt, err := q.GetInboxReadState(ctx, sqlgen.GetInboxReadStateParams{ID: id, UserID: actorID(ctx)})
+		if err != nil {
+			return missing(err, "The notification")
 		}
-		return err
+		if readAt != "" {
+			return nil
+		}
+		n, err := q.ReadInboxItem(ctx, sqlgen.ReadInboxItemParams{ID: id, UserID: actorID(ctx), ReadAt: now()})
+		if err != nil || n == 0 {
+			return err
+		}
+		return event(ctx, q, "personal_read.updated", "", actorID(ctx))
 	})
 }
 

@@ -518,6 +518,7 @@ func (s *Store) RecordAttemptEvent(ctx context.Context, runnerID, id string, seq
 		if e != nil {
 			return e
 		}
+		previousStatus := r.Status
 		if kind == "status" && (text == "running" || text == "checking") && r.Status != "cancelling" {
 			if r.Status == "preparing" || text == "checking" {
 				r.Status = text
@@ -530,7 +531,10 @@ func (s *Store) RecordAttemptEvent(ctx context.Context, runnerID, id string, seq
 		if e = saveRun(ctx, q, r); e != nil {
 			return e
 		}
-		return event(ctx, q, "run.updated", r.RoomID, r.ID)
+		if r.Status != previousStatus {
+			return event(ctx, q, "run.updated", r.RoomID, r.ID)
+		}
+		return event(ctx, q, "run.activity", r.RoomID, r.ID)
 	})
 	return
 }

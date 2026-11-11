@@ -61,8 +61,8 @@ INSERT INTO user_drafts(user_id,kind,draft_key,value,revision,updated_at) VALUES
 ON CONFLICT(user_id,kind,draft_key) DO UPDATE SET value=excluded.value,revision=excluded.revision,updated_at=excluded.updated_at;
 -- name: ListRoomReads :many
 SELECT * FROM room_reads WHERE user_id=?;
--- name: SaveRoomRead :exec
-INSERT INTO room_reads(user_id,room_id,seq) VALUES(?,?,?) ON CONFLICT(user_id,room_id) DO UPDATE SET seq=max(room_reads.seq,excluded.seq);
+-- name: SaveRoomRead :execrows
+INSERT INTO room_reads(user_id,room_id,seq) VALUES(?,?,?) ON CONFLICT(user_id,room_id) DO UPDATE SET seq=excluded.seq WHERE excluded.seq>room_reads.seq;
 -- name: CreateInboxItem :exec
 INSERT INTO inbox(id,user_id,kind,room_id,message_id,run_id,review_id,task_id,created_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,kind,message_id) DO NOTHING;
 -- name: ListInbox :many
@@ -81,7 +81,9 @@ LEFT JOIN collaboration_tasks active_task ON active_task.id=json_extract(w.value
 LEFT JOIN messages message ON message.id=i.message_id
 WHERE i.user_id=? ORDER BY i.created_at DESC,i.id DESC LIMIT 200;
 -- name: ReadInboxItem :execrows
-UPDATE inbox SET read_at=? WHERE id=? AND user_id=?;
+UPDATE inbox SET read_at=? WHERE id=? AND user_id=? AND read_at='';
+-- name: GetInboxReadState :one
+SELECT read_at FROM inbox WHERE id=? AND user_id=?;
 -- name: ListUserActiveRuns :many
 SELECT snapshot FROM runs WHERE requested_by_user_id=? AND status IN ('queued','preparing','running','checking','cancelling') ORDER BY created_at,id;
 

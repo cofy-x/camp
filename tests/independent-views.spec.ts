@@ -68,6 +68,9 @@ async function openFiles(page: Page) {
 
 async function selectResource(page: Page, name: string) {
   const win = library(page);
+  await expect(
+    win.getByRole('button', { name: 'More Library actions', exact: true }),
+  ).toBeVisible();
   const sources = win.getByRole('complementary', {
     name: 'Library resources',
     exact: true,
@@ -376,6 +379,8 @@ async function matter(page: Page, name: string, question = true) {
 }
 
 async function openMatter(page: Page, item: WorkItem) {
+  // Install the complete fixture before a cold shared-read cache is created.
+  await page.reload();
   await openApp(page, 'Work');
   await work(page)
     .locator('.work-item-list')
@@ -458,7 +463,7 @@ test('a failed Room policy read keeps the question and draft with a local settin
   page,
 }, info) => {
   const value = await matter(page, `context-retry-${info.project.name}`);
-  await page.evaluate(() => {
+  await page.addInitScript(() => {
     const recovery = { clicked: false };
     (
       window as typeof window & { campWorkContextRetry: typeof recovery }
@@ -585,6 +590,7 @@ test('a late Room context cannot replace another Work item or enable its grants 
     }),
   );
   try {
+    await page.reload();
     await openApp(page, 'Work');
     const win = work(page);
     const list = win.locator('.work-item-list');

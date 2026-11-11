@@ -89,7 +89,15 @@ async function fixture(page: Page, projected: boolean) {
       'threadRootId',
     );
     return route.fulfill({
-      json: { messages: thread ? [root, answer] : [...messages, ordinary] },
+      json: {
+        messages: thread ? [root, answer] : [...messages, ordinary],
+        through: Math.max(
+          root.seq,
+          answer.seq,
+          ordinary.seq,
+          ...messages.map((message) => message.seq),
+        ),
+      },
     });
   });
   await page.route(`**/api/rooms/${room.id}/messages/${root.id}`, (route) =>

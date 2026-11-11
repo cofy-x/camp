@@ -1434,6 +1434,9 @@ test('following an event and recovering an unknown comment retain their explicit
     expect(route.request().url()).toContain(recoveryId);
     return route.fulfill({ json: { kind: 'delivery', delivery } });
   });
+  // These fixtures replace state already read by the Workspace. Start a fresh
+  // query session after installing them instead of relying on idle polling.
+  await errors.reload();
   await openActivity(page);
   const events = panel(page).getByRole('region', { name: 'Automation events' });
   await events.getByText('Details', { exact: true }).click();

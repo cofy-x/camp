@@ -39,6 +39,8 @@ UPDATE rooms SET activity_seq=?,updated_at=? WHERE id=?;
 UPDATE rooms SET default_agent_id=NULL WHERE id=? AND default_agent_id=?;
 -- name: ListMembers :many
 SELECT a.* FROM agents a JOIN memberships m ON m.agent_id=a.id WHERE m.room_id=? ORDER BY m.created_at,a.id;
+-- name: ListAgentRooms :many
+SELECT r.id FROM rooms r JOIN memberships m ON m.room_id=r.id WHERE m.agent_id=? ORDER BY r.created_at,r.id;
 -- name: GetMembership :one
 SELECT * FROM memberships WHERE room_id=? AND agent_id=?;
 -- name: JoinRoom :exec
@@ -109,6 +111,8 @@ UPDATE agent_conversations SET context_seq=?,resumable=? WHERE agent_id=? AND ro
 INSERT INTO workspace_events(type,room_id,entity_id,created_at) VALUES(?,?,?,?) RETURNING id;
 -- name: ListWorkspaceEvents :many
 SELECT * FROM workspace_events WHERE id>? ORDER BY id LIMIT 500;
+-- name: WorkspaceEventCursor :one
+SELECT CAST(COALESCE(MAX(id),0) AS INTEGER) FROM workspace_events;
 
 -- name: GetRunNotice :one
 SELECT id FROM messages WHERE run_id=? AND author_kind='system';

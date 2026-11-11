@@ -351,6 +351,10 @@ test('confirming an event preserves the exact task request across an uncertain r
   await page.route(`**/api/tasks/${task.id}/runs?*`, (route) =>
     route.fulfill({ json: { items: [], nextCursor: '' } }),
   );
+  // Availability was read before the browser-only execution fixture existed.
+  // Reload with all fixtures installed rather than waiting for an idle poll.
+  await errors.reload();
+  await openEvents(page);
   await panel(page).getByRole('button', { name: 'Refresh Events' }).click();
   await panel(page)
     .getByRole('button', { name: new RegExp(title) })
@@ -414,7 +418,7 @@ test('confirming an event preserves the exact task request across an uncertain r
 });
 
 for (const backgroundRecovery of [false, true]) {
-  test(`event details retain a read error and fit a narrow window${backgroundRecovery ? ' after background recovery' : ''}`, async ({
+  test(`event details retain a read error and fit a narrow window${backgroundRecovery ? ' after returning to the foreground' : ''}`, async ({
     page,
     browserName,
   }) => {
@@ -468,8 +472,11 @@ for (const backgroundRecovery of [false, true]) {
           response.url().endsWith(`/api/github-events/${eventId}`) &&
           response.status() === 200,
       );
-      // Team's existing fallback can heal the read before the next user click.
-      await page.clock.fastForward(15_000);
+      // Foreground reconciliation can heal the read before the next click;
+      // a healthy connection no longer polls every unrelated query while idle.
+      await page.evaluate(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
       await healed;
       await expect(
         panel(page).getByRole('button', { name: 'Refresh Event', exact: true }),

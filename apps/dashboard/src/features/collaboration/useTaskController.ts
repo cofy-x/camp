@@ -9,7 +9,8 @@ import {
   clearSessionReceipt,
 } from '../../shared/sessionReceipt';
 import { useTeam } from '../../team/TeamContext';
-import { workspaceApi, type Agent } from '../workspace/api';
+import { useRead } from '../../shared/reads/useRead';
+import type { Agent } from '../workspace/api';
 import { tasksApi, type Task, type TaskRecoveryRun } from './api';
 
 interface PendingAction {
@@ -67,7 +68,10 @@ export function useTaskController(id: string, desktop: DesktopAPI) {
   const [error, setError] = useState(
     savedRequest ? 'A previous action is awaiting confirmation.' : '',
   );
-  const [loadError, setLoadError] = useState('');
+  const taskRead = useRead<Awaited<ReturnType<typeof tasksApi.get>>>(
+    `/tasks/${encodeURIComponent(id)}?view=summary`,
+  );
+  const loadError = taskRead.error;
   const [notice, setNotice] = useState('');
   const [pending, setPending] = useState(false);
   const [content, setContent] = useState(savedRequest?.content ?? '');
@@ -95,30 +99,18 @@ export function useTaskController(id: string, desktop: DesktopAPI) {
     savedRequest?.participantAgentIds ?? null,
   );
   const [roomAgents, setRoomAgents] = useState<Agent[] | null>(null);
-  const [membersError, setMembersError] = useState('');
-  const [membersRevision, setMembersRevision] = useState(0);
+
   const roomId = task?.roomId;
   const activeRunId = task?.activeRunId;
+  const membersRead = useRead<{ members: Agent[] }>(
+    roomId ? `/rooms/${encodeURIComponent(roomId)}/members` : null,
+    { enabled: continueOpen && refreshRoutes && !activeRunId },
+  );
+  const membersError = membersRead.error;
   useEffect(() => {
-    if (!continueOpen || !refreshRoutes || !roomId || activeRunId) return;
-    const controller = new AbortController();
-    void workspaceApi
-      .members(roomId, controller.signal)
-      .then(({ members }) => {
-        if (controller.signal.aborted) return;
-        setRoomAgents(members);
-        setMembersError('');
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setMembersError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load Room Agents.',
-          );
-      });
-    return () => controller.abort();
-  }, [continueOpen, refreshRoutes, roomId, activeRunId, membersRevision]);
+    if (continueOpen && refreshRoutes && membersRead.data)
+      setRoomAgents(membersRead.data.members);
+  }, [continueOpen, refreshRoutes, membersRead.data]);
   const selectedParticipantIds =
     participantIds ?? task?.participants.map(({ agent }) => agent.id) ?? [];
   const nextAgents = refreshRoutes
@@ -150,32 +142,15 @@ export function useTaskController(id: string, desktop: DesktopAPI) {
   ];
 
   useEffect(() => {
-    const controller = new AbortController();
-    void tasksApi
-      .get(id, controller.signal)
-      .then((result) => {
-        if (controller.signal.aborted) return;
-        setTask((current) =>
-          !current || result.task.revision >= current.revision
-            ? result.task
-            : current,
-        );
-        setRecovery({
-          revision: result.task.revision,
-          run: result.recoveryRun,
-        });
-        setLoadError('');
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setLoadError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load this collaboration.',
-          );
-      });
-    return () => controller.abort();
-  }, [id, team.revision]);
+    const result = taskRead.data;
+    if (!result) return;
+    setTask((current) =>
+      !current || result.task.revision >= current.revision
+        ? result.task
+        : current,
+    );
+    setRecovery({ revision: result.task.revision, run: result.recoveryRun });
+  }, [taskRead.data]);
 
   async function submit(
     kind: 'input' | 'answer' | 'continue' | 'cancel',
@@ -371,8 +346,7 @@ export function useTaskController(id: string, desktop: DesktopAPI) {
     roomAgents,
     setRoomAgents,
     membersError,
-    setMembersError,
-    setMembersRevision,
+    retryMembers: () => void membersRead.refresh(),
     selectedParticipantIds,
     nextAgents,
     nextAgentId,

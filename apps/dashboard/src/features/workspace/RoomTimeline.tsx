@@ -1,6 +1,7 @@
 import {
   useCallback,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -319,7 +320,38 @@ export function RoomTimeline({
   const [newActivity, setNewActivity] = useState(false);
   const key = conversationKey(room.id, threadId);
   const [focusRequest, setFocusRequest] = useState(0);
-  const conversationRuns = runs.filter((run) => run.threadRootId === threadId);
+  const lookup = useMemo(() => {
+    const replies = new Set(
+      messages
+        .filter((message) => message.authorKind === 'agent')
+        .map((message) => message.runId),
+    );
+    const pending = new Map<string, RunTimeline[]>();
+    const threads = new Map<string, RunTimeline>();
+    for (const run of runs) {
+      if (run.threadRootId === threadId && !replies.has(run.id)) {
+        const list = pending.get(run.originMessageId) ?? [];
+        list.push(run);
+        pending.set(run.originMessageId, list);
+      }
+      const old = threads.get(run.threadRootId);
+      if (
+        !old ||
+        (!isActiveRun(old) &&
+          (isActiveRun(run) || run.updatedAt > old.updatedAt))
+      )
+        threads.set(run.threadRootId, run);
+    }
+    return {
+      runs: new Map(runs.map((run) => [run.id, run])),
+      agents: new Map(agents.map((agent) => [agent.id, agent])),
+      tasks: new Map(tasks.map((task) => [task.id, task])),
+      people: new Map(team.members.map((person) => [person.id, person])),
+      pending,
+      threads,
+    };
+  }, [runs, agents, tasks, team.members, messages, threadId]);
+
   useLayoutEffect(() => {
     const node = scroll.current;
     if (!node) return;
@@ -397,19 +429,16 @@ export function RoomTimeline({
         {messages.map((message) => {
           const run =
             message.authorKind === 'agent'
-              ? runs.find((item) => item.id === message.runId)
+              ? lookup.runs.get(message.runId)
               : undefined;
           const agent =
-            run?.agentSnapshot ??
-            agents.find((item) => item.id === message.agentId);
-          const currentAgent = agents.find(
-            (item) => item.id === message.agentId,
+            run?.agentSnapshot ?? lookup.agents.get(message.agentId);
+          const currentAgent = lookup.agents.get(message.agentId);
+          const relatedTask = lookup.tasks.get(
+            message.taskId || run?.taskId || '',
           );
-          const linkedTask = tasks.find(
-            (task) =>
-              task.id === (message.taskId || run?.taskId) &&
-              task.roomId === message.roomId,
-          );
+          const linkedTask =
+            relatedTask?.roomId === message.roomId ? relatedTask : undefined;
           const linkedItemId =
             message.workOrigin?.workItemId || linkedTask?.workItemId;
           const workOrigin = Boolean(
@@ -417,39 +446,21 @@ export function RoomTimeline({
             (linkedTask?.workItemId &&
               linkedTask.originMessageId === message.id),
           );
-          const person = team.members.find(
-            (item) => item.id === message.authorUserId,
-          );
+          const person = lookup.people.get(message.authorUserId);
           const author =
             message.authorKind === 'user'
               ? message.authorName || 'Team member'
               : (agent?.name ?? 'Agent');
-          const work = conversationRuns.filter(
-            (item) =>
-              item.originMessageId === message.id &&
-              !messages.some(
-                (reply) =>
-                  reply.runId === item.id && reply.authorKind === 'agent',
-              ),
-          );
-          const threadRuns = runs.filter(
-            (item) => item.threadRootId === message.id,
-          );
-          const threadWork =
-            threadRuns.find(isActiveRun) ??
-            [...threadRuns].sort((a, b) =>
-              b.updatedAt.localeCompare(a.updatedAt),
-            )[0];
+          const work = lookup.pending.get(message.id) ?? [];
+          const threadWork = lookup.threads.get(message.id);
           const workCards = work.map((item) => (
             <WorkCard
               key={item.id}
               run={item}
-              avatar={agents.find((agent) => agent.id === item.agentId)?.avatar}
+              avatar={lookup.agents.get(item.agentId)?.avatar}
               onInspect={onInspect}
               onChange={onChange}
-              workItemId={
-                tasks.find((task) => task.id === item.taskId)?.workItemId
-              }
+              workItemId={lookup.tasks.get(item.taskId ?? '')?.workItemId}
               showTaskLink={
                 (!workOrigin && message.authorKind !== 'system') ||
                 Boolean(message.reviewId) ||
@@ -477,8 +488,7 @@ export function RoomTimeline({
                     roomId: room.id,
                     taskId: id,
                     workItemId:
-                      linkedItemId ||
-                      tasks.find((task) => task.id === id)?.workItemId,
+                      linkedItemId || lookup.tasks.get(id)?.workItemId,
                   })
                 }
                 taskLabel={linkedItemId ? 'Open work' : 'Open collaboration'}

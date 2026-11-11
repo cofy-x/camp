@@ -16,86 +16,42 @@ import { AgentEditor } from '../workspace/AgentsPanel';
 import { IdentityAvatar } from '../identity/IdentityAvatar';
 import { useAccount } from '../../team/AuthContext';
 import { useTeam } from '../../team/TeamContext';
+import { useRead } from '../../shared/reads/useRead';
 
 export function Agents({ desktop, window }: AppWindowProps) {
   const { user } = useAccount();
   const team = useTeam();
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [status, setStatus] = useState<WorkspaceStatus | null>(null);
+  const agentsRead = useRead<{ agents: Agent[] }>('/agents');
+  const roomsRead = useRead<{ rooms: Room[] }>('/rooms');
+  const statusRead = useRead<WorkspaceStatus>('/workspace/status');
+  const agents = agentsRead.data?.agents ?? [];
+  const rooms = roomsRead.data?.rooms ?? [];
+  const status = statusRead.data ?? null;
   const [selected, setSelected] = useState('');
-  const [memberships, setMemberships] = useState<{
-    agentId: string;
-    rooms: Set<string>;
-  }>({ agentId: '', rooms: new Set() });
-  const joined =
-    memberships.agentId === selected ? memberships.rooms : new Set<string>();
-  const membershipsReady = memberships.agentId === selected;
-  const [loading, setLoading] = useState(true);
+  const membershipsRead = useRead<{ roomIds: string[] }>(
+    selected ? `/agents/${encodeURIComponent(selected)}/rooms` : null,
+  );
+  const joined = new Set(membershipsRead.data?.roomIds ?? []);
+  const membershipsReady = Boolean(membershipsRead.data);
+  const loading = !agentsRead.data && !agentsRead.error;
   const [editing, setEditing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
-    const controller = new AbortController();
-    void Promise.all([
-      workspaceApi.agents(controller.signal),
-      workspaceApi.rooms(controller.signal),
-      workspaceApi.status(controller.signal),
-    ])
-      .then(([agents, rooms, status]) => {
-        if (controller.signal.aborted) return;
-        setAgents(agents.agents);
-        setRooms(rooms.rooms);
-        setStatus(status);
-        setSelected((current) =>
-          agents.agents.some((agent) => agent.id === current)
-            ? current
-            : (agents.agents[0]?.id ?? ''),
-        );
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setError(
-            error instanceof Error ? error.message : 'Could not load agents.',
-          );
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [team.revision]);
-  useEffect(() => {
-    const controller = new AbortController();
-    void Promise.all(
-      rooms.map(async (room) => ({
-        room,
-        ...(await workspaceApi.members(room.id, controller.signal)),
-      })),
-    )
-      .then((items) => {
-        if (!controller.signal.aborted)
-          setMemberships({
-            agentId: selected,
-            rooms: new Set(
-              items
-                .filter((item) =>
-                  item.members.some((agent) => agent.id === selected),
-                )
-                .map((item) => item.room.id),
-            ),
-          });
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load memberships.',
-          );
-      });
-    return () => controller.abort();
-  }, [rooms, selected]);
+    const accepted = agentsRead.data;
+    if (!accepted) return;
+    setSelected((current) =>
+      accepted.agents.some((agent) => agent.id === current)
+        ? current
+        : (accepted.agents[0]?.id ?? ''),
+    );
+  }, [agentsRead.data]);
+  const readError =
+    agentsRead.error ||
+    roomsRead.error ||
+    statusRead.error ||
+    membershipsRead.error;
   useEffect(() => {
     if (team.navigation?.app !== 'agents' || !team.navigation.agentId) return;
     setSelected(team.navigation.agentId);
@@ -205,9 +161,9 @@ export function Agents({ desktop, window }: AppWindowProps) {
         <main
           className={`camp-agent-detail${!editing && !agent ? ' camp-agent-empty' : ''}`}
         >
-          {error && (
+          {(error || readError) && (
             <p className="app-error" role="alert">
-              {error}
+              {error || readError}
             </p>
           )}
           {editing ? (

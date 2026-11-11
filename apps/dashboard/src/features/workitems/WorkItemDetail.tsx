@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button, Select, Tabs } from '@cofy-x/camp-platinum';
 import { useAccount } from '../../team/AuthContext';
 import { useTeam } from '../../team/TeamContext';
+import { useRead } from '../../shared/reads/useRead';
 import type { Agent, WorkspaceStatus } from '../workspace/api';
 import type { AutomationPolicy } from '../automation/api';
 import { AssistantContent } from '../workspace/AssistantContent';
@@ -9,7 +10,7 @@ import { EvidenceRecord } from './WorkItemEvidence';
 import { WorkItemHistory } from './WorkItemHistory';
 import { WorkItemActions } from './WorkItemActions';
 import { useWorkItemOperation } from './useWorkItemOperation';
-import { decisionLabel, workItemsApi, type WorkItem } from './api';
+import { decisionLabel, type WorkItem } from './api';
 import { workItemOverviewFallback, workItemStatus } from './presentation';
 
 function stamp(value: string) {
@@ -102,7 +103,10 @@ export function WorkItemDetail({
   const { user } = useAccount();
   const team = useTeam();
   const [item, setItem] = useState<WorkItem | null>(null);
-  const [error, setError] = useState('');
+  const itemRead = useRead<{ item: WorkItem }>(
+    `/work-items/${encodeURIComponent(id)}`,
+  );
+  const error = itemRead.error;
   const [retry, setRetry] = useState(0);
   const [viewSelection, setViewSelection] = useState({
     request: initialRequest,
@@ -121,32 +125,19 @@ export function WorkItemDetail({
       !current || next.revision >= current.revision ? next : current,
     );
     setRetry((value) => value + 1);
+    void itemRead.refresh();
   }
 
   const operation = useWorkItemOperation(`decision:${id}`, saved, [
     `allowance:${id}`,
   ]);
   useEffect(() => {
-    const controller = new AbortController();
-    void workItemsApi
-      .item(id, controller.signal)
-      .then(({ item }) => {
-        if (controller.signal.aborted) return;
-        setItem((current) =>
-          !current || item.revision >= current.revision ? item : current,
-        );
-        setError('');
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setError(
-            error instanceof Error
-              ? error.message
-              : 'Could not read this work.',
-          );
-      });
-    return () => controller.abort();
-  }, [id, team.revision, retry]);
+    const item = itemRead.data?.item;
+    if (!item) return;
+    setItem((current) =>
+      !current || item.revision >= current.revision ? item : current,
+    );
+  }, [itemRead.data]);
   const editable =
     item && (item.ownerUserId === user.id || user.role === 'admin');
   const terminal = item && ['completed', 'cancelled'].includes(item.status);
@@ -182,7 +173,12 @@ export function WorkItemDetail({
         <Button onClick={onBack}>Back to Work</Button>
         <div className="app-actions">
           {onOpenRoom && <Button onClick={onOpenRoom}>Open Room</Button>}
-          <Button onClick={() => setRetry((value) => value + 1)}>
+          <Button
+            onClick={() => {
+              setRetry((value) => value + 1);
+              team.refresh();
+            }}
+          >
             {error ? 'Retry work' : 'Refresh'}
           </Button>
         </div>

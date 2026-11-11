@@ -1,5 +1,11 @@
 import type { AppDefinition } from '@cofy-x/camp-platinum';
-import { Settings } from './Settings';
+import { lazyApplication } from '../../shared/desktop/lazyApplication';
+
+const Settings = lazyApplication(
+  'src/features/settings/Settings.tsx',
+  () => import('./Settings'),
+  (module) => module.Settings,
+);
 
 export const settingsApp: AppDefinition = {
   id: 'settings',

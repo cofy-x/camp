@@ -104,8 +104,7 @@ export function TaskDetail({
     roomAgents,
     setRoomAgents,
     membersError,
-    setMembersError,
-    setMembersRevision,
+    retryMembers,
     selectedParticipantIds,
     nextAgents,
     nextAgentId,
@@ -397,7 +396,6 @@ export function TaskDetail({
                 onChange={(event) => {
                   setRefreshRoutes(event.target.checked);
                   setRoomAgents(null);
-                  setMembersError('');
                 }}
               />
               {task.activeRunId && (
@@ -426,7 +424,7 @@ export function TaskDetail({
                       <Button
                         type="button"
                         disabled={mutationLocked}
-                        onClick={() => setMembersRevision((value) => value + 1)}
+                        onClick={retryMembers}
                       >
                         Retry Agents
                       </Button>

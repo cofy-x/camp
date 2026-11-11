@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button, Checkbox } from '@cofy-x/camp-platinum';
 import type { DesktopAPI } from '@cofy-x/camp-platinum';
-import { useTeam } from '../../team/TeamContext';
+import { useRead } from '../../shared/reads/useRead';
 import type { Task } from '../collaboration/api';
 import { automationApi, type Delivery, type Subscription } from './api';
 import { useAutomationOperation } from './useAutomationOperation';
@@ -256,71 +256,24 @@ export function TaskAutomation({
   manage: boolean;
   desktop: DesktopAPI;
 }) {
-  const team = useTeam();
-  const [subscriptions, setSubscriptions] = useState<Subscription[] | null>(
-    null,
-  );
   const [deliveryCursor, setDeliveryCursor] = useState('');
   const [previousDeliveries, setPreviousDeliveries] = useState<string[]>([]);
-  const [deliveryPage, setDeliveryPage] = useState<{
-    cursor: string;
+  const subscriptionRead = useRead<{ subscriptions: Subscription[] }>(
+    `/tasks/${encodeURIComponent(task.id)}/subscriptions`,
+  );
+  const deliveryRead = useRead<{
     deliveries: Delivery[];
     nextCursor: string;
-  } | null>(null);
-  const deliveries =
-    deliveryPage?.cursor === deliveryCursor ? deliveryPage.deliveries : null;
-  const [subscriptionError, setSubscriptionError] = useState('');
-  const [failedDeliveryPage, setFailedDeliveryPage] = useState<{
-    cursor: string;
-    error: string;
-  } | null>(null);
-  const deliveryError =
-    failedDeliveryPage?.cursor === deliveryCursor
-      ? failedDeliveryPage.error
-      : '';
-  const [subscriptionRetry, setSubscriptionRetry] = useState(0);
-  const [deliveryRetry, setDeliveryRetry] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    void automationApi
-      .subscriptions(task.id, controller.signal)
-      .then((context) => {
-        if (controller.signal.aborted) return;
-        setSubscriptions(context.subscriptions);
-        setSubscriptionError('');
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setSubscriptionError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load followed conversations.',
-          );
-      });
-    return () => controller.abort();
-  }, [task.id, task.revision, team.revision, subscriptionRetry]);
-  useEffect(() => {
-    const controller = new AbortController();
-    void automationApi
-      .deliveries(task.id, deliveryCursor, controller.signal)
-      .then((outbound) => {
-        if (!controller.signal.aborted) {
-          setDeliveryPage({ cursor: deliveryCursor, ...outbound });
-          setFailedDeliveryPage(null);
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setFailedDeliveryPage({
-            cursor: deliveryCursor,
-            error:
-              error instanceof Error
-                ? error.message
-                : 'Could not load GitHub comments.',
-          });
-      });
-    return () => controller.abort();
-  }, [task.id, task.revision, team.revision, deliveryRetry, deliveryCursor]);
+  }>(
+    `/tasks/${encodeURIComponent(task.id)}/deliveries?${new URLSearchParams({ cursor: deliveryCursor, limit: '20' })}`,
+  );
+  const subscriptions = subscriptionRead.data?.subscriptions ?? null;
+  const subscriptionError = subscriptionRead.error;
+  const deliveryPage = deliveryRead.data
+    ? { cursor: deliveryCursor, ...deliveryRead.data }
+    : null;
+  const deliveries = deliveryPage?.deliveries ?? null;
+  const deliveryError = deliveryRead.error;
   const active = ![
     'completed',
     'cancelled',
@@ -359,7 +312,7 @@ export function TaskAutomation({
       {subscriptionError && (
         <p role="alert" className="app-error">
           {subscriptionError}{' '}
-          <Button onClick={() => setSubscriptionRetry((value) => value + 1)}>
+          <Button onClick={() => void subscriptionRead.refresh()}>
             Retry Conversations
           </Button>
         </p>
@@ -379,7 +332,7 @@ export function TaskAutomation({
                 observed={subscription}
                 manage={manage}
                 active={active}
-                onSaved={() => setSubscriptionRetry((value) => value + 1)}
+                onSaved={() => void subscriptionRead.refresh()}
               />
             ))}
           </ul>
@@ -393,7 +346,7 @@ export function TaskAutomation({
           {deliveryError && (
             <p className="app-error" role="alert">
               {deliveryError}{' '}
-              <Button onClick={() => setDeliveryRetry((value) => value + 1)}>
+              <Button onClick={() => void deliveryRead.refresh()}>
                 Retry Comments
               </Button>
             </p>
@@ -408,7 +361,7 @@ export function TaskAutomation({
                 observed={delivery}
                 manage={manage}
                 desktop={desktop}
-                onSaved={() => setDeliveryRetry((value) => value + 1)}
+                onSaved={() => void deliveryRead.refresh()}
               />
             ))}
           </ul>

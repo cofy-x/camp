@@ -1,5 +1,11 @@
 import type { AppDefinition } from '@cofy-x/camp-platinum';
-import { Library } from './Library';
+import { lazyApplication } from '../../shared/desktop/lazyApplication';
+
+const Library = lazyApplication(
+  'src/features/library/Library.tsx',
+  () => import('./Library'),
+  (module) => module.Library,
+);
 
 export const libraryApp: AppDefinition = {
   id: 'library',

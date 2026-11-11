@@ -29,12 +29,7 @@ func updateAutomationEvent(ctx context.Context, q *sqlgen.Queries, e orchestrati
 	if err := q.UpdateAutomationEvent(ctx, sqlgen.UpdateAutomationEventParams{ID: e.ID, Status: e.Status, EvaluationID: e.EvaluationID, TaskID: e.TaskID, Reason: e.Reason, PolicyRevision: e.PolicyRevision}); err != nil {
 		return err
 	}
-	// Intake already commits the source's own workspace notification. Only
-	// asynchronous processing needs another notification before final completion.
-	if e.Status == "needs_attention" || e.Status == "evaluating" {
-		return event(ctx, q, "automation.event.updated", e.RoomID, e.ID)
-	}
-	return nil
+	return event(ctx, q, "automation.event.updated", e.RoomID, e.ID)
 }
 
 // Source intake, deterministic subscription fan-out and any visible Room

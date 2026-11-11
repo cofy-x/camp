@@ -9,6 +9,8 @@ import { useDesktopSession } from './useDesktopSession';
 import { AuthGate } from '../team/AuthGate';
 import { useTeam, TeamProvider } from '../team/TeamContext';
 import { DesktopInbox } from '../team/DesktopInbox';
+import { useAccount } from '../team/AuthContext';
+import { ReadProvider } from '../shared/reads/useRead';
 
 export function App() {
   return (
@@ -19,6 +21,7 @@ export function App() {
 }
 
 function CampDesktop() {
+  const { user } = useAccount();
   const session = useDesktopSession();
   const {
     bootstrap,
@@ -65,43 +68,48 @@ function CampDesktop() {
     );
 
   return (
-    <TeamProvider
-      openApp={openApp}
-      getActivationRevision={getActivationRevision}
-    >
-      <PreferencesContext.Provider value={appearance}>
-        <TeamDesktop
-          apps={apps}
-          icons={icons}
-          initialLayout={bootstrap.layout || undefined}
-          initialWindows={[{ appId: 'workspace' }]}
-          wallpaper={preferences.wallpaper}
-          controlStrip={preferences.controlStrip}
-          iconSnap={preferences.iconSnap}
-          connectionStatus={connection}
-          onReady={(desktop) => {
-            desktopRef.current = desktop;
-          }}
-          onLayoutChange={onLayoutChange}
-          onDesktopMenu={(_, desktop) => createDesktopMenu(desktop)}
-          onAppearance={() => getDesktop()?.openApp('appearance')}
-          onAbout={() => getDesktop()?.openApp('about')}
-          onHelp={() => getDesktop()?.openApp('settings')}
-          helpLabel="Getting Ready"
-          onControlStripChange={(controlStrip) => {
-            const desktop = getDesktop();
-            if (desktop)
-              void runCommand(desktop, () => savePreferences({ controlStrip }));
-          }}
-        />
-        {persistenceError && (
-          <div className="persistence-warning" role="alert">
-            <span>{persistenceError}</span>
-            <Button onClick={() => void flushLayout()}>Retry</Button>
-          </div>
-        )}
-      </PreferencesContext.Provider>
-    </TeamProvider>
+    <ReadProvider scope={user.id}>
+      <TeamProvider
+        initialCursor={bootstrap.workspaceEventCursor}
+        openApp={openApp}
+        getActivationRevision={getActivationRevision}
+      >
+        <PreferencesContext.Provider value={appearance}>
+          <TeamDesktop
+            apps={apps}
+            icons={icons}
+            initialLayout={bootstrap.layout || undefined}
+            initialWindows={[{ appId: 'workspace' }]}
+            wallpaper={preferences.wallpaper}
+            controlStrip={preferences.controlStrip}
+            iconSnap={preferences.iconSnap}
+            connectionStatus={connection}
+            onReady={(desktop) => {
+              desktopRef.current = desktop;
+            }}
+            onLayoutChange={onLayoutChange}
+            onDesktopMenu={(_, desktop) => createDesktopMenu(desktop)}
+            onAppearance={() => getDesktop()?.openApp('appearance')}
+            onAbout={() => getDesktop()?.openApp('about')}
+            onHelp={() => getDesktop()?.openApp('settings')}
+            helpLabel="Getting Ready"
+            onControlStripChange={(controlStrip) => {
+              const desktop = getDesktop();
+              if (desktop)
+                void runCommand(desktop, () =>
+                  savePreferences({ controlStrip }),
+                );
+            }}
+          />
+          {persistenceError && (
+            <div className="persistence-warning" role="alert">
+              <span>{persistenceError}</span>
+              <Button onClick={() => void flushLayout()}>Retry</Button>
+            </div>
+          )}
+        </PreferencesContext.Provider>
+      </TeamProvider>
+    </ReadProvider>
   );
 }
 

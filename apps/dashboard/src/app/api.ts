@@ -3,6 +3,7 @@ import type { Preferences } from '../features/appearance/preferences';
 import { request } from '../shared/api/http';
 
 export interface Bootstrap {
+  workspaceEventCursor: number;
   preferences: Preferences;
   layout: DesktopLayout | null;
 }

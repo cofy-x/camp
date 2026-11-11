@@ -46,22 +46,40 @@ func (s *Store) GetRoomMessage(ctx context.Context, room, id string) (Message, e
 	return m, nil
 }
 func (s *Store) ListMessages(ctx context.Context, room, thread string, after int64) ([]Message, error) {
-	if _, e := s.GetRoom(ctx, room); e != nil {
-		return nil, e
-	}
-	rows, e := s.queries().ListMessages(ctx, sqlgen.ListMessagesParams{RoomID: room, ThreadRootID: sql.NullString{String: thread, Valid: true}, AfterSeq: after})
-	out := make([]Message, 0, len(rows))
-	for _, r := range rows {
-		message, err := messageRow(r)
+	page, err := s.RoomMessagePage(ctx, room, thread, after)
+	return page.Messages, err
+}
+
+type MessagePage struct {
+	Messages []Message `json:"messages"`
+	Through  int64     `json:"through"`
+}
+
+// RoomMessagePage certifies the Room frontier observed before this page's rows.
+// A separate metadata refresh cannot advance a cached page's read receipt.
+func (s *Store) RoomMessagePage(ctx context.Context, room, thread string, after int64) (out MessagePage, err error) {
+	out.Messages = []Message{}
+	err = s.readTransaction(ctx, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		meta, err := q.GetRoom(ctx, room)
 		if err != nil {
-			return nil, err
+			return missing(err, "The room")
 		}
-		out = append(out, message)
-	}
-	if e == nil {
-		e = s.messageWorkOrigins(ctx, out)
-	}
-	return out, e
+		out.Through = meta.LastMessageSeq
+		rows, err := q.ListMessages(ctx, sqlgen.ListMessagesParams{RoomID: room, ThreadRootID: sql.NullString{String: thread, Valid: true}, AfterSeq: after})
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			message, err := messageRow(row)
+			if err != nil {
+				return err
+			}
+			out.Messages = append(out.Messages, message)
+		}
+		return messageWorkOrigins(ctx, q, out.Messages)
+	})
+	return out, err
 }
 func (s *Store) ContextMessages(ctx context.Context, room, thread string, after, through int64) ([]Message, error) {
 	rows, e := s.queries().ContextMessages(ctx, sqlgen.ContextMessagesParams{RoomID: room, ThreadRootID: sql.NullString{String: thread, Valid: true}, AfterSeq: after, ThroughSeq: through})

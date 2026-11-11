@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Button,
   PixelIcon,
@@ -15,6 +15,7 @@ import { RunnerReadiness } from './RunnerReadiness';
 import { RunnerPermissions } from './RunnerPermissions';
 import { RunnerDiagnostics } from './RunnerDiagnostics';
 import { ConnectRunner } from './ConnectRunner';
+import { useRead } from '../../shared/reads/useRead';
 
 export function RunnersPanel({
   desktop,
@@ -23,15 +24,26 @@ export function RunnersPanel({
   desktop: DesktopAPI;
   windowId: string;
 }) {
-  const { runners, loading, error: loadError, refresh } = useRunners();
+  const {
+    runners,
+    loading,
+    error: loadError,
+    refresh: refreshRunners,
+  } = useRunners();
   const { user } = useAccount();
-  const { revision, members, navigation } = useTeam();
+  const { members, navigation } = useTeam();
   const handledNavigation = useRef(0);
   const [selectedId, setSelectedId] = useState('');
   const [tab, setTab] = useState('overview');
   const [connecting, setConnecting] = useState(false);
-  const [defaults, setDefaults] = useState<ExecutionDefaults | null>(null);
-  const [defaultsError, setDefaultsError] = useState('');
+  const defaultsRead = useRead<ExecutionDefaults>('/execution-defaults');
+  const { refresh: refreshDefaults } = defaultsRead;
+  const defaults = defaultsRead.data ?? null;
+  const defaultsError = defaultsRead.error;
+  const refresh = useCallback(() => {
+    refreshRunners();
+    void refreshDefaults();
+  }, [refreshRunners, refreshDefaults]);
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -78,26 +90,6 @@ export function RunnersPanel({
     ]
       .filter(Boolean)
       .join(' · ');
-  useEffect(() => {
-    const controller = new AbortController();
-    void runnersApi
-      .defaults(controller.signal)
-      .then((value) => {
-        if (!controller.signal.aborted) {
-          setDefaults(value);
-          setDefaultsError('');
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setDefaultsError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load Runner defaults.',
-          );
-      });
-    return () => controller.abort();
-  }, [revision]);
 
   function select(id: string) {
     setSelectedId(id);

@@ -16,6 +16,7 @@ import {
 } from './team-helpers';
 import { watchPageErrors } from './page-errors';
 import { timelineFixture } from './run-timeline-fixture';
+import { fixtureNotifications } from './fixture-notifications';
 
 const errors = new WeakMap<Page, ReturnType<typeof watchPageErrors>>();
 test.beforeEach(async ({ page, browserName }) => {
@@ -793,6 +794,7 @@ test('a member can stop work from details, recover a failed request, and keep th
       sessionGeneration: 1,
       published: false,
     };
+    const notify = await fixtureNotifications(member);
     await member.route(`**/api/rooms/${room.id}/runs?view=timeline*`, (route) =>
       route.fulfill({
         json: { items: [timelineFixture(run)], nextCursor: '' },
@@ -847,6 +849,7 @@ test('a member can stop work from details, recover a failed request, and keep th
     });
     await overview.click();
     run = { ...run, status: 'checking', updatedAt: new Date().toISOString() };
+    await notify('run.updated', room.id, run.id);
     await expect(
       inspector.getByText('Checking', { exact: true }),
     ).toBeVisible();
@@ -882,6 +885,7 @@ test('a member can stop work from details, recover a failed request, and keep th
       updatedAt: new Date().toISOString(),
       finishedAt: new Date().toISOString(),
     };
+    await notify('run.finished', room.id, run.id);
     await expect(
       inspector.getByText('Cancelled', { exact: true }),
     ).toBeVisible();

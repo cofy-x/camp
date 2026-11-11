@@ -3,9 +3,10 @@ import { Button } from '@cofy-x/camp-platinum';
 import { useAccount } from '../../team/AuthContext';
 import { useTeam } from '../../team/TeamContext';
 import { workspaceApi } from '../workspace/api';
-import { runnersApi, type Runner, type RunnerSource } from './api';
+import type { Runner, RunnerSource } from './api';
 import { runnerAdapters, runnerRuntime } from './presentation';
 import { RunnerStorage } from './RunnerStorage';
+import { useRead } from '../../shared/reads/useRead';
 
 function observedAt(value?: string) {
   return value ? new Date(value).toLocaleString() : 'Not reported';
@@ -21,9 +22,13 @@ export function RunnerDiagnostics({
   const team = useTeam();
   const { user } = useAccount();
   const manage = user.role === 'admin' || runner.ownerUserId === user.id;
-  const [sources, setSources] = useState<RunnerSource[] | null>(null);
   const [error, setError] = useState('');
-  const [revision, setRevision] = useState(0);
+  const sourcesRead = useRead<{ sources: RunnerSource[] }>(
+    `/runners/${encodeURIComponent(runner.id)}/sources`,
+    { enabled: manage },
+  );
+  const sources = sourcesRead.data?.sources ?? null;
+  const failure = error || sourcesRead.error;
   const readiness = runner.capabilities.readiness;
   const adapters = runnerAdapters(runner);
   const observedRunId = runner.firstTaskRunId || runner.earlierTaskRunId;
@@ -40,7 +45,7 @@ export function RunnerDiagnostics({
     if (!observedRunId) return;
     const activation = getActivationRevision();
     try {
-      const { run } = await workspaceApi.run(observedRunId);
+      const { run } = await workspaceApi.runSummary(observedRunId);
       if (!mounted.current || getActivationRevision() !== activation) return;
       await team.navigate({
         app: 'workspace',
@@ -54,25 +59,6 @@ export function RunnerDiagnostics({
         );
     }
   }
-
-  useEffect(() => {
-    if (!manage) return;
-    const controller = new AbortController();
-    void runnersApi
-      .sources(runner.id, controller.signal)
-      .then(({ sources }) => {
-        if (controller.signal.aborted) return;
-        setSources(sources ?? []);
-        setError('');
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setError(
-            error instanceof Error ? error.message : 'Could not load sources.',
-          );
-      });
-    return () => controller.abort();
-  }, [manage, runner.id, revision]);
 
   return (
     <div className="camp-runner-diagnostics">
@@ -189,7 +175,7 @@ export function RunnerDiagnostics({
         <section className="camp-runner-section" aria-label="Directory sources">
           <h3>Directory sources</h3>
           {sources === null ? (
-            !error && <p role="status">Loading sources…</p>
+            !failure && <p role="status">Loading sources…</p>
           ) : sources.length ? (
             <ul className="camp-runner-sources">
               {sources.map((source) => (
@@ -206,10 +192,15 @@ export function RunnerDiagnostics({
           )}
         </section>
       )}
-      {error && (
+      {failure && (
         <p className="app-error" role="alert">
-          {error}{' '}
-          <Button onClick={() => setRevision((value) => value + 1)}>
+          {failure}{' '}
+          <Button
+            onClick={() => {
+              setError('');
+              void sourcesRead.refresh();
+            }}
+          >
             Retry
           </Button>
         </p>

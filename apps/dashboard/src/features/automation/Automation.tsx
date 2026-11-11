@@ -1,18 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, PixelIcon, Select, Tabs } from '@cofy-x/camp-platinum';
 import { useAccount } from '../../team/AuthContext';
-import { useTeam } from '../../team/TeamContext';
+import { useRead, useReadStore } from '../../shared/reads/useRead';
 import { flushPrivateDrafts } from '../../team/draftRegistry';
 import { type Agent, type Room, type WorkspaceStatus } from '../workspace/api';
 import { githubApi, type GitHubSource } from '../github/api';
 import { GitHubEvents } from '../github/GitHubEvents';
 import { GitHubSources } from '../github/GitHubSources';
-import {
-  automationApi,
-  type AutomationPolicy,
-  type SourceEventPage,
-  type SourceEvent,
-} from './api';
+import type { AutomationPolicy, SourceEventPage, SourceEvent } from './api';
 import { CommentCredential, PolicyEditor } from './AutomationPolicy';
 import { FollowEvent } from './FollowEvent';
 import { EvaluationDecision } from './EvaluationDecision';
@@ -67,6 +62,15 @@ const eventLabels: Record<string, string> = {
 
 type Cursor = { before?: number; through?: number };
 
+function activityPath(roomId: string, sourceId: string, cursor: Cursor) {
+  const query = new URLSearchParams({ direction: 'desc', limit: '20' });
+  if (cursor.before !== undefined) query.set('before', String(cursor.before));
+  if (cursor.through !== undefined)
+    query.set('through', String(cursor.through));
+  if (sourceId) query.set('sourceId', sourceId);
+  return `/rooms/${encodeURIComponent(roomId)}/automation-events?${query}`;
+}
+
 function eventStatus(event: SourceEvent) {
   if (event.sourceId === 'task') return eventLabels[event.kind] ?? event.kind;
   if (event.reason === 'explicit_run') return 'Agent run started';
@@ -84,47 +88,20 @@ function eventStatus(event: SourceEvent) {
 }
 
 function OriginalEvent({ event }: { event: SourceEvent }) {
-  const [content, setContent] = useState(event.content);
-  const [error, setError] = useState('');
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    if (event.content) return;
-    const controller = new AbortController();
-    const load = automationApi
-      .event(event.id, controller.signal)
-      .then(({ event }) => event.content || 'This event has no text.');
-    void load
-      .then((text) => {
-        if (!controller.signal.aborted) {
-          setContent(text);
-          setError('');
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setError(
-            error instanceof Error
-              ? error.message
-              : 'Could not read the original event.',
-          );
-      });
-    return () => controller.abort();
-  }, [
-    event.content,
-    event.id,
-    event.externalEventId,
-    event.messageId,
-    event.roomId,
-    attempt,
-  ]);
+  const read = useRead<{ event: SourceEvent }>(
+    `/automation-events/${encodeURIComponent(event.id)}`,
+    { enabled: !event.content },
+  );
+  const content =
+    event.content ||
+    (read.data ? read.data.event.content || 'This event has no text.' : '');
+  const error = read.error;
   return (
     <>
       {error && (
         <p className="app-error" role="alert">
           {error}{' '}
-          <Button onClick={() => setAttempt((value) => value + 1)}>
-            Retry Original
-          </Button>
+          <Button onClick={() => void read.refresh()}>Retry Original</Button>
         </p>
       )}
       {!content && !error && <p role="status">Loading original…</p>}
@@ -282,7 +259,9 @@ function EventHistory({
   onReviewGitHub,
   onTrackEvent,
   onOpenWorkItem,
+  active,
 }: {
+  active: boolean;
   roomId: string;
   sourceId: string;
   sources: { id: string; label: string; enabled: boolean }[];
@@ -293,39 +272,74 @@ function EventHistory({
   onTrackEvent: (event: SourceEvent) => void;
   onOpenWorkItem: (id: string) => void;
 }) {
-  const team = useTeam();
+  const store = useReadStore();
   const [cursor, setCursor] = useState<Cursor>({});
   const [previous, setPrevious] = useState<Cursor[]>([]);
-  const [retry, setRetry] = useState(0);
+  const generation = useRef(0);
   const [state, setState] = useState<{
     cursor: Cursor;
     page?: SourceEventPage;
     error: string;
   }>({ cursor, error: '' });
+  const read = useRead<SourceEventPage>(
+    activityPath(roomId, sourceId, cursor),
+    { enabled: active },
+  );
+  const cachedHead = useRef(read.data);
   useEffect(() => {
-    const controller = new AbortController();
-    void automationApi
-      .activity(roomId, { ...cursor, sourceId }, controller.signal)
-      .then((page) => {
-        if (controller.signal.aborted) return;
-        const frozen =
-          cursor.through === undefined
-            ? { ...cursor, through: page.through }
-            : cursor;
-        setState({ cursor: frozen, page, error: '' });
-        if (frozen !== cursor) setCursor(frozen);
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setState((current) => ({
-            cursor,
-            page: current.cursor === cursor ? current.page : undefined,
-            error:
-              error instanceof Error ? error.message : 'Could not load events.',
-          }));
-      });
-    return () => controller.abort();
-  }, [roomId, sourceId, cursor, retry, team.revision]);
+    // Subscribing can begin revalidation after render and before this effect.
+    // Pin the currently accepted snapshot rather than that earlier render.
+    const accepted = store.snapshot<SourceEventPage>(
+      activityPath(roomId, sourceId, cursor),
+    );
+    if (accepted.data) {
+      // A newly selected filter may reuse its accepted head while checking
+      // newer events. Freeze its range only after that check has finished.
+      if (
+        cursor.through === undefined &&
+        accepted.refreshing &&
+        accepted.data === cachedHead.current
+      )
+        return;
+      const frozen =
+        cursor.through === undefined
+          ? { ...cursor, through: accepted.data.through }
+          : cursor;
+      setState({ cursor: frozen, page: accepted.data, error: accepted.error });
+      if (frozen !== cursor) setCursor(frozen);
+    } else if (accepted.error) setState({ cursor, error: accepted.error });
+  }, [cursor, read.data, read.error, read.refreshing, roomId, sourceId, store]);
+  useEffect(
+    () => () => {
+      generation.current++;
+    },
+    [],
+  );
+
+  async function refreshEvents() {
+    const expected = ++generation.current;
+    const firstPath = activityPath(roomId, sourceId, {});
+    await store.refresh(firstPath);
+    const first = store.snapshot<SourceEventPage>(firstPath);
+    if (expected !== generation.current) return;
+    if (!first.data || first.error) {
+      setState((current) => ({ ...current, error: first.error }));
+      return;
+    }
+    const frozen = { through: first.data.through };
+    const frozenPath = activityPath(roomId, sourceId, frozen);
+    await store.refresh(frozenPath);
+    if (expected !== generation.current) return;
+    const accepted = store.snapshot<SourceEventPage>(frozenPath);
+    setPrevious([]);
+    setCursor(frozen);
+    setState({
+      cursor: frozen,
+      page: accepted.data ?? first.data,
+      error: accepted.error,
+    });
+  }
+
   const page = state.cursor === cursor ? state.page : undefined;
   const error = state.cursor === cursor ? state.error : '';
   return (
@@ -350,24 +364,14 @@ function EventHistory({
           ))}
         </Select>
         <div className="app-actions">
-          <Button
-            onClick={() => {
-              setPrevious([]);
-              setCursor({});
-              setRetry((value) => value + 1);
-            }}
-          >
-            Refresh Events
-          </Button>
+          <Button onClick={() => void refreshEvents()}>Refresh Events</Button>
           <Button onClick={onOpenInbox}>GitHub inbox</Button>
         </div>
       </div>
       {error && (
         <p role="alert" className="app-error">
           {error}{' '}
-          <Button onClick={() => setRetry((value) => value + 1)}>
-            Retry Events
-          </Button>
+          <Button onClick={() => void read.refresh()}>Retry Events</Button>
         </p>
       )}
       {!page && !error && <p role="status">Loading events…</p>}
@@ -398,6 +402,7 @@ function EventHistory({
           {previous.length > 0 && (
             <Button
               onClick={() => {
+                generation.current++;
                 setCursor(previous.at(-1)!);
                 setPrevious(previous.slice(0, -1));
               }}
@@ -408,6 +413,7 @@ function EventHistory({
           {page?.hasMore && (
             <Button
               onClick={() => {
+                generation.current++;
                 setPrevious([...previous, cursor]);
                 setCursor({
                   before: page.nextBefore!,
@@ -446,8 +452,10 @@ export function Automation({
   onOpenWorkItem: (id: string) => void;
 }) {
   const { user } = useAccount();
-  const team = useTeam();
-  const [sources, setSources] = useState<GitHubSource[]>([]);
+  const sourcesRead = useRead<{ sources: GitHubSource[] }>(
+    `/rooms/${encodeURIComponent(room.id)}/github-sources`,
+  );
+  const sources = sourcesRead.data?.sources ?? [];
   const [policies, setPolicies] = useState<AutomationPolicy[]>([]);
   const [sourceId, setSourceId] = useState('room');
   const [activitySource, setActivitySource] = useState('');
@@ -476,42 +484,32 @@ export function Automation({
   }
 
   const [ready, setReady] = useState(false);
-  const [error, setError] = useState('');
-  const [retry, setRetry] = useState(0);
+  const policiesRead = useRead<{ policies: AutomationPolicy[] }>(
+    `/rooms/${encodeURIComponent(room.id)}/automation-policies`,
+    { enabled: settingsVisited },
+  );
+  const error = policiesRead.error || sourcesRead.error;
   useEffect(() => {
-    const controller = new AbortController();
-    void Promise.all([
-      automationApi.policies(room.id, controller.signal),
-      githubApi.sources(room.id, controller.signal),
-    ])
-      .then(([saved, observed]) => {
-        if (controller.signal.aborted) return;
-        setPolicies((current) => {
-          const merged = new Map(
-            current.map((policy) => [policy.sourceId, policy]),
-          );
-          for (const policy of saved.policies) {
-            if (
-              (merged.get(policy.sourceId)?.revision ?? -1) <= policy.revision
-            )
-              merged.set(policy.sourceId, policy);
-          }
-          return [...merged.values()];
-        });
-        setSources(observed.sources);
-        setReady(true);
-        setError('');
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load automation.',
-          );
-      });
-    return () => controller.abort();
-  }, [room.id, team.revision, retry]);
+    if (!policiesRead.data) return;
+    setPolicies((current) => {
+      const merged = new Map(
+        current.map((policy) => [policy.sourceId, policy]),
+      );
+      for (const policy of policiesRead.data!.policies)
+        if ((merged.get(policy.sourceId)?.revision ?? -1) <= policy.revision)
+          merged.set(policy.sourceId, policy);
+      return [...merged.values()];
+    });
+  }, [policiesRead.data]);
+  useEffect(() => {
+    if (policiesRead.data && sourcesRead.data) setReady(true);
+  }, [policiesRead.data, sourcesRead.data]);
+
+  function refreshPolicies() {
+    void policiesRead.refresh();
+    void sourcesRead.refresh();
+  }
+
   const policy = policies.find((item) => item.sourceId === sourceId);
   const sourceChoices = [
     ...sources.map((source) => ({
@@ -548,8 +546,7 @@ export function Automation({
       </div>
       {error && (
         <p className="app-error" role="alert">
-          {error}{' '}
-          <Button onClick={() => setRetry((value) => value + 1)}>Retry</Button>
+          {error} <Button onClick={refreshPolicies}>Retry</Button>
         </p>
       )}
       <Tabs
@@ -574,6 +571,7 @@ export function Automation({
           >
             <EventHistory
               key={activitySource}
+              active={view === 'activity' && githubSelection === null}
               roomId={room.id}
               sourceId={activitySource}
               sources={sourceChoices}
@@ -619,9 +617,7 @@ export function Automation({
                       </option>
                     ))}
                   </Select>
-                  <Button onClick={() => setRetry((value) => value + 1)}>
-                    Refresh Policies
-                  </Button>
+                  <Button onClick={refreshPolicies}>Refresh Policies</Button>
                 </div>
                 {user.role === 'admin' ? (
                   <PolicyEditor

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, PixelIcon, Select } from '@cofy-x/camp-platinum';
-import { useTeam } from '../../team/TeamContext';
+import { useRead } from '../../shared/reads/useRead';
 import type { Agent, Room, WorkspaceStatus } from '../workspace/api';
 import { StartCollaboration } from '../collaboration/StartCollaboration';
 import {
@@ -43,32 +43,13 @@ function EventDetail({
   onOpenTask: (id: string) => void;
   onClose: () => void;
 }) {
-  const team = useTeam();
-  const [event, setEvent] = useState<GitHubEvent | null>(null);
-  const [error, setError] = useState('');
-  const [retry, setRetry] = useState(0);
+  const read = useRead<{ event: GitHubEvent }>(
+    `/github-events/${encodeURIComponent(id)}`,
+  );
+  const event = read.data?.event;
+  const error = read.error;
   const [reason, setReason] = useState('');
   const operation = useGitHubOperation(`dismiss:${id}`);
-  useEffect(() => {
-    const controller = new AbortController();
-    void githubApi
-      .event(id, controller.signal)
-      .then(({ event }) => {
-        if (!controller.signal.aborted) {
-          setEvent(event);
-          setError('');
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load this event.',
-          );
-      });
-    return () => controller.abort();
-  }, [id, team.revision, retry]);
   const source = sources.find((source) => source.id === event?.sourceId);
   const readError = error || sourcesError;
   return (
@@ -78,7 +59,7 @@ function EventDetail({
         <div className="app-actions">
           <Button
             onClick={() => {
-              setRetry((value) => value + 1);
+              void read.refresh();
               onRefreshSources();
             }}
           >
@@ -207,66 +188,41 @@ export function GitHubEvents({
   availability?: Pick<WorkspaceStatus, 'available' | 'reason'>;
   initialEventId?: string;
 }) {
-  const team = useTeam();
-  const [sources, setSources] = useState<GitHubSource[]>([]);
-  const [sourcesReady, setSourcesReady] = useState(false);
-  const [sourcesError, setSourcesError] = useState('');
-  const [page, setPage] = useState<GitHubEventPage | null>(null);
   const [state, setState] = useState('pending');
   const [selected, setSelected] = useState(initialEventId);
   const [preparing, setPreparing] = useState<GitHubEvent | null>(null);
-  const [loading, setLoading] = useState(true);
   const [moreLoading, setMoreLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [retry, setRetry] = useState(0);
+  const [moreError, setMoreError] = useState('');
+  const [expanded, setExpanded] = useState<{
+    first: GitHubEventPage;
+    page: GitHubEventPage;
+  } | null>(null);
+  const sourceRead = useRead<{ sources: GitHubSource[] }>(
+    `/rooms/${encodeURIComponent(room.id)}/github-sources`,
+    { enabled: !preparing },
+  );
+  const eventsRead = useRead<GitHubEventPage>(
+    `/rooms/${encodeURIComponent(room.id)}/github-events?${new URLSearchParams({ state, after: '0' })}`,
+    { enabled: !selected && !preparing },
+  );
+  const sources = sourceRead.data?.sources ?? [];
+  const sourcesReady = sourceRead.data !== undefined;
+  const sourcesError = sourceRead.error;
+  const first = eventsRead.data;
+  const page = first && expanded?.first === first ? expanded.page : first;
+  const loading = eventsRead.loading;
+  const error = eventsRead.error || moreError;
   const generation = useRef(0);
   useEffect(() => {
-    const controller = new AbortController();
-    void githubApi
-      .sources(room.id, controller.signal)
-      .then(({ sources }) => {
-        if (!controller.signal.aborted) {
-          setSources(sources);
-          setSourcesReady(true);
-          setSourcesError('');
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setSourcesError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load GitHub sources.',
-          );
-      });
-    return () => controller.abort();
-  }, [room.id, team.revision, retry]);
-  useEffect(() => {
-    const controller = new AbortController();
     generation.current++;
-    setLoading(true);
     setMoreLoading(false);
-    void githubApi
-      .events(room.id, state, 0, undefined, controller.signal)
-      .then((page) => {
-        if (!controller.signal.aborted) {
-          setPage(page);
-          setError('');
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load GitHub events.',
-          );
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [room.id, state, team.revision, retry]);
+    setMoreError('');
+  }, [room.id, state, first]);
+
+  function refreshEvents() {
+    void sourceRead.refresh();
+    void eventsRead.refresh();
+  }
 
   async function more() {
     if (!page?.hasMore || page.nextAfter === null || moreLoading) return;
@@ -280,13 +236,15 @@ export function GitHubEvents({
         page.through,
       );
       if (expected !== generation.current) return;
-      setPage((current) =>
-        current ? { ...next, items: [...current.items, ...next.items] } : next,
-      );
-      setError('');
+      if (first)
+        setExpanded({
+          first,
+          page: { ...next, items: [...page.items, ...next.items] },
+        });
+      setMoreError('');
     } catch (error) {
       if (expected === generation.current)
-        setError(
+        setMoreError(
           error instanceof Error
             ? error.message
             : 'Could not load more events.',
@@ -322,9 +280,7 @@ export function GitHubEvents({
         <div className="workspace-panel-heading">
           <h3>GitHub inbox</h3>
           <div className="app-actions">
-            <Button onClick={() => setRetry((value) => value + 1)}>
-              Refresh Events
-            </Button>
+            <Button onClick={refreshEvents}>Refresh Events</Button>
             <Button onClick={onClose}>Back to Activity</Button>
           </div>
         </div>
@@ -341,7 +297,7 @@ export function GitHubEvents({
           sources={sources}
           sourcesError={sourcesError}
           sourcesReady={sourcesReady}
-          onRefreshSources={() => setRetry((value) => value + 1)}
+          onRefreshSources={() => void sourceRead.refresh()}
           onPrepare={setPreparing}
           onOpenTask={onOpenTask}
           onClose={() => setSelected('')}
@@ -354,7 +310,7 @@ export function GitHubEvents({
               value={state}
               onChange={(event) => {
                 setState(event.target.value);
-                setPage(null);
+                setExpanded(null);
               }}
             >
               <option value="pending">Awaiting confirmation</option>
@@ -366,10 +322,7 @@ export function GitHubEvents({
           </div>
           {error && (
             <p className="app-error" role="alert">
-              {error}{' '}
-              <Button onClick={() => setRetry((value) => value + 1)}>
-                Retry Events
-              </Button>
+              {error} <Button onClick={refreshEvents}>Retry Events</Button>
             </p>
           )}
           {loading && !page && <p role="status">Loading events…</p>}

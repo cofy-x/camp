@@ -1,5 +1,11 @@
 import type { AppDefinition } from '@cofy-x/camp-platinum';
-import { Agents } from './Agents';
+import { lazyApplication } from '../../shared/desktop/lazyApplication';
+
+const Agents = lazyApplication(
+  'src/features/agents/Agents.tsx',
+  () => import('./Agents'),
+  (module) => module.Agents,
+);
 
 export const agentsApp: AppDefinition = {
   id: 'agents',

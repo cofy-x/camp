@@ -26,9 +26,10 @@ import { References } from './References';
 import { UploadAttachments, useDraftUploads } from './UploadAttachments';
 import { uploadDrafts } from './uploadState';
 import { useTeam } from '../../team/TeamContext';
+import { useRead } from '../../shared/reads/useRead';
 import { useConversationDraft } from './useConversationDraft';
 import { APIError } from '../../shared/api/http';
-import { automationApi } from '../automation/api';
+import type { automationApi } from '../automation/api';
 
 export function Composer({
   room,
@@ -53,26 +54,13 @@ export function Composer({
 }) {
   const key = conversationKey(room.id, threadId);
   const team = useTeam();
-  const [automationMode, setAutomationMode] = useState<
-    'observe' | 'auto' | null
-  >(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    void automationApi
-      .policies(room.id, controller.signal)
-      .then(({ policies }) => {
-        if (!controller.signal.aborted)
-          setAutomationMode(
-            policies.find(
-              (policy) => policy.sourceId === 'room' && policy.enabled,
-            )?.mode ?? null,
-          );
-      })
-      .catch(() => {
-        // Retain the last observed consequence if a background read fails.
-      });
-    return () => controller.abort();
-  }, [room.id, team.revision]);
+  const policiesRead = useRead<
+    Awaited<ReturnType<typeof automationApi.policies>>
+  >(`/rooms/${encodeURIComponent(room.id)}/automation-policies`);
+  const automationMode =
+    policiesRead.data?.policies.find(
+      (policy) => policy.sourceId === 'room' && policy.enabled,
+    )?.mode ?? null;
   const privateDraft = useConversationDraft(
     key,
     `${room.id}:${threadId || 'room'}`,

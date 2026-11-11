@@ -1,5 +1,11 @@
 import type { AppDefinition } from '@cofy-x/camp-platinum';
-import { Gallery } from './Gallery';
+import { lazyApplication } from '../../shared/desktop/lazyApplication';
+
+const Gallery = lazyApplication(
+  'src/features/gallery/Gallery.tsx',
+  () => import('./Gallery'),
+  (module) => module.Gallery,
+);
 
 export const galleryApp: AppDefinition = {
   id: 'gallery',
