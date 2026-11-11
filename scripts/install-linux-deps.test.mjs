@@ -11,6 +11,7 @@ test('Ubuntu CI sources retain security updates, architecture and signed metadat
     const sources = ubuntuSources(architecture, 'noble');
     assert.match(sources, /Suites: noble noble-updates noble-backports\n/);
     assert.match(sources, /Suites: noble-security\n/);
+    assert.match(sources, /Components: main universe\n/);
     assert.equal(
       (
         sources.match(
@@ -79,6 +80,18 @@ test('installer refreshes strict signed indices before bounded installation, wit
     calls.push({ binary, args, options });
     if (binary === 'dpkg') return 'amd64\n';
     if (binary === 'lsb_release') return 'noble\n';
+    if (binary === 'timeout') {
+      assert.deepEqual(args, [
+        '--kill-after=1s',
+        '5s',
+        'getent',
+        'ahosts',
+        'archive.ubuntu.com',
+        'security.ubuntu.com',
+      ]);
+      assert.equal(options.stdio, 'ignore');
+      return '';
+    }
     assert.equal(binary, 'sudo');
     sourcePath = args
       .find((arg) => arg.startsWith('Dir::Etc::sourcelist='))
@@ -91,6 +104,10 @@ test('installer refreshes strict signed indices before bounded installation, wit
     assert.ok(args.includes('Acquire::Retries=2'));
     assert.ok(args.includes('Acquire::http::Timeout=15'));
     assert.ok(args.includes('Acquire::https::Timeout=15'));
+    assert.ok(args.includes('Acquire::Languages=none'));
+    assert.ok(
+      args.includes('Acquire::IndexTargets::deb::CNF::DefaultEnabled=false'),
+    );
     assert.equal(options.stdio, 'inherit');
     assert.deepEqual(args.slice(0, 2), [
       'env',
@@ -101,7 +118,7 @@ test('installer refreshes strict signed indices before bounded installation, wit
       /allow-unauthenticated|allow-insecure|\/etc\/apt\//,
     );
   });
-  const [update, install] = calls.slice(2);
+  const [update, install] = calls.filter(({ binary }) => binary === 'sudo');
   assert.deepEqual(update.args.slice(2, 8), [
     'timeout',
     '--signal=TERM',
@@ -119,7 +136,7 @@ test('installer refreshes strict signed indices before bounded installation, wit
     'bubblewrap',
     'fuse3',
   ]);
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 5);
   assert.equal(existsSync(sourcePath), false);
 });
 
@@ -128,9 +145,13 @@ test('a failed primary refresh switches to the independent signed mirror before 
   const diagnostics = [];
   t.mock.method(console, 'error', (message) => diagnostics.push(message));
   const apt = [];
-  installLinuxDependencies(['bubblewrap'], (binary, args) => {
+  installLinuxDependencies(['bubblewrap'], (binary, args, options) => {
     if (binary === 'dpkg') return 'amd64\n';
     if (binary === 'lsb_release') return 'noble\n';
+    if (binary === 'timeout') {
+      assert.equal(options.stdio, 'ignore');
+      return '';
+    }
     assert.equal(binary, 'sudo');
     const sourcePath = args
       .find((arg) => arg.startsWith('Dir::Etc::sourcelist='))
@@ -151,6 +172,37 @@ test('a failed primary refresh switches to the independent signed mirror before 
   );
 });
 
+test('unresolvable primary sources switch promptly without starting APT against them', (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'error', () => {});
+  const apt = [];
+  installLinuxDependencies(['bubblewrap'], (binary, args, options) => {
+    if (binary === 'dpkg') return 'amd64\n';
+    if (binary === 'lsb_release') return 'noble\n';
+    if (binary === 'timeout') {
+      assert.equal(options.stdio, 'ignore');
+      if (args.includes('archive.ubuntu.com'))
+        throw Object.assign(new Error('primary resolver timeout'), {
+          status: 124,
+        });
+      assert.equal(args.at(-1), 'mirrors.mit.edu');
+      return '';
+    }
+    assert.equal(binary, 'sudo');
+    const sourcePath = args
+      .find((arg) => arg.startsWith('Dir::Etc::sourcelist='))
+      .slice('Dir::Etc::sourcelist='.length);
+    assert.equal(
+      readFileSync(sourcePath, 'utf8'),
+      ubuntuSources('amd64', 'noble', 'mit'),
+    );
+    apt.push(args);
+  });
+  assert.equal(apt.length, 2);
+  assert.deepEqual(apt[0].slice(-2), ['update', '--error-on=any']);
+  assert.ok(apt[1].includes('install'));
+});
+
 test('index and download failures or deadlines stop installation, retain their exit status and clean up after diagnostic failure', (t) => {
   t.mock.method(console, 'log', () => {});
   const diagnostics = [];
@@ -164,7 +216,7 @@ test('index and download failures or deadlines stop installation, retain their e
       let sourcePath;
       assert.throws(
         () =>
-          installLinuxDependencies(['bubblewrap'], (binary, args) => {
+          installLinuxDependencies(['bubblewrap'], (binary, args, options) => {
             calls.push({ binary, args });
             if (binary === 'dpkg') return 'arm64\n';
             if (binary === 'lsb_release') return 'noble\n';
@@ -175,6 +227,7 @@ test('index and download failures or deadlines stop installation, retain their e
               if (args.includes(failedStage)) throw failure;
             } else {
               assert.equal(binary, 'timeout');
+              if (options.stdio === 'ignore') return '';
               assert.deepEqual(args, [
                 '--kill-after=1s',
                 '5s',

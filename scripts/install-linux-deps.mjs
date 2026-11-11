@@ -32,9 +32,19 @@ export function ubuntuSources(architecture, codename, mirror = 'canonical') {
   ]
     .map(
       ([uri, suites]) =>
-        `Types: deb\nURIs: ${uri}\nSuites: ${suites}\nComponents: main restricted universe multiverse\nArchitectures: ${architecture}\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n`,
+        `Types: deb\nURIs: ${uri}\nSuites: ${suites}\nComponents: main universe\nArchitectures: ${architecture}\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n`,
     )
     .join('\n');
+}
+
+function sourceHosts(sources) {
+  return [
+    ...new Set(
+      [...sources.matchAll(/^URIs: https:\/\/([^/]+)/gm)].map(
+        (match) => match[1],
+      ),
+    ),
+  ];
 }
 
 export function installLinuxDependencies(packages, execute = execFileSync) {
@@ -68,6 +78,10 @@ export function installLinuxDependencies(packages, execute = execFileSync) {
     '-o',
     'Acquire::https::Timeout=15',
     '-o',
+    'Acquire::Languages=none',
+    '-o',
+    'Acquire::IndexTargets::deb::CNF::DefaultEnabled=false',
+    '-o',
     'Dpkg::Use-Pty=0',
   ];
   console.log(
@@ -96,12 +110,23 @@ export function installLinuxDependencies(packages, execute = execFileSync) {
       console.log(sources);
       writeFileSync(sourcePath, sources, { mode: 0o644 });
       try {
+        execute(
+          'timeout',
+          [
+            '--kill-after=1s',
+            '5s',
+            'getent',
+            'ahosts',
+            ...sourceHosts(sources),
+          ],
+          { stdio: 'ignore' },
+        );
         apt('120s', ['update', '--error-on=any']);
         break;
       } catch (error) {
         if (index === candidates.length - 1) throw error;
         console.error(
-          `Ubuntu index refresh failed (${error.status || error.message}); trying the independent MIT mirror with the same Ubuntu signing key.`,
+          `Ubuntu source unavailable (${error.status || error.message}); trying the independent MIT mirror with the same Ubuntu signing key.`,
         );
       }
     }
@@ -115,13 +140,7 @@ export function installLinuxDependencies(packages, execute = execFileSync) {
     } catch {
       console.error('Resolver configuration unavailable.');
     }
-    const hosts = [
-      ...new Set(
-        [...candidates.join('\n').matchAll(/^URIs: https:\/\/([^/]+)/gm)]
-          .map((match) => match[1])
-          .concat('github.com'),
-      ),
-    ];
+    const hosts = [...sourceHosts(candidates.join('\n')), 'github.com'];
     for (const host of hosts) {
       console.error(`DNS diagnostic: ${host}`);
       try {

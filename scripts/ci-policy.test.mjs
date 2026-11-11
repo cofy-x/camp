@@ -523,6 +523,7 @@ test('browser jobs use an immutable official image matching the locked Playwrigh
       'git config --global --add safe.directory "$GITHUB_WORKSPACE"',
     ),
   );
+  assert.ok(browser.includes('chown "$(id -u):$(id -g)" "$HOME"'));
   assert.match(browser, /pnpm@12\.11\.2 install --frozen-lockfile/);
   assert.match(browser, /go mod download/);
   assert.match(browser, /pnpm@12\.11\.2 run test:e2e/);
