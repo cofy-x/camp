@@ -157,7 +157,7 @@ jobs:
           name: macos-runner-build
           path: dist/mac-runner-input
       - name: Install Linux native prerequisites
-        timeout-minutes: 6
+        timeout-minutes: 8
         run: node scripts/install-linux-deps.mjs bubblewrap fuse3 build-essential pkg-config git curl openssl
       - name: Prepare this disposable native builder
         run: |
@@ -432,7 +432,7 @@ jobs:
           node-version-file: .node-version
           package-manager-cache: false
       - name: Install Linux public installation prerequisites
-        timeout-minutes: 6
+        timeout-minutes: 8
         run: node scripts/install-linux-deps.mjs bubblewrap fuse3 git openssl
       - name: Enable the fresh host FUSE device
         run: |

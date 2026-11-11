@@ -38,6 +38,24 @@ test('Ubuntu CI sources retain security updates, architecture and signed metadat
       );
       assert.doesNotMatch(sources, /archive.ubuntu.com|security.ubuntu.com/);
     }
+    const alternate = ubuntuSources(architecture, 'noble', 'mit');
+    assert.equal(
+      (alternate.match(/URIs: https:\/\/mirrors.mit.edu\//g) || []).length,
+      2,
+    );
+    assert.match(
+      alternate,
+      architecture === 'amd64' ? /\/ubuntu\n/ : /\/ubuntu-ports\n/,
+    );
+    assert.match(alternate, /Suites: noble-security\n/);
+    assert.equal(
+      (
+        alternate.match(
+          /Signed-By: \/usr\/share\/keyrings\/ubuntu-archive-keyring.gpg/g,
+        ) || []
+      ).length,
+      2,
+    );
   }
   assert.throws(
     () => ubuntuSources('amd64', 'future'),
@@ -46,6 +64,10 @@ test('Ubuntu CI sources retain security updates, architecture and signed metadat
   assert.throws(
     () => ubuntuSources('riscv64', 'noble'),
     /Unsupported CI architecture/,
+  );
+  assert.throws(
+    () => ubuntuSources('amd64', 'noble', 'unknown'),
+    /Unknown CI mirror/,
   );
 });
 
@@ -83,7 +105,7 @@ test('installer refreshes strict signed indices before bounded installation, wit
   assert.deepEqual(update.args.slice(2, 8), [
     'timeout',
     '--signal=TERM',
-    '--kill-after=10s',
+    '--kill-after=5s',
     '120s',
     'apt-get',
     '-o',
@@ -99,6 +121,34 @@ test('installer refreshes strict signed indices before bounded installation, wit
   ]);
   assert.equal(calls.length, 4);
   assert.equal(existsSync(sourcePath), false);
+});
+
+test('a failed primary refresh switches to the independent signed mirror before installing anything', (t) => {
+  t.mock.method(console, 'log', () => {});
+  const diagnostics = [];
+  t.mock.method(console, 'error', (message) => diagnostics.push(message));
+  const apt = [];
+  installLinuxDependencies(['bubblewrap'], (binary, args) => {
+    if (binary === 'dpkg') return 'amd64\n';
+    if (binary === 'lsb_release') return 'noble\n';
+    assert.equal(binary, 'sudo');
+    const sourcePath = args
+      .find((arg) => arg.startsWith('Dir::Etc::sourcelist='))
+      .slice('Dir::Etc::sourcelist='.length);
+    const sources = readFileSync(sourcePath, 'utf8');
+    apt.push({ args, sources });
+    if (sources.includes('archive.ubuntu.com')) {
+      assert.deepEqual(args.slice(-2), ['update', '--error-on=any']);
+      throw Object.assign(new Error('primary DNS failure'), { status: 124 });
+    }
+    assert.equal(sources, ubuntuSources('amd64', 'noble', 'mit'));
+  });
+  assert.equal(apt.length, 3);
+  assert.ok(apt[1].args.includes('update'));
+  assert.ok(apt[2].args.includes('install'));
+  assert.ok(
+    diagnostics.some((message) => message.includes('independent MIT mirror')),
+  );
 });
 
 test('index and download failures or deadlines stop installation, retain their exit status and clean up after diagnostic failure', (t) => {
@@ -130,15 +180,20 @@ test('index and download failures or deadlines stop installation, retain their e
                 '5s',
                 'getent',
                 'ahosts',
-                'ports.ubuntu.com',
+                args.at(-1),
               ]);
+              assert.ok(
+                ['ports.ubuntu.com', 'mirrors.mit.edu', 'github.com'].includes(
+                  args.at(-1),
+                ),
+              );
               throw new Error('controlled DNS failure');
             }
           }),
         (error) => error === failure && error.status === status,
       );
       const apt = calls.filter(({ binary }) => binary === 'sudo');
-      assert.equal(apt.length, failedStage === 'update' ? 1 : 2);
+      assert.equal(apt.length, 2);
       assert.equal(calls.at(-1).binary, 'timeout');
       assert.equal(existsSync(sourcePath), false);
     }

@@ -493,7 +493,7 @@ test('Linux CI, checkpoint and release installations share one bounded dependenc
         step.includes('run: node scripts/install-linux-deps.mjs '),
       );
     assert.equal(installs.length, count, name);
-    for (const step of installs) assert.match(step, /timeout-minutes: 6/);
+    for (const step of installs) assert.match(step, /timeout-minutes: 8/);
     assert.doesNotMatch(
       workflow,
       /apt-get|apt-mirrors\.txt|archive\.ubuntu\.com|--with-deps/,
@@ -518,6 +518,11 @@ test('browser jobs use an immutable official image matching the locked Playwrigh
   assert.match(image, /@sha256:[0-9a-f]{64}$/);
   assert.match(browser, /options: --init --ipc=host/);
   assert.match(browser, /shell: bash/);
+  assert.ok(
+    browser.includes(
+      'git config --global --add safe.directory "$GITHUB_WORKSPACE"',
+    ),
+  );
   assert.match(browser, /pnpm@12\.11\.2 install --frozen-lockfile/);
   assert.match(browser, /go mod download/);
   assert.match(browser, /pnpm@12\.11\.2 run test:e2e/);

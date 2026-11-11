@@ -30,7 +30,7 @@ jobs:
           node-version-file: .node-version
           package-manager-cache: false
       - name: Install Linux checkpoint prerequisites
-        timeout-minutes: 6
+        timeout-minutes: 8
         run: node scripts/install-linux-deps.mjs fuse3 build-essential pkg-config git curl
       - name: Enable the host FUSE device
         run: |
