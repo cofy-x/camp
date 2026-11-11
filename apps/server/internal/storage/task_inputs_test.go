@@ -191,12 +191,12 @@ func TestTaskRunPagesUseScopedKeysetAndBoundedSummaries(t *testing.T) {
 		}
 		run.ID = fmt.Sprintf("history-%02d", i)
 		run.Output = strings.Repeat("large output", 1000)
-		raw, _ := json.Marshal(run)
 		message, err := s.SendMessage(actor, room.ID, SendMessageInput{RequestID: "history-message-" + run.ID, Content: "History fixture", PostOnly: true}, roomBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := s.queries().CreateRun(ctx, sqlgen.CreateRunParams{ID: run.ID, RoomID: run.RoomID, ThreadRootID: nullableParent(run.ThreadRootID), OriginMessageID: message.Message.ID, AgentID: run.AgentID, ResourceID: run.ResourceID, Status: run.Status, Snapshot: string(raw), CreatedAt: run.CreatedAt, UpdatedAt: run.UpdatedAt, RequestedByUserID: run.RequestedByUserID}); err != nil {
+		run.OriginMessageID = message.Message.ID
+		if err := createRun(ctx, s.queries(), run); err != nil {
 			t.Fatal(err)
 		}
 	}

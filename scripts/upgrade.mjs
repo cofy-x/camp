@@ -13,7 +13,7 @@ import {
 // predecessor distinct. The launcher verifies immutable archives.
 export const upgradeBaseline = 'v0.1.0-alpha.2';
 export const protocolTransitionBaseline = 'v0.1.0-alpha.8';
-export const previousRelease = 'v0.1.0-alpha.11';
+export const previousRelease = 'v0.1.0-alpha.12';
 export const serverUpgradeBaselines = [
   upgradeBaseline,
   protocolTransitionBaseline,

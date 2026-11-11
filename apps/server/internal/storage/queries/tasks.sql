@@ -9,7 +9,7 @@ SELECT snapshot FROM collaboration_tasks WHERE room_id=? ORDER BY created_at,id;
 -- name: ListOpenTasks :many
 SELECT snapshot FROM collaboration_tasks WHERE status NOT IN ('completed','cancelled','interrupted') ORDER BY created_at,id;
 -- name: ListTaskRuns :many
-SELECT snapshot FROM runs WHERE json_extract(snapshot,'$.taskId')=? ORDER BY created_at,id;
+SELECT v.snapshot FROM run_records v WHERE v.id IN (SELECT r.id FROM runs r WHERE json_extract(r.snapshot,'$.taskId')=?) ORDER BY v.created_at,v.id;
 -- name: GetTaskDraftRun :one
 SELECT id FROM runs
 WHERE json_extract(snapshot,'$.taskId')=CAST(sqlc.arg(task_id) AS TEXT)
@@ -23,7 +23,7 @@ SELECT value FROM task_inputs WHERE task_id=? AND source_event_id=? AND part_ind
 -- name: TaskInputRange :many
 SELECT value FROM task_inputs WHERE task_id=sqlc.arg(task_id) AND seq>sqlc.arg(after_seq) AND seq<=sqlc.arg(through_seq) ORDER BY seq LIMIT sqlc.arg(page_limit);
 -- name: TaskRunsPage :many
-SELECT id,status,created_at,updated_at,agent_id,
+SELECT id,status,created_at,CAST(coalesce((SELECT p.updated_at FROM run_progress p WHERE p.run_id=runs.id),updated_at) AS TEXT) AS updated_at,agent_id,
  CAST(coalesce(json_extract(snapshot,'$.agentSnapshot.name'),'') AS TEXT) AS agent_name,
  CAST(coalesce(json_extract(snapshot,'$.runnerName'),'') AS TEXT) AS runner_name,
  CAST(coalesce(json_extract(snapshot,'$.checksDeferred'),0) AS INTEGER) AS checks_deferred

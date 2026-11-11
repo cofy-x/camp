@@ -20,9 +20,9 @@ func (m *Manager) record(e *execution, kind, text string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	text = m.redact(text)
-	e.run.Output = boundedOutput(e.run.Output, text)
+	e.run.Output = storage.AppendOutputTail(e.run.Output, text)
 	if kind == "assistant" {
-		e.assistant = boundedOutput(e.assistant, text)
+		e.assistant = storage.AppendOutputTail(e.assistant, text)
 	}
 	eventText := text
 	if len(eventText) > storage.MaxRunEventSize {
@@ -31,9 +31,10 @@ func (m *Manager) record(e *execution, kind, text string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	saved, err := m.store.UpdateRunWithEvent(ctx, e.run, kind, eventText)
+	saved, err := m.store.RecordRunOutput(ctx, e.run.ID, kind, eventText, text)
 	if err == nil {
-		e.run = saved
+		e.run.Status = saved.Status
+		e.run.UpdatedAt = saved.UpdatedAt
 	} else {
 		e.writeErr = err
 		e.cancel()
@@ -216,7 +217,7 @@ func (m *Manager) finish(e *execution, ctx context.Context, files []storage.RunF
 	}
 	// Publication and authorization can still change the terminal status in
 	// FinishRun. Only report the observed cleanup fact before that transaction.
-	e.run.Output = boundedOutput(e.run.Output, "\n[Camp] "+completion+"\n")
+	e.run.Output = storage.AppendOutputTail(e.run.Output, "\n[Camp] "+completion+"\n")
 	// No check stays running after cancellation, process failure, or timeout.
 	var checks []projectenv.CheckResult
 	if json.Unmarshal(e.run.Checks, &checks) == nil {

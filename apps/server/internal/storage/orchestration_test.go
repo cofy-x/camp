@@ -460,7 +460,7 @@ func seedLegacyTask(t *testing.T, s *Store, actor context.Context, room Room, wr
 		if err := q.CreateTask(actor, sqlgen.CreateTaskParams{ID: task.ID, RoomID: room.ID, RequestedByUserID: u.ID, Status: task.Status, Revision: task.Revision, Snapshot: string(raw), CreatedAt: stamp, UpdatedAt: stamp}); err != nil {
 			return err
 		}
-		if err := enqueueTaskRound(actor, q, &task, writer.ID, task.Goal); err != nil {
+		if err := enqueueLegacyTaskRun(actor, q, &task, writer.ID, task.Goal); err != nil {
 			return err
 		}
 		return saveTask(actor, q, &task)

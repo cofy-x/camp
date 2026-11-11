@@ -491,6 +491,33 @@ type RunEvent struct {
 	CreatedAt string
 }
 
+type RunOutputChunk struct {
+	RunID string
+	Seq   int64
+	Text  string
+}
+
+type RunProgress struct {
+	RunID        string
+	UpdatedAt    string
+	OutputBytes  int64
+	OutputPrefix string
+}
+
+type RunRecord struct {
+	ID                string
+	RoomID            string
+	ThreadRootID      sql.NullString
+	OriginMessageID   string
+	AgentID           string
+	ResourceID        string
+	Status            string
+	CreatedAt         string
+	UpdatedAt         string
+	RequestedByUserID string
+	Snapshot          string
+}
+
 type Runner struct {
 	ID                   string
 	Name                 string

@@ -63,7 +63,7 @@ func TestTaskInputMigrationPreservesOriginalsAndHistoricalReceipt(t *testing.T) 
 	for _, succeeded := range []bool{false, true} {
 		t.Run(map[bool]string{false: "failed", true: "successful"}[succeeded], func(t *testing.T) {
 			s, actor, task, receipt := legacyTaskInputs(t)
-			run, err := s.GetRun(ctx, task.ActiveRunID)
+			run, err := getLegacyRun(ctx, s, task.ActiveRunID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -73,7 +73,7 @@ func TestTaskInputMigrationPreservesOriginalsAndHistoricalReceipt(t *testing.T) 
 				run.Status = "succeeded"
 			}
 			run.Intent = &CoordinationIntent{Kind: "finish", CallID: "historical", Summary: "Accepted historical checkpoint."}
-			if err := saveRun(ctx, s.queries(), run); err != nil {
+			if err := saveLegacyRun(ctx, s.queries(), run); err != nil {
 				t.Fatal(err)
 			}
 			if err := s.migrate(ctx); err != nil {
