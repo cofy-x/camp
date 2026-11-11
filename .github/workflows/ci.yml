@@ -134,9 +134,8 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install Linux test prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends bubblewrap
+        timeout-minutes: 8
+        run: node scripts/install-linux-deps.mjs bubblewrap
       - name: Install pinned dependencies
         run: make install
       - name: Run every assigned Go test, example and fuzz seed with race detection
@@ -173,24 +172,25 @@ jobs:
     name: Browser / ${{ matrix.project }} / ${{ matrix.shard }}/2
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
+      options: --init --ipc=host
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         project: [chromium, firefox, webkit, touch]
         shard: [1, 2]
-        include:
-          - project: chromium
-            engine: chromium
-          - project: firefox
-            engine: firefox
-          - project: webkit
-            engine: webkit
-          - project: touch
-            engine: chromium
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Prepare the job container ownership
+        run: |
+          chown "$(id -u):$(id -g)" "$HOME"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -199,29 +199,19 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install pinned dependencies
-        run: make install
-      - name: Install browser and system dependencies
-        timeout-minutes: 10
-        env:
-          BROWSER_ENGINE: ${{ matrix.engine }}
         run: |
-          # Normalize direct sources and runner mirrorlists, preserving signing keys and priorities.
-          for apt_source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources /etc/apt/apt-mirrors.txt; do
-            if [ -f "$apt_source" ]; then
-              sudo sed -i -E 's#(https?://)azure\.archive\.ubuntu\.com(/ubuntu/?)([[:space:]]|$)#\1archive.ubuntu.com\2\3#g' "$apt_source"
-            fi
-          done
-          npx --yes pnpm@12.11.2 exec playwright install --with-deps "$BROWSER_ENGINE"
+          npx --yes pnpm@12.11.2 install --frozen-lockfile
+          go mod download
       - name: Check desktop and touch paths
         id: browser_tests
         env:
           BROWSER_PROJECT: ${{ matrix.project }}
-          BROWSER_ENGINE: ${{ matrix.engine }}
           BROWSER_SHARD: ${{ matrix.shard }}/2
+        # Stop Playwright before the job deadline so cleanup and evidence can finish.
         run: >-
-          make test-e2e
-          E2E_INSTALL_ARGS="$BROWSER_ENGINE"
-          E2E_ARGS="--project=$BROWSER_PROJECT --shard=$BROWSER_SHARD"
+          npx --yes pnpm@12.11.2 run test:e2e
+          --project="$BROWSER_PROJECT" --shard="$BROWSER_SHARD"
+          --global-timeout=2100000
       - name: Retain radio keyboard evidence
         if: ${{ steps.browser_tests.outcome == 'success' && hashFiles('test-results/**/avatar-keyboard-*.png') != '' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

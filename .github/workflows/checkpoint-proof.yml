@@ -29,10 +29,11 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
-      - name: Prepare this disposable Linux host
+      - name: Install Linux checkpoint prerequisites
+        timeout-minutes: 8
+        run: node scripts/install-linux-deps.mjs fuse3 build-essential pkg-config git curl
+      - name: Enable the host FUSE device
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends fuse3 build-essential pkg-config git curl
           sudo modprobe fuse
           test -c /dev/fuse
       - uses: docker/setup-docker-action@7ec28a010822b4626af4874f9448a4b05ac6f3e5 # v5.6.0
