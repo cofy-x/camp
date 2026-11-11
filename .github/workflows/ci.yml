@@ -195,7 +195,9 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install pinned dependencies
-        run: make install
+        run: |
+          npx --yes pnpm@12.11.2 install --frozen-lockfile
+          go mod download
       - name: Check desktop and touch paths
         id: browser_tests
         env:

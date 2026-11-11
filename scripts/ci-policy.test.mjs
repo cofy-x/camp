@@ -518,11 +518,12 @@ test('browser jobs use an immutable official image matching the locked Playwrigh
   assert.match(image, /@sha256:[0-9a-f]{64}$/);
   assert.match(browser, /options: --init --ipc=host/);
   assert.match(browser, /shell: bash/);
-  assert.match(browser, /run: make install/);
+  assert.match(browser, /pnpm@12\.11\.2 install --frozen-lockfile/);
+  assert.match(browser, /go mod download/);
   assert.match(browser, /pnpm@12\.11\.2 run test:e2e/);
   assert.doesNotMatch(
     browser,
-    /playwright install|make test-e2e|--privileged|retries:/,
+    /playwright install|\bmake\b|--privileged|retries:/,
   );
 });
 
