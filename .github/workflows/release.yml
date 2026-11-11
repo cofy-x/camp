@@ -255,8 +255,10 @@ jobs:
           path: dist/release
       - name: Verify the relocated archive and persistent Server lifecycle
         run: node scripts/verify-server-package.mjs
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Retain Server verification reports
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
+        timeout-minutes: 5
         with:
           name: server-verification-${{ matrix.platform }}
           path: |
@@ -315,8 +317,10 @@ jobs:
           CAMP_SERVER_ARCHIVE: ${{ github.workspace }}/dist/camp-server-darwin-arm64.tar.gz
           CAMP_SERVER_SERVICE_REPORT: ${{ github.workspace }}/dist/server-service-verification-${{ matrix.host }}.json
         run: node scripts/smoke-server-service.mjs --service
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Retain native Runner verification reports
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
+        timeout-minutes: 5
         with:
           name: macos-runner-verification-${{ matrix.host }}
           path: |
@@ -358,7 +362,9 @@ jobs:
           path: dist/release
       - name: Verify source, package and host bindings without publication
         run: node scripts/release-qualify.mjs
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Retain candidate acceptance report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        timeout-minutes: 5
         with:
           name: candidate-acceptance
           path: dist/release/candidate-acceptance.json
@@ -474,8 +480,10 @@ jobs:
         run: |
           mkdir -p dist
           node scripts/release-distribution-report.mjs
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Retain public distribution report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() }}
+        timeout-minutes: 5
         with:
           name: distribution-verification
           path: dist/distribution-verification.json
@@ -513,8 +521,10 @@ jobs:
           CAMP_MAC_ONLINE_OUTCOME: ${{ steps.online.outcome }}
           CAMP_MAC_OFFLINE_OUTCOME: ${{ steps.offline.outcome }}
         run: node scripts/record-mac-runner-install.mjs
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Retain public Mac installation report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
+        timeout-minutes: 5
         with:
           name: public-mac-runner-verification
           path: dist/public-mac-runner-verification.json
@@ -620,8 +630,10 @@ jobs:
           CAMP_GO_SERVICE_OUTCOME: ${{ steps.service.outcome }}
           CAMP_GO_RUNNER_OUTCOME: ${{ steps.runner.outcome }}
         run: node scripts/record-go-install.mjs
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Retain tagged Go installation report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() }}
+        timeout-minutes: 5
         with:
           name: go-install-verification-${{ matrix.platform }}
           path: dist/go-install-verification-*.json
