@@ -250,6 +250,12 @@ for (const outcome of ['arrives', 'fails'] as const) {
         );
         await expect(message.locator('.workspace-result-facts')).toHaveCount(0);
       }
+      await expect(
+        workspace(page).getByRole('button', {
+          name: 'New activity ↓',
+          exact: true,
+        }),
+      ).toHaveCount(0);
       await expect(reply).toHaveAttribute('open');
       await expect(source).toBeFocused();
       expect(

@@ -319,6 +319,9 @@ export function RoomTimeline({
   const initialized = useRef(false);
   const focusedSource = useRef(-1);
   const activity = useRef('');
+  const lastSequence = useRef(0);
+  const knownRuns = useRef(new Map<string, string>());
+  const hadNewer = useRef(false);
   const acceptedPosition = useRef('');
   const scrollIntent = useRef(false);
   const [newActivity, setNewActivity] = useState(false);
@@ -364,7 +367,22 @@ export function RoomTimeline({
     );
     const signature = `${messages.at(-1)?.id ?? ''}:${messages.at(-1)?.updatedAt ?? ''}:${conversationRuns.map((run) => `${run.id}:${run.updatedAt}:${run.status}`).join(',')}`;
     const changed = signature !== activity.current;
+    const last = messages.at(-1)?.seq ?? 0;
+    const runStates = new Map(
+      conversationRuns.map((run) => [run.id, `${run.updatedAt}:${run.status}`]),
+    );
+    const arrived =
+      (lastSequence.current > 0 && last > lastSequence.current) ||
+      conversationRuns.some(
+        (run) =>
+          knownRuns.current.has(run.id) &&
+          knownRuns.current.get(run.id) !== runStates.get(run.id),
+      ) ||
+      (!hadNewer.current && history.hasNewer);
     activity.current = signature;
+    lastSequence.current = last;
+    knownRuns.current = runStates;
+    hadNewer.current = history.hasNewer;
     const moved = acceptedPosition.current !== history.position;
     if (!initialized.current || moved) {
       if (!messages.length && !conversationRuns.length) return;
@@ -400,8 +418,16 @@ export function RoomTimeline({
       initialized.current = true;
       setNewActivity(false);
     } else if (follow.current && changed) node.scrollTop = node.scrollHeight;
-    else if (changed) setNewActivity(true);
-  }, [messages, runs, threadId, key, history.position, history.anchored]);
+    else if (arrived) setNewActivity(true);
+  }, [
+    messages,
+    runs,
+    threadId,
+    key,
+    history.position,
+    history.anchored,
+    history.hasNewer,
+  ]);
 
   useLayoutEffect(() => {
     if (!sourceId || focusedSource.current === sourceRequest) return;
