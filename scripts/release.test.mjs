@@ -428,7 +428,7 @@ test('public upgrade baselines retain separate evidence and strict protocol gate
   assert.deepEqual(serverUpgradeBaselines, [
     'v0.1.0-alpha.2',
     'v0.1.0-alpha.8',
-    'v0.1.0-alpha.11',
+    'v0.1.0-alpha.12',
   ]);
   assert.deepEqual(serverUpgradeBaselines, [
     upgradeBaseline,
