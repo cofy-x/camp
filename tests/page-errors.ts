@@ -11,17 +11,28 @@ export function isNavigationCancellation(
     .match(
       /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.$/,
     );
-  if (!match) return false;
+  const stream =
+    error.stack === ''
+      ? error.name.match(/^EventSource cannot load (https?)$/)
+      : null;
+  const streamMessage = stream
+    ? error.message.match(/^\/(\S+) due to access control checks\.$/)
+    : null;
+  if (!match && !streamMessage) return false;
   let url: URL;
   try {
-    url = new URL(match[1]);
+    // WebKit omits the native EventSource stack. Playwright splits its URL at
+    // the protocol colon, removing that colon and the first slash.
+    url = new URL(match ? match[1] : `${stream![1]}://${streamMessage![1]}`);
   } catch {
     return false;
   }
   return (
-    error.name === `Fetch API cannot load ${url.protocol.slice(0, -1)}` &&
     url.origin === departingOrigin &&
-    url.pathname.startsWith('/api/')
+    (match
+      ? error.name === `Fetch API cannot load ${url.protocol.slice(0, -1)}` &&
+        url.pathname.startsWith('/api/')
+      : url.pathname === '/api/workspace/events')
   );
 }
 
@@ -43,7 +54,7 @@ export function watchPageErrors(
     const target = isNavigationCancellation(error, browserName, departingOrigin)
       ? navigationCancellations
       : errors;
-    target.push(error.stack ?? error.message);
+    target.push(error.stack || `${error.name}: ${error.message}`);
   });
   return {
     errors,
