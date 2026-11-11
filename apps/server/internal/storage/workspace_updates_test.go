@@ -16,6 +16,83 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
 
+func requireMessageNotifications(t *testing.T, s *Store, room, thread string, after int64) []WorkspaceEvent {
+	t.Helper()
+	messages, err := s.ListMessages(ctx, room, thread, 0)
+	if err != nil || len(messages) == 0 {
+		t.Fatal(messages, err)
+	}
+	events, err := s.ListWorkspaceEvents(ctx, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for _, event := range events {
+		if event.Type == "message.created" && event.RoomID == room {
+			counts[event.EntityID]++
+		}
+	}
+	for _, message := range messages {
+		if counts[message.ID] != 1 {
+			t.Fatalf("message %s (%s) has %d notifications", message.ID, message.AuthorKind, counts[message.ID])
+		}
+	}
+	return events
+}
+
+func TestRunCompletionMessageNotifiesOnceAndReplayAppendsNothing(t *testing.T) {
+	s, room, _ := roomFixture(t)
+	run := sendRoom(t, s, room, "run").Runs[0]
+	boot, err := s.Bootstrap(ctx, "browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Status = "succeeded"
+	if _, err = s.FinishRun(ctx, run, "The completed result.", false); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := s.GetRunReply(ctx, run.ID)
+	if err != nil || reply == nil {
+		t.Fatal(reply, err)
+	}
+	events, err := s.ListWorkspaceEvents(ctx, boot.WorkspaceEventCursor)
+	if err != nil || len(events) != 2 || events[0].Type != "message.created" || events[0].EntityID != reply.ID || events[1].Type != "run.finished" {
+		t.Fatal(events, err)
+	}
+	if _, err = s.FinishRun(ctx, run, "A replay cannot replace the original.", false); err != nil {
+		t.Fatal(err)
+	}
+	if tail, err := s.ListWorkspaceEvents(ctx, events[1].ID); err != nil || len(tail) != 0 {
+		t.Fatal(tail, err)
+	}
+}
+
+func TestTaskOriginInputsCompletionAndNoticesHaveCanonicalMessageNotifications(t *testing.T) {
+	s, actor, _, room, writer, _ := taskFixture(t)
+	boot, err := s.Bootstrap(actor, "browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := startTask(t, s, actor, room, writer)
+	task, err = s.OperateTask(actor, task.ID, "inputs", TaskOperation{RequestID: "input", Content: "Keep this input."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishTaskTestRound(t, s, task, strings.Repeat("b", 40), CoordinationIntent{CallID: "question", Kind: "ask_person", Question: "Which title?"})
+	requireMessageNotifications(t, s, room.ID, task.ThreadRootID, boot.WorkspaceEventCursor)
+}
+
+func TestReviewMessageNotificationsAreNotDuplicatedByTransitions(t *testing.T) {
+	f := newReviewFixture(t)
+	boot, err := f.store.Bootstrap(f.owner, "browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := requestReview(t, f)
+	reviewAction(t, f, f.reviewer, created, "approve", "Reviewed the exact version.", "")
+	requireMessageNotifications(t, f.store, f.room.ID, created.Review.ThreadRootID, boot.WorkspaceEventCursor)
+}
+
 func TestAutomationEventNotificationsCoverIntakeAndCompletedAssessment(t *testing.T) {
 	s, actor, _, room, writer, _ := taskFixture(t)
 	assertNotification := func(after int64, id, status string) int64 {
@@ -348,7 +425,7 @@ func TestBootstrapCapturesNotificationFrontierBeforePersonalSnapshot(t *testing.
 		t.Fatal(err)
 	}
 	later, err := s.ListWorkspaceEvents(ctx, boot.WorkspaceEventCursor)
-	if err != nil || len(later) == 0 || later[len(later)-1].Type != "message.created" {
+	if err != nil || !slices.ContainsFunc(later, func(e WorkspaceEvent) bool { return e.Type == "message.created" }) {
 		t.Fatal(later, err)
 	}
 }

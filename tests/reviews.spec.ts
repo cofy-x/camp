@@ -179,6 +179,11 @@ test('an uncertain review decision freezes its original body and recovers after 
       })
     ).ok(),
   ).toBe(true);
+  // Unrelated Room activity does not reload this review. Reconcile on return
+  // to the foreground while its decision receipt is still unresolved.
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event('visibilitychange')),
+  );
   const retryRead = detail(page).getByRole('button', {
     name: 'Retry Review',
     exact: true,

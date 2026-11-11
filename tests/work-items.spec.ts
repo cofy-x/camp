@@ -443,6 +443,11 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
         })
       ).ok(),
     ).toBe(true);
+    // Unrelated Room activity preserves history. Foreground recovery rechecks
+    // the retained read and must keep its error until an accepted retry.
+    await page.evaluate(() =>
+      document.dispatchEvent(new Event('visibilitychange')),
+    );
     await expect.poll(() => historyReads).toBeGreaterThan(beforeUpdate);
     await expect(
       detail(page).getByRole('button', {

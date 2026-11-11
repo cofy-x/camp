@@ -118,6 +118,35 @@ describe('shared read ownership', () => {
     store.dispose();
   });
 
+  it('synchronously pauses page reads, rejects buffered completions and catches up once after restoration', async () => {
+    const reads: ReturnType<typeof pending>[] = [];
+    const signals: AbortSignal[] = [];
+    const store = new ReadStore((_path, signal) => {
+      const read = pending();
+      reads.push(read);
+      signals.push(signal);
+      return read.promise;
+    });
+    store.subscribe('/rooms', () => {});
+    reads[0].resolve({ rooms: ['accepted'] });
+    await tick();
+    void store.refresh('/rooms');
+    store.setActive(false);
+    expect(signals[1].aborted).toBe(true);
+    for (let i = 0; i < 4; i++) store.invalidateAll();
+    void store.refresh('/rooms');
+    reads[1].resolve({ rooms: ['buffered while away'] });
+    await tick();
+    expect(reads).toHaveLength(2);
+    expect(store.snapshot('/rooms').data).toEqual({ rooms: ['accepted'] });
+    store.setActive(true);
+    expect(reads).toHaveLength(3);
+    reads[2].resolve({ rooms: ['current'] });
+    await tick();
+    expect(store.snapshot('/rooms').data).toEqual({ rooms: ['current'] });
+    store.dispose();
+  });
+
   it('applies every Room in a notification batch without rereading unrelated views', async () => {
     const calls: string[] = [];
     const store = new ReadStore(async (path) => {

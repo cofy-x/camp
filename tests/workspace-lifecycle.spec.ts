@@ -78,8 +78,8 @@ test('page hide aborts workspace reads and a restored page resumes without losin
   const draft = 'Keep my unfinished instructions when this page is restored.';
   await input.fill(draft);
 
-  // Supersede the first read pair before either body can be buffered, as an SSE
-  // refresh can do while the barrier is being installed.
+  // Repeated refreshes share a pending read rather than cancelling it before
+  // either response body can be buffered.
   const readPaths = new Set(['/api/rooms', `/api/rooms/${room.id}/runs`]);
   const deferred = new Set<string>();
   let releaseNetwork = () => {};
@@ -191,17 +191,14 @@ test('page hide aborts workspace reads and a restored page resumes without losin
     await refresh();
     await expect.poll(() => deferred.size).toBe(2);
     await refresh();
-    await expect.poll(supersededReads).toBeGreaterThanOrEqual(2);
+    expect(await supersededReads()).toBe(0);
   } finally {
     releaseNetwork();
   }
   await expect.poll(heldReads).toBe(2);
-  // A refresh can also replace reads whose response bodies are already held.
-  const cancelledBefore = await supersededReads();
+  // Coalescing also preserves reads whose response bodies are already held.
   await refresh();
-  await expect
-    .poll(supersededReads)
-    .toBeGreaterThanOrEqual(cancelledBefore + 2);
+  expect(await supersededReads()).toBe(0);
   // Observe the live pair and dispatch pagehide in the same browser task, so a
   // queued refresh cannot replace it between a poll and a later evaluate call.
   await expect

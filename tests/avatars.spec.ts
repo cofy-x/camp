@@ -23,6 +23,7 @@ test.afterEach(async ({ page }) => {
 
 async function account(page: Page) {
   await openApp(page, 'Settings');
+  await expect(settings(page).getByRole('main')).toBeVisible();
   const chooser = settings(page).getByLabel('Control panel', { exact: true });
   if (await chooser.isVisible()) await chooser.selectOption('account');
   else

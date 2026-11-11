@@ -51,8 +51,6 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [resourceId, setResourceId] = useState(window.params.resourceId ?? '');
   const [path, setPath] = useState('');
-  const [files, setFiles] = useState<string[]>([]);
-  const [commit, setCommit] = useState('');
   const [history, setHistory] = useState(false);
   const historyRead = useRead<{ publications: Publication[] }>(
     resourceId ? `/resources/${encodeURIComponent(resourceId)}/history` : null,
@@ -60,7 +58,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   );
   const publications = historyRead.data?.publications ?? [];
   const historyError = historyRead.error;
-  const historyLoading = history && !historyRead.data && !historyRead.error;
+  const historyLoading = history && historyRead.loading;
   const [environmentOpen, setEnvironmentOpen] = useState(false);
   const [version, setVersion] = useState<{
     commit: string;
@@ -78,14 +76,16 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   const libraryRead =
     useRead<Awaited<ReturnType<typeof libraryApi.list>>>('/library');
   const libraryError = libraryRead.error;
-  const loading = !libraryRead.data && !libraryRead.error;
+  const loading = libraryRead.loading;
   const filesRead = useRead<{ files: string[]; commit: string }>(
     resourceId
       ? `/resources/${encodeURIComponent(resourceId)}/files${version ? `?commit=${encodeURIComponent(version.commit)}` : ''}`
       : null,
   );
   const filesError = filesRead.error;
-  const filesLoading = !filesRead.data && !filesRead.error;
+  const filesLoading = filesRead.loading;
+  const files = filesRead.data?.files ?? [];
+  const commit = filesRead.data?.commit ?? '';
   const [pending, setPending] = useState(false);
   const [revision, setRevision] = useState(0);
   const editorRequest = useRef(0);
@@ -235,8 +235,6 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
       setResourceId(intent.resourceId);
       setEditor(null);
       setHistory(false);
-      setFiles([]);
-      setCommit('');
     }
     if (intent.path) setPath(intent.path);
   }, [team.navigation, rooms, invalidateEditorRequest]);
@@ -272,8 +270,6 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   useEffect(() => {
     const listing = filesRead.data;
     if (!listing) return;
-    setFiles(listing.files);
-    setCommit(listing.commit);
     setPath((current) =>
       listing.files.includes(current) ? current : (listing.files[0] ?? ''),
     );
@@ -309,8 +305,6 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     if (owner) setTargetRoom(owner.id);
     setEditor(null);
     setPath('');
-    setFiles([]);
-    setCommit('');
     setError('');
     setHistory(false);
   }

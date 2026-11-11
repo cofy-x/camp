@@ -30,7 +30,29 @@ export function ReadProvider({
 
 function AccountReads({ children }: { children: ReactNode }) {
   const [store] = useState(() => new ReadStore());
-  useEffect(() => () => store.dispose(), [store]);
+  useEffect(() => {
+    let pageActive = true;
+    const sync = () =>
+      store.setActive(pageActive && document.visibilityState !== 'hidden');
+    const hide = () => {
+      pageActive = false;
+      sync();
+    };
+    const show = () => {
+      pageActive = true;
+      sync();
+    };
+    document.addEventListener('visibilitychange', sync);
+    window.addEventListener('pagehide', hide);
+    window.addEventListener('pageshow', show);
+    sync();
+    return () => {
+      document.removeEventListener('visibilitychange', sync);
+      window.removeEventListener('pagehide', hide);
+      window.removeEventListener('pageshow', show);
+      store.dispose();
+    };
+  }, [store]);
   return <Context.Provider value={store}>{children}</Context.Provider>;
 }
 
@@ -40,17 +62,11 @@ export function useReadStore() {
   return store;
 }
 
-function subscribeVisibility(listener: () => void) {
-  document.addEventListener('visibilitychange', listener);
-  return () => document.removeEventListener('visibilitychange', listener);
-}
-
-const documentVisible = () => document.visibilityState !== 'hidden';
-
 export function useReadVisibility() {
+  const store = useReadStore();
   const windowVisible = useWindowVisibility();
-  const visible = useSyncExternalStore(subscribeVisibility, documentVisible);
-  return windowVisible && visible;
+  const active = useSyncExternalStore(store.subscribeActivity, store.isActive);
+  return windowVisible && active && document.visibilityState !== 'hidden';
 }
 
 export function useRead<T>(

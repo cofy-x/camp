@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/cofy-x/camp/apps/server/internal/storage"
@@ -28,7 +29,7 @@ func TestBootstrapReturnsCurrentNotificationFrontierWithoutReplayingHistory(t *t
 		t.Fatal(err)
 	}
 	later, err := f.store.ListWorkspaceEvents(actor, boot.WorkspaceEventCursor)
-	if err != nil || len(later) == 0 || later[len(later)-1].Type != "message.created" || later[0].ID <= boot.WorkspaceEventCursor {
+	if err != nil || !slices.ContainsFunc(later, func(e storage.WorkspaceEvent) bool { return e.Type == "message.created" }) || later[0].ID <= boot.WorkspaceEventCursor {
 		t.Fatal(later, err)
 	}
 }

@@ -23,8 +23,16 @@ export async function fixtureNotifications(page: Page) {
       }
     };
   });
-  return async (type: string, roomId: string, entityId: string) =>
-    page.evaluate(
+  return async (type: string, roomId: string, entityId: string) => {
+    await page.waitForFunction(() => {
+      const state = (
+        window as typeof window & {
+          campFixtureNotifications?: { source: EventSource | null };
+        }
+      ).campFixtureNotifications;
+      return Boolean(state?.source);
+    });
+    await page.evaluate(
       ({ type, roomId, entityId }) => {
         const state = (
           window as typeof window & {
@@ -50,4 +58,5 @@ export async function fixtureNotifications(page: Page) {
       },
       { type, roomId, entityId },
     );
+  };
 }

@@ -58,6 +58,9 @@ export async function importDemoRoom({
 }) {
   const library = page.locator('[data-window-id="library:main"]');
   await openDemoApp(page, 'Library');
+  await expect(
+    library.getByRole('button', { name: 'More Library actions', exact: true }),
+  ).toBeVisible();
   const drawer = library.getByRole('button', { name: 'Sources', exact: true });
   if (await drawer.isVisible()) await drawer.click();
   await library

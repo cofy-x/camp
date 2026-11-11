@@ -21,11 +21,36 @@ type Entry = {
 
 export class ReadStore {
   private entries = new Map<string, Entry>();
+  private active = true;
+  private activityListeners = new Set<() => void>();
 
   constructor(
     private load = (path: string, signal: AbortSignal): Promise<unknown> =>
       request(path, { signal }),
   ) {}
+
+  isActive = () => this.active;
+
+  subscribeActivity = (listener: () => void) => {
+    this.activityListeners.add(listener);
+    return () => this.activityListeners.delete(listener);
+  };
+
+  setActive(active: boolean) {
+    if (this.active === active) return;
+    this.active = active;
+    for (const entry of this.entries.values()) {
+      if (!active) {
+        entry.controller?.abort();
+        entry.controller = undefined;
+        entry.pending = undefined;
+        entry.stale = true;
+        entry.dirty = false;
+        this.publish(entry, { ...entry.snapshot, refreshing: false });
+      } else if (entry.listeners.size && entry.stale) void this.fetch(entry);
+    }
+    for (const listener of this.activityListeners) listener();
+  }
 
   private entry(path: string) {
     let entry = this.entries.get(path);
@@ -99,6 +124,7 @@ export class ReadStore {
   }
 
   private fetch(entry: Entry): Promise<void> {
+    if (!this.active) return Promise.resolve();
     if (entry.pending) return entry.pending;
     const controller = new AbortController();
     entry.controller = controller;
@@ -173,6 +199,7 @@ export class ReadStore {
   }
 
   dispose() {
+    this.activityListeners.clear();
     for (const entry of this.entries.values()) {
       entry.listeners.clear();
       entry.controller?.abort();

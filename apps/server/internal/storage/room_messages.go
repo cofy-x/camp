@@ -255,7 +255,7 @@ func (s *Store) SendMessage(ctx context.Context, room string, input SendMessageI
 		if err := notifyMentions(ctx, q, m); err != nil {
 			return err
 		}
-		return event(ctx, q, "message.created", room, m.ID)
+		return nil
 	})
 	return result, err
 }
@@ -271,7 +271,10 @@ func insertMessage(ctx context.Context, q *sqlgen.Queries, m Message, f string) 
 	if err != nil {
 		return err
 	}
-	return q.SetRoomMessageSequence(ctx, sqlgen.SetRoomMessageSequenceParams{LastMessageSeq: m.Seq, ID: m.RoomID})
+	if err = q.SetRoomMessageSequence(ctx, sqlgen.SetRoomMessageSequenceParams{LastMessageSeq: m.Seq, ID: m.RoomID}); err != nil {
+		return err
+	}
+	return event(ctx, q, "message.created", m.RoomID, m.ID)
 }
 
 // AddRunNotice records a context reset in the same conversation without creating
@@ -301,10 +304,7 @@ func addRunNotice(ctx context.Context, q *sqlgen.Queries, r Run, text string) er
 		return e
 	}
 	m := Message{ID: newID(), RoomID: r.RoomID, ThreadRootID: r.ThreadRootID, Seq: seq, AuthorKind: "system", RunID: r.ID, Content: text, CreatedAt: now(), UpdatedAt: now()}
-	if e := insertMessage(ctx, q, m, ""); e != nil {
-		return e
-	}
-	return event(ctx, q, "message.created", r.RoomID, m.ID)
+	return insertMessage(ctx, q, m, "")
 }
 
 // TaskContextMessages excludes pending task originals before applying the history limit.

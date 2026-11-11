@@ -5,6 +5,7 @@ import type {
   TaskRecoveryRun,
 } from '../apps/dashboard/src/features/collaboration/api';
 import type { Agent, Run } from '../apps/dashboard/src/features/workspace/api';
+import { fixtureNotifications } from './fixture-notifications';
 import {
   openRoomMore,
   createRoom,
@@ -152,10 +153,13 @@ async function fixture(page: Page, name: string) {
       },
     }),
   );
+  const notify = await fixtureNotifications(page);
   await page.reload();
+  await expect(workspace(page)).toBeVisible();
   return {
     room,
     agents,
+    notify,
     get task() {
       return task;
     },
@@ -178,14 +182,10 @@ async function fixture(page: Page, name: string) {
       recoveryRun = value;
     },
     async refresh() {
-      const response = await mutate(page, `/rooms/${room.id}/messages`, {
-        requestId: randomUUID(),
-        content: 'Presentation fixture update.',
-        postOnly: true,
-      });
-      expect(response.ok()).toBeTruthy();
+      await notify('task.updated', room.id, task.id);
     },
     async open() {
+      await notify('task.updated', room.id, task.id);
       await openRoomMore(page, 'Execution history…');
       await workspace(page).getByRole('button', { name: task.goal }).click();
       await expect(detail(page)).toBeVisible();
@@ -457,6 +457,7 @@ test('continuation authorizes additional work and changed Runners explicitly whi
   await page.route(`**/api/rooms/${value.room.id}/members`, (route) =>
     route.fulfill({ json: { members: [value.agents[1], replacement] } }),
   );
+  await value.notify('membership.updated', value.room.id, replacement.id);
   await value.refresh();
   await value.open();
 
