@@ -73,7 +73,11 @@ export function Workspace({ window, desktop }: AppWindowProps) {
 
   const workspace = useWorkspace();
   const { room, rooms, roomId, threadId, members, agents, runs } = workspace;
-  const collaborations = useTasks(roomId);
+  const collaborations = useTasks(
+    roomId,
+    panel === 'tasks' && !taskId && !inspect,
+  );
+  const attention = useTasks(roomId, panel === 'chat' && !inspect, true);
   useEffect(
     () => desktop.beforeClose(window.id, flushPrivateDrafts),
     [desktop, window.id],
@@ -181,7 +185,11 @@ export function Workspace({ window, desktop }: AppWindowProps) {
             teamRequest !== team.getNavigationRevision()
           )
             return;
-          workspace.selectConversation(intent.roomId, message.threadRootId);
+          workspace.selectConversation(
+            intent.roomId,
+            message.threadRootId,
+            message.id,
+          );
           setSourceId(message.id);
           setSourceRequest((value) => value + 1);
         })
@@ -477,8 +485,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
         activation !== desktop.getActivationRevision()
       )
         return;
-      if (threadId !== message.threadRootId)
-        workspace.selectThread(message.threadRootId);
+      workspace.selectConversation(roomId, message.threadRootId, message.id);
       setSourceId(message.id);
       setSourceRequest((current) => current + 1);
       setActionError('');
@@ -494,7 +501,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   }
 
   const active = runs.filter(isActiveRun);
-  const attentionTasks = collaborations.tasks.filter((task) =>
+  const attentionTasks = attention.tasks.filter((task) =>
     ['waiting_for_person', 'needs_attention', 'interrupted'].includes(
       task.status,
     ),
@@ -605,8 +612,9 @@ export function Workspace({ window, desktop }: AppWindowProps) {
           {room && panel === 'chat' && !inspect && (
             <TaskAttention
               tasks={attentionTasks}
+              hasMore={attention.hasOlder}
               onOpen={(id) => {
-                const itemId = collaborations.tasks.find(
+                const itemId = attention.tasks.find(
                   (task) => task.id === id,
                 )?.workItemId;
                 if (itemId) openWork(itemId);
@@ -858,7 +866,8 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 threadId={threadId}
                 messages={workspace.messages}
                 runs={runs}
-                tasks={collaborations.tasks}
+                tasks={workspace.conversationTasks}
+                history={workspace.history}
                 agents={agents}
                 members={members}
                 membersReady={workspace.membersReady}

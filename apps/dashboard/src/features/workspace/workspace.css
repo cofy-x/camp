@@ -1246,3 +1246,9 @@
   flex: 1;
   min-height: 0;
 }
+
+.workspace-history-pages {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--p9-border-color, #aaa);
+}

@@ -47,15 +47,6 @@ export function writeStored(key: string, value: string) {
   }
 }
 
-export function mergeMessages<T extends { id: string; seq: number }>(
-  current: T[],
-  incoming: T[],
-) {
-  const byId = new Map(current.map((item) => [item.id, item]));
-  for (const item of incoming) byId.set(item.id, item);
-  return [...byId.values()].sort((a, b) => a.seq - b.seq);
-}
-
 export function requestForDraft(
   saved: string,
   input: Omit<SendInput, 'requestId'>,

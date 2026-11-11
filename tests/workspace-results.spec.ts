@@ -14,6 +14,7 @@ import {
   workspace,
 } from './team-helpers';
 import { watchPageErrors } from './page-errors';
+import { messageWindowFixture } from './message-window-fixture';
 import { timelineFixture } from './run-timeline-fixture';
 
 const errors = new WeakMap<Page, ReturnType<typeof watchPageErrors>>();
@@ -115,16 +116,8 @@ async function completedWork(
   // Persist only the human discussion. Completed runs are explicit presentation
   // fixtures; these tests never invoke a model or fabricate server execution.
   await page.route(`**/api/rooms/${room.id}/messages?*`, (route) => {
-    const requested = new URL(route.request().url()).searchParams;
-    const thread = requested.get('threadRootId') || '';
-    const after = Number(requested.get('after') || '0');
     return route.fulfill({
-      json: {
-        through: messages.at(-1)?.seq ?? 0,
-        messages: messages.filter(
-          (message) => message.threadRootId === thread && message.seq > after,
-        ),
-      },
+      json: messageWindowFixture(messages, new URL(route.request().url())),
     });
   });
   await page.route(`**/api/rooms/${room.id}/messages/*`, (route) => {
@@ -132,12 +125,18 @@ async function completedWork(
     const message = messages.find((item) => item.id === id);
     return message ? route.fulfill({ json: { message } }) : route.continue();
   });
-  await page.route(`**/api/rooms/${room.id}/runs?view=timeline*`, (route) =>
-    timeline
-      ? timeline(route, runs)
-      : route.fulfill({
-          json: { items: runs.map(timelineFixture), nextCursor: '' },
-        }),
+  await page.route(
+    `**/api/rooms/${room.id}/runs?view=conversation*`,
+    (route) =>
+      timeline
+        ? timeline(route, runs)
+        : route.fulfill({
+            json: {
+              tasks: [],
+              items: runs.map(timelineFixture),
+              nextCursor: '',
+            },
+          }),
   );
   const fullRunReads: string[] = [];
   for (const run of runs) {
@@ -193,7 +192,11 @@ for (const outcome of ['arrives', 'fails'] as const) {
         await waiting;
         return outcome === 'arrives'
           ? route.fulfill({
-              json: { items: runs.map(timelineFixture), nextCursor: '' },
+              json: {
+                tasks: [],
+                items: runs.map(timelineFixture),
+                nextCursor: '',
+              },
             })
           : route.fulfill({
               status: 503,
@@ -247,6 +250,12 @@ for (const outcome of ['arrives', 'fails'] as const) {
         );
         await expect(message.locator('.workspace-result-facts')).toHaveCount(0);
       }
+      await expect(
+        workspace(page).getByRole('button', {
+          name: 'New activity ↓',
+          exact: true,
+        }),
+      ).toHaveCount(0);
       await expect(reply).toHaveAttribute('open');
       await expect(source).toBeFocused();
       expect(
@@ -966,7 +975,11 @@ for (const timeline of ['ready', 'pending'] as const) {
         ? async (route, runs) => {
             await waiting;
             return route.fulfill({
-              json: { items: runs.map(timelineFixture), nextCursor: '' },
+              json: {
+                tasks: [],
+                items: runs.map(timelineFixture),
+                nextCursor: '',
+              },
             });
           }
         : undefined,

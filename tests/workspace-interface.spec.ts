@@ -443,9 +443,9 @@ test('work details lead with results, preserve failure evidence, and keep techni
       published: false,
     });
   }
-  await page.route(`**/api/rooms/${room.id}/runs?view=timeline*`, (route) =>
+  await page.route(`**/api/rooms/${room.id}/runs?view=conversation*`, (route) =>
     route.fulfill({
-      json: { items: runs.map(timelineFixture), nextCursor: '' },
+      json: { tasks: [], items: runs.map(timelineFixture), nextCursor: '' },
     }),
   );
   for (const run of runs) {
@@ -795,10 +795,12 @@ test('a member can stop work from details, recover a failed request, and keep th
       published: false,
     };
     const notify = await fixtureNotifications(member);
-    await member.route(`**/api/rooms/${room.id}/runs?view=timeline*`, (route) =>
-      route.fulfill({
-        json: { items: [timelineFixture(run)], nextCursor: '' },
-      }),
+    await member.route(
+      `**/api/rooms/${room.id}/runs?view=conversation*`,
+      (route) =>
+        route.fulfill({
+          json: { items: [timelineFixture(run)], nextCursor: '' },
+        }),
     );
     await member.route(`**/api/runs/${run.id}?view=summary`, (route) =>
       route.fulfill({ json: { run: timelineFixture(run) } }),

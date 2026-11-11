@@ -35,6 +35,23 @@ func taskSummaryView(w http.ResponseWriter, r *http.Request) (bool, bool) {
 func (a *API) taskRoutes(mux *http.ServeMux) {
 	register := func(route string, h http.HandlerFunc) { mux.HandleFunc(route, a.authorizeRoute(route, h)) }
 	register("GET /api/rooms/{id}/tasks", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("view") == "page" {
+			query := r.URL.Query()
+			for key, values := range query {
+				if len(values) != 1 || (key != "view" && key != "cursor" && key != "attention") {
+					writeError(w, 400, "invalid_page", "Choose one collaboration page.")
+					return
+				}
+			}
+			if len(query.Get("cursor")) > 684 || (query.Has("attention") && query.Get("attention") != "1") {
+				writeError(w, 400, "invalid_page", "Choose a valid collaboration page.")
+				return
+			}
+			page, err := a.store.RoomTasksPage(r.Context(), r.PathValue("id"), query.Get("cursor"), query.Has("attention"))
+			a.respond(w, r, page, err)
+			return
+		}
+
 		summary, ok := taskSummaryView(w, r)
 		if !ok {
 			return

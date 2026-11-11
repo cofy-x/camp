@@ -246,6 +246,21 @@ test('real fixture work keeps its queued Runner, cancels once, and delivers the 
     exact: true,
   });
   const file = result.files.find((item) => item.status !== 'deleted')!;
+  // Stopping work is an action, not an instruction to freeze the conversation
+  // at the old message frontier while its queued successors finish.
+  await expect(
+    workspace(page).getByRole('button', { name: 'Latest', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    results.getByRole('button', { name: `Open ${file.path}`, exact: true }),
+  ).toBeVisible();
+  await results.scrollIntoViewIfNeeded();
+  await expect(
+    workspace(page).getByRole('button', { name: 'Latest', exact: true }),
+  ).toHaveCount(0);
+  await page.screenshot({
+    path: info.outputPath('remote-results-after-stop.png'),
+  });
   await results
     .getByRole('button', { name: `Open ${file.path}`, exact: true })
     .click();

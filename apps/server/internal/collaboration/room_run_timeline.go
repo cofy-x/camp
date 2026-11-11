@@ -26,3 +26,14 @@ func (s *Service) RoomRunTimeline(ctx context.Context, room, cursor string, limi
 	}
 	return storage.RoomRunTimelinePage{}, &storage.Error{Code: "execution_unavailable", Message: "Execution timeline summaries are unavailable."}
 }
+
+type conversationActivityManager interface {
+	ConversationRuns(context.Context, string, []string) (storage.ConversationActivity, error)
+}
+
+func (s *Service) ConversationRuns(ctx context.Context, room string, ids []string) (storage.ConversationActivity, error) {
+	if reader, ok := s.runs.(conversationActivityManager); ok {
+		return reader.ConversationRuns(ctx, room, ids)
+	}
+	return storage.ConversationActivity{}, &storage.Error{Code: "execution_unavailable", Message: "Execution summaries are unavailable."}
+}

@@ -32,3 +32,18 @@ func (m *Manager) RoomRunTimeline(ctx context.Context, room, cursor string, limi
 	err = page.Bound()
 	return page, err
 }
+
+func (m *Manager) ConversationRuns(ctx context.Context, room string, ids []string) (storage.ConversationActivity, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	page, err := m.store.ConversationRuns(ctx, room, ids)
+	if err != nil {
+		return page, err
+	}
+	for i, item := range page.Items {
+		if run, ok := m.unsaved[item.ID]; ok {
+			page.Items[i] = storage.ProjectRunTimeline(run)
+		}
+	}
+	return page, page.Bound()
+}

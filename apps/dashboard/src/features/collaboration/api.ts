@@ -1,6 +1,13 @@
 import { request } from '../../shared/api/http';
 import type { AgentSnapshot, ReferenceInput, Run } from '../workspace/api';
 
+export type TaskListItem = Pick<
+  Task,
+  'id' | 'roomId' | 'workItemId' | 'status' | 'goal' | 'question' | 'error'
+> & {
+  participants: { agent: { name: string } }[];
+};
+
 export interface Task {
   id: string;
   workItemId?: string;

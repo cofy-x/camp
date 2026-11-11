@@ -8,7 +8,6 @@ import {
   subscribeStored,
   conversationKey,
   mentionedAgents,
-  mergeMessages,
   readStored,
   requestForDraft,
   writeStored,
@@ -74,23 +73,6 @@ describe('room conversation state', () => {
     expect(readStored(`references:${original}`)).toBe('Late Alex upload');
     setConversationOwner('anonymous');
     vi.unstubAllGlobals();
-  });
-  it('merges ordered pages and updates without duplicating existing replies', () => {
-    const original = [
-      { id: 'a', seq: 1, content: 'one' },
-      { id: 'b', seq: 2, content: 'partial' },
-    ];
-    expect(
-      mergeMessages(original, [
-        { id: 'b', seq: 2, content: 'complete' },
-        { id: 'c', seq: 3, content: 'three' },
-      ]),
-    ).toEqual([
-      { id: 'a', seq: 1, content: 'one' },
-      { id: 'b', seq: 2, content: 'complete' },
-      { id: 'c', seq: 3, content: 'three' },
-    ]);
-    expect(original[1].content).toBe('partial');
   });
   it('reuses request identity only for the same content, thread and recipients', () => {
     const input: Omit<SendInput, 'requestId'> = {

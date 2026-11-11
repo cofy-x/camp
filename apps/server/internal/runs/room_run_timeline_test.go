@@ -43,3 +43,26 @@ func TestRoomRunTimelinePreservesUnsavedTerminalOverlay(t *testing.T) {
 		t.Fatal("single overlay bypassed projection")
 	}
 }
+
+func TestConversationActivityPreservesUnsavedTerminalOverlay(t *testing.T) {
+	m, s, _, room := testManager(t)
+	sent, err := s.SendMessage(context.Background(), room.ID, storage.SendMessageInput{RequestID: "window-overlay", Content: "Work", RecipientAgentIDs: []string{room.DefaultAgentID}}, storage.Budget{MaxTokens: 32, MaxSteps: 2, TimeoutSeconds: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := sent.Runs[0]
+	run.Status = "failed"
+	run.Error = "Final persistence failed."
+	run.Output = "PRIVATE_OUTPUT"
+	m.mu.Lock()
+	m.unsaved[run.ID] = run
+	m.mu.Unlock()
+	page, err := m.ConversationRuns(context.Background(), room.ID, []string{sent.Message.ID})
+	if err != nil || len(page.Items) != 1 || page.Items[0].Status != "failed" || page.Items[0].Error != run.Error {
+		t.Fatal(page, err)
+	}
+	raw, _ := json.Marshal(page)
+	if strings.Contains(string(raw), "PRIVATE_OUTPUT") {
+		t.Fatal("full output escaped projection")
+	}
+}

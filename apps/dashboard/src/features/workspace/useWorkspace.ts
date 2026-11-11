@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { workspaceApi } from './api';
 import { useTeam } from '../../team/TeamContext';
-import {
-  useRead,
-  useReadStore,
-  useReadVisibility,
-} from '../../shared/reads/useRead';
+import { useRead, useReadStore } from '../../shared/reads/useRead';
 import type {
   Agent,
   Message,
@@ -14,7 +9,22 @@ import type {
   RunTimeline,
   WorkspaceStatus,
 } from './api';
-import { mergeMessages, readStored, writeStored } from './conversationState';
+import { readStored, writeStored } from './conversationState';
+
+interface MessageWindow {
+  messages: Message[];
+  through: number;
+  hasOlder: boolean;
+  hasNewer: boolean;
+}
+
+export interface ConversationTask {
+  id: string;
+  roomId: string;
+  originMessageId: string;
+  workItemId: string;
+  status: string;
+}
 
 export function useWorkspace() {
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -24,24 +34,17 @@ export function useWorkspace() {
   const [roomId, setRoomId] = useState(() => readStored('room'));
   const [threadId, setThreadId] = useState(() => readStored('thread'));
   const [members, setMembers] = useState<Agent[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [runs, setRuns] = useState<RunTimeline[]>([]);
   const [workspaceError, setWorkspaceError] = useState('');
-  const [conversationError, setConversationError] = useState('');
   const [membersError, setMembersError] = useState('');
-  const [runsError, setRunsError] = useState('');
   const [loadedMembers, setLoadedMembers] = useState('');
   const { connection, refresh } = useTeam();
   const store = useReadStore();
-  const visible = useReadVisibility();
   const [loading, setLoading] = useState(true);
-  const [loadedConversation, setLoadedConversation] = useState('');
-  const [failedConversation, setFailedConversation] = useState('');
-  const [completeConversation, setCompleteConversation] = useState({
-    key: '',
-    through: 0,
-  });
-  const history = useRef(new Map<string, Message[]>());
+  const [accepted, setAccepted] = useState<{
+    key: string;
+    path: string;
+    page: MessageWindow;
+  }>();
   const pendingCatalog = useRef('');
   const [readGeneration, setReadGeneration] = useState(0);
   useEffect(() => {
@@ -61,19 +64,48 @@ export function useWorkspace() {
     roomId ? `/rooms/${encodeURIComponent(roomId)}/members` : null,
   );
   const historyKey = `${roomId}:${threadId}`;
-  const [positions, setPositions] = useState<Record<string, number>>({});
-  const after =
-    positions[historyKey] ?? history.current.get(historyKey)?.at(-1)?.seq ?? 0;
-  const messagesRead = useRead<{ messages: Message[]; through: number }>(
-    roomId
-      ? `/rooms/${encodeURIComponent(roomId)}/messages?${new URLSearchParams({ threadRootId: threadId, after: String(after) })}`
+  const [positions, setPositions] = useState<Record<string, string>>({});
+  const position = positions[historyKey] ?? readStored(`window:${historyKey}`);
+  const path = roomId
+    ? `/rooms/${encodeURIComponent(roomId)}/messages?${new URLSearchParams({ view: 'window', threadRootId: threadId })}${position ? `&${position}` : ''}`
+    : null;
+  const messagesRead = useRead<MessageWindow>(path);
+  const page = accepted?.key === historyKey ? accepted.page : undefined;
+  const messages = page?.messages ?? [];
+  const messageIds = messages.map((message) => message.id).join(',');
+  const activityRead = useRead<{
+    items: RunTimeline[];
+    tasks: ConversationTask[];
+  }>(
+    roomId && messageIds
+      ? `/rooms/${encodeURIComponent(roomId)}/runs?${new URLSearchParams({ view: 'conversation', messageIds })}`
       : null,
   );
-  const runPage = useRead<{ items: RunTimeline[]; nextCursor: string }>(
-    roomId
-      ? `/rooms/${encodeURIComponent(roomId)}/runs?view=timeline&cursor=`
-      : null,
-  );
+  const runs = activityRead.data?.items ?? [];
+
+  function selectWindow(value: string, key = historyKey) {
+    setPositions((current) => ({ ...current, [key]: value }));
+    writeStored(`window:${key}`, value);
+  }
+
+  function latest() {
+    selectWindow('');
+    if (!position) void messagesRead.refresh();
+  }
+
+  function pinWindow() {
+    const last = messages.filter((message) => message.id !== threadId).at(-1);
+    if (!position && last) selectWindow(`before=${last.seq + 1}`);
+  }
+
+  function historyPage(direction: 'earlier' | 'later') {
+    const rows = messages.filter((message) => message.id !== threadId);
+    const edge = direction === 'earlier' ? rows[0] : rows.at(-1);
+    if (edge)
+      selectWindow(
+        `${direction === 'earlier' ? 'before' : 'after'}=${edge.seq}`,
+      );
+  }
 
   useEffect(() => {
     if (readGeneration) store.invalidateAll();
@@ -126,102 +158,27 @@ export function useWorkspace() {
     setMembersError(membersRead.error);
   }, [membersRead.data, membersRead.error, roomId]);
   useEffect(() => {
-    const page = messagesRead.data;
-    if (!roomId || !page) return;
-    const loaded = mergeMessages(
-      history.current.get(historyKey) ?? [],
-      page.messages,
-    );
-    history.current.set(historyKey, loaded);
-    setMessages(loaded);
-    setLoadedConversation(historyKey);
-    const next = loaded.at(-1)?.seq ?? after;
-    if (page.messages.length < 500)
-      setCompleteConversation({
-        key: historyKey,
-        through: Math.max(page.through, next),
-      });
-    else setCompleteConversation({ key: '', through: 0 });
-    if (next > after)
-      setPositions((current) => ({ ...current, [historyKey]: next }));
-  }, [messagesRead.data, historyKey, roomId, after]);
-  useEffect(() => {
-    if (messagesRead.error) {
-      setFailedConversation(historyKey);
-      setConversationError(messagesRead.error);
-    } else if (messagesRead.data) {
-      setFailedConversation('');
-      setConversationError('');
-    }
-  }, [messagesRead.error, messagesRead.data, historyKey]);
-  useEffect(() => {
-    const page = runPage.data;
-    if (!page || !roomId || !visible) return;
-    const controller = new AbortController();
-    const items = [...page.items];
-    const retainAccepted = () =>
-      setRuns((current) => {
-        const merged = new Map(items.map((run) => [run.id, run]));
-        for (const old of current)
-          if (!merged.has(old.id)) merged.set(old.id, old);
-        return [...merged.values()];
-      });
-    retainAccepted();
+    if (path && messagesRead.data)
+      setAccepted({ key: historyKey, path, page: messagesRead.data });
+  }, [messagesRead.data, historyKey, path]);
 
-    async function rest() {
-      let cursor = page!.nextCursor;
-      const cursors = new Set<string>();
-      while (cursor) {
-        if (cursors.has(cursor))
-          throw new Error('Could not finish loading work activity. Retry.');
-        cursors.add(cursor);
-        const next = await workspaceApi.runTimeline(
-          roomId,
-          cursor,
-          controller.signal,
-        );
-        if (controller.signal.aborted) return;
-        items.push(...next.items);
-        retainAccepted();
-        cursor = next.nextCursor;
-      }
-      setRuns(items);
-      setRunsError('');
-    }
-
-    void rest().catch((error: unknown) => {
-      if (!controller.signal.aborted)
-        setRunsError(
-          error instanceof Error
-            ? error.message
-            : 'Could not load work activity.',
-        );
-    });
-    return () => controller.abort();
-  }, [runPage.data, roomId, visible]);
-  useEffect(() => {
-    if (runPage.error) setRunsError(runPage.error);
-  }, [runPage.error]);
-
-  function selectConversation(nextRoom: string, nextThread = '') {
+  function selectConversation(nextRoom: string, nextThread = '', around = '') {
+    if (around)
+      selectWindow(
+        new URLSearchParams({ around }).toString(),
+        `${nextRoom}:${nextThread}`,
+      );
     if (nextRoom === roomId && nextThread === threadId) return;
     pendingCatalog.current = rooms.some((room) => room.id === nextRoom)
       ? ''
       : nextRoom;
     setRoomId(nextRoom);
     setThreadId(nextThread);
-    setMessages([]);
     if (nextRoom !== roomId) {
       setMembers([]);
-      setRuns([]);
       setLoadedMembers('');
       setMembersError('');
-      setRunsError('');
     }
-    setLoadedConversation('');
-    setCompleteConversation({ key: '', through: 0 });
-    setFailedConversation('');
-    setConversationError('');
     writeStored('room', nextRoom);
     writeStored('thread', nextThread);
   }
@@ -247,15 +204,33 @@ export function useWorkspace() {
     runs,
     room,
     resource: resources.find((item) => item.id === room?.resourceId),
-    error: conversationError || membersError || runsError || workspaceError,
+    error:
+      messagesRead.error ||
+      membersError ||
+      activityRead.error ||
+      workspaceError,
     connection,
     loading,
     membersReady: loadedMembers === roomId,
     membersFailed: Boolean(membersError),
-    conversationComplete: completeConversation.key === `${roomId}:${threadId}`,
-    conversationReadSeq: completeConversation.through,
-    conversationReady: loadedConversation === `${roomId}:${threadId}`,
-    conversationFailed: failedConversation === `${roomId}:${threadId}`,
+    conversationComplete: Boolean(
+      page && accepted?.path === path && !page.hasNewer && !messagesRead.error,
+    ),
+    conversationReadSeq: page?.through ?? 0,
+    conversationReady: Boolean(page),
+    conversationFailed: Boolean(messagesRead.error),
+    conversationTasks: activityRead.data?.tasks ?? [],
+    history: {
+      hasOlder: page?.hasOlder ?? false,
+      hasNewer: page?.hasNewer ?? false,
+      loading: messagesRead.loading || messagesRead.refreshing,
+      anchored: Boolean(position),
+      position: accepted?.path ?? '',
+      earlier: () => historyPage('earlier'),
+      later: () => historyPage('later'),
+      latest,
+      pin: pinWindow,
+    },
     refresh,
     selectConversation,
     selectRoom,

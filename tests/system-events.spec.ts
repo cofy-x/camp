@@ -213,7 +213,7 @@ test('system handoffs retain queued work and failures before an Agent reply arri
       },
     }),
   );
-  await page.route(`**/api/rooms/${room.id}/runs?view=timeline*`, (route) =>
+  await page.route(`**/api/rooms/${room.id}/runs?view=conversation*`, (route) =>
     route.fulfill({ json: { items: [timelineFixture(run)], nextCursor: '' } }),
   );
   await page.reload();

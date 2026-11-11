@@ -142,7 +142,7 @@ async function fixture(
       return route.fulfill({ json: { events: [] } });
     },
   };
-  await page.route(`**/api/rooms/${room.id}/runs?view=timeline*`, (route) =>
+  await page.route(`**/api/rooms/${room.id}/runs?view=conversation*`, (route) =>
     route.fulfill({ json: { items: [timelineFixture(run)], nextCursor: '' } }),
   );
   await page.route(`**/api/runs/${run.id}?view=summary`, (route) => {

@@ -1,5 +1,5 @@
 import { Button, PixelIcon } from '@cofy-x/camp-platinum';
-import { taskStatus, type Task } from './api';
+import { taskStatus, type TaskListItem } from './api';
 
 export function TaskList({
   tasks,
@@ -9,14 +9,24 @@ export function TaskList({
   onStart,
   onClose,
   onRetry,
+  hasOlder,
+  hasNewer,
+  older,
+  newer,
+  latest,
 }: {
-  tasks: Task[];
+  tasks: TaskListItem[];
   loading: boolean;
   error: string;
   onOpen: (id: string) => void;
   onStart: () => void;
   onClose: () => void;
   onRetry: () => void;
+  hasOlder: boolean;
+  hasNewer: boolean;
+  older: () => void;
+  newer: () => void;
+  latest: () => void;
 }) {
   return (
     <section
@@ -63,6 +73,13 @@ export function TaskList({
           </li>
         ))}
       </ul>
+      {(hasOlder || hasNewer) && (
+        <nav className="app-actions" aria-label="Collaboration pages">
+          {hasNewer && <Button onClick={latest}>Latest</Button>}
+          {hasNewer && <Button onClick={newer}>Newer</Button>}
+          {hasOlder && <Button onClick={older}>Older</Button>}
+        </nav>
+      )}
     </section>
   );
 }
@@ -71,10 +88,12 @@ export function TaskAttention({
   tasks,
   onOpen,
   onAll,
+  hasMore = false,
 }: {
-  tasks: Task[];
+  tasks: TaskListItem[];
   onOpen: (id: string) => void;
   onAll: () => void;
+  hasMore?: boolean;
 }) {
   const attention = tasks.filter((task) =>
     ['waiting_for_person', 'needs_attention', 'interrupted'].includes(
@@ -93,7 +112,7 @@ export function TaskAttention({
           <strong>
             {linked
               ? 'Needs your attention'
-              : `${attention.length} collaboration${attention.length === 1 ? '' : 's'} need attention`}
+              : `${attention.length}${hasMore ? '+' : ''} collaboration${attention.length === 1 ? '' : 's'} need attention`}
           </strong>
           <Button onClick={() => onOpen(attention[0].id)}>
             {linked ? 'Open work' : 'Open next'}

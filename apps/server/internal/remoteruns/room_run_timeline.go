@@ -65,3 +65,20 @@ func (m *Manager) RoomRunTimeline(ctx context.Context, room, cursor string, limi
 	err = page.Bound()
 	return page, err
 }
+
+func (m *Manager) ConversationRuns(ctx context.Context, room string, ids []string) (storage.ConversationActivity, error) {
+	page, err := m.store.ConversationRuns(ctx, room, ids)
+	if err != nil {
+		return page, err
+	}
+	for i := range page.Items {
+		item := &page.Items[i]
+		if item.Status == "queued" {
+			item.WaitingReason, err = m.queueReason(ctx, item.RunnerID, item.TaskID)
+			if err != nil {
+				return page, err
+			}
+		}
+	}
+	return page, page.Bound()
+}
