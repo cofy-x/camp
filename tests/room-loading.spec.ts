@@ -728,6 +728,76 @@ test('delayed and failed related activity preserves accepted status and results 
   }
 });
 
+test('scrolling away from latest freezes the reading window while new messages arrive', async ({
+  page,
+}, info) => {
+  const notify = await fixtureNotifications(page);
+  const value = await fixture(page, `scroll-history-${info.project.name}`);
+  value.messages.splice(
+    0,
+    value.messages.length,
+    ...Array.from({ length: 120 }, (_, i) =>
+      message(value.room, `Retained discussion ${i + 1}`, i + 1),
+    ),
+  );
+  const reads: string[] = [];
+  value.handlers.messages = (route, url) => {
+    reads.push(url.search);
+    return route.fulfill({ json: messageWindowFixture(value.messages, url) });
+  };
+  await errors.get(page)!.reload();
+  const win = workspace(page);
+  const input = win.getByRole('textbox', {
+    name: `Message ${value.room.name}`,
+    exact: true,
+  });
+  await expect(win.locator('.workspace-message')).toHaveCount(50);
+  await input.fill('Keep my draft while I read earlier messages.');
+  const scroll = win.locator('.workspace-message-scroll');
+  await scroll.hover();
+  await page.mouse.wheel(0, -450);
+  await expect(
+    win.getByRole('button', { name: 'Latest', exact: true }),
+  ).toBeVisible();
+  await expect
+    .poll(() => reads.some((query) => query.includes('before=121')))
+    .toBe(true);
+  const anchor = await scroll.evaluate((node) => {
+    const top = node.getBoundingClientRect().top;
+    const row = [
+      ...node.querySelectorAll<HTMLElement>('[data-message-id]'),
+    ].find((item) => item.getBoundingClientRect().bottom > top)!;
+    return { id: row.dataset.messageId!, top: row.getBoundingClientRect().top };
+  });
+  const previousReads = reads.length;
+  value.messages.push(message(value.room, 'New message after scrolling', 121));
+  await notify('message.created', value.room.id, value.messages.at(-1)!.id);
+  await expect.poll(() => reads.length).toBeGreaterThan(previousReads);
+  await expect(win.locator('.workspace-message').last()).toContainText(
+    'Retained discussion 120',
+  );
+  await expect(
+    win.getByText('New message after scrolling', { exact: true }),
+  ).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      Math.abs(
+        (await win
+          .locator(`[data-message-id="${anchor.id}"]`)
+          .evaluate((node) => node.getBoundingClientRect().top)) - anchor.top,
+      ),
+    )
+    .toBeLessThan(4);
+  await win.getByRole('button', { name: 'Latest', exact: true }).click();
+  await expect(win.locator('.workspace-message').last()).toContainText(
+    'New message after scrolling',
+  );
+  await expect(input).toHaveValue(
+    'Keep my draft while I read earlier messages.',
+  );
+  expect(value.reads.executionWrites).toBe(0);
+});
+
 test('ten thousand retained messages open one window and historical references seek directly while preserving the draft', async ({
   page,
 }, info) => {
