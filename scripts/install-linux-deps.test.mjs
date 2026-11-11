@@ -1,0 +1,160 @@
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import test from 'node:test';
+import {
+  installLinuxDependencies,
+  ubuntuSources,
+} from './install-linux-deps.mjs';
+
+test('Ubuntu CI sources retain security updates, architecture and signed metadata', () => {
+  for (const architecture of ['amd64', 'arm64']) {
+    const sources = ubuntuSources(architecture, 'noble');
+    assert.match(sources, /Suites: noble noble-updates noble-backports\n/);
+    assert.match(sources, /Suites: noble-security\n/);
+    assert.equal(
+      (
+        sources.match(
+          /Signed-By: \/usr\/share\/keyrings\/ubuntu-archive-keyring.gpg/g,
+        ) || []
+      ).length,
+      2,
+    );
+    assert.equal(
+      (sources.match(new RegExp(`Architectures: ${architecture}`, 'g')) || [])
+        .length,
+      2,
+    );
+    assert.doesNotMatch(sources, /azure|mirror\+file|trusted=/);
+    if (architecture === 'amd64') {
+      assert.match(sources, /URIs: https:\/\/archive.ubuntu.com\/ubuntu\n/);
+      assert.match(sources, /URIs: https:\/\/security.ubuntu.com\/ubuntu\n/);
+    } else {
+      assert.equal(
+        (
+          sources.match(/URIs: https:\/\/ports.ubuntu.com\/ubuntu-ports\n/g) ||
+          []
+        ).length,
+        2,
+      );
+      assert.doesNotMatch(sources, /archive.ubuntu.com|security.ubuntu.com/);
+    }
+  }
+  assert.throws(
+    () => ubuntuSources('amd64', 'future'),
+    /Unsupported CI Ubuntu/,
+  );
+  assert.throws(
+    () => ubuntuSources('riscv64', 'noble'),
+    /Unsupported CI architecture/,
+  );
+});
+
+test('installer refreshes strict signed indices before bounded installation, without changing host sources', (t) => {
+  t.mock.method(console, 'log', () => {});
+  const calls = [];
+  let sourcePath;
+  installLinuxDependencies(['bubblewrap', 'fuse3'], (binary, args, options) => {
+    calls.push({ binary, args, options });
+    if (binary === 'dpkg') return 'amd64\n';
+    if (binary === 'lsb_release') return 'noble\n';
+    assert.equal(binary, 'sudo');
+    sourcePath = args
+      .find((arg) => arg.startsWith('Dir::Etc::sourcelist='))
+      .split('=')[1];
+    assert.equal(
+      readFileSync(sourcePath, 'utf8'),
+      ubuntuSources('amd64', 'noble'),
+    );
+    assert.ok(args.includes('Dir::Etc::sourceparts=-'));
+    assert.ok(args.includes('Acquire::Retries=2'));
+    assert.ok(args.includes('Acquire::http::Timeout=15'));
+    assert.ok(args.includes('Acquire::https::Timeout=15'));
+    assert.equal(options.stdio, 'inherit');
+    assert.deepEqual(args.slice(0, 2), [
+      'env',
+      'DEBIAN_FRONTEND=noninteractive',
+    ]);
+    assert.doesNotMatch(
+      args.join(' '),
+      /allow-unauthenticated|allow-insecure|\/etc\/apt\//,
+    );
+  });
+  const [update, install] = calls.slice(2);
+  assert.deepEqual(update.args.slice(2, 8), [
+    'timeout',
+    '--signal=TERM',
+    '--kill-after=10s',
+    '120s',
+    'apt-get',
+    '-o',
+  ]);
+  assert.deepEqual(update.args.slice(-2), ['update', '--error-on=any']);
+  assert.equal(install.args[5], '180s');
+  assert.deepEqual(install.args.slice(-5), [
+    'install',
+    '--yes',
+    '--no-install-recommends',
+    'bubblewrap',
+    'fuse3',
+  ]);
+  assert.equal(calls.length, 4);
+  assert.equal(existsSync(sourcePath), false);
+});
+
+test('index and download failures or deadlines stop installation, retain their exit status and clean up after diagnostic failure', (t) => {
+  t.mock.method(console, 'log', () => {});
+  const diagnostics = [];
+  t.mock.method(console, 'error', (message) => diagnostics.push(message));
+  for (const failedStage of ['update', 'install']) {
+    for (const status of [100, 124]) {
+      const calls = [];
+      const failure = Object.assign(new Error('controlled APT failure'), {
+        status,
+      });
+      let sourcePath;
+      assert.throws(
+        () =>
+          installLinuxDependencies(['bubblewrap'], (binary, args) => {
+            calls.push({ binary, args });
+            if (binary === 'dpkg') return 'arm64\n';
+            if (binary === 'lsb_release') return 'noble\n';
+            if (binary === 'sudo') {
+              sourcePath = args
+                .find((arg) => arg.startsWith('Dir::Etc::sourcelist='))
+                .split('=')[1];
+              if (args.includes(failedStage)) throw failure;
+            } else {
+              assert.equal(binary, 'timeout');
+              assert.deepEqual(args, [
+                '--kill-after=1s',
+                '5s',
+                'getent',
+                'ahosts',
+                'ports.ubuntu.com',
+              ]);
+              throw new Error('controlled DNS failure');
+            }
+          }),
+        (error) => error === failure && error.status === status,
+      );
+      const apt = calls.filter(({ binary }) => binary === 'sudo');
+      assert.equal(apt.length, failedStage === 'update' ? 1 : 2);
+      assert.equal(calls.at(-1).binary, 'timeout');
+      assert.equal(existsSync(sourcePath), false);
+    }
+  }
+  assert.ok(diagnostics.includes('DNS lookup failed: ports.ubuntu.com'));
+});
+
+test('installer rejects empty and option-shaped package requests before running commands', () => {
+  for (const packages of [
+    [],
+    ['--allow-unauthenticated'],
+    ['bubblewrap; true'],
+  ])
+    assert.throws(
+      () =>
+        installLinuxDependencies(packages, () => assert.fail('must not run')),
+      /explicit Ubuntu package names/,
+    );
+});

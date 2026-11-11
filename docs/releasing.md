@@ -36,6 +36,8 @@ Validation-only mode has read-only permissions, retains artifacts and creates no
 
 For local packaging use [contribution commands](../CONTRIBUTING.md#build) and [worker tooling](../tools/layerfs-worker/README.md#source-builds-and-qualification). Unversioned `make build package-runner smoke-bundle` builds the host Server and Runner and verifies online/offline native installation on Linux amd64 or ARM64 Mac. `make package-daemon` additionally assembles the Linux Server distribution and runs only on Linux amd64. `make build-server-image` builds a development image; the `release` Docker target consumes the verified Server bundle. Local builds do not publish or assemble another platform's native runtime by implication.
 
+Linux release builders and public-installation hosts share the [CI dependency installation policy](../CONTRIBUTING.md#checks); FUSE device preparation and native/package qualification still execute on the actual host. Browser image qualification covers the browser graph only.
+
 ## Artifacts and provenance
 
 | Artifact | Purpose |

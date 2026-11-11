@@ -460,7 +460,7 @@ test('browser sharding keeps all projects, strict evidence uploads and a separat
   assert.ok(browser.includes('shard: [1, 2]'));
   assert.ok(browser.includes('fail-fast: false'));
   assert.ok(
-    browser.includes('--project=$BROWSER_PROJECT --shard=$BROWSER_SHARD'),
+    browser.includes('--project="$BROWSER_PROJECT" --shard="$BROWSER_SHARD"'),
   );
   assert.doesNotMatch(browser, /--grep|--pass-with-no-tests/);
   assert.equal((browser.match(/if-no-files-found: error/g) ?? []).length, 3);
@@ -475,6 +475,55 @@ test('browser sharding keeps all projects, strict evidence uploads and a separat
   );
   assert.ok(gate.includes('test "$EVIDENCE_RESULT" = success'));
   assert.ok(gate.includes('test "$EVIDENCE_RESULT" = skipped'));
+});
+
+test('Linux CI, checkpoint and release installations share one bounded dependency installer', async () => {
+  for (const [name, count] of [
+    ['ci.yml', 1],
+    ['checkpoint-proof.yml', 1],
+    ['release.yml', 2],
+  ]) {
+    const workflow = await readFile(
+      new URL(`../.github/workflows/${name}`, import.meta.url),
+      'utf8',
+    );
+    const installs = workflow
+      .split('      - ')
+      .filter((step) =>
+        step.includes('run: node scripts/install-linux-deps.mjs '),
+      );
+    assert.equal(installs.length, count, name);
+    for (const step of installs) assert.match(step, /timeout-minutes: 6/);
+    assert.doesNotMatch(
+      workflow,
+      /apt-get|apt-mirrors\.txt|archive\.ubuntu\.com|--with-deps/,
+    );
+  }
+});
+
+test('browser jobs use an immutable official image matching the locked Playwright version, without reinstalling browsers', async () => {
+  const workflow = await readFile(
+    new URL('../.github/workflows/ci.yml', import.meta.url),
+    'utf8',
+  );
+  const manifest = JSON.parse(
+    await readFile(new URL('../package.json', import.meta.url), 'utf8'),
+  );
+  const browser = workflowJob(workflow, 'browser_project');
+  const image = browser.match(/image: (\S+)/)[1];
+  const version = manifest.devDependencies['@playwright/test'];
+  assert.ok(
+    image.startsWith(`mcr.microsoft.com/playwright:v${version}-noble@sha256:`),
+  );
+  assert.match(image, /@sha256:[0-9a-f]{64}$/);
+  assert.match(browser, /options: --init --ipc=host/);
+  assert.match(browser, /shell: bash/);
+  assert.match(browser, /run: make install/);
+  assert.match(browser, /pnpm@12\.11\.2 run test:e2e/);
+  assert.doesNotMatch(
+    browser,
+    /playwright install|make test-e2e|--privileged|retries:/,
+  );
 });
 
 test('checkpoint caches build inputs only and always requalifies, while fixture caches retain full recovery', async () => {
