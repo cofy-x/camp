@@ -21,7 +21,8 @@ Read [AGENTS.md](../AGENTS.md) and [CONTRIBUTING.md](../CONTRIBUTING.md), then t
 | --- | --- |
 | [Architecture](architecture.md) | Module/state ownership, durable authority and current implementation limits |
 | [API](api.md) | Authentication, wire types, request bounds and transactional preconditions |
-| [Design](design.md) | Product language, desktop interactions and visual review |
+| [Design](design.md) | Product principles, attention cost, desktop interactions, visual style and UI review |
+| [Performance](performance.md) | Responsive reads/rendering, bounded history and streamed writes, regression owners and measurement |
 | [Execution](dsh.md) | DSH integration, model configuration/budgets and explicit provider acceptance |
 | [Native Runner](native-runner.md) | Workspace, sandbox, process ownership and native platform acceptance |
 | [Mac checkpoint worker](layerfs-worker.md) | Complete-tree capture, transport, receipts, reconstruction and backend choice |
