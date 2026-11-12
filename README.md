@@ -12,3 +12,10 @@ The `bounded-*.png` comparisons use the actual public alpha.13 embedded UI and t
 The old UI issues 41 raw log requests (7,016,112 response bytes), retains 20,000 events and renders 500 display rows. The new UI issues one summary request (5,660 response bytes), retains at most 50 entries and renders 50 newest-first rows. The real SQLite/index/window and original-byte guarantees are tested separately in the application PR. These are controlled fixture observations, not production latency percentiles or native execution acceptance.
 
 The GitHub connector does not provide native image-attachment upload. These reviewed PNGs are embedded into the application PR through immutable raw links to this isolated evidence commit.
+
+
+## Simpler Library and optional human approval
+
+The `simple-*.png` images compare clean source `b8bed7e1c6d2fcdc9184ce3f09e4054dc622fc5c` with `1c88314e8d2959f285b745ab329a9d9fd5320edd`. Both are actual production-mode embedded UIs, using the same synthetic Notes Studio team, Weekly planning Room and weekly-plan.md document. Desktop: Chromium, 1440 × 900, DPR 1. Narrow: 390 × 844, DPR 1. The original P9 chrome and document fonts are retained. No mocked read responses, private team data, credentials, paid model calls or original runtime state are included. Ordinary file reading issued zero review-history requests.
+
+Native GitHub image attachment upload is unavailable through the connected tools. These reviewed images are retained on this separate image-only branch so the PR can embed immutable raw PNG URLs directly. They are not application assets.
