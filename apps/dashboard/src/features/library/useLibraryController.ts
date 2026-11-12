@@ -693,6 +693,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     comparison,
     setComparison,
     editor,
+    contextRoomId: targetRoom,
     reviewsOpen:
       reviewScope?.resourceId === resourceId && reviewScope.path === path,
     closeFileReviews: () => {

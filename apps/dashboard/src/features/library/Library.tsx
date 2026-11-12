@@ -47,6 +47,7 @@ export function Library({ desktop, window }: AppWindowProps) {
     comparison,
     setComparison,
     editor,
+    contextRoomId,
     reviewsOpen,
     closeFileReviews,
     error,
@@ -434,10 +435,7 @@ export function Library({ desktop, window }: AppWindowProps) {
                       reference={reference}
                       reviewsOpen={reviewsOpen}
                       onCloseReviews={closeFileReviews}
-                      contextRoomId={
-                        rooms.find((room) => room.resourceId === resource.id)
-                          ?.id
-                      }
+                      contextRoomId={contextRoomId}
                       historical={Boolean(version)}
                       pending={pending}
                       onEdit={() => void edit()}
