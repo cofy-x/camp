@@ -15,7 +15,13 @@ export function affectedRead(path: string, event: WorkspaceEvent): boolean {
     return route === '/me/inbox' || route === '/me/room-reads';
   if (type === 'team.changed' || type === 'management.updated') return true;
   if (type === 'run.activity')
-    return Boolean(run === event.entityId && route.endsWith('/events'));
+    return Boolean(
+      run === event.entityId &&
+      route.endsWith('/activity') &&
+      !url.searchParams.has('through'),
+    );
+  if (run && route.endsWith('/activity') && url.searchParams.has('through'))
+    return false;
   if (
     run &&
     url.searchParams.get('view') === 'summary' &&

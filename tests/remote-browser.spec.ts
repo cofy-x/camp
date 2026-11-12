@@ -190,7 +190,7 @@ test('real fixture work keeps its queued Runner, cancels once, and delivers the 
     )
     .toBe(true);
   await runStatus(page, first.id, 'running');
-  const activityURL = `**/api/runs/${first.id}/events?*`;
+  const activityURL = `**/api/runs/${first.id}/activity?*`;
   await page.route(activityURL, (route) => route.abort());
   await page.evaluate(() =>
     document.dispatchEvent(new Event('visibilitychange')),

@@ -458,6 +458,38 @@ test('work details lead with results, preserve failure evidence, and keep techni
     await page.route(`**/api/runs/${run.id}`, (route) =>
       route.fulfill({ json: { run } }),
     );
+    await page.route(`**/api/runs/${run.id}/activity?*`, (route) =>
+      route.fulfill({
+        json: {
+          items: [
+            {
+              seq: 3,
+              type: 'tool_call',
+              name: 'read',
+              detail: 'proposal.md',
+              createdAt: now,
+            },
+            {
+              seq: 4,
+              type: 'status',
+              name: 'checking',
+              detail: '',
+              createdAt: now,
+            },
+            {
+              seq: 5,
+              type: 'error',
+              name: '',
+              detail: 'The tool process stopped unexpectedly.',
+              createdAt: now,
+            },
+          ],
+          through: 5,
+          hasOlder: false,
+          hasNewer: false,
+        },
+      }),
+    );
     await page.route(`**/api/runs/${run.id}/events?*`, (route) =>
       route.fulfill({
         json: {
@@ -811,8 +843,10 @@ test('a member can stop work from details, recover a failed request, and keep th
     await member.route(`**/api/runs/${run.id}`, (route) =>
       route.fulfill({ json: { run } }),
     );
-    await member.route(`**/api/runs/${run.id}/events?*`, (route) =>
-      route.fulfill({ json: { events: [] } }),
+    await member.route(`**/api/runs/${run.id}/activity?*`, (route) =>
+      route.fulfill({
+        json: { items: [], through: 0, hasOlder: false, hasNewer: false },
+      }),
     );
     let cancelRequests = 0;
     await member.route(`**/api/runs/${run.id}/cancel`, async (route) => {

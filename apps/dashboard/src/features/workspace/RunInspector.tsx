@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Tabs } from '@cofy-x/camp-platinum';
 import { useTeam } from '../../team/TeamContext';
 import { isActiveRun, statusLabel, workspaceApi } from './api';
-import type { Message, Reference, Run, RunEvent, RunTimeline } from './api';
+import type { Message, Reference, RunTimeline } from './api';
 import { newerRun, useRunInspector } from './useRunInspector';
 import { summarizeActivity } from './activity';
 import { AssistantContent } from './AssistantContent';
@@ -15,23 +15,6 @@ import {
   runChecksLabel,
   runFilesLabel,
 } from './runPresentation';
-
-function activityLabel(event: RunEvent) {
-  const summary = summarizeActivity(event);
-  if (summary) return summary;
-  if (event.type === 'status') {
-    const status = event.text.trim();
-    return {
-      label: Object.hasOwn(statusLabel, status)
-        ? statusLabel[status as Run['status']]
-        : 'Status updated',
-      detail: '',
-    };
-  }
-  if (event.type === 'error')
-    return { label: 'Execution error', detail: event.text };
-  return null;
-}
 
 export function RunInspector({
   id,
@@ -52,6 +35,7 @@ export function RunInspector({
 }) {
   const team = useTeam();
   const inspector = useRunInspector(id);
+  const root = useRef<HTMLElement>(null);
   const {
     run,
     setRun,
@@ -142,16 +126,23 @@ export function RunInspector({
     }
   }
 
+  function openActivityPage(direction?: 'earlier' | 'later') {
+    if (direction) inspector.activityPage(direction);
+    else inspector.latestActivity();
+    root.current?.scrollTo({ top: 0 });
+    root.current?.scrollIntoView({ block: 'start' });
+  }
+
   const activity = useMemo(
     () =>
-      events.flatMap((event) => {
-        const summary = activityLabel(event);
-        return summary ? [{ ...summary, event }] : [];
-      }),
+      [...events]
+        .reverse()
+        .map((event) => ({ ...summarizeActivity(event), event })),
     [events],
   );
   return (
     <section
+      ref={root}
       className="workspace-inspector workspace-panel"
       aria-label="Work details"
     >
@@ -347,9 +338,58 @@ export function RunInspector({
                   {eventsPending && !events.length && (
                     <p role="status">Loading activity…</p>
                   )}
+                  {(inspector.activityWindow?.hasOlder ||
+                    inspector.activityWindow?.hasNewer ||
+                    inspector.activityAnchored) && (
+                    <div className="app-actions workspace-activity-navigation">
+                      {inspector.activityWindow?.hasOlder && (
+                        <Button
+                          disabled={eventsPending}
+                          onClick={() => openActivityPage('earlier')}
+                        >
+                          Earlier activity
+                        </Button>
+                      )}
+                      {inspector.activityWindow?.hasNewer && (
+                        <Button
+                          disabled={eventsPending}
+                          onClick={() => openActivityPage('later')}
+                        >
+                          Later activity
+                        </Button>
+                      )}
+                      {inspector.activityAnchored && (
+                        <Button
+                          disabled={eventsPending}
+                          onClick={() => openActivityPage()}
+                        >
+                          Latest activity
+                        </Button>
+                      )}
+                    </div>
+                  )}
                   <ol
                     className="workspace-event-log"
                     aria-label="Execution activity"
+                    tabIndex={0}
+                    onPointerDown={inspector.pinActivity}
+                    onWheel={inspector.pinActivity}
+                    onTouchMove={inspector.pinActivity}
+                    onKeyDown={(event) => {
+                      if (
+                        !event.defaultPrevented &&
+                        [
+                          'ArrowUp',
+                          'ArrowDown',
+                          'PageUp',
+                          'PageDown',
+                          'Home',
+                          'End',
+                          ' ',
+                        ].includes(event.key)
+                      )
+                        inspector.pinActivity();
+                    }}
                   >
                     {activity.map(({ event, label, detail }) => (
                       <li key={event.seq}>
@@ -364,11 +404,7 @@ export function RunInspector({
                     ))}
                   </ol>
                   {!activity.length && !eventsPending && !eventsError && (
-                    <p>
-                      {events.length
-                        ? 'No summarized activity is available. Recorded logs are included in diagnostics.'
-                        : 'No activity recorded yet.'}
-                    </p>
+                    <p>No activity to show yet.</p>
                   )}
                 </>
               )}

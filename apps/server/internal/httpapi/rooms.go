@@ -285,6 +285,7 @@ func (a *API) roomRoutes(mux *http.ServeMux) {
 		v, e := a.rooms.Cancel(r.Context(), r.PathValue("id"))
 		a.respond(w, r, map[string]any{"run": v}, e)
 	})
+	register("GET /api/runs/{id}/activity", a.runActivity)
 	register("GET /api/runs/{id}/events", func(w http.ResponseWriter, r *http.Request) {
 		after, ok := queryCursor(w, r, "after")
 		if !ok {

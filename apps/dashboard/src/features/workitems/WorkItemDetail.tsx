@@ -5,7 +5,7 @@ import { useTeam } from '../../team/TeamContext';
 import { useRead } from '../../shared/reads/useRead';
 import type { Agent, WorkspaceStatus } from '../workspace/api';
 import type { AutomationPolicy } from '../automation/api';
-import { AssistantContent } from '../workspace/AssistantContent';
+import { Report } from '../workspace/Report';
 import { EvidenceRecord } from './WorkItemEvidence';
 import { WorkItemHistory } from './WorkItemHistory';
 import { WorkItemActions } from './WorkItemActions';
@@ -70,7 +70,13 @@ function Result({ item }: { item: WorkItem }) {
           )}
         </>
       )}
-      {result.summary && <AssistantContent content={result.summary} />}
+      {result.summary && (
+        <Report
+          key={`${result.taskId}:${result.commit}`}
+          content={result.summary}
+          stateKey={`work-report:${item.id}:${result.taskId}:${result.commit}`}
+        />
+      )}
     </section>
   );
 }
@@ -284,7 +290,10 @@ export function WorkItemDetail({
                 </p>
               )}
               {!hasQuestion && summary && summary !== item.result?.summary && (
-                <AssistantContent content={summary} />
+                <Report
+                  content={summary}
+                  stateKey={`work-update:${item.id}:${item.activeTaskId}`}
+                />
               )}
               {!hasQuestion && !earlierResult && <Result item={item} />}
               {hasQuestion && (!editable || terminal) && (

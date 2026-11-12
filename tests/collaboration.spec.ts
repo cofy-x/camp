@@ -709,6 +709,13 @@ test('completed collaboration puts its fixed result before a long summary and ke
     exact: true,
   });
   await expect(result).toBeInViewport();
+  await expect(summary).toContainText(
+    'The onboarding guide includes the agreed instructions.',
+  );
+  await expect(
+    summary.getByRole('heading', { name: 'What changed', exact: true }),
+  ).toHaveCount(0);
+  await summary.getByText('Read full report', { exact: true }).click();
   await expect(
     summary.getByRole('heading', { name: 'What changed', exact: true }),
   ).toBeVisible();

@@ -211,6 +211,21 @@ export interface RunEvent {
   createdAt: string;
 }
 
+export interface RunActivityItem {
+  seq: number;
+  type: string;
+  name: string;
+  detail: string;
+  createdAt: string;
+}
+
+export interface RunActivityWindow {
+  items: RunActivityItem[];
+  through: number;
+  hasOlder: boolean;
+  hasNewer: boolean;
+}
+
 export interface WorkspaceEvent {
   id: number;
   type: string;

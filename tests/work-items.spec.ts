@@ -1509,6 +1509,71 @@ test('results expose exact files and the final finite grant; stop remains visibl
   expect(actions[0].comment).toBe('Use a one-page format.');
   expect(errors.errors).toEqual([]);
 });
+test('completed work keeps exact files ahead of a lazy full report and retains its reading choice across views', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  const report = [
+    'The reviewed notes release is ready.',
+    ...Array.from(
+      { length: 40 },
+      (_, i) =>
+        `Detailed implementation finding ${i + 1}: the original report remains available.`,
+    ),
+    'EXACT_FINAL_REPORT_RECOMMENDATION',
+  ].join('\n\n');
+  const value = await presentation(page, errors.reload, {
+    goal: 'Prepare the reviewed notes release',
+    status: 'completed',
+    result: {
+      taskId: 'report-task',
+      summary: report,
+      resourceId: 'fixture-resource',
+      commit: 'b'.repeat(40),
+      published: true,
+      files: [{ path: 'release-notes.md', status: 'added' }],
+    },
+  });
+  await value.open();
+  const result = detail(page).getByRole('region', {
+    name: 'Work result',
+    exact: true,
+  });
+  await expect(
+    result.getByRole('button', { name: 'release-notes.md', exact: true }),
+  ).toBeVisible();
+  await expect(result).toContainText('Published to Room');
+  await expect(result).toContainText('The reviewed notes release is ready.');
+  await expect(
+    result.getByText('EXACT_FINAL_REPORT_RECOMMENDATION', { exact: true }),
+  ).toHaveCount(0);
+  await expect(result).not.toContainText('Detailed implementation finding 1:');
+  await capture(page, 'compact-result-report');
+  const disclosure = result
+    .locator('summary')
+    .filter({ hasText: 'Read full report' });
+  await disclosure.focus();
+  await disclosure.press('Enter');
+  await expect(result).toContainText('EXACT_FINAL_REPORT_RECOMMENDATION');
+  await detail(page)
+    .getByRole('tab', { name: 'Activity', exact: true })
+    .click();
+  await detail(page)
+    .getByRole('tab', { name: 'Overview', exact: true })
+    .click();
+  await expect(result.locator('details')).toHaveAttribute('open', '');
+  await expect(result).toContainText('EXACT_FINAL_REPORT_RECOMMENDATION');
+  await result
+    .getByRole('button', { name: 'Collapse report', exact: true })
+    .click();
+  await expect(result.locator('summary')).toBeFocused();
+  await expect(
+    result.getByRole('button', { name: 'release-notes.md', exact: true }),
+  ).toBeVisible();
+  expect(errors.errors).toEqual([]);
+});
+
 test('completion confirmation is explicit and waits for unresolved external action receipts', async ({
   page,
   browserName,
@@ -1826,8 +1891,10 @@ test('linked task and run inspection stay inside Work and return to the same mat
   await page.route(`**/api/runs/${runId}`, (route) =>
     route.fulfill({ json: { run } }),
   );
-  await page.route(`**/api/runs/${runId}/events?*`, (route) =>
-    route.fulfill({ json: { events: [] } }),
+  await page.route(`**/api/runs/${runId}/activity?*`, (route) =>
+    route.fulfill({
+      json: { items: [], through: 0, hasOlder: false, hasNewer: false },
+    }),
   );
   await value.open();
   await detail(page)
