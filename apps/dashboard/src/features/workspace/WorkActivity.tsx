@@ -1,35 +1,21 @@
-import { useEffect, useState } from 'react';
 import { isActiveRun } from './api';
 import { useRead } from '../../shared/reads/useRead';
-import type { Run, RunEvent } from './api';
+import type { Run, RunActivityWindow } from './api';
 import { summarizeActivity } from './activity';
-import type { ActivitySummary } from './activity';
 
 export function WorkActivity({
   run,
 }: {
   run: Pick<Run, 'id' | 'status' | 'waitingReason'>;
 }) {
-  const [recent, setRecent] = useState<ActivitySummary[]>([]);
-  const [after, setAfter] = useState(0);
   const queued = run.status === 'queued';
   const active = isActiveRun(run);
-  const activity = useRead<{ events: RunEvent[] }>(
-    `/runs/${encodeURIComponent(run.id)}/events?after=${after}`,
+  const activity = useRead<RunActivityWindow>(
+    `/runs/${encodeURIComponent(run.id)}/activity?limit=6`,
     { enabled: !queued && active },
   );
   const error = Boolean(activity.error);
-  useEffect(() => {
-    if (!activity.data) return;
-    const additions = activity.data.events.filter((event) => event.seq > after);
-    const summaries = additions
-      .map(summarizeActivity)
-      .filter((item) => item !== null);
-    if (summaries.length)
-      setRecent((current) => [...current, ...summaries].slice(-6));
-    const next = additions.at(-1)?.seq ?? after;
-    if (next > after) setAfter(next);
-  }, [activity.data, after]);
+  const recent = activity.data?.items.map(summarizeActivity) ?? [];
   const latest = recent.at(-1);
   const stage =
     run.status === 'preparing'

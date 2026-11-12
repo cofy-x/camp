@@ -7,7 +7,7 @@ import {
   type DesktopAPI,
 } from '@cofy-x/camp-platinum';
 import { taskStatus } from './api';
-import { AssistantContent } from '../workspace/AssistantContent';
+import { Report } from '../workspace/Report';
 import { TaskHistory } from './TaskHistory';
 import { useTaskController } from './useTaskController';
 import { TaskAutomation } from '../automation/TaskAutomation';
@@ -576,7 +576,10 @@ export function TaskDetail({
                   <h3>
                     {task.status === 'completed' ? 'Result' : 'Latest update'}
                   </h3>
-                  <AssistantContent content={task.summary} />
+                  <Report
+                    content={task.summary}
+                    stateKey={`task-report:${task.id}`}
+                  />
                 </section>
               )}
               {['cancelled', 'interrupted'].includes(task.status) && (

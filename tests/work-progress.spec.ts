@@ -168,21 +168,21 @@ async function fixture(page: Page) {
     reads.run++;
     return route.fulfill({ json: { run } });
   });
-  await page.route(`**/api/runs/${runId}/events?*`, (route) =>
+  await page.route(`**/api/runs/${runId}/activity?*`, (route) =>
     route.fulfill({
       json: {
-        events: [
+        items: [
           {
-            runId,
             seq: 1,
             type: 'tool_call',
-            text: JSON.stringify({
-              name: 'write',
-              arguments: { path: 'src/notes.js' },
-            }),
+            name: 'write',
+            detail: 'src/notes.js',
             createdAt: now,
           },
         ],
+        through: 1,
+        hasOlder: false,
+        hasNewer: false,
       },
     }),
   );

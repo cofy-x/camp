@@ -340,11 +340,13 @@ describe('notification routing', () => {
         ),
       ).toBe(false);
   });
-  it('keeps log activity local to that Run event cursor', () => {
+  it('refreshes only the current activity window without replaying pinned history', () => {
     const change = event('run.activity');
-    expect(affectedRead('/runs/run-one/events?after=20', change)).toBe(true);
+    expect(affectedRead('/runs/run-one/activity?limit=6', change)).toBe(true);
     for (const path of [
-      '/runs/other/events?after=0',
+      '/runs/other/activity?limit=50',
+      '/runs/run-one/activity?before=20&through=25',
+      '/runs/run-one/events?after=0',
       '/runs/run-one?view=summary',
       '/rooms',
       '/workspace/status',
@@ -352,6 +354,12 @@ describe('notification routing', () => {
       '/me/inbox',
     ])
       expect(affectedRead(path, change), path).toBe(false);
+    expect(
+      affectedRead(
+        '/runs/run-one/activity?before=20&through=25',
+        event('run.updated'),
+      ),
+    ).toBe(false);
   });
 
   it('reconciles derived queue reasons without loading full executions or logs', () => {

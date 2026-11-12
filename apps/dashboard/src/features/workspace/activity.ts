@@ -1,4 +1,4 @@
-import type { RunEvent } from './api';
+import { statusLabel, type RunActivityItem } from './api';
 
 export interface ActivitySummary {
   seq: number;
@@ -6,48 +6,36 @@ export interface ActivitySummary {
   detail: string;
 }
 
-export function summarizeActivity(event: RunEvent): ActivitySummary | null {
-  let label = '';
+export function summarizeActivity(event: RunActivityItem): ActivitySummary {
+  let label: string;
   let detail = '';
   if (event.type === 'model') label = 'Thinking';
   else if (event.type === 'tool_call') {
-    try {
-      const call = JSON.parse(event.text) as {
-        name?: unknown;
-        arguments?: unknown;
-      };
-      const name =
-        typeof call.name === 'string'
-          ? call.name.replace(/\s+/g, ' ').slice(0, 80)
-          : '';
-      const tools: Record<string, string> = {
-        bash: 'Running a command',
-        read: 'Reading a file',
-        read_file: 'Reading a file',
-        write: 'Writing a file',
-        write_file: 'Writing a file',
-        edit: 'Editing a file',
-        list_files: 'Listing files',
-        search: 'Searching files',
-      };
-      label = Object.hasOwn(tools, name)
-        ? tools[name]
-        : name
-          ? `Using ${name}`
-          : 'Using a tool';
-      const args =
-        typeof call.arguments === 'string'
-          ? JSON.parse(call.arguments)
-          : call.arguments;
-      if (args && typeof args === 'object') {
-        const value = args.command ?? args.path ?? args.file_path;
-        if (typeof value === 'string')
-          detail = value.replace(/\s+/g, ' ').slice(0, 160);
-      }
-    } catch {
-      label ||= 'Using a tool';
-    }
+    const name = event.name;
+    const tools: Record<string, string> = {
+      bash: 'Running a command',
+      read: 'Reading a file',
+      read_file: 'Reading a file',
+      write: 'Writing a file',
+      write_file: 'Writing a file',
+      edit: 'Editing a file',
+      list_files: 'Listing files',
+      search: 'Searching files',
+    };
+    label = Object.hasOwn(tools, name)
+      ? tools[name]
+      : name
+        ? `Using ${name}`
+        : 'Using a tool';
+    detail = event.detail;
   } else if (event.type === 'completion') label = 'Finishing the response';
-  else return null;
+  else if (event.type === 'error') {
+    label = 'Execution error';
+    detail = event.detail;
+  } else {
+    label = Object.hasOwn(statusLabel, event.name)
+      ? statusLabel[event.name as keyof typeof statusLabel]
+      : 'Status updated';
+  }
   return { seq: event.seq, label, detail };
 }

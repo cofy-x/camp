@@ -5,6 +5,7 @@ import type {
   Message,
   Run,
   RunEvent,
+  RunActivityWindow,
 } from '../apps/dashboard/src/features/workspace/api';
 import { createRoom, mutate, signIn, workspace } from './team-helpers';
 import { timelineFixture } from './run-timeline-fixture';
@@ -131,15 +132,25 @@ async function fixture(
     reply: 0,
     full: 0,
     events: [] as number[],
+    activity: [] as string[],
     threadScans: 0,
     writes: 0,
   };
   let inspecting = false;
   const handlers = {
     full: (route: Route) => route.fulfill({ json: { run } }),
-    events: async (route: Route, _after: number) => {
+    events: async (route: Route, _after: number) =>
+      route.fulfill({ json: { events: [] } }),
+    activity: async (route: Route) => {
       if (activityGate) await activityGate.held;
-      return route.fulfill({ json: { events: [] } });
+      return route.fulfill({
+        json: {
+          items: [],
+          through: 0,
+          hasOlder: false,
+          hasNewer: false,
+        } satisfies RunActivityWindow,
+      });
     },
   };
   await page.route(`**/api/rooms/${room.id}/runs?view=conversation*`, (route) =>
@@ -156,6 +167,10 @@ async function fixture(
   await page.route(`**/api/runs/${run.id}`, (route) => {
     reads.full++;
     return handlers.full(route);
+  });
+  await page.route(`**/api/runs/${run.id}/activity?*`, (route) => {
+    reads.activity.push(new URL(route.request().url()).search);
+    return handlers.activity(route);
   });
   await page.route(`**/api/runs/${run.id}/events?*`, (route) => {
     const after = Number(
@@ -199,6 +214,7 @@ async function fixture(
     handlers,
     inspector,
     reply,
+    notifyActivity: () => notify('run.activity', room.id, run.id),
     get run() {
       return run;
     },
@@ -335,7 +351,7 @@ test('summary notifications reach terminal state while Activity is blocked and l
   const value = await fixture(page, true, held);
   const { inspector, reads } = value;
   try {
-    await expect.poll(() => reads.events.length).toBeGreaterThan(0);
+    await expect.poll(() => reads.activity.length).toBeGreaterThan(0);
     await expect(
       inspector.getByText('Loading activity…', { exact: true }),
     ).toBeVisible();
@@ -352,10 +368,10 @@ test('summary notifications reach terminal state while Activity is blocked and l
     await inspector.getByRole('tab', { name: 'Overview', exact: true }).click();
     held.release();
     await expect(inspector.locator('.workspace-inspector-reply')).toBeVisible();
-    const count = reads.events.length;
+    const count = reads.activity.length;
     // Advancing browser time proves the inactive owner has no polling timer.
     await page.clock.fastForward(3600);
-    expect(reads.events).toHaveLength(count);
+    expect(reads.activity).toHaveLength(count);
     expect(reads.full).toBe(0);
   } finally {
     held.release();
@@ -431,4 +447,159 @@ test('diagnostics wait for every log page and certify completeness only from a t
   } finally {
     tail.release();
   }
+});
+
+test('execution Activity opens one recent window and preserves frozen history during updates and retry', async ({
+  page,
+}, info) => {
+  await page.clock.install();
+  const value = await fixture(page);
+  let frontier = 20000;
+  const queries: URLSearchParams[] = [];
+  let failOlder = false;
+  value.handlers.activity = (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    queries.push(query);
+    if (failOlder && query.has('before'))
+      return route.fulfill({
+        status: 503,
+        json: { error: 'The earlier activity could not be read.' },
+      });
+    const through = Number(query.get('through') ?? frontier);
+    const before = Number(query.get('before') ?? through + 1);
+    const after = Number(query.get('after') ?? 0);
+    const limit = Number(query.get('limit') ?? 50);
+    let items = Array.from(
+      { length: Math.floor(frontier / 40) },
+      (_, index) => ({
+        seq: (index + 1) * 40,
+        type: 'tool_call',
+        name: 'read_file',
+        detail: `note-${(index + 1) * 40}.md`,
+        createdAt: value.run.createdAt,
+      }),
+    ).filter(
+      (item) => item.seq <= through && item.seq < before && item.seq > after,
+    );
+    items = query.has('after') ? items.slice(0, limit) : items.slice(-limit);
+    return route.fulfill({
+      json: {
+        items,
+        through,
+        hasOlder: (items[0]?.seq ?? 0) > 40,
+        hasNewer: (items.at(-1)?.seq ?? through) < through,
+      } satisfies RunActivityWindow,
+    });
+  };
+  const { inspector, reads } = value;
+  await inspector.getByRole('tab', { name: 'Activity', exact: true }).click();
+  const rows = inspector.locator('.workspace-event-log > li');
+  await expect(rows).toHaveCount(50);
+  await expect(rows.last()).toContainText('note-18040.md');
+  await expect(rows.first()).toContainText('note-20000.md');
+  expect(queries).toHaveLength(1);
+  expect(reads.events).toEqual([]);
+  expect(reads.full).toBe(0);
+  await inspector.screenshot({
+    path: info.outputPath('execution-recent-activity.png'),
+  });
+  await rows.last().scrollIntoViewIfNeeded();
+  await expect(
+    inspector.getByRole('button', { name: 'Earlier activity', exact: true }),
+  ).toBeInViewport();
+  failOlder = true;
+  await inspector
+    .getByRole('button', { name: 'Earlier activity', exact: true })
+    .click();
+  await expect(inspector.getByRole('alert')).toContainText(
+    'The earlier activity could not be read.',
+  );
+  await expect(rows.first()).toContainText('note-20000.md');
+  failOlder = false;
+  await inspector
+    .getByRole('button', { name: 'Retry activity', exact: true })
+    .click();
+  await expect(rows.last()).toContainText('note-16040.md');
+  await expect(rows.first()).toContainText('note-18000.md');
+  await expect(rows.first()).toBeInViewport();
+  frontier = 20040;
+  const count = queries.length;
+  await value.notifyActivity();
+  await page.clock.fastForward(500);
+  expect(queries).toHaveLength(count);
+  await expect(rows.last()).toContainText('note-16040.md');
+  await inspector
+    .getByRole('button', { name: 'Later activity', exact: true })
+    .click();
+  await expect(rows.first()).toContainText('note-20000.md');
+  expect(queries.at(-1)?.get('through')).toBe('20000');
+  await inspector
+    .getByRole('button', { name: 'Latest activity', exact: true })
+    .click();
+  await expect(rows.first()).toContainText('note-20040.md');
+  expect(queries.at(-1)?.has('through')).toBe(false);
+  await expect(rows).toHaveCount(50);
+  expect(reads.events).toEqual([]);
+  expect(reads.writes).toBe(0);
+});
+
+test('live Activity pins a reading gesture and resumes current observations only through Latest', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const value = await fixture(page, true);
+  let frontier = 3;
+  value.handlers.activity = (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    const through = Number(query.get('through') ?? frontier);
+    const items = Array.from(
+      { length: Math.min(through, frontier) },
+      (_, i) => ({
+        seq: i + 1,
+        type: 'tool_call',
+        name: 'read_file',
+        detail: `note-${i + 1}.md`,
+        createdAt: value.run.createdAt,
+      }),
+    );
+    return route.fulfill({
+      json: {
+        items,
+        through,
+        hasOlder: false,
+        hasNewer: false,
+      } satisfies RunActivityWindow,
+    });
+  };
+  await value.notifyActivity();
+  const { inspector, reads } = value;
+  const rows = inspector.locator('.workspace-event-log > li');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.first()).toContainText('note-3.md');
+  await rows.first().locator('p').click();
+  await expect
+    .poll(() =>
+      reads.activity.some(
+        (path) => new URLSearchParams(path).get('through') === '3',
+      ),
+    )
+    .toBe(true);
+  const count = reads.activity.filter((path) =>
+    new URLSearchParams(path).has('through'),
+  ).length;
+  frontier = 4;
+  await value.notifyActivity();
+  await page.clock.fastForward(500);
+  await expect(rows).toHaveCount(3);
+  await expect(rows.first()).toContainText('note-3.md');
+  expect(
+    reads.activity.filter((path) => new URLSearchParams(path).has('through')),
+  ).toHaveLength(count);
+  await inspector
+    .getByRole('button', { name: 'Latest activity', exact: true })
+    .click();
+  await expect(rows).toHaveCount(4);
+  await expect(rows.first()).toContainText('note-4.md');
+  expect(reads.events).toEqual([]);
+  expect(reads.writes).toBe(0);
 });

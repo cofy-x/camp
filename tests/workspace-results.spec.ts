@@ -154,8 +154,10 @@ async function completedWork(
       fullRunReads.push(run.id);
       return route.fulfill({ json: { run } });
     });
-    await page.route(`**/api/runs/${run.id}/events?*`, (route) =>
-      route.fulfill({ json: { events: [] } }),
+    await page.route(`**/api/runs/${run.id}/activity?*`, (route) =>
+      route.fulfill({
+        json: { items: [], through: 0, hasOlder: false, hasNewer: false },
+      }),
     );
   }
   await reload();

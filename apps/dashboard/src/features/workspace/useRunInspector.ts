@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { isActiveRun } from './api';
 import { useRead } from '../../shared/reads/useRead';
-import type { Run, RunEvent, RunTimeline } from './api';
-import { mergeEvents } from './events';
+import type { Run, RunActivityWindow, RunTimeline } from './api';
 
 export function newerRun<T extends Pick<Run, 'status' | 'updatedAt'>>(
   current: T | null,
@@ -25,9 +24,11 @@ export function useRunInspector(id: string) {
   const [tab, setTab] = useState('');
   const [requestOpen, setRequestOpen] = useState(false);
   const [details, setDetails] = useState<Run | null>(null);
-  const [events, setEvents] = useState<RunEvent[]>([]);
-  const acceptedEvents = useRef<RunEvent[]>([]);
-  const [after, setAfter] = useState(0);
+  const [position, setPosition] = useState('');
+  const [acceptedActivity, setAcceptedActivity] = useState<{
+    id: string;
+    page: RunActivityWindow;
+  }>();
   const summary = useRead<{ run: RunTimeline }>(
     `/runs/${encodeURIComponent(id)}?view=summary`,
   );
@@ -40,8 +41,8 @@ export function useRunInspector(id: string) {
   const full = useRead<{ run: Run }>(`/runs/${encodeURIComponent(id)}`, {
     enabled: wantsDetails,
   });
-  const activity = useRead<{ events: RunEvent[] }>(
-    `/runs/${encodeURIComponent(id)}/events?after=${after}`,
+  const activity = useRead<RunActivityWindow>(
+    `/runs/${encodeURIComponent(id)}/activity?limit=50${position ? `&${position}` : ''}`,
     { enabled: Boolean(run) && tab === 'activity' },
   );
   useEffect(() => {
@@ -57,15 +58,21 @@ export function useRunInspector(id: string) {
     if (incoming) setDetails((current) => newerRun(current, incoming));
   }, [full.data]);
   useEffect(() => {
-    if (!activity.data || tab !== 'activity') return;
-    acceptedEvents.current = mergeEvents(
-      acceptedEvents.current,
-      activity.data.events,
-    );
-    setEvents(acceptedEvents.current);
-    const next = acceptedEvents.current.at(-1)?.seq ?? after;
-    if (next > after) setAfter(next);
-  }, [activity.data, tab, after]);
+    if (activity.data) setAcceptedActivity({ id, page: activity.data });
+  }, [activity.data, id]);
+  const page = acceptedActivity?.id === id ? acceptedActivity.page : undefined;
+
+  function activityPage(direction: 'earlier' | 'later') {
+    const edge = direction === 'earlier' ? page?.items[0] : page?.items.at(-1);
+    if (edge && page)
+      setPosition(
+        new URLSearchParams({
+          [direction === 'earlier' ? 'before' : 'after']: String(edge.seq),
+          through: String(page.through),
+        }).toString(),
+      );
+  }
+
   const detailsReady = Boolean(
     details?.id === id &&
     run &&
@@ -86,7 +93,24 @@ export function useRunInspector(id: string) {
     details: detailsReady ? details : null,
     detailsError: full.error,
     detailsPending: wantsDetails && (full.loading || full.refreshing),
-    events,
+    events: page?.items ?? [],
+    activityWindow: page,
+    activityAnchored: Boolean(position),
+    activityPage,
+    pinActivity() {
+      const last = page?.items.at(-1);
+      if (active && !position && page && last)
+        setPosition(
+          new URLSearchParams({
+            before: String(last.seq + 1),
+            through: String(page.through),
+          }).toString(),
+        );
+    },
+    latestActivity() {
+      setPosition('');
+      if (!position) void activity.refresh();
+    },
     eventsPending:
       tab === 'activity' && (activity.loading || activity.refreshing),
     eventsError: activity.error,
