@@ -8,6 +8,7 @@ export function ReviewList({
   path,
   onOpen,
   onClose,
+  backLabel = 'Back to Discussion',
   active = true,
 }: {
   roomId?: string;
@@ -15,6 +16,7 @@ export function ReviewList({
   path?: string;
   onOpen: (review: Review) => void;
   onClose?: () => void;
+  backLabel?: string;
   active?: boolean;
 }) {
   const params = new URLSearchParams();
@@ -36,7 +38,7 @@ export function ReviewList({
           {!onClose && (
             <h2>{path ? 'Review & Delivery' : 'Reviews & Deliveries'}</h2>
           )}
-          {onClose && <Button onClick={onClose}>Back to Discussion</Button>}
+          {onClose && <Button onClick={onClose}>{backLabel}</Button>}
         </div>
       )}
       {error ? (

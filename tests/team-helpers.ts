@@ -17,6 +17,36 @@ export const work = (page: Page) =>
 export const library = (page: Page) =>
   page.locator('[data-window-id="library:main"]');
 
+export async function openLibraryAction(
+  page: Page,
+  action: string,
+  room?: string,
+) {
+  await expect(
+    library(page).getByRole('region', { name: 'Selected file', exact: true }),
+  ).toBeVisible();
+  await library(page)
+    .getByRole('button', { name: 'More Library actions', exact: true })
+    .click();
+  if (action === 'Request Review…' || action === 'Review history…')
+    await page
+      .getByRole('menuitem', { name: 'Human approval', exact: true })
+      .click();
+  await page
+    .getByRole('menuitem', { name: room ? action + '…' : action, exact: true })
+    .click();
+  if (room) {
+    const dialog = page.getByRole('dialog');
+    await dialog
+      .getByRole('combobox', { name: 'Room', exact: true })
+      .selectOption({ label: room });
+    if (action === 'Add to Message')
+      await dialog
+        .getByRole('button', { name: 'Add to Message', exact: true })
+        .click();
+  }
+}
+
 export const settings = (page: Page) =>
   page.locator('[data-window-id="settings:main"]');
 

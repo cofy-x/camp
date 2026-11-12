@@ -1,5 +1,16 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import type { AppWindowProps, MenuItem } from '@cofy-x/camp-platinum';
+import {
+  createElement,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
+import {
+  Select,
+  type AppWindowProps,
+  type MenuItem,
+} from '@cofy-x/camp-platinum';
 import { libraryApi, type LibraryResource, type Publication } from './api';
 import type { Reference, Room } from '../workspace/api';
 import { useTeam } from '../../team/TeamContext';
@@ -17,6 +28,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   const sourcesId = useId();
   const sourcesToggle = useRef<HTMLButtonElement>(null);
   const importLauncher = useRef<HTMLButtonElement>(null);
+  const libraryActions = useRef<HTMLButtonElement>(null);
   const sourcesPanel = useRef<HTMLElement>(null);
   const closeSources = () => {
     setSourcesOpen(false);
@@ -72,6 +84,11 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     baseCommit: string;
   } | null>(null);
   const [targetRoom, setTargetRoom] = useState('');
+  const [reviewScope, setReviewScope] = useState<{
+    resourceId: string;
+    path: string;
+  } | null>(null);
+  useEffect(() => setReviewScope(null), [resourceId, path]);
   const [error, setError] = useState('');
   const libraryRead =
     useRead<Awaited<ReturnType<typeof libraryApi.list>>>('/library');
@@ -128,6 +145,69 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   const openLibraryActions = (button: HTMLButtonElement) => {
     const items: MenuItem[] = [];
     const downloadCommit = version?.commit ?? commit;
+    const browsing =
+      reference?.commit &&
+      !pending &&
+      !editor &&
+      !requestReview &&
+      !history &&
+      !comparison &&
+      !environmentOpen &&
+      !filesLoading &&
+      !filesError &&
+      !loading &&
+      !libraryError &&
+      commit === (version?.commit ?? resource?.currentCommit);
+    if (browsing && reference && resource) {
+      // Commands retain the exact selected version while the menu is open.
+      const selected = { ...reference };
+      items.push({
+        label: 'Add to Message…',
+        disabled: !rooms.length,
+        action: () => void handoff(selected),
+      });
+      if (resource.immutable) {
+        items.push({
+          label: 'Create Working Copy…',
+          disabled: !rooms.length,
+          action: () => void handoff(selected, true),
+        });
+      } else {
+        const room = reviewRoom;
+        items.push({
+          label: 'Human approval',
+          children: [
+            {
+              label: 'Request Review…',
+              disabled:
+                !room ||
+                Boolean(version && version.commit !== resource.currentCommit),
+              action: () => {
+                if (!room) return;
+                void flushTransition().then((saved) => {
+                  if (saved)
+                    setRequestReview({
+                      roomId: room.id,
+                      resourceId: selected.resourceId!,
+                      path: selected.path!,
+                      commit: selected.commit!,
+                    });
+                });
+              },
+            },
+            {
+              label: 'Review history…',
+              action: () =>
+                setReviewScope({
+                  resourceId: resource.id,
+                  path: selected.path!,
+                }),
+            },
+          ],
+        });
+      }
+      items.push({ separator: true });
+    }
     items.push({
       label: 'Download Files',
       href:
@@ -387,21 +467,61 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     }
   }
 
-  async function copy() {
-    if (!reference?.resourceId || !reference.path || !reference.commit) return;
-    const room = rooms.find((item) => item.id === targetRoom);
-    const target = resources.find((item) => item.id === room?.resourceId);
-    if (!target) return;
+  async function handoff(source: Reference, copying = false) {
+    if (!source.resourceId || !source.path || !source.commit || !rooms.length)
+      return;
+    let roomId = rooms.some((room) => room.id === targetRoom)
+      ? targetRoom
+      : rooms[0].id;
     const result = await desktop.dialog({
-      title: 'Create Working Copy',
-      message: `Copy this exact source into ${room?.name}. The original stays unchanged.`,
-      input: { label: 'File path', value: reference.path.split('/').at(-1) },
+      title: copying ? 'Create Working Copy' : 'Add to Message',
+      message: createElement(
+        'div',
+        null,
+        createElement('p', null, createElement('strong', null, source.path)),
+        createElement(
+          Select,
+          {
+            label: 'Room',
+            defaultValue: roomId,
+            onChange: (event) => {
+              roomId = event.target.value;
+            },
+          },
+          rooms.map((room) =>
+            createElement(
+              'option',
+              { key: room.id, value: room.id },
+              room.name,
+            ),
+          ),
+        ),
+      ),
+      input: copying
+        ? { label: 'File path', value: source.path.split('/').at(-1) }
+        : undefined,
       buttons: [
         { label: 'Cancel', value: 'cancel', cancel: true },
-        { label: 'Create Copy', value: 'copy', default: true },
+        {
+          label: copying ? 'Create Copy' : 'Add to Message',
+          value: 'continue',
+          default: true,
+        },
       ],
     });
-    if (result?.button !== 'copy') return;
+    if (result?.button !== 'continue') {
+      requestAnimationFrame(() =>
+        libraryActions.current?.focus({ preventScroll: true }),
+      );
+      return;
+    }
+    if (!copying) {
+      await team.navigate({ roomId, reference: source });
+      return;
+    }
+    const room = rooms.find((item) => item.id === roomId);
+    const target = resources.find((item) => item.id === room?.resourceId);
+    if (!target) return;
     setPending(true);
     setError('');
     try {
@@ -409,9 +529,9 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
         requestId: crypto.randomUUID(),
         expectedCommit: target.currentCommit,
         path: result.value.trim(),
-        sourceResourceId: reference.resourceId,
-        sourceCommit: reference.commit,
-        sourcePath: reference.path,
+        sourceResourceId: source.resourceId,
+        sourceCommit: source.commit,
+        sourcePath: source.path,
       });
       await selectResource(target.id);
       refresh();
@@ -549,6 +669,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     sourcesId,
     sourcesToggle,
     importLauncher,
+    libraryActions,
     sourcesPanel,
     closeSources,
     requestReview,
@@ -572,8 +693,14 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     comparison,
     setComparison,
     editor,
-    targetRoom,
-    setTargetRoom,
+    reviewsOpen:
+      reviewScope?.resourceId === resourceId && reviewScope.path === path,
+    closeFileReviews: () => {
+      setReviewScope(null);
+      requestAnimationFrame(() =>
+        libraryActions.current?.focus({ preventScroll: true }),
+      );
+    },
     error,
     libraryError,
     filesError,
@@ -587,11 +714,9 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     refresh,
     openLibraryActions,
     resource,
-    reviewRoom,
     reference,
     selectResource,
     edit,
-    copy,
     openDraft,
     openImport,
     toggleHistory,

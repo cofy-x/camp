@@ -10,6 +10,7 @@ import { remoteBrowserEnvironment } from './remote-browser-helpers';
 import {
   createRoom,
   library,
+  openLibraryAction,
   mutate,
   openApp,
   workspace,
@@ -291,9 +292,7 @@ test('real fixture work keeps its queued Runner, cancels once, and delivers the 
   await expect(
     library(page).getByRole('button', { name: 'Edit Text', exact: true }),
   ).toBeDisabled();
-  await library(page)
-    .getByRole('button', { name: 'Request Review…', exact: true })
-    .click();
+  await openLibraryAction(page, 'Request Review…');
   const request = library(page).getByRole('form', {
     name: 'Request document review',
     exact: true,
