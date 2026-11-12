@@ -24,6 +24,7 @@ export function Library({ desktop, window }: AppWindowProps) {
     sourcesId,
     sourcesToggle,
     importLauncher,
+    libraryActions,
     sourcesPanel,
     closeSources,
     requestReview,
@@ -46,8 +47,9 @@ export function Library({ desktop, window }: AppWindowProps) {
     comparison,
     setComparison,
     editor,
-    targetRoom,
-    setTargetRoom,
+    contextRoomId,
+    reviewsOpen,
+    closeFileReviews,
     error,
     libraryError,
     filesError,
@@ -61,11 +63,9 @@ export function Library({ desktop, window }: AppWindowProps) {
     refresh,
     openLibraryActions,
     resource,
-    reviewRoom,
     reference,
     selectResource,
     edit,
-    copy,
     openDraft,
     openImport,
     toggleHistory,
@@ -248,6 +248,7 @@ export function Library({ desktop, window }: AppWindowProps) {
                     {history ? 'Back to Files' : 'History'}
                   </Button>
                   <Button
+                    ref={libraryActions}
                     aria-label="More Library actions"
                     aria-haspopup="menu"
                     onClick={(event) => openLibraryActions(event.currentTarget)}
@@ -432,30 +433,12 @@ export function Library({ desktop, window }: AppWindowProps) {
                       key={`${resource.id}:${commit}:${path}`}
                       resource={resource}
                       reference={reference}
-                      rooms={rooms}
-                      targetRoom={targetRoom}
-                      onTargetRoom={setTargetRoom}
+                      reviewsOpen={reviewsOpen}
+                      onCloseReviews={closeFileReviews}
+                      contextRoomId={contextRoomId}
                       historical={Boolean(version)}
                       pending={pending}
                       onEdit={() => void edit()}
-                      onCopy={() => void copy()}
-                      onReview={
-                        !resource.immutable &&
-                        (!version ||
-                          version.commit === resource.currentCommit) &&
-                        reviewRoom
-                          ? () => {
-                              team.cancelNavigation();
-                              invalidateEditorRequest();
-                              setRequestReview({
-                                roomId: reviewRoom.id,
-                                resourceId: resource.id,
-                                path,
-                                commit,
-                              });
-                            }
-                          : undefined
-                      }
                     />
                   ) : (
                     <div className="camp-library-empty">

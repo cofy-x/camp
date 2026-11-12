@@ -145,25 +145,8 @@
   margin: 0 0 12px;
   font: 12px/1.5 var(--p9-font);
 }
-.camp-file-handoff {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 8px;
-  padding: 8px 12px;
-  border-top: 1px solid #ccc;
-}
-.camp-file-handoff .p9-field-label {
-  min-width: 0;
-  max-width: 100%;
-  font-size: 11px;
-}
-.camp-file-handoff .p9-select {
-  width: 150px;
-  max-width: 100%;
-  min-width: 70px;
-}
-.camp-file-detail > .p9-tabs {
+.camp-file-reading,
+.camp-file-reading > .p9-tabs {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -206,6 +189,9 @@
   box-shadow: inset 1px 1px #ddd;
 }
 .camp-file-detail .camp-review-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   border: 0;
   margin: 0;
   padding: 12px;
@@ -480,8 +466,7 @@
     min-width: 0;
     width: 100%;
   }
-  .camp-file-heading,
-  .camp-file-handoff {
+  .camp-file-heading {
     padding: 8px;
   }
   .camp-file-detail .workspace-file-preview {
@@ -501,7 +486,7 @@
     min-height: 100%;
     overflow: visible;
   }
-  .camp-file-detail > .p9-tabs,
+  .camp-file-reading > .p9-tabs,
   .camp-file-detail .p9-tab-panel,
   .camp-file-tab,
   .camp-file-reading {

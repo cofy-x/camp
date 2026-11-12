@@ -4,6 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 import {
   createRoom,
   library,
+  openLibraryAction,
   mutate,
   newDocument,
   openApp,
@@ -182,12 +183,7 @@ for (const inputMode of ['fill', 'keyboard'] as const) {
     await library(page)
       .getByRole('button', { name: 'Back to Files', exact: true })
       .click();
-    await expect(
-      library(page).getByRole('combobox', { name: 'Use in room', exact: true }),
-    ).toHaveValue(room.id);
-    await library(page)
-      .getByRole('button', { name: 'Add to Message', exact: true })
-      .click();
+    await openLibraryAction(page, 'Add to Message', room.name);
     await expect(workspace(page)).toHaveClass(/is-active/);
     await expect(
       workspace(page)
@@ -453,12 +449,13 @@ test('file upload preserves originals and desktop controls fit the viewport', as
       .getByRole('button', { name: 'Sources', exact: true })
       .tap();
   await original.click();
+  await library(page)
+    .getByRole('button', { name: 'More Library actions', exact: true })
+    .click();
   await expect(
-    library(page).getByRole('button', {
-      name: 'Create Working Copy…',
-      exact: true,
-    }),
+    page.getByRole('menuitem', { name: 'Create Working Copy…', exact: true }),
   ).toBeVisible();
+  await page.getByRole('menu').press('Escape');
   await expect(
     library(page).getByRole('button', { name: 'New Document', exact: true }),
   ).toBeDisabled();

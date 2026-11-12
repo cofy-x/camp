@@ -4,6 +4,7 @@ import {
   openRoomMore,
   createRoom,
   library,
+  openLibraryAction,
   mutate,
   newDocument,
   openApp,
@@ -247,9 +248,7 @@ test('a different Library source shows its own review loading state instead of t
   await workspace(page)
     .getByRole('button', { name: 'Files', exact: true })
     .click();
-  await library(page)
-    .getByRole('tab', { name: 'Reviews & Delivery', exact: true })
-    .click();
+  await openLibraryAction(page, 'Review history…');
   await expect(
     library(page).getByRole('button').filter({ hasText: source.title }),
   ).toBeVisible();
@@ -281,9 +280,7 @@ test('a different Library source shows its own review loading state instead of t
     await expect(library(page).locator('.p9-window-title')).toHaveText(
       `${destination.name} — Library`,
     );
-    await library(page)
-      .getByRole('tab', { name: 'Reviews & Delivery', exact: true })
-      .click();
+    await openLibraryAction(page, 'Review history…');
     const list = library(page).getByRole('region', {
       name: 'Document reviews',
       exact: true,
@@ -294,6 +291,26 @@ test('a different Library source shows its own review loading state instead of t
     ).toHaveCount(0);
     release();
     await expect(list).toContainText('No reviews yet.');
+    if (!(await sources.isVisible()))
+      await library(page)
+        .getByRole('button', { name: 'Sources', exact: true })
+        .click();
+    await sources
+      .getByRole('button')
+      .filter({ hasText: `${source.room.name} files` })
+      .click();
+    await expect(
+      library(page).getByRole('region', {
+        name: 'Preview review.md',
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      library(page).getByRole('region', {
+        name: 'Document reviews',
+        exact: true,
+      }),
+    ).toHaveCount(0);
     expect(errors.errors).toEqual([]);
   } finally {
     release();
@@ -390,9 +407,7 @@ test('a completed review request remains available without replacing a newer app
   await workspace(page)
     .getByRole('button', { name: 'Files', exact: true })
     .click();
-  await library(page)
-    .getByRole('button', { name: 'Request Review…', exact: true })
-    .click();
+  await openLibraryAction(page, 'Request Review…');
   const request = library(page).getByRole('form', {
     name: 'Request document review',
     exact: true,
@@ -604,9 +619,7 @@ test('two people review, revise and deliver an exact document version', async ({
     const submitted = await (
       await page.request.get(`/api/resources/${room.resourceId}/files`)
     ).json();
-    await library(page)
-      .getByRole('button', { name: 'Request Review…', exact: true })
-      .click();
+    await openLibraryAction(page, 'Request Review…');
     const request = library(page).getByRole('form', {
       name: 'Request document review',
       exact: true,
@@ -1231,9 +1244,7 @@ test('a disabled reviewer can be reassigned and a cancelled version can be revie
   await newDocument(page, 'scope.md', 'A small, explicit delivery scope.');
   await publish(page);
   const title = `Review assignment ${testInfo.project.name}`;
-  await library(page)
-    .getByRole('button', { name: 'Request Review…', exact: true })
-    .click();
+  await openLibraryAction(page, 'Request Review…');
   const request = library(page).getByRole('form', {
     name: 'Request document review',
     exact: true,
@@ -1371,9 +1382,7 @@ test('a disabled reviewer can be reassigned and a cancelled version can be revie
   await library(page)
     .getByRole('button', { name: 'Return to Latest', exact: true })
     .click();
-  await library(page)
-    .getByRole('button', { name: 'Request Review…', exact: true })
-    .click();
+  await openLibraryAction(page, 'Request Review…');
   await request
     .getByRole('button', { name: 'New Review', exact: true })
     .click();
@@ -1592,9 +1601,7 @@ test('a review form retains its draft and waits for an explicit newer version', 
   const initial = await (
     await page.request.get(`/api/resources/${room.resourceId}/files`)
   ).json();
-  await library(page)
-    .getByRole('button', { name: 'Request Review…', exact: true })
-    .click();
+  await openLibraryAction(page, 'Request Review…');
   const request = library(page).getByRole('form', {
     name: 'Request document review',
     exact: true,
@@ -1630,9 +1637,7 @@ test('a review form retains its draft and waits for an explicit newer version', 
       .reviews,
   ).toEqual([]);
   await request.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await library(page)
-    .getByRole('button', { name: 'Request Review…', exact: true })
-    .click();
+  await openLibraryAction(page, 'Request Review…');
   await expect(request.getByLabel('Title', { exact: true })).toHaveValue(title);
   await expect(request.getByLabel('Reviewer', { exact: true })).toHaveValue(
     user.id,

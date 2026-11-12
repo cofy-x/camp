@@ -107,6 +107,9 @@ test('Library downloads its selected saved revision through pointer and keyboard
       'href',
       `/api/resources/${room.resourceId}/archive?commit=${latest}`,
     );
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await expect(downloadItem).toHaveClass(/is-selected/);
     const complete = page.waitForEvent('download');
     await page.keyboard.press(key);
     const keyboardDownload = await complete;

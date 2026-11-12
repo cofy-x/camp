@@ -1,7 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { createRoom, library, mutate, signIn, workspace } from './team-helpers';
+import {
+  createRoom,
+  library,
+  openLibraryAction,
+  mutate,
+  post,
+  signIn,
+  workspace,
+} from './team-helpers';
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
@@ -210,6 +218,115 @@ test('an empty resource can configure its environment without starting agent wor
   ).toEqual({});
 });
 
+test('file handoff retains the selected version through a background publication and stays unsent', async ({
+  page,
+}, info) => {
+  const room = await createRoom(page, `exact-handoff-${info.project.name}`);
+  const path = 'plan.md';
+  const listing = await (
+    await page.request.get(`/api/resources/${room.resourceId}/files`)
+  ).json();
+  const first = await mutate(
+    page,
+    `/resources/${room.resourceId}/files`,
+    {
+      requestId: randomUUID(),
+      expectedCommit: listing.commit,
+      path,
+      content: '# Original plan\n\nKeep this exact version.',
+    },
+    'PUT',
+  );
+  expect(first.ok()).toBeTruthy();
+  const { publication } = await first.json();
+  let reviewReads = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/reviews') reviewReads++;
+  });
+  await openLibrary(page);
+  const win = library(page);
+  await expect(
+    win.getByRole('region', { name: `Preview ${path}` }),
+  ).toContainText('Original plan');
+  const more = win.getByRole('button', {
+    name: 'More Library actions',
+    exact: true,
+  });
+  await more.click();
+  await page
+    .getByRole('menuitem', { name: 'Add to Message…', exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Add to Message', exact: true })
+    .getByRole('button', { name: 'Cancel', exact: true })
+    .click();
+  await expect(more).toBeFocused();
+  await more.focus();
+  await more.press('ArrowDown');
+  await page
+    .getByRole('menuitem', { name: 'Add to Message…', exact: true })
+    .press('Enter');
+  const handoff = page.getByRole('dialog', {
+    name: 'Add to Message',
+    exact: true,
+  });
+  const newer = await mutate(
+    page,
+    `/resources/${room.resourceId}/files`,
+    {
+      requestId: randomUUID(),
+      expectedCommit: publication.commit,
+      path,
+      content: '# Newer plan\n\nA later revision.',
+    },
+    'PUT',
+  );
+  expect(newer.ok()).toBeTruthy();
+  await expect(
+    win.getByRole('region', { name: `Preview ${path}` }),
+  ).toContainText('Newer plan');
+  const chooser = handoff.getByRole('combobox', { name: 'Room', exact: true });
+  if (info.project.name === 'touch') {
+    await chooser.tap();
+    await page
+      .getByRole('listbox', { name: 'Room', exact: true })
+      .getByRole('option', { name: room.name, exact: true })
+      .tap();
+    await handoff
+      .getByRole('button', { name: 'Add to Message', exact: true })
+      .tap();
+  } else {
+    await chooser.focus();
+    await chooser.press('End');
+    await chooser.press('Enter');
+    await expect(chooser).toHaveValue(room.id);
+    await handoff
+      .getByRole('button', { name: 'Add to Message', exact: true })
+      .click();
+  }
+  await expect(workspace(page)).toHaveClass(/is-active/);
+  await expect(
+    workspace(page)
+      .getByRole('form', { name: 'Room composer' })
+      .getByText(path, { exact: true }),
+  ).toBeVisible();
+  const messages = async () =>
+    (await (await page.request.get(`/api/rooms/${room.id}/messages`)).json())
+      .messages;
+  expect(await messages()).toEqual([]);
+  expect(reviewReads).toBe(0);
+  await post(page, room.name, 'Keep the selected original plan.');
+  const sent = (await messages()).at(-1);
+  expect(sent.references[0]).toMatchObject({
+    resourceId: room.resourceId,
+    path,
+    commit: publication.commit,
+  });
+  expect(
+    (await (await page.request.get(`/api/rooms/${room.id}/runs`)).json()).runs,
+  ).toEqual([]);
+});
+
 test('Library renders readable Markdown and keeps file actions safe in small windows', async ({
   page,
   isMobile,
@@ -313,19 +430,25 @@ test('Library renders readable Markdown and keeps file actions safe in small win
     return element.scrollTop;
   });
   expect(readingPosition).toBeGreaterThan(0);
-  const previewTab = win.getByRole('tab', { name: 'Preview', exact: true });
-  await previewTab.focus();
-  await previewTab.press('ArrowRight');
-  const reviewsTab = win.getByRole('tab', {
-    name: 'Reviews & Delivery',
-    exact: true,
-  });
-  await expect(reviewsTab).toBeFocused();
+  await expect(
+    win.getByRole('tab', { name: 'Reviews & Delivery', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    win.getByRole('button', { name: 'Request Review…', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    win.getByRole('combobox', { name: 'Use in room', exact: true }),
+  ).toHaveCount(0);
+  await openLibraryAction(page, 'Review history…');
   await expect(
     win.getByRole('region', { name: 'Document reviews' }),
-  ).toHaveText('No reviews yet.');
-  await reviewsTab.press('ArrowLeft');
-  await expect(previewTab).toBeFocused();
+  ).toContainText('No reviews yet.');
+  await win
+    .getByRole('button', { name: 'Back to Preview', exact: true })
+    .click();
+  await expect(
+    win.getByRole('button', { name: 'More Library actions', exact: true }),
+  ).toBeFocused();
   await expect(preview.locator('pre')).toHaveText(content);
   expect(await readingPane.evaluate((element) => element.scrollTop)).toBe(
     readingPosition,
@@ -335,9 +458,7 @@ test('Library renders readable Markdown and keeps file actions safe in small win
     .click();
   await expect(preview.getByRole('table')).toBeVisible();
 
-  await win
-    .getByRole('button', { name: 'Request Review…', exact: true })
-    .click();
+  await openLibraryAction(page, 'Request Review…');
   const request = win.getByRole('form', { name: 'Request document review' });
   await expect(request).toContainText(path);
   await request.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -385,10 +506,10 @@ test('Library renders readable Markdown and keeps file actions safe in small win
   await end.scrollIntoViewIfNeeded();
   await expect(end).toBeInViewport();
   await win
-    .getByRole('button', { name: 'Request Review…', exact: true })
+    .getByRole('button', { name: 'Edit Text', exact: true })
     .scrollIntoViewIfNeeded();
   await expect(
-    win.getByRole('button', { name: 'Request Review…', exact: true }),
+    win.getByRole('button', { name: 'Edit Text', exact: true }),
   ).toBeInViewport();
   await page.screenshot({
     path: testInfo.outputPath('library-short-window.png'),
@@ -442,9 +563,7 @@ test('binary working copies keep exact bytes and do not offer text editing', asy
     .getByRole('link', { name: `Download ${filename}`, exact: true })
     .getAttribute('href');
   expect(originalURL).toBeTruthy();
-  await win
-    .getByRole('button', { name: 'Create Working Copy…', exact: true })
-    .click();
+  await openLibraryAction(page, 'Create Working Copy', room.name);
   const dialog = page.getByRole('dialog');
   await dialog
     .getByLabel('File path', { exact: true })

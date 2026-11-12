@@ -15,13 +15,16 @@ Camp's browser desktop has six applications:
 | Runners | Connecting machines, execution readiness and access grants |
 | Settings | Team, invitations, model configuration, storage and appearance |
 
-## From discussion to delivery
+## From discussion to results
 
 1. **Discuss in a Room.** With Automation off, ordinary messages start no Agent work. Select an Agent or mention its handle for one execution; **Post only** also suppresses automated assessment and context tracking.
 2. **Collect sources.** Attach files or select Library sources. Uploads retain the original. **Add to Message** prepares an unsent reference to an exact version. Use Markdown for readable documents. UTF-8 files can be viewed as source; other attachments remain downloadable as originals.
 3. **Send work explicitly.** Read the result and exact saved files in the conversation. Check status describes configured commands, not business acceptance. **Ask agent…** prepares a cited follow-up that still needs a recipient and Send.
-4. **Edit and review.** Library edits autosave privately; **Publish Changes** creates a shared version. Open a shared file and use **Request Review…** to ask a person. Requested changes, resubmission and approval use the same review Thread.
-5. **Deliver a version.** Deliver the approved current version explicitly. Delivered bytes remain pinned after later edits. History and restore preserve earlier versions.
+4. **Read or edit the result.** Work keeps the current outcome and exact saved files together. Library opens directly for reading. Edits autosave privately; **Publish Changes** creates a shared version. History and restore preserve earlier versions.
+
+Formal human approval is optional. When specifically required, a shared file's **More → Human approval → Request Review…** pins its exact version and names a reviewer. Existing decisions and deliveries remain available through **Review history…**, their discussion and **Needs me**. Requested changes, approval and explicit delivery retain their original authority and immutable records; ordinary Work does not pass through this flow. Agent checks and review steps run within their existing task authorization and do not impersonate human approval. Recorded document delivery fixes a version; it does not deploy an application or send it externally.
+
+Use **More → Add to Message…** and choose a Room to prepare a reference without sending. Original sources also offer **Create Working Copy…** with a Room choice. These commands retain the selected exact version while the menu is open.
 
 File uploads and limits are described in the [upload contract](api.md#file-uploads); human decisions follow the [review and delivery contract](api.md#reviews-and-delivery).
 
