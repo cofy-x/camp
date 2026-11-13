@@ -1,0 +1,33 @@
+{
+  "side": "after",
+  "port": "13443",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "dpr": 1,
+  "synthetic": true,
+  "errors": [],
+  "messageActions": [
+    [
+      "Reply in thread",
+      "More message actions"
+    ],
+    [
+      "Reply in thread",
+      "More message actions"
+    ],
+    [
+      "Reply in thread",
+      "More message actions"
+    ]
+  ],
+  "unassignedGoalFields": 1,
+  "goalBox": {
+    "x": 176,
+    "y": 157,
+    "width": 760,
+    "height": 37.6875
+  },
+  "narrowOverflow": false
+}

@@ -1,0 +1,39 @@
+{
+  "side": "before",
+  "port": "13442",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "dpr": 1,
+  "synthetic": true,
+  "errors": [],
+  "messageActions": [
+    [
+      "Ask agent…",
+      "Follow up…",
+      "Remember this…",
+      "Reply in thread"
+    ],
+    [
+      "Ask agent…",
+      "Follow up…",
+      "Remember this…",
+      "Reply in thread"
+    ],
+    [
+      "Ask agent…",
+      "Follow up…",
+      "Remember this…",
+      "Reply in thread"
+    ]
+  ],
+  "unassignedGoalFields": 0,
+  "goalBox": {
+    "x": 176,
+    "y": 157,
+    "width": 760,
+    "height": 188.4375
+  },
+  "narrowOverflow": false
+}
