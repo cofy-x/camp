@@ -16,7 +16,7 @@ export interface WorkItem {
   policyId?: string;
   goal: string;
   completionCriteria: string;
-  completionMode?: 'human' | 'criteria';
+  completionMode?: 'automatic' | 'human' | 'criteria';
   status: string;
   revision: number;
   activeTaskId?: string;
@@ -99,6 +99,7 @@ export interface WorkItem {
 }
 
 export interface WorkItemInput {
+  completionMode?: 'automatic' | 'human';
   requestId: string;
   goal: string;
   completionCriteria?: string;
@@ -126,6 +127,7 @@ export interface WorkItemDefaults {
 }
 
 export type WorkActionName =
+  | 'completion'
   | 'start'
   | 'answer'
   | 'answer_continue'
@@ -139,6 +141,8 @@ export type WorkActionName =
   | 'authorize';
 
 export interface WorkActionInput {
+  completionMode?: 'automatic' | 'human';
+  completionCriteria?: string;
   requestId: string;
   revision: number;
   comment?: string;
@@ -200,12 +204,6 @@ export interface WorkItemOperation {
   firstAgentId?: string;
 }
 
-export interface WorkItemPage {
-  items: WorkItem[];
-  nextAfter: number;
-  hasMore: boolean;
-}
-
 export type WorkListItem = Pick<
   WorkItem,
   | 'seq'
@@ -245,35 +243,6 @@ const post = (value: unknown) => ({
 });
 
 export const workItemsApi = {
-  work: (query: WorkListQuery, signal?: AbortSignal) =>
-    request<WorkListPage>(
-      `/work-items?${new URLSearchParams({ ...query, limit: '20' })}`,
-      { signal },
-    ),
-  list: (roomId: string, after = 0, signal?: AbortSignal, state = 'all') =>
-    request<WorkItemPage>(
-      `/rooms/${id(roomId)}/work-items?after=${after}&limit=20&state=${id(state)}`,
-      { signal },
-    ),
-  defaults: (roomId: string, signal?: AbortSignal, policyId = '') =>
-    request<{ defaults: WorkItemDefaults }>(
-      `/rooms/${id(roomId)}/work-item-defaults${policyId ? `?policyId=${id(policyId)}` : ''}`,
-      { signal },
-    ),
-  item: (itemId: string, signal?: AbortSignal) =>
-    request<{ item: WorkItem }>(`/work-items/${id(itemId)}`, { signal }),
-  history: <
-    K extends 'evidence' | 'decisions' | 'tasks' | 'timers' | 'actions',
-  >(
-    itemId: string,
-    kind: K,
-    cursor = '',
-    signal?: AbortSignal,
-  ) =>
-    request<{ items: WorkItem[K]; nextCursor: string }>(
-      `/work-items/${id(itemId)}/history/${kind}?${new URLSearchParams({ cursor, limit: '20' })}`,
-      { signal },
-    ),
   create: (roomId: string, value: WorkItemInput) =>
     request<{ item: WorkItem }>(`/rooms/${id(roomId)}/work-items`, post(value)),
   decide: (itemId: string, value: WorkItemOperation) =>
@@ -320,3 +289,12 @@ export const decisionLabel: Record<string, string> = {
   unfollow: 'Stop following conversation',
   authorize: 'Change allowance',
 };
+
+export interface WorkActivity {
+  seq: number;
+  id: string;
+  kind: string;
+  content: string;
+  taskId: string;
+  createdAt: string;
+}

@@ -91,6 +91,9 @@ func (m *Manager) buildInput(ctx context.Context, run storage.Run, a storage.Att
 			prompt += "\nThe previous task draft is read-only evidence named previous-task-draft under the reference root announced by this turn's Runner. Reconcile it with the active workspace; do not replace the shared tree wholesale.\n"
 		}
 		taskSpec = &p.Collaboration{ID: task.ID, Goal: task.Goal, AgentID: run.AgentID, Participants: []p.Participant{}}
+		if task.WorkItemCompletionAuthorized {
+			taskSpec.WorkItemCompletionCriteria = task.WorkItemCompletionCriteria
+		}
 		if run.TaskInputProtocol == 1 {
 			taskSpec.Inputs = &p.TaskInputScope{Version: 1, After: run.TaskInputAfter, Through: run.TaskInputRevision}
 		}

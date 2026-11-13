@@ -118,6 +118,13 @@ export function affectedRead(path: string, event: WorkspaceEvent): boolean {
           (!url.searchParams.get('resourceId') ||
             url.searchParams.get('resourceId') === event.entityId)))
     );
+  if (room && route.endsWith('/work-item-defaults'))
+    return (
+      (!event.roomId || room === event.roomId) &&
+      /^(room\.updated|membership\.updated|agent\.updated|runner\.updated|execution_defaults\.updated|automation\.policy\.updated)$/.test(
+        type,
+      )
+    );
   if (room) {
     if (event.roomId && room !== event.roomId) return false;
     if (route.endsWith('/members'))

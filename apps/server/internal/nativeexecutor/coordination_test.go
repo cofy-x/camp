@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 
@@ -144,5 +145,43 @@ func TestTaskHistoryPrivateCoordinatorRejectsForeignScopeAndClosesBeforeIntent(t
 	}
 	if _, err := newCoordination(context.Background(), p.Collaboration{ID: "task", AgentID: "writer", Participants: []p.Participant{{ID: "writer"}}, Inputs: &p.TaskInputScope{Version: 2}}, func(context.Context, p.CoordinationIntent) error { return nil }, nil); err == nil {
 		t.Fatal("future scope was accepted")
+	}
+}
+
+func TestCoordinationRequiresCompletionJudgmentOnlyForAuthorizedFinish(t *testing.T) {
+	task := p.Collaboration{ID: "task", AgentID: "writer"}
+	finish := p.CoordinationIntent{CallID: "finish", Kind: "finish", Summary: "The saved file was checked."}
+	if err := validateCoordination(task, finish); err != nil {
+		t.Fatal("legacy task requires a new grant", err)
+	}
+	finish.WorkItemCompletion = &p.WorkItemCompletion{CriteriaMet: true, Reason: "The requested output is saved."}
+	if validateCoordination(task, finish) == nil {
+		t.Fatal("an independent task acquired Work completion authority")
+	}
+	task.WorkItemCompletionCriteria = "Save the checked file"
+	if err := validateCoordination(task, finish); err != nil {
+		t.Fatal(err)
+	}
+	finish.WorkItemCompletion.CriteriaMet = false
+	if err := validateCoordination(task, finish); err != nil {
+		t.Fatal("a negative judgment must remain valid", err)
+	}
+	for _, reason := range []string{"", strings.Repeat("x", 8193)} {
+		finish.WorkItemCompletion.Reason = reason
+		if validateCoordination(task, finish) == nil {
+			t.Fatal("accepted missing or unbounded judgment evidence")
+		}
+	}
+	finish.WorkItemCompletion = nil
+	if validateCoordination(task, finish) == nil {
+		t.Fatal("authorized finish omitted its judgment")
+	}
+	question := p.CoordinationIntent{CallID: "question", Kind: "ask_person", Question: "Which customer?"}
+	if err := validateCoordination(task, question); err != nil {
+		t.Fatal("a question was forced to finish the matter", err)
+	}
+	question.WorkItemCompletion = &p.WorkItemCompletion{CriteriaMet: true, Reason: "Unrelated judgment"}
+	if validateCoordination(task, question) == nil {
+		t.Fatal("a question closed the matter")
 	}
 }

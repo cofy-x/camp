@@ -153,3 +153,76 @@ func TestWorkItemHistoryWholeRecordsAndMutableStatusProjection(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkTimelineRetainsRecentFirstPagesAndOriginals(t *testing.T) {
+	s, actor, member, room, _, _ := taskFixture(t)
+	w := historyWorkItem(t, s, actor, room)
+	reason := strings.Repeat("Recorded progress. ", 1700)
+	appendProgress := func(text string) {
+		t.Helper()
+		if err := s.transaction(ctx, func(tx *sql.Tx) error {
+			return appendWorkDecision(ctx, sqlgen.New(tx), w, orchestration.WorkDecision{Kind: "wait", Reason: text, ActorKind: "user", ActorID: actorID(actor)})
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 30 {
+		appendProgress(reason)
+	}
+	first, err := s.WorkItemHistory(member, w.ID, "timeline", "", 20)
+	if err != nil || len(first.Items) == 0 || len(first.Items) >= 20 || first.NextCursor == "" {
+		t.Fatal("byte bound did not retain a navigable page", first, err)
+	}
+	appendProgress("New progress after the retained frontier")
+	retained, err := s.WorkItemHistory(member, w.ID, "timeline", first.Cursor, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := json.Marshal(first.Items)
+	after, _ := json.Marshal(retained.Items)
+	if string(before) != string(after) {
+		t.Fatal("returning to the first page replaced its retained frontier")
+	}
+
+	cursor, items := first.NextCursor, append([]json.RawMessage{}, first.Items...)
+	for cursor != "" {
+		page, err := s.WorkItemHistory(member, w.ID, "timeline", cursor, 20)
+		if err != nil || len(page.Items) == 0 {
+			t.Fatal(page, err)
+		}
+		encoded, _ := json.Marshal(page)
+		if len(encoded)+1 > workHistoryPageBytes {
+			t.Fatal("unbounded timeline", len(encoded))
+		}
+		items = append(items, page.Items...)
+		cursor = page.NextCursor
+	}
+	if len(items) != 31 {
+		t.Fatal("timeline lost or crossed its original frontier", len(items))
+	}
+	previous := int64(1 << 62)
+	for index, raw := range items {
+		var entry struct {
+			Seq     int64
+			Content string
+		}
+		if err := json.Unmarshal(raw, &entry); err != nil || entry.Seq >= previous {
+			t.Fatal("reordered or duplicate progress", entry, err)
+		}
+		if index < 30 && entry.Content != reason {
+			t.Fatal("truncated authored progress")
+		}
+		previous = entry.Seq
+	}
+	latest, err := s.WorkItemHistory(member, w.ID, "timeline", "", 1)
+	if err != nil || !strings.Contains(string(latest.Items[0]), "New progress after") {
+		t.Fatal(latest, err)
+	}
+	_, err = s.WorkItemHistory(member, w.ID, "decisions", first.NextCursor, 20)
+	requireCode(t, err, "invalid_page")
+	// The display projection does not replace or rewrite the original audit.
+	originals, err := s.WorkItemHistory(member, w.ID, "decisions", "", 20)
+	if err != nil || !strings.Contains(string(originals.Items[1]), reason) {
+		t.Fatal("original decisions changed", err)
+	}
+}

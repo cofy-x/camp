@@ -57,8 +57,19 @@ export function Work(props: AppWindowProps) {
           ))}
         </Select>
         <div className="app-actions">
-          <Button onClick={work.refresh}>
-            {work.error ? 'Retry work' : 'Refresh'}
+          {work.error && <Button onClick={work.refresh}>Retry work</Button>}
+          <Button
+            aria-label="More work list actions"
+            aria-haspopup="menu"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              props.desktop.contextMenu(
+                [{ label: 'Refresh', action: work.refresh }],
+                { x: rect.left, y: rect.bottom },
+              );
+            }}
+          >
+            More
           </Button>
           <Button primary={work.view !== 'needs_me'} onClick={work.newWork}>
             New work…
@@ -213,6 +224,8 @@ export function Work(props: AppWindowProps) {
               )}
               {selection.roomId && (
                 <WorkItemDetail
+                  active={!inspection.taskId}
+                  desktop={props.desktop}
                   key={selection.id}
                   id={selection.id}
                   initialRequest={selection.request}

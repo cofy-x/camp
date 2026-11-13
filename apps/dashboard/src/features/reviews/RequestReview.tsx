@@ -3,7 +3,7 @@ import { Button, Select, type DesktopAPI } from '@cofy-x/camp-platinum';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
 import { useTeam } from '../../team/TeamContext';
 import { useAccount } from '../../team/AuthContext';
-import { DraftRecovery } from './DraftRecovery';
+import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
 import { registerDraftWriter } from '../../team/draftRegistry';
 import { APIError } from '../../shared/api/http';
 import { reviewsApi, type Review } from './api';

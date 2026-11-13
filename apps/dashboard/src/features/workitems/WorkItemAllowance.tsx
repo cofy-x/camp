@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
-import { DraftRecovery } from '../reviews/DraftRecovery';
-import { BudgetEditor, localDateTime, utcDateTime } from './WorkItemForm';
+import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
+import { WorkBudgetEditor } from './WorkBudgetEditor';
+import { localDateTime, utcDateTime } from './workSettings';
 import type { WorkOperation } from './useWorkItemOperation';
+import { confirmedWorkAction } from './workRequestRecovery';
 import type { WorkBudget, WorkItem } from './api';
 
 type AllowanceDraft = {
@@ -57,14 +59,7 @@ export function WorkItemAllowance({
   useEffect(() => onDraftChange(hasDraft), [hasDraft, onDraftChange]);
   useEffect(() => {
     const saved = operation.confirmation;
-    if (
-      saved &&
-      saved.kind !== 'create' &&
-      (saved.kind === 'action'
-        ? saved.action === 'authorize'
-        : saved.body.kind === 'authorize')
-    )
-      clearDraft(null);
+    if (confirmedWorkAction(saved) === 'authorize') clearDraft(null);
   }, [operation.confirmation, clearDraft]);
 
   function edit(change: Partial<AllowanceDraft>) {
@@ -129,7 +124,7 @@ export function WorkItemAllowance({
             </p>
           )}
           <fieldset disabled={disabled}>
-            <BudgetEditor
+            <WorkBudgetEditor
               value={values.budget}
               onChange={(budget) => edit({ budget })}
             />
@@ -158,9 +153,11 @@ export function WorkItemAllowance({
           <p>
             Used and reserved allowance stays charged. Saving starts no work.
           </p>
-          <Button primary type="submit" disabled={disabled || stale}>
-            Save allowance
-          </Button>
+          <div className="app-actions">
+            <Button primary type="submit" disabled={disabled || stale}>
+              Save allowance
+            </Button>
+          </div>
         </form>
       </section>
     </>

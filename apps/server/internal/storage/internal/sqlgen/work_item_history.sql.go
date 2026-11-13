@@ -241,6 +241,60 @@ func (q *Queries) WorkHistoryTasksPage(ctx context.Context, arg WorkHistoryTasks
 	return items, nil
 }
 
+const workHistoryTimelinePage = `-- name: WorkHistoryTimelinePage :many
+SELECT CAST(d.seq AS INTEGER) AS seq,
+CAST(json_object('seq',d.seq,'id',d.id,'kind',json_extract(d.value,'$.kind'),
+ 'content',CASE json_extract(d.value,'$.kind')
+ WHEN 'result' THEN coalesce(json_extract(t.snapshot,'$.summary'),'')
+ WHEN 'action_result' THEN coalesce((SELECT 'Delivery ' || json_extract(e.value,'$.status') || '.' FROM work_action_receipts e WHERE e.event_id=json_extract(d.value,'$.evidenceIds[0]')),'')
+ ELSE coalesce(json_extract(d.value,'$.reason'),'') END,
+ 'taskId',coalesce(json_extract(d.value,'$.taskId'),''),'createdAt',json_extract(d.value,'$.createdAt')) AS TEXT) AS value
+FROM work_item_decisions d
+LEFT JOIN collaboration_tasks t ON t.id=json_extract(d.value,'$.taskId')
+WHERE d.work_item_id=?1 AND d.seq<?2 AND d.seq<=?3
+ORDER BY d.seq DESC LIMIT ?4
+`
+
+type WorkHistoryTimelinePageParams struct {
+	WorkItemID  string
+	BeforeSeq   int64
+	ThroughSeq  int64
+	ResultLimit int64
+}
+
+type WorkHistoryTimelinePageRow struct {
+	Seq   int64
+	Value string
+}
+
+func (q *Queries) WorkHistoryTimelinePage(ctx context.Context, arg WorkHistoryTimelinePageParams) ([]WorkHistoryTimelinePageRow, error) {
+	rows, err := q.db.QueryContext(ctx, workHistoryTimelinePage,
+		arg.WorkItemID,
+		arg.BeforeSeq,
+		arg.ThroughSeq,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkHistoryTimelinePageRow{}
+	for rows.Next() {
+		var i WorkHistoryTimelinePageRow
+		if err := rows.Scan(&i.Seq, &i.Value); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const workHistoryTimersFrontier = `-- name: WorkHistoryTimersFrontier :one
 SELECT CAST(coalesce(max(t.seq),0) AS INTEGER) AS through_seq FROM work_item_timers t WHERE t.work_item_id=?1
 `

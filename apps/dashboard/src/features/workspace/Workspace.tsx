@@ -1,3 +1,4 @@
+import { useWorkspaceView } from './useWorkspaceView';
 import { useEffect, useRef, useState } from 'react';
 import { Button, PixelIcon, Select, StatusBar } from '@cofy-x/camp-platinum';
 import type { AppWindowProps } from '@cofy-x/camp-platinum';
@@ -47,24 +48,22 @@ export function Workspace({ window, desktop }: AppWindowProps) {
     document.addEventListener('visibilitychange', update);
     return () => document.removeEventListener('visibilitychange', update);
   }, []);
-  const [panel, setPanel] = useState<
-    | 'chat'
-    | 'agents'
-    | 'reviews'
-    | 'tasks'
-    | 'start-task'
-    | 'automation'
-    | 'memory'
-  >('chat');
-  const [inspect, setInspect] = useState('');
-  const [taskId, setTaskId] = useState('');
+  const {
+    panel,
+    setPanel,
+    inspect,
+    setInspect,
+    taskId,
+    setTaskId,
+    reviewId,
+    setReviewId,
+  } = useWorkspaceView();
   const [managementView, setManagementView] = useState<'settings' | 'activity'>(
     'settings',
   );
   const [managementRequest, setManagementRequest] = useState(0);
   const [memoryMessage, setMemoryMessage] = useState<Message>();
   const [memoryRequest, setMemoryRequest] = useState(0);
-  const [reviewId, setReviewId] = useState('');
   const [sourceId, setSourceId] = useState('');
   const [sourceRequest, setSourceRequest] = useState(0);
   const [actionError, setActionError] = useState('');
@@ -201,7 +200,17 @@ export function Workspace({ window, desktop }: AppWindowProps) {
               : 'Could not open this message.',
           );
         });
-  }, [team, workspace, roomId, threadId, panel]);
+  }, [
+    team,
+    workspace,
+    roomId,
+    threadId,
+    panel,
+    setInspect,
+    setPanel,
+    setReviewId,
+    setTaskId,
+  ]);
 
   async function navigate(change: () => void) {
     team.cancelNavigation();

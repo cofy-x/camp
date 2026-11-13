@@ -9,6 +9,7 @@ import {
   openInboxActivity,
   signIn,
   work,
+  openWorkAction,
   workspace,
 } from './team-helpers';
 
@@ -141,9 +142,7 @@ test('Work prioritizes attention across Rooms and Room and Inbox shortcuts reuse
   await expect(viewFilter(page)).toHaveValue('all');
   await rows.getByRole('button').filter({ hasText: active.goal }).click();
   await expect(detail(page)).toContainText(active.goal);
-  await detail(page)
-    .getByRole('button', { name: 'Open Room', exact: true })
-    .click();
+  await openWorkAction(page, 'Open Room');
   await expect(workspace(page)).toHaveClass(/is-active/);
   await expect(
     workspace(page).getByLabel(`Message ${second.name}`, { exact: true }),
@@ -223,9 +222,7 @@ test('Work keeps a paged frontier during background updates and explicitly refre
   await expect(previous).toBeVisible();
   expect(cursors.at(-1)).toBe(cursor);
 
-  await work(page)
-    .getByRole('button', { name: 'Refresh', exact: true })
-    .click();
+  await openWorkAction(page, 'Refresh');
   await expect(titles).toHaveText([newest, ...goals.slice(2).reverse()]);
   await expect(previous).toHaveCount(0);
   expect(cursors.at(-1)).toBe('');
@@ -287,9 +284,7 @@ test('message follow-up opens Work with exact source context and returns to the 
       enabled: true,
     }),
   ]);
-  await detail(page)
-    .getByRole('button', { name: 'Open Room', exact: true })
-    .click();
+  await openWorkAction(page, 'Open Room');
   await expect(workspace(page)).toHaveClass(/is-active/);
   await expect(input).toHaveValue(unsent);
   await expect(source).toContainText(content);

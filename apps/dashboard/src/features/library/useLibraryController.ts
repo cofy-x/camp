@@ -19,12 +19,26 @@ import { useAccount } from '../../team/AuthContext';
 import { flushPrivateDrafts } from '../../team/draftRegistry';
 import { teamApi } from '../../team/api';
 import { readTextFile } from './textFile';
+import { useLibraryView } from './useLibraryView';
 
 // Owns reads, mutations and recovery for this mounted view.
 export function useLibraryController({ desktop, window }: AppWindowProps) {
   const team = useTeam();
   const [sourcesOpen, setSourcesOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
+  const {
+    importOpen,
+    setImportOpen,
+    environmentOpen,
+    setEnvironmentOpen,
+    history,
+    setHistory,
+    comparison,
+    setComparison,
+    editor,
+    setEditor,
+    requestReview,
+    setRequestReview,
+  } = useLibraryView();
   const sourcesId = useId();
   const sourcesToggle = useRef<HTMLButtonElement>(null);
   const importLauncher = useRef<HTMLButtonElement>(null);
@@ -47,12 +61,6 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     target?.focus({ preventScroll: true });
     selected?.scrollIntoView({ block: 'nearest' });
   }, [sourcesOpen]);
-  const [requestReview, setRequestReview] = useState<{
-    roomId: string;
-    resourceId: string;
-    path: string;
-    commit: string;
-  } | null>(null);
   const appliedNavigation = useRef(0);
   const selectedResource = useRef(window.params.resourceId ?? '');
   const { user } = useAccount();
@@ -63,25 +71,16 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [resourceId, setResourceId] = useState(window.params.resourceId ?? '');
   const [path, setPath] = useState('');
-  const [history, setHistory] = useState(false);
   const historyRead = useRead<{ publications: Publication[] }>(
     resourceId ? `/resources/${encodeURIComponent(resourceId)}/history` : null,
-    { enabled: history },
+    { enabled: history && !comparison },
   );
   const publications = historyRead.data?.publications ?? [];
   const historyError = historyRead.error;
   const historyLoading = history && historyRead.loading;
-  const [environmentOpen, setEnvironmentOpen] = useState(false);
   const [version, setVersion] = useState<{
     commit: string;
     createdAt?: string;
-  } | null>(null);
-  const [comparison, setComparison] = useState<Publication | null>(null);
-  const [editor, setEditor] = useState<{
-    resourceId: string;
-    path: string;
-    content: string;
-    baseCommit: string;
   } | null>(null);
   const [targetRoom, setTargetRoom] = useState('');
   const [reviewScope, setReviewScope] = useState<{
@@ -240,9 +239,6 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
           action: () =>
             void flushTransition().then((saved) => {
               if (!saved) return;
-              setEditor(null);
-              setHistory(false);
-              setComparison(null);
               setEnvironmentOpen(true);
             }),
         },
@@ -317,7 +313,17 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
       setHistory(false);
     }
     if (intent.path) setPath(intent.path);
-  }, [team.navigation, rooms, invalidateEditorRequest]);
+  }, [
+    team.navigation,
+    rooms,
+    invalidateEditorRequest,
+    setComparison,
+    setEditor,
+    setEnvironmentOpen,
+    setHistory,
+    setImportOpen,
+    setRequestReview,
+  ]);
   const resource = resources.find((item) => item.id === resourceId);
   const location =
     (resource &&
@@ -629,10 +635,6 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   async function openImport() {
     if (!(await flushTransition())) return;
     setImportOpen(true);
-    setRequestReview(null);
-    setEditor(null);
-    setHistory(false);
-    setEnvironmentOpen(false);
     closeSources();
   }
 

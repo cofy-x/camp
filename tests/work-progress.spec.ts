@@ -9,6 +9,7 @@ import {
   openApp,
   signIn,
   work,
+  openWorkAction,
   workspace,
 } from './team-helpers';
 import { watchPageErrors } from './page-errors';
@@ -132,10 +133,12 @@ async function fixture(page: Page) {
     sessionGeneration: 1,
     published: false,
   };
-  const reads = { task: 0, run: 0 };
+  const reads = { task: 0, run: 0, item: 0, defaults: 0 };
   const executionWrites: string[] = [];
   page.on('request', (request) => {
     const path = new URL(request.url()).pathname;
+    if (path === `/api/work-items/${item.id}`) reads.item++;
+    if (path === `/api/rooms/${room.id}/work-item-defaults`) reads.defaults++;
     if (
       !['GET', 'HEAD'].includes(request.method()) &&
       /^\/api\/(?:tasks\/|runs\/|work-items\/[^/]+\/actions\/|rooms\/[^/]+\/(?:work-items|tasks|messages)$)/.test(
@@ -198,9 +201,13 @@ async function fixture(page: Page) {
   await expect(
     detail(page).getByRole('button', { name: 'View progress', exact: true }),
   ).toBeVisible();
+  await work(page)
+    .getByRole('button', { name: 'More work actions', exact: true })
+    .click();
   await expect(
-    detail(page).getByRole('button', { name: 'Stop…', exact: true }),
+    page.getByRole('menuitem', { name: 'Stop work…', exact: true }),
   ).toBeEnabled();
+  await page.keyboard.press('Escape');
   return {
     room,
     get item() {
@@ -217,10 +224,7 @@ async function fixture(page: Page) {
 }
 
 async function stopDraft(page: Page, text: string) {
-  await detail(page).getByRole('tab', { name: 'Manage', exact: true }).click();
-  await detail(page)
-    .getByRole('combobox', { name: 'Manage work', exact: true })
-    .selectOption('stop');
+  await openWorkAction(page, 'Stop work…');
   const note = detail(page).getByRole('textbox', {
     name: 'Note (optional)',
     exact: true,
@@ -236,8 +240,8 @@ test('current progress opens directly and returns to the matter while task inspe
   const errors = watchPageErrors(page, browserName);
   const value = await fixture(page);
   await expect(
-    detail(page).getByRole('tab', { name: 'Overview', exact: true }),
-  ).toHaveAttribute('aria-selected', 'true');
+    detail(page).getByRole('button', { name: 'Back to Work', exact: true }),
+  ).toBeVisible();
   await expect(
     detail(page).getByRole('button', { name: 'View progress', exact: true }),
   ).toBeInViewport();
@@ -272,6 +276,20 @@ test('current progress opens directly and returns to the matter while task inspe
     }),
   ).toContainText('src/notes.js');
   await expect(inspector(page)).toContainText('Notes Runner');
+  const pausedReads = {
+    item: value.reads.item,
+    defaults: value.reads.defaults,
+  };
+  await Promise.all([
+    page.waitForResponse((response) =>
+      response.url().includes(`/api/runs/${value.run.id}?view=summary`),
+    ),
+    page.evaluate(() => document.dispatchEvent(new Event('visibilitychange'))),
+  ]);
+  expect({ item: value.reads.item, defaults: value.reads.defaults }).toEqual(
+    pausedReads,
+  );
+
   await expect(collaboration(page)).toHaveCount(0);
   await inspector(page)
     .getByRole('button', { name: 'Back to Work Item', exact: true })
@@ -352,8 +370,8 @@ test('opening progress preserves an unsaved decision and waits for draft recover
     .getByRole('button', { name: 'Back to Work Item', exact: true })
     .click();
   await expect(
-    detail(page).getByRole('tab', { name: 'Manage', exact: true }),
-  ).toHaveAttribute('aria-selected', 'true');
+    detail(page).getByRole('button', { name: 'Back to Work', exact: true }),
+  ).toBeHidden();
   await expect(note).toHaveValue(text);
   expect(value.executionWrites).toEqual([]);
 });
@@ -385,6 +403,9 @@ test('a newer navigation supersedes progress while its private draft is saving',
       .getByRole('button', { name: 'View progress', exact: true })
       .click();
     await expect.poll(() => writes).toBeGreaterThan(0);
+    await detail(page)
+      .getByRole('button', { name: 'Back to item', exact: true })
+      .click();
     await detail(page)
       .getByRole('button', { name: 'Back to Work', exact: true })
       .click();
@@ -435,9 +456,7 @@ test('progress is offered only for the matter current active execution', async (
     revision: value.item.revision + 1,
     execution: { ...value.item.execution!, activeRunId: '' },
   });
-  await detail(page)
-    .getByRole('button', { name: 'Refresh', exact: true })
-    .click();
+  await openWorkAction(page, 'Refresh');
   await expect(
     detail(page).getByRole('button', { name: 'View progress', exact: true }),
   ).toHaveCount(0);
@@ -449,9 +468,7 @@ test('progress is offered only for the matter current active execution', async (
       activeRunId: value.run.id,
     },
   });
-  await detail(page)
-    .getByRole('button', { name: 'Refresh', exact: true })
-    .click();
+  await openWorkAction(page, 'Refresh');
   await expect(
     detail(page).getByRole('button', { name: 'View progress', exact: true }),
   ).toHaveCount(0);

@@ -281,7 +281,7 @@ func workIntentReason(in orchestration.WorkItemOperation) (string, string, error
 		}
 		return in.Content, "user", nil
 	}
-	labels := map[string]string{"execute": "Started a finite collaboration.", "wait": "Scheduled a follow-up.", "complete": "Confirmed the matter is complete.", "stop": "Stopped this matter.", "cancel": "Stopped future follow-ups.", "delegate": "Changed automatic follow-up delegation.", "evidence": "Associated immutable source evidence.", "follow": "Followed a source conversation.", "unfollow": "Stopped following a source conversation.", "authorize": "Changed the finite authorization.", "request_judgment": "Requested a human judgment.", "ignore": "Recorded no action for this evidence."}
+	labels := map[string]string{"execute": "Started a finite collaboration.", "wait": "Scheduled a follow-up.", "complete": "Confirmed the matter is complete.", "stop": "Stopped this matter.", "cancel": "Stopped future follow-ups.", "delegate": "Changed automatic follow-up delegation.", "evidence": "Associated immutable source evidence.", "follow": "Followed a source conversation.", "unfollow": "Stopped following a source conversation.", "completion": "Changed the completion authorization for future work.", "authorize": "Changed the finite authorization.", "request_judgment": "Requested a human judgment.", "ignore": "Recorded no action for this evidence."}
 	return labels[in.Kind], "system", nil
 }
 

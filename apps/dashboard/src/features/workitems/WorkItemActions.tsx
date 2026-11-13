@@ -1,28 +1,19 @@
-import { useEffect, useId, useState } from 'react';
+import { useState } from 'react';
 import { Button, Checkbox, Select } from '@cofy-x/camp-platinum';
-import { useAccount } from '../../team/AuthContext';
-import { usePrivateDraft } from '../../team/usePrivateDraft';
-import { DraftRecovery } from '../reviews/DraftRecovery';
+import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
 import type { AutomationPolicy } from '../automation/api';
 import type { Agent, WorkspaceStatus } from '../workspace/api';
-import { WorkGrant, suggestedParticipants } from './WorkGrant';
+import { WorkGrant } from './WorkGrant';
 import { EvidenceChooser } from './WorkItemEvidence';
 import { WorkItemAllowance } from './WorkItemAllowance';
-import { utcDateTime } from './WorkItemForm';
-import { useWorkDefaults } from './useWorkDefaults';
 import type { WorkOperation } from './useWorkItemOperation';
-import type { WorkActionInput, WorkActionName, WorkItem } from './api';
-
-type ActionDraft = Omit<WorkActionInput, 'requestId'> & {
-  intent?: WorkActionName | '';
-  // Keep earlier private drafts readable across this presentation change.
-  kind?: string;
-  reason?: string;
-  question?: string;
-};
+import type { WorkItem } from './api';
+import { useWorkAction } from './useWorkAction';
+import { legacyWorkIntent } from './workActionDraft';
 
 export function WorkItemActions({
   item,
+  readsActive,
   members,
   policies,
   contextReady,
@@ -31,9 +22,12 @@ export function WorkItemActions({
   operation,
   view,
   onViewChange,
+  managementSection,
+  onManage,
   readOnly,
 }: {
   item: WorkItem;
+  readsActive: boolean;
   members: Agent[];
   policies: AutomationPolicy[];
   contextReady: boolean;
@@ -41,214 +35,70 @@ export function WorkItemActions({
   availability?: Pick<WorkspaceStatus, 'available' | 'reason'>;
   operation: WorkOperation;
   view: string;
+  managementSection: string;
+  onManage: (section: string) => void;
   onViewChange: (view: string) => void;
   readOnly: boolean;
 }) {
-  const { user } = useAccount();
-  const [managementSection, setManagementSection] = useState('');
   const [allowanceProblem, setAllowanceProblem] = useState('');
   const [allowanceDraft, setAllowanceDraft] = useState(false);
   const [allowanceRecoveryOpen, setAllowanceRecoveryOpen] = useState(false);
-  const [reminderError, setReminderError] = useState('');
-  const contentId = useId();
-  const questionTextId = useId();
-  const waitConditionId = useId();
-  const settings = useWorkDefaults(item.roomId);
-  const question =
-    item.execution?.question && !item.execution.question.answer
-      ? item.execution.question
-      : null;
-  const hasQuestion = Boolean(question || item.question);
-  const completionQuestion = !question && item.questionKind === 'completion';
-  const draft = usePrivateDraft<ActionDraft | null>(
-    'conversation',
-    `work-item-decision:${item.id}`,
-    null,
-  );
-  const values: ActionDraft = draft.value ?? {
-    revision: item.revision,
-    intent: hasQuestion && !completionQuestion ? 'answer' : '',
-    taskId: question ? item.execution?.taskId : undefined,
-    taskRevision: question ? item.execution?.revision : undefined,
-    questionId: question?.id,
-  };
-  const legacyIntent: Record<string, WorkActionName> = {
-    execute: 'start',
-    answer: 'answer',
-    wait: 'wait',
-    evidence: 'attach',
-    follow: 'follow',
-    cancel: 'stop',
-    complete: 'complete',
-  };
-  const savedIntent = values.intent ?? legacyIntent[values.kind ?? ''] ?? '';
-  const sectionIntent: Record<string, WorkActionName> = {
-    reminder: 'wait',
-    context: savedIntent === 'follow' ? 'follow' : 'attach',
-    automatic: 'delegate',
-    stop: 'stop',
-    reply: 'answer',
-    continue: 'answer_continue',
-  };
-  const savedSection: Record<string, string> = {
-    wait: 'reminder',
-    attach: 'context',
-    follow: 'context',
-    delegate: 'automatic',
-    stop: 'stop',
-    answer_continue: 'continue',
-  };
-  const section = managementSection || savedSection[savedIntent] || 'allowance';
-  const intent =
-    view === 'manage'
-      ? (sectionIntent[section] ?? '')
-      : view === 'overview'
-        ? hasQuestion && !completionQuestion
-          ? 'answer'
-          : savedSection[savedIntent]
-            ? ''
-            : savedIntent
-        : '';
-  const content =
-    values.content ??
-    (intent === 'answer' || intent === 'answer_continue'
-      ? (values.reason ?? '')
-      : '');
-  const comment = values.comment ?? values.reason ?? '';
-  const participants =
-    values.participantAgentIds ??
-    suggestedParticipants(members, settings.defaults, defaultAgentId);
-  const first = participants.includes(values.firstAgentId ?? '')
-    ? values.firstAgentId!
-    : (participants[0] ?? '');
-  const newExecution = intent === 'start' || intent === 'answer_continue';
-  const contextDependent = newExecution || intent === 'delegate';
-  const invalidParticipants =
-    !participants.length ||
-    participants.some(
-      (id) => !members.some((agent) => agent.id === id && agent.enabled),
-    );
-  const remaining =
-    item.budget.maxModelRequests - item.usage.reservedModelRequests;
-  const expired = Date.parse(item.expiresAt ?? item.deadline) <= Date.now();
-  const exhausted = item.usage.tasks >= item.budget.maxTasks || remaining <= 0;
-  const disabled =
-    readOnly ||
-    item.status === 'stopping' ||
-    operation.blocked ||
-    !draft.loaded ||
-    Boolean(draft.error);
-  const taskChanged = question
-    ? values.taskId !== item.execution?.taskId ||
-      values.taskRevision !== item.execution?.revision ||
-      values.questionId !== question.id
-    : Boolean(values.taskId);
-  const stale = values.revision !== item.revision || taskChanged;
-  const active = Boolean(item.activeTaskId);
-  const availablePolicies = policies.filter(
-    (policy) =>
-      policy.enabled &&
-      policy.mode === 'auto' &&
-      policy.ownerUserId === user.id,
-  );
-  const chosenPolicyId = values.policyId ?? item.policyId ?? '';
-  const policy = policies.find((policy) => policy.id === chosenPolicyId);
-  const executionUnavailable =
-    availability?.available === false || active || expired || exhausted;
-  const futureReminder = Date.parse(values.resumeAt ?? '') > Date.now();
-
-  const clearDraft = draft.setValue;
-  useEffect(() => {
-    const saved = operation.confirmation;
-    if (
-      saved &&
-      saved.kind !== 'create' &&
-      (saved.kind === 'action'
-        ? saved.action !== 'authorize' && saved.action !== 'unfollow'
-        : saved.body.kind !== 'authorize')
-    )
-      clearDraft(null);
-  }, [operation.confirmation, clearDraft]);
-
-  function edit(change: Partial<ActionDraft>) {
-    draft.setValue({ ...values, ...change });
-  }
-
-  function choose(intent: WorkActionName | '') {
-    edit({ intent, policyId: chosenPolicyId });
-  }
-
-  function current() {
-    edit({
-      revision: item.revision,
-      taskId: question ? item.execution?.taskId : undefined,
-      taskRevision: question ? item.execution?.revision : undefined,
-      questionId: question?.id,
-    });
-  }
-
-  function submit() {
-    if (!intent || disabled || stale || (contextDependent && !contextReady))
-      return;
-    if (
-      intent === 'wait' &&
-      !(Date.parse(values.resumeAt ?? '') > Date.now())
-    ) {
-      setReminderError('Choose a future time for this reminder.');
-      return;
-    }
-    const body: Omit<WorkActionInput, 'requestId'> = {
-      revision: values.revision,
-    };
-    if (intent === 'answer' || intent === 'answer_continue') {
-      Object.assign(body, {
-        content,
-        taskId: values.taskId,
-        taskRevision: values.taskRevision,
-        questionId: values.questionId,
-      });
-    } else if (comment.trim()) body.comment = comment;
-    if (newExecution)
-      Object.assign(body, {
-        participantAgentIds: participants,
-        firstAgentId: first,
-      });
-    if (intent === 'wait')
-      Object.assign(body, {
-        waitCondition: values.waitCondition,
-        resumeAt: utcDateTime(values.resumeAt ?? ''),
-      });
-    if (intent === 'attach' || intent === 'follow')
-      Object.assign(body, {
-        evidenceIds: values.evidenceIds,
-        sourceEventId:
-          intent === 'follow' ? values.evidenceIds?.[0] : undefined,
-      });
-    if (intent === 'delegate')
-      Object.assign(body, {
-        policyId: chosenPolicyId,
-        policyRevision: policy?.revision,
-      });
-    void operation.act(item.id, intent, body);
-  }
-
-  const labels: Partial<Record<WorkActionName, string>> = {
-    start: 'Start work',
-    answer: question ? 'Answer and continue' : 'Send answer',
-    answer_continue: 'Answer and start work',
-    wait: 'Save reminder',
-    complete: 'Mark done',
-    stop: 'Stop work',
-    attach: 'Add context',
-    follow: 'Add context and follow',
-    delegate: 'Save automatic follow-up',
-  };
-
+  const {
+    settings,
+    question,
+    hasQuestion,
+    completionQuestion,
+    draft,
+    values,
+    section,
+    intent,
+    content,
+    comment,
+    participants,
+    first,
+    newExecution,
+    contextDependent,
+    invalidParticipants,
+    remaining,
+    expired,
+    exhausted,
+    disabled,
+    stale,
+    active,
+    availablePolicies,
+    chosenPolicyId,
+    policy,
+    executionUnavailable,
+    futureReminder,
+    reminderError,
+    setReminderError,
+    contentId,
+    questionTextId,
+    waitConditionId,
+    edit,
+    choose,
+    current,
+    submit,
+    labels,
+  } = useWorkAction({
+    item,
+    readsActive,
+    members,
+    policies,
+    contextReady,
+    defaultAgentId,
+    availability,
+    operation,
+    view,
+    managementSection,
+    readOnly,
+  });
   return (
     <div
       className="work-item-actions"
       hidden={
-        view === 'activity' &&
+        view !== 'overview' &&
+        view !== 'manage' &&
         !draft.error &&
         !draft.comparison &&
         !allowanceProblem &&
@@ -312,7 +162,7 @@ export function WorkItemActions({
                   Request changes…
                 </Button>
               )}
-            {!active && !hasQuestion && (
+            {!active && !hasQuestion && !item.result && (
               <Button
                 primary
                 disabled={disabled}
@@ -321,64 +171,20 @@ export function WorkItemActions({
                 {item.result ? 'Request changes…' : 'Start work…'}
               </Button>
             )}
-            {!active && !hasQuestion && (
-              <Button disabled={disabled} onClick={() => choose('complete')}>
-                Mark done…
-              </Button>
-            )}
-            {active && (
-              <Button
-                disabled={disabled}
-                onClick={() => {
-                  setManagementSection('stop');
-                  onViewChange('manage');
-                }}
-              >
-                Stop…
-              </Button>
-            )}
+            {!active &&
+              !hasQuestion &&
+              item.result &&
+              item.completionMode === 'human' && (
+                <Button
+                  primary
+                  disabled={disabled}
+                  onClick={() => choose('complete')}
+                >
+                  Mark done…
+                </Button>
+              )}
           </div>
         )}
-      {!readOnly && view === 'manage' && (
-        <Select
-          label="Manage work"
-          value={section}
-          onChange={(event) => {
-            const next = event.target.value;
-            setManagementSection(next);
-            if (sectionIntent[next]) choose(sectionIntent[next]);
-          }}
-        >
-          <option value="allowance">Allowance and access</option>
-          <option value="reminder" disabled={active}>
-            Reminder
-          </option>
-          <option value="context">Context</option>
-          <option value="following">Following</option>
-          {(availablePolicies.length > 0 || item.policyId) && (
-            <option value="automatic" disabled={!contextReady}>
-              Automatic follow-up
-            </option>
-          )}
-          {completionQuestion && <option value="reply">Reply</option>}
-          {hasQuestion && !question && (
-            <option
-              value="continue"
-              disabled={
-                !contextReady ||
-                availability?.available === false ||
-                expired ||
-                exhausted
-              }
-            >
-              Answer and start work
-            </option>
-          )}
-          <option value="stop">
-            {active ? 'Stop work' : 'Stop following up'}
-          </option>
-        </Select>
-      )}
       {!readOnly && intent && (
         <form
           className="work-item-form"
@@ -388,7 +194,7 @@ export function WorkItemActions({
             submit();
           }}
         >
-          {values.kind && !legacyIntent[values.kind] && (
+          {values.kind && !legacyWorkIntent[values.kind] && (
             <details>
               <summary>Earlier saved decision</summary>
               <p>{values.reason}</p>
@@ -440,6 +246,43 @@ export function WorkItemActions({
                 {!question && intent === 'answer' && item.policyId && (
                   <p>The automatic rule may continue work after your answer.</p>
                 )}
+              </>
+            ) : intent === 'completion' ? (
+              <>
+                <Select
+                  label="Completion"
+                  value={
+                    values.completionMode ??
+                    (item.completionMode === 'automatic'
+                      ? 'automatic'
+                      : 'human')
+                  }
+                  onChange={(event) =>
+                    edit({
+                      completionMode: event.target.value as
+                        'automatic' | 'human',
+                    })
+                  }
+                >
+                  <option value="automatic">When the goal is met</option>
+                  <option value="human">I'll confirm</option>
+                </Select>
+                <label>
+                  Complete when
+                  <textarea
+                    className="p9-field"
+                    rows={2}
+                    value={values.completionCriteria ?? item.completionCriteria}
+                    placeholder="Use the goal"
+                    onChange={(event) =>
+                      edit({ completionCriteria: event.target.value })
+                    }
+                  />
+                </label>
+                <p>
+                  Applies to future work sessions. Existing questions and
+                  results stay recorded.
+                </p>
               </>
             ) : intent === 'wait' ? (
               <>
@@ -631,7 +474,9 @@ export function WorkItemActions({
           {newExecution && settings.error && (
             <p className="app-error" role="alert">
               {settings.error}{' '}
-              <Button onClick={settings.retry}>Retry work settings</Button>
+              <Button onClick={() => void settings.retry()}>
+                Retry work settings
+              </Button>
             </p>
           )}
           <div className="app-actions">
@@ -700,8 +545,7 @@ export function WorkItemActions({
                   setAllowanceRecoveryOpen(true);
                   onViewChange('overview');
                 } else {
-                  onViewChange('manage');
-                  setManagementSection('allowance');
+                  onManage('allowance');
                 }
               }}
             >

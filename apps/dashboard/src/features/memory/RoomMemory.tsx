@@ -6,7 +6,7 @@ import { useRead } from '../../shared/reads/useRead';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
 import { flushPrivateDrafts } from '../../team/draftRegistry';
 import { useRecordedOperation } from '../../shared/useRecordedOperation';
-import { DraftRecovery } from '../reviews/DraftRecovery';
+import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
 import { EvidenceChooser, EvidenceRecord } from '../workitems/WorkItemEvidence';
 import type { Message } from '../workspace/api';
 import {

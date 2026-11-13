@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
 import { registerDraftWriter } from '../../team/draftRegistry';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
-import { DraftRecovery } from '../reviews/DraftRecovery';
+import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
 import { useRecordedOperation } from '../../shared/useRecordedOperation';
 import { feishuApi, type FeishuSource } from './api';
 

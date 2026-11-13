@@ -3,11 +3,12 @@ import { registerDraftWriter } from '../../team/draftRegistry';
 import { Button, Checkbox, Radio, Select } from '@cofy-x/camp-platinum';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
 import { useTeam } from '../../team/TeamContext';
-import { DraftRecovery } from '../reviews/DraftRecovery';
+import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
 import type { Agent } from '../workspace/api';
 import { automationApi, type AutomationPolicy, type PolicyValues } from './api';
 import { useAutomationOperation } from './useAutomationOperation';
-import { BudgetEditor, initialWorkBudget } from '../workitems/WorkItemForm';
+import { WorkBudgetEditor } from '../workitems/WorkBudgetEditor';
+import { initialWorkBudget } from '../workitems/workSettings';
 
 type PolicyDraft = { revision: number; values: PolicyValues; actors: string };
 
@@ -451,7 +452,7 @@ export function PolicyEditor({
               />
             </label>
           </div>
-          <BudgetEditor
+          <WorkBudgetEditor
             value={itemBudget}
             onChange={(itemBudget) => edit({ itemBudget })}
             label="Total allowance per work item"

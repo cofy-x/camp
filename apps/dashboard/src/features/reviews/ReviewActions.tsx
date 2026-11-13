@@ -5,7 +5,7 @@ import { useAccount } from '../../team/AuthContext';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
 import { registerDraftWriter } from '../../team/draftRegistry';
 import { APIError } from '../../shared/api/http';
-import { DraftRecovery } from './DraftRecovery';
+import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
 import {
   reviewsApi,
   type Review,

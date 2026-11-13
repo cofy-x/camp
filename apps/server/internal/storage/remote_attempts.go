@@ -135,6 +135,9 @@ func (s *Store) ClaimRemoteRun(ctx context.Context, runID, runnerID string, leas
 			if err = taskInputRunnerCompatible(runner.Capabilities, t.InputProtocol); err != nil {
 				return err
 			}
+			if err = workCompletionRunnerCompatible(runner.Capabilities, t.WorkItemCompletionAuthorized); err != nil {
+				return err
+			}
 		}
 		active, e := q.CountRunnerOperations(ctx, runnerID)
 		if e != nil {

@@ -17,6 +17,13 @@ export const work = (page: Page) =>
 export const library = (page: Page) =>
   page.locator('[data-window-id="library:main"]');
 
+export async function openWorkAction(page: Page, action: string) {
+  await work(page)
+    .getByRole('button', { name: /^More work(?: list)? actions$/ })
+    .click();
+  await page.getByRole('menuitem', { name: action, exact: true }).click();
+}
+
 export async function openLibraryAction(
   page: Page,
   action: string,

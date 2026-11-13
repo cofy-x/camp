@@ -16,6 +16,7 @@ import {
   inboxToggle,
   signIn,
   work,
+  openWorkAction,
   workspace,
 } from './team-helpers';
 import { watchPageErrors } from './page-errors';
@@ -428,7 +429,7 @@ for (const pending of ['members', 'policies'] as const)
       await expect(
         detail.getByRole('button', { name: 'Send answer', exact: true }),
       ).toBeEnabled();
-      await detail.getByRole('tab', { name: 'Manage', exact: true }).click();
+      await openWorkAction(page, 'Allowance and access…');
       const allowance = detail.getByRole('region', {
         name: 'Allowance and access',
         exact: true,
@@ -437,7 +438,9 @@ for (const pending of ['members', 'policies'] as const)
         allowance.getByRole('button', { name: 'Save allowance', exact: true }),
       ).toBeDisabled();
       await expect(allowance.getByRole('spinbutton').first()).toBeDisabled();
-      await detail.getByRole('tab', { name: 'Overview', exact: true }).click();
+      await detail
+        .getByRole('button', { name: 'Back to item', exact: true })
+        .click();
       await expect(answer).toHaveValue(draft);
       await work(page).screenshot({
         path: info.outputPath(`work-facts-pending-${pending}.png`),
@@ -447,7 +450,7 @@ for (const pending of ['members', 'policies'] as const)
         work(page).getByText('Loading Room settings…', { exact: true }),
       ).toHaveCount(0);
       await expect(answer).toHaveValue(draft);
-      await detail.getByRole('tab', { name: 'Manage', exact: true }).click();
+      await openWorkAction(page, 'Allowance and access…');
       await expect(
         allowance.getByRole('button', { name: 'Save allowance', exact: true }),
       ).toBeEnabled();
@@ -617,7 +620,7 @@ test('a late Room context cannot replace another Work item or enable its grants 
     });
     const draft = 'This answer belongs only to the second Room.';
     await answer.fill(draft);
-    await detail.getByRole('tab', { name: 'Manage', exact: true }).click();
+    await openWorkAction(page, 'Allowance and access…');
     const save = detail.getByRole('button', {
       name: 'Save allowance',
       exact: true,
@@ -629,7 +632,9 @@ test('a late Room context cannot replace another Work item or enable its grants 
     await expect(win.locator('.p9-window-title')).toHaveText(
       `${second.room.name} — Work`,
     );
-    await detail.getByRole('tab', { name: 'Overview', exact: true }).click();
+    await detail
+      .getByRole('button', { name: 'Back to item', exact: true })
+      .click();
     await expect(answer).toHaveValue(draft);
     expect(first.reads.writes + second.reads.writes).toBe(0);
   } finally {

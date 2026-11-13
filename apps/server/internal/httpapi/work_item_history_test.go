@@ -17,7 +17,7 @@ func TestWorkItemHistoryHTTPBoundsAndMemberVisibility(t *testing.T) {
 	}
 	path := "/api/work-items/" + item.ID + "/history/decisions"
 	requireHTTP(t, teamRequest(t, f, nil, "GET", path, nil), http.StatusUnauthorized)
-	for _, kind := range []string{"evidence", "decisions", "tasks", "timers", "actions"} {
+	for _, kind := range []string{"timeline", "evidence", "decisions", "tasks", "timers", "actions"} {
 		requireHTTP(t, teamRequest(t, f, f.memberCookie, "GET", "/api/work-items/"+item.ID+"/history/"+kind, nil), 200)
 	}
 	for _, query := range []string{"limit=21", "limit=-1", "limit=1&limit=2", "cursor=bad", "cursor=one&cursor=two"} {

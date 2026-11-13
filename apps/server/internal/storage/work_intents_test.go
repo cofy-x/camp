@@ -453,9 +453,12 @@ func TestWorkIntentTypedCompletionConfirmationRetainsExternalEffectGate(t *testi
 	if e != nil {
 		t.Fatal(e)
 	}
-	done, e := s.OperateWorkItem(actor, w.ID, orchestration.WorkItemOperation{RequestID: "confirm-known-effects", Revision: current.Revision, Kind: "complete"}, Budget{})
-	if e != nil || done.Status != "completed" || done.QuestionKind != "" || done.Question != "" {
-		t.Fatal(done, e)
+	if current.Status != "completed" || current.QuestionKind != "" || current.Question != "" {
+		t.Fatal("confirmed effects required another human confirmation", current)
+	}
+	replayed, e := s.OperateWorkItem(actor, w.ID, orchestration.WorkItemOperation{RequestID: "confirm-with-pending-effects", Revision: w.Revision, Kind: "complete", Comment: "The requested document is complete."}, Budget{})
+	if e != nil || replayed.Status != confirmed.Status || replayed.Revision != confirmed.Revision {
+		t.Fatal("current completion rewrote the original operation receipt", replayed, e)
 	}
 }
 

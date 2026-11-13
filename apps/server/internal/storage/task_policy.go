@@ -11,6 +11,12 @@ func validateIntent(t CollaborationTask, r Run, i *CoordinationIntent) error {
 	if i == nil || !validText(i.CallID, 128, false) || len(i.ArtifactPaths) > 128 {
 		return problem("invalid_intent", "A successful collaboration round requires one durable coordination intent.")
 	}
+	if i.WorkItemCompletion != nil && (i.Kind != "finish" || !t.WorkItemCompletionAuthorized || !validText(i.WorkItemCompletion.Reason, 8192, false)) {
+		return problem("invalid_intent", "A completion judgment requires its original Work authorization and a bounded reason.")
+	}
+	if i.Kind == "finish" && t.WorkItemCompletionAuthorized && i.WorkItemCompletion == nil {
+		return problem("invalid_intent", "State whether the authorized Work completion criteria were met and provide the evidence.")
+	}
 	for _, p := range i.ArtifactPaths {
 		if !validTaskPath(p) {
 			return problem("invalid_intent", "Artifact paths must be relative workspace files.")
