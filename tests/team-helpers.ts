@@ -1,6 +1,11 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { expect, type Page, type BrowserContext } from '@playwright/test';
+import {
+  expect,
+  type Page,
+  type BrowserContext,
+  type Locator,
+} from '@playwright/test';
 
 export const owner = {
   username: 'browser-owner',
@@ -16,6 +21,17 @@ export const work = (page: Page) =>
 
 export const library = (page: Page) =>
   page.locator('[data-window-id="library:main"]');
+
+export async function openMessageAction(
+  page: Page,
+  message: Locator,
+  action: string,
+) {
+  await message
+    .getByRole('button', { name: 'More message actions', exact: true })
+    .click();
+  await page.getByRole('menuitem', { name: action, exact: true }).click();
+}
 
 export async function openWorkAction(page: Page, action: string) {
   await work(page)

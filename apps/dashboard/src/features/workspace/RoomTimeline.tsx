@@ -6,7 +6,12 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { Button, PixelIcon, type DesktopAPI } from '@cofy-x/camp-platinum';
+import {
+  Button,
+  PixelIcon,
+  type DesktopAPI,
+  type MenuItem,
+} from '@cofy-x/camp-platinum';
 import { useTeam } from '../../team/TeamContext';
 import { IdentityAvatar } from '../identity/IdentityAvatar';
 import type {
@@ -570,6 +575,31 @@ export function RoomTimeline({
               : (agent?.name ?? 'Agent');
           const work = lookup.pending.get(message.id) ?? [];
           const threadWork = lookup.threads.get(message.id);
+          const threadLabel = threadWork
+            ? `Open thread · ${statusLabel[threadWork.status]}`
+            : 'Reply in thread';
+          const linked = message.taskId || run?.taskId || message.reviewId;
+
+          function openMessageActions(button: HTMLButtonElement) {
+            const actions: MenuItem[] = [
+              { label: 'Ask agent…', action: () => onAsk(message, run) },
+              { label: 'Follow up…', action: () => onFollowUp(message) },
+              { label: 'Remember this…', action: () => onRemember(message) },
+            ];
+            if (message.reviewId && (message.taskId || run?.taskId))
+              actions.push({
+                label: 'Open Review',
+                action: () => onReview(message.reviewId!),
+              });
+            if (linked && !threadId)
+              actions.push({
+                label: threadLabel,
+                action: () => onThread(message.id),
+              });
+            const rect = button.getBoundingClientRect();
+            desktop.contextMenu(actions, { x: rect.left, y: rect.bottom });
+          }
+
           const workCards = work.map((item) => (
             <WorkCard
               key={item.id}
@@ -593,11 +623,7 @@ export function RoomTimeline({
                 message={message}
                 resources={resources}
                 highlighted={sourceId === message.id}
-                threadLabel={
-                  threadWork
-                    ? `Open thread · ${statusLabel[threadWork.status]}`
-                    : 'Reply in thread'
-                }
+                threadLabel={threadLabel}
                 onReview={onReview}
                 onTask={(id) =>
                   void team.navigate({
@@ -673,7 +699,7 @@ export function RoomTimeline({
                   onSource={onSource}
                 />
                 <div className="workspace-message-actions">
-                  {(message.taskId || run?.taskId) && (
+                  {message.taskId || run?.taskId ? (
                     <Button
                       onClick={() =>
                         void team.navigate({
@@ -686,40 +712,31 @@ export function RoomTimeline({
                     >
                       {linkedItemId ? 'Open work' : 'Open collaboration'}
                     </Button>
-                  )}
-                  {message.reviewId && (
+                  ) : message.reviewId ? (
                     <Button onClick={() => onReview(message.reviewId!)}>
                       Open Review
                     </Button>
-                  )}
-                  <button
-                    className="workspace-text-button"
-                    onClick={() => onAsk(message, run)}
-                  >
-                    Ask agent…
-                  </button>
-                  <button
-                    className="workspace-text-button"
-                    onClick={() => onFollowUp(message)}
-                  >
-                    Follow up…
-                  </button>
-                  <button
-                    className="workspace-text-button"
-                    onClick={() => onRemember(message)}
-                  >
-                    Remember this…
-                  </button>
-                  {!threadId && (
+                  ) : !threadId ? (
                     <button
                       className="workspace-text-button"
                       onClick={() => onThread(message.id)}
                     >
-                      {threadWork
-                        ? `Open thread · ${statusLabel[threadWork.status]}`
-                        : 'Reply in thread'}
+                      {threadLabel}
                     </button>
-                  )}
+                  ) : null}
+                  <button
+                    className="workspace-text-button workspace-message-more"
+                    aria-label="More message actions"
+                    aria-haspopup="menu"
+                    onClick={(event) => openMessageActions(event.currentTarget)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'ArrowDown') return;
+                      event.preventDefault();
+                      openMessageActions(event.currentTarget);
+                    }}
+                  >
+                    ⋯
+                  </button>
                 </div>
                 {workCards}
               </div>

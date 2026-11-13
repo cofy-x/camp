@@ -10,6 +10,7 @@ import {
   createRoom,
   mutate,
   openApp,
+  openMessageAction,
   signIn,
   workspace,
 } from './team-helpers';
@@ -817,9 +818,7 @@ for (const context of ['room', 'room details', 'thread'] as const) {
         .getByRole('button', { name: 'Ask agent…', exact: true })
         .click();
     } else {
-      await message
-        .getByRole('button', { name: 'Ask agent…', exact: true })
-        .click();
+      await openMessageAction(page, message, 'Ask agent…');
     }
     await expect(input).toHaveValue(draft);
     await expect(
@@ -1015,9 +1014,7 @@ for (const timeline of ['ready', 'pending'] as const) {
       const draft =
         'Review this against the original brief, retaining my text.';
       await input.fill(draft);
-      await reply
-        .getByRole('button', { name: 'Ask agent…', exact: true })
-        .click();
+      await openMessageAction(page, reply, 'Ask agent…');
       await expect(
         win.getByText('Choose a recipient to continue', { exact: true }),
       ).toBeVisible();

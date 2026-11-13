@@ -28,6 +28,7 @@ type Selection =
   | {
       kind: 'create';
       roomId: string;
+      globalDraft?: boolean;
       sourceMessage?: Message;
       sourceEvent?: SourceEvent;
     }
@@ -282,7 +283,7 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
   function created(item: WorkItem, source: string) {
     setSelection((current) =>
       current.kind === 'create' &&
-      current.roomId === item.roomId &&
+      (current.globalDraft || current.roomId === item.roomId) &&
       (current.sourceMessage?.id ?? current.sourceEvent?.id ?? 'manual') ===
         source
         ? { kind: 'item', id: item.id, roomId: item.roomId }
@@ -371,9 +372,11 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
       }),
     newWork: () =>
       void move(() => {
+        const roomId = roomFilter || (rooms.length === 1 ? rooms[0].id : '');
         setSelection({
           kind: 'create',
-          roomId: roomFilter || (rooms.length === 1 ? rooms[0].id : ''),
+          roomId,
+          globalDraft: !roomId,
         });
         setInspection({ taskId: '', runId: '' });
       }),

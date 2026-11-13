@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState } from 'react';
+import { useId, useState } from 'react';
 import {
   Button,
   Checkbox,
@@ -12,50 +12,7 @@ import { TaskHistory } from './TaskHistory';
 import { useTaskController } from './useTaskController';
 import { TaskAutomation } from '../automation/TaskAutomation';
 import { TaskAllowanceNotice } from './TaskAllowanceNotice';
-
-function TaskGoal({ goal }: { goal: string }) {
-  const id = useId();
-  const heading = useRef<HTMLHeadingElement>(null);
-  const [expanded, setExpanded] = useState(false);
-  const [overflow, setOverflow] = useState(false);
-  useLayoutEffect(() => {
-    const node = heading.current;
-    if (!node || expanded) return;
-    let active = true;
-    const measure = () => {
-      if (active) setOverflow(node.scrollHeight > node.clientHeight + 1);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    void document.fonts.ready.then(measure);
-    return () => {
-      active = false;
-      observer.disconnect();
-    };
-  }, [goal, expanded]);
-
-  return (
-    <div className="collaboration-task-goal">
-      <h2
-        ref={heading}
-        id={id}
-        className={`collaboration-title${expanded ? ' is-expanded' : ''}`}
-      >
-        {goal}
-      </h2>
-      {(overflow || expanded) && (
-        <Button
-          aria-controls={id}
-          aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded ? 'Show less' : 'Show full goal'}
-        </Button>
-      )}
-    </div>
-  );
-}
+import { GoalHeading } from '../../shared/content/GoalHeading';
 
 export function TaskDetail({
   id,
@@ -233,7 +190,7 @@ export function TaskDetail({
       {task && (
         <>
           <header className="collaboration-status">
-            <TaskGoal goal={task.goal} />
+            <GoalHeading goal={task.goal} level={2} />
             <p className="collaboration-state">
               <span>{taskStatus[task.status]}</span>
               {currentAgent && ['queued', 'running'].includes(task.status) && (

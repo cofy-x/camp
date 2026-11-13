@@ -55,10 +55,6 @@
 .work-item-heading h3 {
   margin: 0;
 }
-.work-item-heading h3 {
-  white-space: pre-wrap;
-  font: 600 13px/1.45 var(--p9-body-font);
-}
 .work-item-heading p {
   margin-top: 6px;
 }
