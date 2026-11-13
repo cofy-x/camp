@@ -9,24 +9,9 @@
   "synthetic": true,
   "errors": [],
   "messageActions": [
-    [
-      "Ask agent…",
-      "Follow up…",
-      "Remember this…",
-      "Reply in thread"
-    ],
-    [
-      "Ask agent…",
-      "Follow up…",
-      "Remember this…",
-      "Reply in thread"
-    ],
-    [
-      "Ask agent…",
-      "Follow up…",
-      "Remember this…",
-      "Reply in thread"
-    ]
+    ["Ask agent…", "Follow up…", "Remember this…", "Reply in thread"],
+    ["Ask agent…", "Follow up…", "Remember this…", "Reply in thread"],
+    ["Ask agent…", "Follow up…", "Remember this…", "Reply in thread"]
   ],
   "unassignedGoalFields": 0,
   "goalBox": {

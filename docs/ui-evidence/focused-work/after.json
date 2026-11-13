@@ -9,18 +9,9 @@
   "synthetic": true,
   "errors": [],
   "messageActions": [
-    [
-      "Reply in thread",
-      "More message actions"
-    ],
-    [
-      "Reply in thread",
-      "More message actions"
-    ],
-    [
-      "Reply in thread",
-      "More message actions"
-    ]
+    ["Reply in thread", "More message actions"],
+    ["Reply in thread", "More message actions"],
+    ["Reply in thread", "More message actions"]
   ],
   "unassignedGoalFields": 1,
   "goalBox": {
