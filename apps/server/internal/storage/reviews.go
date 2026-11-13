@@ -106,24 +106,6 @@ func (s *Store) GetReview(ctx context.Context, id string) (result ReviewResult, 
 	})
 	return
 }
-func (s *Store) ListReviews(ctx context.Context, room, resource string) ([]Review, error) {
-	if room != "" {
-		if _, err := s.GetRoom(ctx, room); err != nil {
-			return nil, err
-		}
-	}
-	if resource != "" {
-		if _, err := s.GetResource(ctx, resource); err != nil {
-			return nil, err
-		}
-	}
-	rows, err := s.queries().ListReviews(ctx, sqlgen.ListReviewsParams{RoomID: room, ResourceID: resource})
-	out := make([]Review, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, reviewRow(sqlgen.GetReviewRow(r)))
-	}
-	return out, err
-}
 func reviewActor(ctx context.Context, q *sqlgen.Queries) (User, error) {
 	u, ok := UserFromContext(ctx)
 	if !ok {

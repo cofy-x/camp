@@ -711,20 +711,22 @@ export function Workspace({ window, desktop }: AppWindowProps) {
             )}
           {room ? (
             panel === 'reviews' ? (
-              reviewId ? (
-                <ReviewPanel
-                  key={reviewId}
-                  id={reviewId}
-                  desktop={desktop}
-                  onClose={() => void navigate(() => setReviewId(''))}
-                />
-              ) : (
+              <>
                 <ReviewList
                   roomId={room.id}
+                  active={!reviewId}
                   onOpen={(review) => move(() => setReviewId(review.id))}
                   onClose={back}
                 />
-              )
+                {reviewId && (
+                  <ReviewPanel
+                    key={reviewId}
+                    id={reviewId}
+                    desktop={desktop}
+                    onClose={() => void navigate(() => setReviewId(''))}
+                  />
+                )}
+              </>
             ) : inspect ? (
               <RunInspector
                 key={inspect}

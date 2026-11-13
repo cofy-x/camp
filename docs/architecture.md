@@ -217,6 +217,8 @@ Server claims its ownership fence before migration/recovery. Each daemon owns it
 
 ## Human review and delivery
 
+The [review list](../apps/server/internal/storage/review_list.go) reads bounded current metadata through creation-key indexes. Room/Resource/file filtering, enabled-member checks and display rows share one read transaction. Cursors retain the next unread creation key with the same account/scope, while current decisions remain live. The Dashboard keeps the accepted page during navigation/retry and retains its paused list through explicit detail inspection. [API](api.md#reviews-and-delivery) owns the page and byte bounds; complete review detail and frozen decision receipts remain with the existing review owner.
+
 [Review storage](../apps/server/internal/storage/reviews.go) owns actor permissions, optimistic revisions and transitions. HTTP checks immutable file existence before admission; the transaction rechecks the Resource pointer. A review pins one path and commit, names a requester/reviewer and creates one discussion Thread. Decisions, audit events, Messages, receipts and Inbox entries commit atomically and create no Runs. Execution success does not approve a document.
 
 Only the enabled assigned reviewer approves or requests changes. Requester/admin resubmits, reassigns, cancels or delivers. Changing any shared file makes an unfinished review outdated because approval covers the complete Resource revision. Reassignment clears a decision; delivery requires current approved bytes. Delivered and cancelled reviews are terminal. Later file changes cannot alter delivery.
@@ -277,6 +279,10 @@ The boundaries below describe current implementation choices, not permanent requ
 Runner check/output reports assume a trusted machine; they are not remote attestation against a hostile operator. Source/browser/fixture results alone do not establish native isolation, fresh-host portability or real-provider success.
 
 Address shared-data correctness and contradictions in the shipped workflow first, then use measurements to select checkpoint or lifecycle work. The items below own the remaining implementation work; release milestones and completed implementation sequences belong in retained evidence.
+
+### Human review audit cost
+
+Owners: storage/reviews and the existing ReviewPanel/recovery controller. Room/Resource/file lists have bounded indexed pages; individual review detail and frozen action receipts still retain complete audit prefixes. [Camp #150](https://github.com/cofy-x/camp/issues/150) tracks separating current decision facts from large audit reads and repeated receipt serialization. Completion requires independently readable current state, bounded explicit history and lossless original/receipt/draft recovery. The bounded list qualification does not establish large-audit decision performance.
 
 ### Checkpoint cost and retention
 

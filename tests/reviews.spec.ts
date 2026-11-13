@@ -488,9 +488,15 @@ test('a recorded review decision updates in the background without taking focus 
     await expect.poll(() => recorded).toBe(true);
     await openApp(page, 'Work');
     release();
-    await expect(workspace(page).locator('.camp-review-state')).toHaveText(
-      'Approved',
-    );
+    await expect(
+      workspace(page)
+        .getByRole('region', {
+          name: 'Document review',
+          exact: true,
+          includeHidden: true,
+        })
+        .locator('.camp-review-state'),
+    ).toHaveText('Approved');
     await expect(work(page)).toHaveClass(/is-active/);
     expect(
       await workspace(page)
