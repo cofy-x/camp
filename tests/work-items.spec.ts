@@ -6,6 +6,7 @@ import {
   library,
   mutate,
   openApp,
+  openMessageAction,
   openInboxActivity,
   openRoomMore,
   signIn,
@@ -546,7 +547,7 @@ test('message follow-up links the original and future replies in one recorded ma
     .getByRole('button', { name: 'Discussion', exact: true })
     .click();
   const source = workspace(page).locator(`[data-message-id="${message.id}"]`);
-  await source.getByRole('button', { name: 'Follow up…', exact: true }).click();
+  await openMessageAction(page, source, 'Follow up…');
   await expect(
     work(page).getByLabel('What needs to happen?', { exact: true }),
   ).toHaveValue(text);

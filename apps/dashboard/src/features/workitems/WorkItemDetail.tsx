@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button, type DesktopAPI, type MenuItem } from '@cofy-x/camp-platinum';
 import { useAccount } from '../../team/AuthContext';
 import { useRead } from '../../shared/reads/useRead';
+import { GoalHeading } from '../../shared/content/GoalHeading';
 import type { Agent, WorkspaceStatus } from '../workspace/api';
 import type { AutomationPolicy } from '../automation/api';
 import { Report } from '../workspace/Report';
@@ -238,7 +239,7 @@ export function WorkItemDetail({
       {item && (
         <>
           <header className="work-item-heading">
-            <h3>{item.goal}</h3>
+            <GoalHeading goal={item.goal} />
             {(!hasQuestion || item.dueAt || (progress && onViewProgress)) && (
               <div className="work-item-state">
                 {!hasQuestion && (

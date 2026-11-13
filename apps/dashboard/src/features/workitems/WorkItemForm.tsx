@@ -19,8 +19,15 @@ type CreateDraft = Omit<WorkItemInput, 'requestId'> & {
   expiryEdited?: boolean;
 };
 
+type UnassignedDraft = {
+  goal: string;
+  rooms: Record<string, Omit<CreateDraft, 'goal'>>;
+};
+
 export function WorkItemForm({
   roomId,
+  globalDraft = false,
+  contextReady = true,
   members,
   policies,
   defaultAgentId,
@@ -32,6 +39,8 @@ export function WorkItemForm({
   showHeader = true,
 }: {
   roomId: string;
+  globalDraft?: boolean;
+  contextReady?: boolean;
   members: Agent[];
   policies: AutomationPolicy[];
   defaultAgentId?: string;
@@ -45,20 +54,31 @@ export function WorkItemForm({
   const { user } = useAccount();
   const goalId = useId();
   const scope = sourceMessage?.id ?? sourceEvent?.id ?? 'manual';
-  const draft = usePrivateDraft<CreateDraft | null>(
+  const draftRoom = globalDraft ? '' : roomId;
+  const draft = usePrivateDraft<CreateDraft | UnassignedDraft | null>(
     'conversation',
-    `work-item-create:${roomId}:${scope}`,
+    `work-item-create:${draftRoom}:${scope}`,
     null,
   );
-  const values = draft.value ?? {
-    goal: sourceMessage?.content ?? sourceEvent?.preview ?? '',
+  const unassigned = draft.value && 'rooms' in draft.value ? draft.value : null;
+  const saved = globalDraft
+    ? unassigned?.rooms[roomId]
+    : draft.value && !('rooms' in draft.value)
+      ? draft.value
+      : null;
+  const initial = {
     completionMode: 'automatic' as const,
     completionCriteria: '',
     evidenceIds: sourceEvent ? [sourceEvent.id] : [],
     policyId: '',
     follow: Boolean(sourceMessage || sourceEvent),
   };
-  const settings = useWorkDefaults(roomId, values.policyId);
+  const values: CreateDraft = {
+    ...(saved ?? initial),
+    goal:
+      draft.value?.goal ?? sourceMessage?.content ?? sourceEvent?.preview ?? '',
+  };
+  const settings = useWorkDefaults(roomId, values.policyId, contextReady);
   const defaults = settings.defaults;
   const participants =
     values.participantAgentIds ??
@@ -67,7 +87,7 @@ export function WorkItemForm({
     ? values.firstAgentId!
     : (participants[0] ?? '');
   const operation = useWorkItemOperation(
-    `create:${roomId}:${scope}`,
+    `create:${draftRoom}:${scope}`,
     onCreated,
     [],
     async (_item, { draftSnapshot }) => {
@@ -105,10 +125,30 @@ export function WorkItemForm({
       : 'Follow this conversation';
 
   function edit(change: Partial<CreateDraft>) {
-    draft.setValue({ ...values, ...change });
+    const next = { ...values, ...change };
+    if (globalDraft) {
+      const { goal, ...roomValues } = next;
+      draft.setValue({
+        goal,
+        rooms: {
+          ...unassigned?.rooms,
+          ...(roomId ? { [roomId]: roomValues } : {}),
+        },
+      });
+    } else draft.setValue(next);
   }
 
   function create(start: boolean) {
+    if (
+      disabled ||
+      !roomId ||
+      !contextReady ||
+      !values.goal.trim() ||
+      (Boolean(values.policyId) && !defaults) ||
+      (start &&
+        (!defaults || invalidParticipants || availability?.available === false))
+    )
+      return;
     const { expiryEdited, deadline, ...input } = values;
     void operation.create(
       roomId,
@@ -179,126 +219,137 @@ export function WorkItemForm({
             />
           </div>
         )}
-        <Select
-          label="Completion"
-          value={
-            values.completionMode ??
-            (values.completionCriteria?.trim() ? 'criteria' : 'human')
-          }
-          onChange={(event) =>
-            edit({
-              completionMode: event.target.value as 'automatic' | 'human',
-            })
-          }
-        >
-          <option value="automatic">When the goal is met</option>
-          <option value="human">I'll confirm</option>
-          {!values.completionMode && values.completionCriteria?.trim() && (
-            <option value="criteria">Saved completion criteria</option>
-          )}
-        </Select>
-        <WorkGrant
-          members={members}
-          selected={participants}
-          defaults={defaults}
-          maxRequests={values.budget?.maxModelRequests}
-          firstAgentId={first}
-          onChange={(participantAgentIds) => edit({ participantAgentIds })}
-          onFirstChange={(firstAgentId) => edit({ firstAgentId })}
-        />
-        <details className="work-item-options">
-          <summary>Options</summary>
-          <div className="work-item-form">
-            <label>
-              Due date
-              <input
-                className="p9-field"
-                type="date"
-                value={values.dueAt ?? ''}
-                onChange={(event) => edit({ dueAt: event.target.value })}
-              />
-            </label>
-            <label>
-              Complete when
-              <textarea
-                className="p9-field"
-                rows={2}
-                placeholder={
-                  values.completionMode === 'automatic'
-                    ? 'Use the goal above'
-                    : undefined
-                }
-                value={values.completionCriteria ?? ''}
-                onChange={(event) =>
-                  edit({ completionCriteria: event.target.value })
-                }
-              />
-            </label>
-            <EvidenceChooser
-              roomId={roomId}
-              selected={values.evidenceIds ?? []}
-              onChange={(evidenceIds) => edit({ evidenceIds })}
+        {roomId && contextReady && (
+          <>
+            <Select
+              label="Completion"
+              value={
+                values.completionMode ??
+                (values.completionCriteria?.trim() ? 'criteria' : 'human')
+              }
+              onChange={(event) =>
+                edit({
+                  completionMode: event.target.value as 'automatic' | 'human',
+                })
+              }
+            >
+              <option value="automatic">When the goal is met</option>
+              <option value="human">I'll confirm</option>
+              {!values.completionMode && values.completionCriteria?.trim() && (
+                <option value="criteria">Saved completion criteria</option>
+              )}
+            </Select>
+            <WorkGrant
+              members={members}
+              selected={participants}
+              defaults={defaults}
+              maxRequests={values.budget?.maxModelRequests}
+              firstAgentId={first}
+              onChange={(participantAgentIds) => edit({ participantAgentIds })}
+              onFirstChange={(firstAgentId) => edit({ firstAgentId })}
             />
-            {delegated.length > 0 || values.policyId ? (
-              <Select
-                label="Future follow-up"
-                value={values.policyId ?? ''}
-                onChange={(event) => edit({ policyId: event.target.value })}
-              >
-                <option value="">I'll decide</option>
-                {delegated.map((policy) => (
-                  <option value={policy.id} key={policy.id}>
-                    {policy.sourceId === 'room' ? 'Room rule' : policy.sourceId}
-                  </option>
-                ))}
-                {values.policyId &&
-                  !delegated.some(
-                    (policy) => policy.id === values.policyId,
-                  ) && (
-                    <option value={values.policyId}>
-                      Saved rule unavailable
-                    </option>
-                  )}
-              </Select>
-            ) : null}
-            <details>
-              <summary>Allowance and access</summary>
+            {!defaults && !settings.error && (
+              <p role="status">Loading work settings…</p>
+            )}
+            <details className="work-item-options">
+              <summary>Options</summary>
               <div className="work-item-form">
-                <WorkBudgetEditor
-                  value={values.budget ?? defaults?.budget ?? initialWorkBudget}
-                  onChange={(budget) => edit({ budget })}
-                />
                 <label>
-                  Authorization expires
+                  Due date
                   <input
                     className="p9-field"
-                    type="datetime-local"
-                    value={
-                      values.expiryEdited
-                        ? (values.expiresAt ?? '')
-                        : localDateTime(
-                            values.expiresAt ??
-                              values.deadline ??
-                              defaults?.expiresAt ??
-                              '',
-                          )
+                    type="date"
+                    value={values.dueAt ?? ''}
+                    onChange={(event) => edit({ dueAt: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Complete when
+                  <textarea
+                    className="p9-field"
+                    rows={2}
+                    placeholder={
+                      values.completionMode === 'automatic'
+                        ? 'Use the goal above'
+                        : undefined
                     }
+                    value={values.completionCriteria ?? ''}
                     onChange={(event) =>
-                      edit({
-                        expiresAt: event.target.value,
-                        expiryEdited: true,
-                      })
+                      edit({ completionCriteria: event.target.value })
                     }
                   />
                 </label>
-                <p>
-                  Limits apply across all work sessions. Expiry stops new
-                  automatic work; it does not set the due date.
-                </p>
+                <EvidenceChooser
+                  roomId={roomId}
+                  selected={values.evidenceIds ?? []}
+                  onChange={(evidenceIds) => edit({ evidenceIds })}
+                />
+                {delegated.length > 0 || values.policyId ? (
+                  <Select
+                    label="Future follow-up"
+                    value={values.policyId ?? ''}
+                    onChange={(event) => edit({ policyId: event.target.value })}
+                  >
+                    <option value="">I'll decide</option>
+                    {delegated.map((policy) => (
+                      <option value={policy.id} key={policy.id}>
+                        {policy.sourceId === 'room'
+                          ? 'Room rule'
+                          : policy.sourceId}
+                      </option>
+                    ))}
+                    {values.policyId &&
+                      !delegated.some(
+                        (policy) => policy.id === values.policyId,
+                      ) && (
+                        <option value={values.policyId}>
+                          Saved rule unavailable
+                        </option>
+                      )}
+                  </Select>
+                ) : null}
+                <details>
+                  <summary>Allowance and access</summary>
+                  <div className="work-item-form">
+                    <WorkBudgetEditor
+                      value={
+                        values.budget ?? defaults?.budget ?? initialWorkBudget
+                      }
+                      onChange={(budget) => edit({ budget })}
+                    />
+                    <label>
+                      Authorization expires
+                      <input
+                        className="p9-field"
+                        type="datetime-local"
+                        value={
+                          values.expiryEdited
+                            ? (values.expiresAt ?? '')
+                            : localDateTime(
+                                values.expiresAt ??
+                                  values.deadline ??
+                                  defaults?.expiresAt ??
+                                  '',
+                              )
+                        }
+                        onChange={(event) =>
+                          edit({
+                            expiresAt: event.target.value,
+                            expiryEdited: true,
+                          })
+                        }
+                      />
+                    </label>
+                    <p>
+                      Limits apply across all work sessions. Expiry stops new
+                      automatic work; it does not set the due date.
+                    </p>
+                  </div>
+                </details>
               </div>
             </details>
-          </div>
-        </details>
+          </>
+        )}
       </fieldset>
       {selectedPolicy && (
         <div className="work-item-delegation">
@@ -326,7 +377,7 @@ export function WorkItemForm({
           </Button>
         </p>
       )}
-      {availability?.available === false && (
+      {roomId && contextReady && availability?.available === false && (
         <p className="app-error" role="alert">
           {availability.reason}
         </p>
@@ -338,6 +389,8 @@ export function WorkItemForm({
           primary
           disabled={
             disabled ||
+            !roomId ||
+            !contextReady ||
             !values.goal.trim() ||
             !defaults ||
             invalidParticipants ||
@@ -349,6 +402,8 @@ export function WorkItemForm({
         <Button
           disabled={
             disabled ||
+            !roomId ||
+            !contextReady ||
             !values.goal.trim() ||
             (Boolean(values.policyId) && !defaults)
           }

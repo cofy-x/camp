@@ -182,28 +182,28 @@ export function Work(props: AppWindowProps) {
           </div>
           {selection.kind === 'create' && (
             <div className="work-create">
-              {context && (
-                <WorkItemForm
-                  key={`create:${selection.roomId}:${selection.sourceMessage?.id ?? selection.sourceEvent?.id ?? 'manual'}`}
-                  roomId={selection.roomId}
-                  members={context.members}
-                  policies={context.policies}
-                  defaultAgentId={defaultAgentId}
-                  availability={work.availability}
-                  sourceMessage={selection.sourceMessage}
-                  sourceEvent={selection.sourceEvent}
-                  showHeader={false}
-                  onCreated={(item) =>
-                    work.created(
-                      item,
-                      selection.sourceMessage?.id ??
-                        selection.sourceEvent?.id ??
-                        'manual',
-                    )
-                  }
-                  onClose={work.showList}
-                />
-              )}
+              <WorkItemForm
+                key={`create:${selection.globalDraft ? 'unassigned' : selection.roomId}:${selection.sourceMessage?.id ?? selection.sourceEvent?.id ?? 'manual'}`}
+                roomId={selection.roomId}
+                globalDraft={selection.globalDraft}
+                contextReady={Boolean(context)}
+                members={context?.members ?? []}
+                policies={context?.policies ?? []}
+                defaultAgentId={defaultAgentId}
+                availability={work.availability}
+                sourceMessage={selection.sourceMessage}
+                sourceEvent={selection.sourceEvent}
+                showHeader={false}
+                onCreated={(item) =>
+                  work.created(
+                    item,
+                    selection.sourceMessage?.id ??
+                      selection.sourceEvent?.id ??
+                      'manual',
+                  )
+                }
+                onClose={work.showList}
+              />
             </div>
           )}
           {selection.kind === 'item' && (

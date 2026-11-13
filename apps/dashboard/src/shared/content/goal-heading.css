@@ -1,0 +1,21 @@
+.app-goal {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.app-goal > .p9-button {
+  justify-self: start;
+}
+.app-goal .app-goal-heading {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 600 13px/1.45 var(--p9-body-font);
+}
+.app-goal-heading:not(.is-expanded) {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

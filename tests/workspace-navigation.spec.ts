@@ -4,6 +4,7 @@ import {
   createRoom,
   mutate,
   openApp,
+  openMessageAction,
   openInboxActivity,
   openRoomMore,
   post,
@@ -89,9 +90,7 @@ test('Room daily navigation opens work directly and remembers a message with exa
     )
       writes++;
   });
-  await message
-    .getByRole('button', { name: 'Remember this…', exact: true })
-    .click();
+  await openMessageAction(page, message, 'Remember this…');
   const notes = win.getByRole('region', { name: 'Room notes', exact: true });
   await expect(notes.getByLabel('Note', { exact: true })).toHaveValue(original);
   expect(writes).toBe(0);

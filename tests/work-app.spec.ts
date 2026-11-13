@@ -6,6 +6,7 @@ import {
   createRoom,
   mutate,
   openApp,
+  openMessageAction,
   openInboxActivity,
   signIn,
   work,
@@ -29,12 +30,13 @@ async function createMatter(page: Page, roomId: string, goal: string) {
   return ((await response.json()) as { item: WorkItem }).item;
 }
 
-async function newMatterInRoom(page: Page, roomId: string) {
+async function newMatterInRoom(page: Page, roomId: string, global = false) {
   await openApp(page, 'Work');
+  await roomFilter(page).selectOption(global ? '' : roomId);
   await work(page)
     .getByRole('button', { name: 'New work…', exact: true })
     .click();
-  await roomFilter(page).selectOption(roomId);
+  if (global) await roomFilter(page).selectOption(roomId);
   await expect(
     work(page).getByRole('form', { name: 'New work', exact: true }),
   ).toBeVisible();
@@ -253,7 +255,7 @@ test('message follow-up opens Work with exact source context and returns to the 
   const unsent = 'Keep this Room note while I track the acceptance.';
   await input.fill(unsent);
   const source = workspace(page).locator(`[data-message-id="${message.id}"]`);
-  await source.getByRole('button', { name: 'Follow up…', exact: true }).click();
+  await openMessageAction(page, source, 'Follow up…');
   await expect(work(page)).toHaveClass(/is-active/);
   await expect(work(page).locator('.p9-window-title')).toHaveText('New Work');
   await expect(roomFilter(page)).toHaveValue(room.id);
@@ -306,14 +308,11 @@ test('a failed private creation draft blocks changing Rooms until explicitly rec
     `Draft other ${randomUUID().slice(0, 8)}`,
   );
   await openApp(page, 'Work');
+  await roomFilter(page).selectOption(first.id);
   await work(page)
     .getByRole('button', { name: 'New work…', exact: true })
     .click();
-  await expect(roomFilter(page)).toHaveValue('');
-  await expect(
-    work(page).getByLabel('What needs to happen?', { exact: true }),
-  ).toHaveCount(0);
-  await roomFilter(page).selectOption(first.id);
+  await expect(roomFilter(page)).toHaveValue(first.id);
   const draft = 'Keep this first Room goal until private storage recovers.';
   let fail = true;
   let creates = 0;
@@ -466,124 +465,130 @@ test('recording work waits for private draft deletion before leaving and reopens
   }
 });
 
-test('failed creation draft cleanup retains the exact request across reload and recovers the committed work without another POST', async ({
-  page,
-  browserName,
-}) => {
-  const errors = watchPageErrors(page, browserName);
-  await signIn(page);
-  const room = await createRoom(
+for (const global of [false, true]) {
+  test(`failed ${global ? 'global' : 'Room'} creation draft cleanup retains the exact request across reload and recovers the committed work without another POST`, async ({
     page,
-    `Recover work draft ${randomUUID().slice(0, 8)}`,
-  );
-  await newMatterInRoom(page, room.id);
-  const { user } = await (await page.request.get('/api/auth/status')).json();
-  const draftKey = `work-item-create:${room.id}:manual`;
-  const receiptKey = `camp:receipt:${user.id}:work-item-operation:create:${room.id}:manual`;
-  const draftUrl = `/api/me/drafts/conversation?key=${encodeURIComponent(draftKey)}`;
-  const goal = 'Recover this recorded work rather than creating a duplicate.';
-  const input = work(page).getByLabel('What needs to happen?', { exact: true });
-  await input.fill(goal);
-  await expect
-    .poll(
-      async () =>
-        (await (await page.request.get(draftUrl)).json()).draft.value?.goal,
-    )
-    .toBe(goal);
-  let creates = 0;
-  let body: { requestId: string; goal: string } | undefined;
-  page.on('request', (request) => {
-    if (
-      request.method() === 'POST' &&
-      new URL(request.url()).pathname === `/api/rooms/${room.id}/work-items`
-    ) {
-      creates++;
-      body = request.postDataJSON();
-    }
+    browserName,
+  }) => {
+    const errors = watchPageErrors(page, browserName);
+    await signIn(page);
+    const room = await createRoom(
+      page,
+      `Recover work draft ${randomUUID().slice(0, 8)}`,
+    );
+    await newMatterInRoom(page, room.id, global);
+    const { user } = await (await page.request.get('/api/auth/status')).json();
+    const draftRoom = global ? '' : room.id;
+    const draftKey = `work-item-create:${draftRoom}:manual`;
+    const receiptKey = `camp:receipt:${user.id}:work-item-operation:create:${draftRoom}:manual`;
+    const draftUrl = `/api/me/drafts/conversation?key=${encodeURIComponent(draftKey)}`;
+    const goal = 'Recover this recorded work rather than creating a duplicate.';
+    const input = work(page).getByLabel('What needs to happen?', {
+      exact: true,
+    });
+    await input.fill(goal);
+    await expect
+      .poll(
+        async () =>
+          (await (await page.request.get(draftUrl)).json()).draft.value?.goal,
+      )
+      .toBe(goal);
+    let creates = 0;
+    let body: { requestId: string; goal: string } | undefined;
+    page.on('request', (request) => {
+      if (
+        request.method() === 'POST' &&
+        new URL(request.url()).pathname === `/api/rooms/${room.id}/work-items`
+      ) {
+        creates++;
+        body = request.postDataJSON();
+      }
+    });
+    let fail = true;
+    await page.route('**/api/me/drafts/conversation', (route) => {
+      if (
+        fail &&
+        route.request().method() === 'DELETE' &&
+        route.request().postDataJSON().key === draftKey
+      ) {
+        return route.fulfill({
+          status: 503,
+          json: { error: 'The recorded Work draft could not be cleared.' },
+        });
+      }
+      return route.fallback();
+    });
+    await work(page)
+      .getByRole('button', { name: 'Keep track', exact: true })
+      .click();
+    await expect(
+      work(page)
+        .getByRole('alert')
+        .filter({ hasText: 'The recorded Work draft could not be cleared.' }),
+    ).toBeVisible();
+    await expect(input).toBeDisabled();
+    await expect(detail(page)).toHaveCount(0);
+    expect(creates).toBe(1);
+    const retained = await page.evaluate(
+      (key) => sessionStorage.getItem(key),
+      receiptKey,
+    );
+    expect(retained).not.toBeNull();
+    expect(JSON.parse(retained!).value.body).toEqual(body);
+    const committed = await page.request.get(
+      `/api/work-item-requests/${body!.requestId}`,
+    );
+    expect(committed.ok()).toBe(true);
+    const { item } = (await committed.json()) as { item: WorkItem };
+    expect(item.goal).toBe(goal);
+    page.once('dialog', (dialog) => dialog.accept());
+    await errors.reload();
+    await newMatterInRoom(page, room.id, global);
+    expect(
+      await page.evaluate((key) => sessionStorage.getItem(key), receiptKey),
+    ).toBe(retained);
+    await expect(
+      work(page).getByRole('button', { name: 'Check status', exact: true }),
+    ).toBeEnabled();
+    await expect(input).toBeDisabled();
+    await expect(
+      work(page)
+        .getByRole('alert')
+        .filter({ hasText: 'The recorded Work draft could not be cleared.' }),
+    ).toBeVisible();
+    fail = false;
+    await work(page)
+      .getByRole('button', { name: 'Compare Private Drafts', exact: true })
+      .click();
+    await work(page)
+      .getByRole('button', { name: 'Save My Draft', exact: true })
+      .click();
+    await expect
+      .poll(
+        async () =>
+          (await (await page.request.get(draftUrl)).json()).draft.value,
+      )
+      .toBeNull();
+    await work(page)
+      .getByRole('button', { name: 'Check status', exact: true })
+      .click();
+    await expect(detail(page)).toContainText(goal);
+    expect(
+      await page.evaluate((key) => sessionStorage.getItem(key), receiptKey),
+    ).toBeNull();
+    expect(creates).toBe(1);
+    await errors.reload();
+    await newMatterInRoom(page, room.id, global);
+    await expect(input).toHaveValue('');
+    await expect(input).toBeEditable();
+    const { items } = await (
+      await page.request.get(`/api/rooms/${room.id}/work-items`)
+    ).json();
+    expect(items.map((value: WorkItem) => value.id)).toEqual([item.id]);
+    expect(creates).toBe(1);
+    expect(errors.errors).toEqual([]);
   });
-  let fail = true;
-  await page.route('**/api/me/drafts/conversation', (route) => {
-    if (
-      fail &&
-      route.request().method() === 'DELETE' &&
-      route.request().postDataJSON().key === draftKey
-    ) {
-      return route.fulfill({
-        status: 503,
-        json: { error: 'The recorded Work draft could not be cleared.' },
-      });
-    }
-    return route.fallback();
-  });
-  await work(page)
-    .getByRole('button', { name: 'Keep track', exact: true })
-    .click();
-  await expect(
-    work(page)
-      .getByRole('alert')
-      .filter({ hasText: 'The recorded Work draft could not be cleared.' }),
-  ).toBeVisible();
-  await expect(input).toBeDisabled();
-  await expect(detail(page)).toHaveCount(0);
-  expect(creates).toBe(1);
-  const retained = await page.evaluate(
-    (key) => sessionStorage.getItem(key),
-    receiptKey,
-  );
-  expect(retained).not.toBeNull();
-  expect(JSON.parse(retained!).value.body).toEqual(body);
-  const committed = await page.request.get(
-    `/api/work-item-requests/${body!.requestId}`,
-  );
-  expect(committed.ok()).toBe(true);
-  const { item } = (await committed.json()) as { item: WorkItem };
-  expect(item.goal).toBe(goal);
-  page.once('dialog', (dialog) => dialog.accept());
-  await errors.reload();
-  await newMatterInRoom(page, room.id);
-  expect(
-    await page.evaluate((key) => sessionStorage.getItem(key), receiptKey),
-  ).toBe(retained);
-  await expect(
-    work(page).getByRole('button', { name: 'Check status', exact: true }),
-  ).toBeEnabled();
-  await expect(input).toBeDisabled();
-  await expect(
-    work(page)
-      .getByRole('alert')
-      .filter({ hasText: 'The recorded Work draft could not be cleared.' }),
-  ).toBeVisible();
-  fail = false;
-  await work(page)
-    .getByRole('button', { name: 'Compare Private Drafts', exact: true })
-    .click();
-  await work(page)
-    .getByRole('button', { name: 'Save My Draft', exact: true })
-    .click();
-  await expect
-    .poll(
-      async () => (await (await page.request.get(draftUrl)).json()).draft.value,
-    )
-    .toBeNull();
-  await work(page)
-    .getByRole('button', { name: 'Check status', exact: true })
-    .click();
-  await expect(detail(page)).toContainText(goal);
-  expect(
-    await page.evaluate((key) => sessionStorage.getItem(key), receiptKey),
-  ).toBeNull();
-  expect(creates).toBe(1);
-  await errors.reload();
-  await newMatterInRoom(page, room.id);
-  await expect(input).toHaveValue('');
-  await expect(input).toBeEditable();
-  const { items } = await (
-    await page.request.get(`/api/rooms/${room.id}/work-items`)
-  ).json();
-  expect(items.map((value: WorkItem) => value.id)).toEqual([item.id]);
-  expect(creates).toBe(1);
-  expect(errors.errors).toEqual([]);
-});
+}
 
 test('confirming recorded work preserves a different private draft explicitly selected during cleanup recovery', async ({
   page,

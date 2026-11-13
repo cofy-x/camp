@@ -243,26 +243,6 @@
 .collaboration-state > span + span {
   color: var(--p9-text-muted, #555);
 }
-.collaboration-task-goal {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-.collaboration-task-goal > .p9-button {
-  justify-self: start;
-}
-.collaboration-status .collaboration-title {
-  margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font: 600 13px/1.45 var(--p9-body-font);
-}
-.collaboration-title:not(.is-expanded) {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
 .collaboration-detail .collaboration-actions {
   display: flex;
   flex-wrap: wrap;
