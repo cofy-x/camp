@@ -60,8 +60,7 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
-.camp-review-content > .camp-section-heading > h2,
-.camp-review-list h2 {
+.camp-review-content > .camp-section-heading > h2 {
   margin: 0;
   font-family: var(--p9-font);
   font-size: 14px;
@@ -230,16 +229,16 @@
   overflow-wrap: anywhere;
 }
 .camp-review-list {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid #aaa;
-}
-.camp-file-tab > .camp-review-list {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   margin: 0;
   padding: 12px;
   border: 0;
+  background: #eee;
 }
-.camp-review-list > .camp-section-heading {
+.camp-review-list-heading {
+  flex: 0 0 auto;
   margin-bottom: 12px;
 }
 .camp-review-recovery {
@@ -251,16 +250,26 @@
 .camp-review-recovery p {
   margin: 0;
 }
-.camp-review-list.is-panel {
+.camp-review-list:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.camp-review-list-toolbar {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.camp-review-list-toolbar > .app-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 0;
+  margin-left: auto;
+}
+.camp-review-list ul {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  margin: 0;
-  padding: 12px;
-  border: 0;
-  background: #eee;
-}
-.camp-review-list ul {
   list-style: none;
   padding: 2px;
   border: 1px solid #888;

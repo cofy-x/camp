@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"net/url"
 
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
@@ -9,14 +10,27 @@ import (
 func (a *API) reviewRoutes(mux *http.ServeMux) {
 	register := func(route string, h http.HandlerFunc) { mux.HandleFunc(route, a.authorizeRoute(route, h)) }
 	register("GET /api/reviews", func(w http.ResponseWriter, r *http.Request) {
-		for _, key := range []string{"roomId", "resourceId"} {
-			if len(r.URL.Query()[key]) > 1 {
-				writeError(w, 400, "invalid_review", "Provide one Room and one resource filter.")
+		query, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			writeError(w, 400, "invalid_page", "Use valid review page parameters.")
+			return
+		}
+		for key, values := range query {
+			if (key != "roomId" && key != "resourceId" && key != "path" && key != "cursor" && key != "limit") || len(values) != 1 {
+				writeError(w, 400, "invalid_page", "Use one Room, source, file, cursor and page limit.")
 				return
 			}
 		}
-		reviews, err := a.store.ListReviews(r.Context(), r.URL.Query().Get("roomId"), r.URL.Query().Get("resourceId"))
-		a.respond(w, r, map[string]any{"reviews": reviews}, err)
+		limit, present, ok := pageNumber(w, r, "limit")
+		if !ok {
+			return
+		}
+		if (present && limit == 0) || limit > 20 {
+			writeError(w, 400, "invalid_page", "Read at most 20 reviews at a time.")
+			return
+		}
+		page, err := a.store.ListReviews(r.Context(), storage.ReviewListOptions{RoomID: query.Get("roomId"), ResourceID: query.Get("resourceId"), Path: query.Get("path"), Cursor: query.Get("cursor"), Limit: int(limit)})
+		a.respond(w, r, page, err)
 	})
 	register("GET /api/reviews/{id}", func(w http.ResponseWriter, r *http.Request) {
 		result, err := a.store.GetReview(r.Context(), r.PathValue("id"))

@@ -65,7 +65,10 @@ export function FileDetail({
           )}
         </div>
       </header>
-      <div className="camp-file-reading" hidden={!reviewsOpen}>
+      <div
+        className="camp-file-reading camp-file-review-history"
+        hidden={!reviewsOpen}
+      >
         {reviewsOpen && (
           <ReviewList
             resourceId={resource.id}

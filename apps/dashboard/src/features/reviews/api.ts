@@ -61,6 +61,11 @@ export interface ReviewResult {
   replayed?: boolean;
 }
 
+export interface ReviewListPage {
+  reviews: Review[];
+  nextCursor: string;
+}
+
 export interface ReviewActionInput {
   requestId: string;
   revision: number;
@@ -75,13 +80,6 @@ const json = (value: unknown) => ({
   body: JSON.stringify(value),
 });
 export const reviewsApi = {
-  list: (
-    scope: { roomId?: string; resourceId?: string },
-    signal?: AbortSignal,
-  ) =>
-    request<{ reviews: Review[] }>(`/reviews?${new URLSearchParams(scope)}`, {
-      signal,
-    }),
   get: (id: string, signal?: AbortSignal) =>
     request<ReviewResult>(`/reviews/${encodeURIComponent(id)}`, { signal }),
   create: (

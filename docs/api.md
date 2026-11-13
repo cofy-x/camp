@@ -320,10 +320,12 @@ Originals mount read-only at `/references/<index>/<path>`. Agents read the selec
 
 | Method | Path | Contract |
 | --- | --- | --- |
-| GET | `/api/reviews?roomId=...&resourceId=...` | `{reviews}` with optional filters |
+| GET | `/api/reviews?roomId=...&resourceId=...&path=...&cursor=...&limit=20` | `{reviews,nextCursor}` with optional scope and paging |
 | GET | `/api/reviews/:id` | `{review,events,replayed:false}` |
 | POST | `/api/rooms/:id/reviews` | `{requestId,title,resourceId,path,commit,reviewerUserId}` |
 | POST | `/api/reviews/:id/actions` | `{requestId,revision,action,comment?,commit?,reviewerUserId?}` |
+
+List reads default to 20 reviews and accept limits of 1–20, with at most 320 KiB of encoded JSON including its newline. Room, Resource and optional file filters apply in storage before the indexed page is read; a file path requires its Resource. Current enabled-member authority, scope and display facts share one read transaction. Pages contain whole records ordered by immutable creation time descending, then ID descending; decisions update current state without moving older records. The opaque cursor identifies the next unread record and is bound to the actor and filters. An empty cursor starts at the latest records, and an empty `nextCursor` ends traversal. Invalid, duplicate, unknown or mismatched page parameters return `invalid_page` (400); unknown Room/Resource scopes return 404. The list reads no audit comments or document bytes and starts no work. Individual detail and mutation receipts retain their existing complete audit contract.
 
 Mutations return `{review,events,replayed}`. Creation pins an existing saved file in the Room's current working Resource at its current commit, with an enabled human reviewer and title up to 200 UTF-8 bytes. Original uploads need a working copy first. A system root Message creates the existing discussion Thread; all transitions append there without rewriting evidence or creating Runs.
 
