@@ -246,7 +246,7 @@ SELECT CAST(d.seq AS INTEGER) AS seq,
 CAST(json_object('seq',d.seq,'id',d.id,'kind',json_extract(d.value,'$.kind'),
  'content',CASE json_extract(d.value,'$.kind')
  WHEN 'result' THEN coalesce(json_extract(t.snapshot,'$.summary'),'')
- WHEN 'action_result' THEN coalesce((SELECT 'Delivery ' || json_extract(e.content,'$.status') || '.' FROM automation_events e WHERE e.id=json_extract(d.value,'$.evidenceIds[0]')),'')
+ WHEN 'action_result' THEN coalesce((SELECT 'Delivery ' || json_extract(e.value,'$.status') || '.' FROM work_action_receipts e WHERE e.event_id=json_extract(d.value,'$.evidenceIds[0]')),'')
  ELSE coalesce(json_extract(d.value,'$.reason'),'') END,
  'taskId',coalesce(json_extract(d.value,'$.taskId'),''),'createdAt',json_extract(d.value,'$.createdAt')) AS TEXT) AS value
 FROM work_item_decisions d
