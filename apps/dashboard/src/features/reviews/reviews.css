@@ -208,6 +208,12 @@
   list-style: none;
   padding: 0 12px;
 }
+.camp-review-history-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px;
+}
 .camp-review-history li {
   display: flex;
   flex-direction: column;

@@ -112,7 +112,7 @@ export function ReviewHistory({
       {(!page || navigation) && !error && <p role="status">Loading history…</p>}
       {(position.previous.length > 0 || page?.nextCursor) && (
         <nav
-          className="work-history-navigation"
+          className="camp-review-history-navigation"
           aria-label="Review history pages"
         >
           <Button
