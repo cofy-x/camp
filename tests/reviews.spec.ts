@@ -138,7 +138,7 @@ test('an uncertain review decision freezes its original body and recovers after 
   const bodies: ReviewActionInput[] = [];
   let drop = true;
   await page.route(
-    `**/api/reviews/${value.review.id}/actions`,
+    `**/api/reviews/${value.review.id}/actions?view=summary`,
     async (route) => {
       if (route.request().method() !== 'POST') return route.fallback();
       bodies.push(route.request().postDataJSON());
@@ -164,13 +164,16 @@ test('an uncertain review decision freezes its original body and recovers after 
   });
   await expect(refresh).toBeVisible();
   let failRead = true;
-  await page.route(`**/api/reviews/${value.review.id}`, (route) => {
-    if (!failRead) return route.fallback();
-    return route.fulfill({
-      status: 503,
-      json: { error: 'This review could not be refreshed.' },
-    });
-  });
+  await page.route(
+    `**/api/reviews/${value.review.id}?view=summary`,
+    (route) => {
+      if (!failRead) return route.fallback();
+      return route.fulfill({
+        status: 503,
+        json: { error: 'This review could not be refreshed.' },
+      });
+    },
+  );
   expect(
     (
       await mutate(page, `/rooms/${value.room.id}/messages`, {
@@ -420,14 +423,17 @@ test('a completed review request remains available without replacing a newer app
     release = resolve;
   });
   let recorded = false;
-  await page.route(`**/api/rooms/${room.id}/reviews`, async (route) => {
-    if (route.request().method() !== 'POST') return route.fallback();
-    const response = await route.fetch();
-    expect(response.ok()).toBe(true);
-    recorded = true;
-    await held;
-    return route.fulfill({ response });
-  });
+  await page.route(
+    `**/api/rooms/${room.id}/reviews?view=summary`,
+    async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      const response = await route.fetch();
+      expect(response.ok()).toBe(true);
+      recorded = true;
+      await held;
+      return route.fulfill({ response });
+    },
+  );
   try {
     await request
       .getByRole('button', { name: 'Request Review', exact: true })
@@ -472,7 +478,7 @@ test('a recorded review decision updates in the background without taking focus 
   });
   let recorded = false;
   await page.route(
-    `**/api/reviews/${value.review.id}/actions`,
+    `**/api/reviews/${value.review.id}/actions?view=summary`,
     async (route) => {
       const response = await route.fetch();
       expect(response.ok()).toBe(true);
@@ -535,12 +541,15 @@ test('reopening a cached review loads the current decision before offering actio
     release = resolve;
   });
   let reads = 0;
-  await page.route(`**/api/reviews/${value.review.id}`, async (route) => {
-    const response = await route.fetch();
-    reads++;
-    await held;
-    await route.fulfill({ response });
-  });
+  await page.route(
+    `**/api/reviews/${value.review.id}?view=summary`,
+    async (route) => {
+      const response = await route.fetch();
+      reads++;
+      await held;
+      await route.fulfill({ response });
+    },
+  );
   try {
     await openReview(page, value.title);
     await expect.poll(() => reads).toBeGreaterThan(0);
@@ -1109,13 +1118,16 @@ test('a newer publication blocks delivery and preserves the approved document', 
     release = resolve;
   });
   let submitted = false;
-  await page.route(`**/api/reviews/${review.id}/actions`, async (route) => {
-    if (route.request().postDataJSON().action !== 'deliver')
-      return route.continue();
-    submitted = true;
-    await held;
-    await route.continue();
-  });
+  await page.route(
+    `**/api/reviews/${review.id}/actions?view=summary`,
+    async (route) => {
+      if (route.request().postDataJSON().action !== 'deliver')
+        return route.continue();
+      submitted = true;
+      await held;
+      await route.continue();
+    },
+  );
   try {
     await detail(page)
       .getByRole('button', { name: 'Deliver', exact: true })
@@ -1260,14 +1272,17 @@ test('a disabled reviewer can be reassigned and a cancelled version can be revie
     .getByLabel('Reviewer', { exact: true })
     .selectOption(reviewerId);
   let dropReceipt = true;
-  await page.route(`**/api/rooms/${room.id}/reviews`, async (route) => {
-    if (route.request().method() !== 'POST' || !dropReceipt)
-      return route.continue();
-    const response = await route.fetch();
-    expect(response.ok()).toBeTruthy();
-    dropReceipt = false;
-    await route.abort('failed');
-  });
+  await page.route(
+    `**/api/rooms/${room.id}/reviews?view=summary`,
+    async (route) => {
+      if (route.request().method() !== 'POST' || !dropReceipt)
+        return route.continue();
+      const response = await route.fetch();
+      expect(response.ok()).toBeTruthy();
+      dropReceipt = false;
+      await route.abort('failed');
+    },
+  );
   await request
     .getByRole('button', { name: 'Request Review', exact: true })
     .click();
@@ -1400,13 +1415,16 @@ test('a disabled reviewer can be reassigned and a cancelled version can be revie
   });
   // Server acceptance precedes private receipt persistence and navigation.
   // Keep the response pending so API visibility cannot stand in for the UI.
-  await page.route(`**/api/rooms/${room.id}/reviews`, async (route) => {
-    if (route.request().method() !== 'POST') return route.continue();
-    const response = await route.fetch();
-    expect(response.ok()).toBeTruthy();
-    await createdResponse;
-    await route.fulfill({ response });
-  });
+  await page.route(
+    `**/api/rooms/${room.id}/reviews?view=summary`,
+    async (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      const response = await route.fetch();
+      expect(response.ok()).toBeTruthy();
+      await createdResponse;
+      await route.fulfill({ response });
+    },
+  );
   try {
     await request
       .getByRole('button', { name: 'Request Review', exact: true })
@@ -1493,18 +1511,21 @@ test('review navigation waits for the action and preserves a failed receipt clea
   });
   let committed = false;
   let clearFailed = false;
-  await page.route(`**/api/reviews/${review.id}/actions`, async (route) => {
-    if (
-      route.request().method() !== 'POST' ||
-      route.request().postDataJSON().action !== 'cancel'
-    )
-      return route.continue();
-    const response = await route.fetch();
-    expect(response.ok()).toBeTruthy();
-    committed = true;
-    await actionReceipt;
-    await route.fulfill({ response });
-  });
+  await page.route(
+    `**/api/reviews/${review.id}/actions?view=summary`,
+    async (route) => {
+      if (
+        route.request().method() !== 'POST' ||
+        route.request().postDataJSON().action !== 'cancel'
+      )
+        return route.continue();
+      const response = await route.fetch();
+      expect(response.ok()).toBeTruthy();
+      committed = true;
+      await actionReceipt;
+      await route.fulfill({ response });
+    },
+  );
   await page.route('**/api/me/drafts/review', async (route) => {
     if (route.request().method() !== 'PUT') return route.continue();
     const body = route.request().postDataJSON() as {
@@ -1667,4 +1688,118 @@ test('a review form retains its draft and waits for an explicit newer version', 
   expect(reviews.reviews[0].submittedCommit).toBe(latest);
   expect(reviews.reviews[0].title).toBe(title);
   expect(reviews.reviews[0].reviewerUserId).toBe(user.id);
+});
+
+test('review state opens before optional audit, and bounded history keeps its range and comment after errors and new decisions', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  await signIn(page);
+  const value = await reviewFixture(page, 'Bounded decision history');
+  let review = value.review;
+  for (let i = 0; i < 18; i++) {
+    for (const action of ['request_changes', 'resubmit']) {
+      const response = await mutate(
+        page,
+        `/reviews/${review.id}/actions?view=summary`,
+        {
+          requestId: randomUUID(),
+          revision: review.revision,
+          action,
+          ...(action === 'request_changes'
+            ? { comment: `Clarify step ${i + 1}.` }
+            : { commit: review.submittedCommit }),
+        },
+      );
+      expect(response.ok()).toBe(true);
+      review = (await response.json()).review;
+    }
+  }
+  let historyReads = 0;
+  let failEarlier = true;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(`**/api/reviews/${review.id}/events?*`, async (route) => {
+    historyReads++;
+    const url = new URL(route.request().url());
+    expect(url.searchParams.get('through')).toBe('37');
+    if (historyReads === 1) await held;
+    if (url.searchParams.get('cursor') && failEarlier) {
+      failEarlier = false;
+      return route.fulfill({
+        status: 503,
+        json: { error: 'History temporarily unavailable.' },
+      });
+    }
+    const response = await route.fetch();
+    const result = await response.json();
+    expect(result.events.length).toBeLessThanOrEqual(20);
+    expect(Buffer.byteLength(await response.body())).toBeLessThanOrEqual(
+      128 * 1024,
+    );
+    return route.fulfill({ response });
+  });
+  const currentBodies: Record<string, unknown>[] = [];
+  page.on('response', (response) => {
+    if (
+      response.url().endsWith(`/api/reviews/${review.id}?view=summary`) &&
+      response.ok()
+    )
+      void response.json().then((value) => currentBodies.push(value));
+  });
+  await openReview(page, value.title);
+  const note = detail(page).getByLabel('Review comment', { exact: true });
+  await note.fill('Keep this private decision draft.');
+  expect(historyReads).toBe(0);
+  expect(currentBodies.length).toBeGreaterThan(0);
+  expect(currentBodies.every((value) => !('events' in value))).toBe(true);
+  await detail(page).locator('.camp-review-history > summary').click();
+  const history = detail(page).getByRole('region', {
+    name: 'Review history records',
+    exact: true,
+  });
+  await expect(history.getByRole('status')).toContainText('Loading history');
+  await expect(note).toHaveValue('Keep this private decision draft.');
+  release();
+  await expect(history.locator('li')).toHaveCount(20);
+  const first = await history.locator('li').first().textContent();
+  await history.getByRole('button', { name: 'Earlier', exact: true }).click();
+  await expect(history.getByRole('alert')).toContainText(
+    'History temporarily unavailable',
+  );
+  await expect(history.locator('li')).toHaveCount(20);
+  await expect(history.locator('li').first()).toHaveText(first!);
+  await history
+    .getByRole('button', { name: 'Retry History', exact: true })
+    .click();
+  await expect(history.locator('li')).toHaveCount(17);
+  await expect(history.locator('li').first()).toBeFocused();
+  const readsBeforeUpdate = historyReads;
+  const decision = await mutate(
+    page,
+    `/reviews/${review.id}/actions?view=summary`,
+    {
+      requestId: randomUUID(),
+      revision: review.revision,
+      action: 'request_changes',
+      comment: 'A newer decision outside this range.',
+    },
+  );
+  expect(decision.ok()).toBe(true);
+  await expect(
+    detail(page).getByRole('button', { name: 'Refresh Review', exact: true }),
+  ).toBeVisible();
+  expect(historyReads).toBe(readsBeforeUpdate);
+  await expect(note).toHaveValue('Keep this private decision draft.');
+  await history.getByRole('button', { name: 'Newer', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(history.locator('li')).toHaveCount(20);
+  await expect(history.locator('li').first()).toHaveText(first!);
+  await expect(history).not.toContainText(
+    'A newer decision outside this range.',
+  );
+  expect(errors.errors).toEqual([]);
 });

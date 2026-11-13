@@ -190,13 +190,21 @@ func Run(ctx context.Context, cmd *exec.Cmd, c Config, session, prompt string, e
 				case "turn/end":
 					var data struct {
 						Reason struct {
-							Kind string `json:"kind"`
+							Kind  string `json:"kind"`
+							Error struct {
+								Message string `json:"message"`
+							} `json:"error"`
 						} `json:"reason"`
 					}
 					if err := json.Unmarshal(p.Event.Data, &data); err != nil {
 						return nil, fmt.Errorf("Invalid DSH completion event format")
 					}
 					turnReason = data.Reason.Kind
+					// Preserve the known admission denial without exposing arbitrary
+					// provider errors in the business-state summary.
+					if turnReason == "error" && data.Reason.Error.Message == "The collaboration model request allowance is exhausted. Add an explicit allowance before continuing." {
+						turnReason = "model-request-allowance-exhausted"
+					}
 					if err := emit(Event{Type: "completion", Text: "[DSH] Turn ended: " + string(p.Event.Data) + "\n"}); err != nil {
 						return nil, err
 					}
@@ -258,6 +266,9 @@ func Run(ctx context.Context, cmd *exec.Cmd, c Config, session, prompt string, e
 			return nil, err
 		}
 		if turnReason != "completed" {
+			if turnReason == "model-request-allowance-exhausted" {
+				return nil, fmt.Errorf("The collaboration model request allowance is exhausted. Saved work is retained; add an explicit allowance before continuing.")
+			}
 			return nil, fmt.Errorf("DSH turn did not complete: %s", turnReason)
 		}
 		return rpc("shutdown", nil)

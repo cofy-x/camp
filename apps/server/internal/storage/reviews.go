@@ -54,7 +54,17 @@ type ReviewResult struct {
 	Review   Review        `json:"review"`
 	Events   []ReviewEvent `json:"events"`
 	Replayed bool          `json:"replayed"`
+	Feedback *ReviewEvent  `json:"-"`
 }
+
+// ReviewSummary excludes audit history from current-state and receipt reads.
+// The default full result remains available to released clients and audit exports.
+type ReviewView string
+
+const ReviewSummary ReviewView = "summary"
+
+func reviewSummary(view []ReviewView) bool { return len(view) > 0 && view[0] == ReviewSummary }
+
 type CreateReviewInput struct {
 	RequestID      string `json:"requestId"`
 	Title          string `json:"title"`
@@ -76,12 +86,9 @@ func reviewRow(r sqlgen.GetReviewRow) Review {
 	return Review{ID: r.ID, RoomID: r.RoomID, ResourceID: r.ResourceID, Path: r.Path, Title: r.Title, RequesterUserID: r.RequesterUserID, RequesterName: r.RequesterName, ReviewerUserID: r.ReviewerUserID, ReviewerName: r.ReviewerName, ReviewerEnabled: r.ReviewerEnabled, SubmittedCommit: r.SubmittedCommit, DeliveredCommit: r.DeliveredCommit, Status: r.Status, Revision: r.Revision, ThreadRootID: r.ThreadRootID, CurrentCommit: r.CurrentCommit, Outdated: r.Status != "delivered" && r.Status != "cancelled" && r.SubmittedCommit != r.CurrentCommit, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
 }
 func reviewEvents(ctx context.Context, q *sqlgen.Queries, id string, through int64) ([]ReviewEvent, error) {
-	rows, err := q.ListReviewEvents(ctx, id)
+	rows, err := q.ListReviewEvents(ctx, sqlgen.ListReviewEventsParams{ReviewID: id, Revision: through})
 	out := make([]ReviewEvent, 0, len(rows))
 	for _, r := range rows {
-		if through > 0 && r.Revision > through {
-			break
-		}
 		out = append(out, ReviewEvent{ID: r.ID, Seq: r.Seq, ReviewID: r.ReviewID, ActorUserID: r.ActorUserID, ActorName: r.ActorName, Action: r.Action, Comment: r.Comment, Commit: r.CommitID, ReviewerUserID: r.ReviewerUserID, Revision: r.Revision, MessageID: r.MessageID, CreatedAt: r.CreatedAt})
 	}
 	return out, err
@@ -93,16 +100,18 @@ func getReview(ctx context.Context, q *sqlgen.Queries, id string) (Review, error
 	}
 	return reviewRow(r), nil
 }
-func (s *Store) GetReview(ctx context.Context, id string) (result ReviewResult, err error) {
+func (s *Store) GetReview(ctx context.Context, id string, view ...ReviewView) (result ReviewResult, err error) {
 	err = s.readTransaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
+		if e := requireActor(ctx, q, false); e != nil {
+			return e
+		}
 		var e error
 		result.Review, e = getReview(ctx, q, id)
 		if e != nil {
 			return e
 		}
-		result.Events, e = reviewEvents(ctx, q, id, 0)
-		return e
+		return loadReviewResult(ctx, q, &result, reviewSummary(view))
 	})
 	return
 }
@@ -126,7 +135,23 @@ func reviewFingerprint(operation, id string, input any) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
-func findReviewRequest(ctx context.Context, q *sqlgen.Queries, actor, room, request, hash string) (ReviewResult, bool, error) {
+func loadReviewResult(ctx context.Context, q *sqlgen.Queries, out *ReviewResult, summary bool) error {
+	if !summary {
+		var err error
+		out.Events, err = reviewEvents(ctx, q, out.Review.ID, out.Review.Revision)
+		return err
+	}
+	if out.Review.Status != "changes_requested" {
+		return nil
+	}
+	r, err := q.GetReviewFeedback(ctx, sqlgen.GetReviewFeedbackParams{ReviewID: out.Review.ID, Revision: out.Review.Revision})
+	if err != nil {
+		return err
+	}
+	out.Feedback = &ReviewEvent{ID: r.ID, Seq: r.Seq, ReviewID: r.ReviewID, ActorUserID: r.ActorUserID, ActorName: r.ActorName, Action: r.Action, Comment: r.Comment, Commit: r.CommitID, ReviewerUserID: r.ReviewerUserID, Revision: r.Revision, MessageID: r.MessageID, CreatedAt: r.CreatedAt}
+	return nil
+}
+func findReviewRequest(ctx context.Context, q *sqlgen.Queries, actor, room, request, hash string, summary bool) (ReviewResult, bool, error) {
 	r, err := q.GetReviewRequest(ctx, sqlgen.GetReviewRequestParams{UserID: actor, RoomID: room, RequestID: request})
 	if errors.Is(err, sql.ErrNoRows) {
 		return ReviewResult{}, false, nil
@@ -141,11 +166,11 @@ func findReviewRequest(ctx context.Context, q *sqlgen.Queries, actor, room, requ
 	if err = json.Unmarshal([]byte(r.Result), &out.Review); err != nil {
 		return ReviewResult{}, false, err
 	}
-	out.Events, err = reviewEvents(ctx, q, out.Review.ID, out.Review.Revision)
+	err = loadReviewResult(ctx, q, &out, summary)
 	out.Replayed = true
 	return out, true, err
 }
-func saveReviewRequest(ctx context.Context, q *sqlgen.Queries, actor, request, hash string, out *ReviewResult) error {
+func saveReviewRequest(ctx context.Context, q *sqlgen.Queries, actor, request, hash string, out *ReviewResult, summary bool) error {
 	b, err := json.Marshal(out.Review)
 	if err != nil {
 		return err
@@ -153,8 +178,7 @@ func saveReviewRequest(ctx context.Context, q *sqlgen.Queries, actor, request, h
 	if err = q.CreateReviewRequest(ctx, sqlgen.CreateReviewRequestParams{UserID: actor, RoomID: out.Review.RoomID, RequestID: request, RequestHash: hash, Result: string(b)}); err != nil {
 		return err
 	}
-	out.Events, err = reviewEvents(ctx, q, out.Review.ID, 0)
-	return err
+	return loadReviewResult(ctx, q, out, summary)
 }
 func normalizeCreateReview(in CreateReviewInput) (CreateReviewInput, error) {
 	in.RequestID = strings.TrimSpace(in.RequestID)
@@ -169,14 +193,22 @@ func normalizeCreateReview(in CreateReviewInput) (CreateReviewInput, error) {
 }
 
 // FindCreateReview recovers a committed receipt before any file preflight.
-func (s *Store) FindCreateReview(ctx context.Context, room string, in CreateReviewInput) (ReviewResult, bool, error) {
-	in, err := normalizeCreateReview(in)
+func (s *Store) FindCreateReview(ctx context.Context, room string, in CreateReviewInput, view ...ReviewView) (out ReviewResult, found bool, err error) {
+	in, err = normalizeCreateReview(in)
 	if err != nil {
 		return ReviewResult{}, false, err
 	}
-	return findReviewRequest(ctx, s.queries(), actorID(ctx), room, in.RequestID, reviewFingerprint("request", room, in))
+	err = s.readTransaction(ctx, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		if e := requireActor(ctx, q, false); e != nil {
+			return e
+		}
+		out, found, err = findReviewRequest(ctx, q, actorID(ctx), room, in.RequestID, reviewFingerprint("request", room, in), reviewSummary(view))
+		return err
+	})
+	return
 }
-func (s *Store) CreateReview(ctx context.Context, room string, in CreateReviewInput) (out ReviewResult, err error) {
+func (s *Store) CreateReview(ctx context.Context, room string, in CreateReviewInput, view ...ReviewView) (out ReviewResult, err error) {
 	in, err = normalizeCreateReview(in)
 	if err != nil {
 		return
@@ -188,7 +220,7 @@ func (s *Store) CreateReview(ctx context.Context, room string, in CreateReviewIn
 		if e != nil {
 			return e
 		}
-		previous, found, e := findReviewRequest(ctx, q, actor.ID, room, in.RequestID, hash)
+		previous, found, e := findReviewRequest(ctx, q, actor.ID, room, in.RequestID, hash, reviewSummary(view))
 		if e != nil {
 			return e
 		}
@@ -230,7 +262,7 @@ func (s *Store) CreateReview(ctx context.Context, room string, in CreateReviewIn
 			return e
 		}
 		out.Review = review
-		return saveReviewRequest(ctx, q, actor.ID, in.RequestID, hash, &out)
+		return saveReviewRequest(ctx, q, actor.ID, in.RequestID, hash, &out, reviewSummary(view))
 	})
 	return
 }
@@ -262,18 +294,26 @@ func normalizeReviewAction(in ReviewActionInput) (ReviewActionInput, error) {
 	}
 	return in, nil
 }
-func (s *Store) FindReviewAction(ctx context.Context, id string, in ReviewActionInput) (ReviewResult, bool, error) {
-	in, err := normalizeReviewAction(in)
+func (s *Store) FindReviewAction(ctx context.Context, id string, in ReviewActionInput, view ...ReviewView) (out ReviewResult, found bool, err error) {
+	in, err = normalizeReviewAction(in)
 	if err != nil {
 		return ReviewResult{}, false, err
 	}
-	r, err := getReview(ctx, s.queries(), id)
-	if err != nil {
-		return ReviewResult{}, false, err
-	}
-	return findReviewRequest(ctx, s.queries(), actorID(ctx), r.RoomID, in.RequestID, reviewFingerprint("action", id, in))
+	err = s.readTransaction(ctx, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		if e := requireActor(ctx, q, false); e != nil {
+			return e
+		}
+		r, e := getReview(ctx, q, id)
+		if e != nil {
+			return e
+		}
+		out, found, err = findReviewRequest(ctx, q, actorID(ctx), r.RoomID, in.RequestID, reviewFingerprint("action", id, in), reviewSummary(view))
+		return err
+	})
+	return
 }
-func (s *Store) ActOnReview(ctx context.Context, id string, in ReviewActionInput) (out ReviewResult, err error) {
+func (s *Store) ActOnReview(ctx context.Context, id string, in ReviewActionInput, view ...ReviewView) (out ReviewResult, err error) {
 	in, err = normalizeReviewAction(in)
 	if err != nil {
 		return
@@ -289,7 +329,7 @@ func (s *Store) ActOnReview(ctx context.Context, id string, in ReviewActionInput
 		if e != nil {
 			return e
 		}
-		previous, found, e := findReviewRequest(ctx, q, actor.ID, review.RoomID, in.RequestID, hash)
+		previous, found, e := findReviewRequest(ctx, q, actor.ID, review.RoomID, in.RequestID, hash, reviewSummary(view))
 		if e != nil {
 			return e
 		}
@@ -379,7 +419,7 @@ func (s *Store) ActOnReview(ctx context.Context, id string, in ReviewActionInput
 			return e
 		}
 		out.Review = review
-		return saveReviewRequest(ctx, q, actor.ID, in.RequestID, hash, &out)
+		return saveReviewRequest(ctx, q, actor.ID, in.RequestID, hash, &out, reviewSummary(view))
 	})
 	return
 }

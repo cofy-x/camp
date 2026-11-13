@@ -160,6 +160,35 @@ func (q *Queries) GetReview(ctx context.Context, id string) (GetReviewRow, error
 	return i, err
 }
 
+const getReviewFeedback = `-- name: GetReviewFeedback :one
+SELECT seq, id, review_id, actor_user_id, actor_name, "action", comment, commit_id, reviewer_user_id, revision, message_id, created_at FROM review_events WHERE review_id=? AND revision=? AND action='request_changes'
+`
+
+type GetReviewFeedbackParams struct {
+	ReviewID string
+	Revision int64
+}
+
+func (q *Queries) GetReviewFeedback(ctx context.Context, arg GetReviewFeedbackParams) (ReviewEvent, error) {
+	row := q.db.QueryRowContext(ctx, getReviewFeedback, arg.ReviewID, arg.Revision)
+	var i ReviewEvent
+	err := row.Scan(
+		&i.Seq,
+		&i.ID,
+		&i.ReviewID,
+		&i.ActorUserID,
+		&i.ActorName,
+		&i.Action,
+		&i.Comment,
+		&i.CommitID,
+		&i.ReviewerUserID,
+		&i.Revision,
+		&i.MessageID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getReviewRequest = `-- name: GetReviewRequest :one
 SELECT request_hash,result FROM review_requests WHERE user_id=? AND room_id=? AND request_id=?
 `
@@ -183,11 +212,68 @@ func (q *Queries) GetReviewRequest(ctx context.Context, arg GetReviewRequestPara
 }
 
 const listReviewEvents = `-- name: ListReviewEvents :many
-SELECT seq, id, review_id, actor_user_id, actor_name, "action", comment, commit_id, reviewer_user_id, revision, message_id, created_at FROM review_events WHERE review_id=? ORDER BY revision
+SELECT seq, id, review_id, actor_user_id, actor_name, "action", comment, commit_id, reviewer_user_id, revision, message_id, created_at FROM review_events WHERE review_id=? AND revision<=? ORDER BY revision
 `
 
-func (q *Queries) ListReviewEvents(ctx context.Context, reviewID string) ([]ReviewEvent, error) {
-	rows, err := q.db.QueryContext(ctx, listReviewEvents, reviewID)
+type ListReviewEventsParams struct {
+	ReviewID string
+	Revision int64
+}
+
+func (q *Queries) ListReviewEvents(ctx context.Context, arg ListReviewEventsParams) ([]ReviewEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listReviewEvents, arg.ReviewID, arg.Revision)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ReviewEvent{}
+	for rows.Next() {
+		var i ReviewEvent
+		if err := rows.Scan(
+			&i.Seq,
+			&i.ID,
+			&i.ReviewID,
+			&i.ActorUserID,
+			&i.ActorName,
+			&i.Action,
+			&i.Comment,
+			&i.CommitID,
+			&i.ReviewerUserID,
+			&i.Revision,
+			&i.MessageID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const reviewEventPage = `-- name: ReviewEventPage :many
+SELECT seq, id, review_id, actor_user_id, actor_name, "action", comment, commit_id, reviewer_user_id, revision, message_id, created_at FROM review_events WHERE review_id=?1 AND revision<=?2 AND revision<=?3 ORDER BY revision DESC LIMIT ?4
+`
+
+type ReviewEventPageParams struct {
+	ReviewID        string
+	BeforeRevision  int64
+	ThroughRevision int64
+	ResultLimit     int64
+}
+
+func (q *Queries) ReviewEventPage(ctx context.Context, arg ReviewEventPageParams) ([]ReviewEvent, error) {
+	rows, err := q.db.QueryContext(ctx, reviewEventPage,
+		arg.ReviewID,
+		arg.BeforeRevision,
+		arg.ThroughRevision,
+		arg.ResultLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

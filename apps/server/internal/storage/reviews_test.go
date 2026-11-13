@@ -347,6 +347,14 @@ func TestReviewSurvivesRestartAndDraftsRemainPrivate(t *testing.T) {
 	if err != nil || !replay.Replayed || replay.Review.ID != created.Review.ID {
 		t.Fatal(replay, err)
 	}
+	summary, err := s.CreateReview(owner, room.ID, input, ReviewSummary)
+	if err != nil || !summary.Replayed || summary.Review != replay.Review || len(summary.Events) != 0 {
+		t.Fatal("small receipt did not survive restart", err)
+	}
+	history, err := s.ReviewEvents(owner, created.Review.ID, ReviewEventOptions{Through: summary.Review.Revision})
+	if err != nil || len(history.Events) != 1 || history.Events[0] != replay.Events[0] {
+		t.Fatal("restarted audit changed its original fact", err)
+	}
 	draft, err := s.GetDraft(reviewer, "review", "decision:"+created.Review.ID)
 	if err != nil || string(draft.Value) != "null" {
 		t.Fatal("review draft leaked", draft, err)

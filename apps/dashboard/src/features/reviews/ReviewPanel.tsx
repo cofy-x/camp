@@ -5,18 +5,8 @@ import { useRead, useReadStore } from '../../shared/reads/useRead';
 import { flushPrivateDrafts } from '../../team/draftRegistry';
 import { FilePreview } from '../workspace/FilePreview';
 import { ReviewActions } from './ReviewActions';
-import { reviewLabels, type ReviewResult } from './api';
-
-const actionLabels: Record<string, string> = {
-  request: 'Requested review',
-  create: 'Requested review',
-  approve: 'Approved',
-  request_changes: 'Requested changes',
-  resubmit: 'Submitted a new version',
-  deliver: 'Delivered',
-  cancel: 'Cancelled',
-  reassign: 'Changed reviewer',
-};
+import { reviewLabels, reviewPath, type ReviewResult } from './api';
+import { ReviewHistory } from './ReviewHistory';
 
 export function ReviewPanel({
   id,
@@ -30,10 +20,11 @@ export function ReviewPanel({
   const team = useTeam();
   const [result, setResult] = useState<ReviewResult | null>(null);
   const store = useReadStore();
-  const path = `/reviews/${encodeURIComponent(id)}`;
+  const path = reviewPath(id);
   const read = useRead<ReviewResult>(path);
   const error = read.error;
   const [incoming, setIncoming] = useState<ReviewResult | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const displayed = useRef<ReviewResult | null>(null);
   const body = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -96,9 +87,7 @@ export function ReviewPanel({
     }
   }, [path, read.data, read.error, read.refreshing, store]);
   const review = result?.review;
-  const feedback = result?.events
-    .filter((event) => event.action === 'request_changes')
-    .at(-1);
+  const feedback = result?.feedback;
   return (
     <section className="camp-review-panel" aria-label="Document review">
       <div className="app-toolbar">
@@ -255,35 +244,16 @@ export function ReviewPanel({
                   />
                 </details>
               </div>
-              <details className="camp-review-history">
+              <details
+                className="camp-review-history"
+                onToggle={(event) => setHistoryOpen(event.currentTarget.open)}
+              >
                 <summary>Review history</summary>
-                <ol>
-                  {result?.events.map((event) => (
-                    <li key={event.id}>
-                      <strong>
-                        {actionLabels[event.action] ?? 'Review requested'}
-                      </strong>
-                      <span>
-                        {event.actorName} ·{' '}
-                        {new Date(event.createdAt).toLocaleString()}
-                      </span>
-                      {event.comment && <p>{event.comment}</p>}
-                      <Button
-                        onClick={() =>
-                          void team.navigate({
-                            app: 'library',
-                            resourceId: review.resourceId,
-                            path: review.path,
-                            commit: event.commit,
-                            contextRoomId: review.roomId,
-                          })
-                        }
-                      >
-                        View This Version
-                      </Button>
-                    </li>
-                  ))}
-                </ol>
+                <ReviewHistory
+                  key={`${review.id}:${review.revision}`}
+                  review={review}
+                  active={historyOpen}
+                />
               </details>
             </>
           )}

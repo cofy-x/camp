@@ -8,7 +8,11 @@ UPDATE reviews SET reviewer_user_id=?,submitted_commit=?,delivered_commit=?,stat
 -- name: CreateReviewEvent :exec
 INSERT INTO review_events(id,review_id,actor_user_id,actor_name,action,comment,commit_id,reviewer_user_id,revision,message_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?);
 -- name: ListReviewEvents :many
-SELECT * FROM review_events WHERE review_id=? ORDER BY revision;
+SELECT * FROM review_events WHERE review_id=? AND revision<=? ORDER BY revision;
+-- name: GetReviewFeedback :one
+SELECT * FROM review_events WHERE review_id=? AND revision=? AND action='request_changes';
+-- name: ReviewEventPage :many
+SELECT * FROM review_events WHERE review_id=@review_id AND revision<=@before_revision AND revision<=@through_revision ORDER BY revision DESC LIMIT @result_limit;
 -- name: GetReviewRequest :one
 SELECT request_hash,result FROM review_requests WHERE user_id=? AND room_id=? AND request_id=?;
 -- name: CreateReviewRequest :exec

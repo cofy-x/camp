@@ -22,6 +22,7 @@ export function affectedRead(path: string, event: WorkspaceEvent): boolean {
     );
   if (run && route.endsWith('/activity') && url.searchParams.has('through'))
     return false;
+  if (review && route.endsWith('/events')) return false;
   if (
     run &&
     url.searchParams.get('view') === 'summary' &&

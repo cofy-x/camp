@@ -84,7 +84,11 @@ func TestRPCProcessHelper(t *testing.T) {
 				if mode == "failed-turn" {
 					reason = "error"
 				}
-				event("turn/end", map[string]any{"reason": map[string]string{"kind": reason}})
+				if mode == "exhausted-allowance" {
+					event("turn/end", map[string]any{"reason": map[string]any{"kind": "error", "error": map[string]any{"code": "AUTH", "status": 403, "message": "The collaboration model request allowance is exhausted. Add an explicit allowance before continuing."}}})
+				} else {
+					event("turn/end", map[string]any{"reason": map[string]string{"kind": reason}})
+				}
 			}
 		case "shutdown":
 			emit(map[string]any{"jsonrpc": "2.0", "id": frame.ID, "result": result})
@@ -157,7 +161,7 @@ func TestCancellationInterruptsBlockedProtocolWrite(t *testing.T) {
 }
 
 func TestRPCCompletionAndFailure(t *testing.T) {
-	for _, mode := range []string{"success", "failed-turn", "idle-only", "rpc-error", "eof", "malformed", "steps", "cancel"} {
+	for _, mode := range []string{"success", "failed-turn", "exhausted-allowance", "idle-only", "rpc-error", "eof", "malformed", "steps", "cancel"} {
 		t.Run(mode, func(t *testing.T) {
 			exe, err := os.Executable()
 			if err != nil {
@@ -181,6 +185,9 @@ func TestRPCCompletionAndFailure(t *testing.T) {
 				}
 			} else if err == nil {
 				t.Fatalf("%s was accepted as success", mode)
+			}
+			if mode == "exhausted-allowance" && !strings.Contains(err.Error(), "Saved work is retained; add an explicit allowance") {
+				t.Fatal("the actionable allowance failure was lost", err)
 			}
 			if cmd.ProcessState == nil {
 				t.Fatal("process was not reaped")
