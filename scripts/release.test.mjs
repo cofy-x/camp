@@ -428,7 +428,7 @@ test('public upgrade baselines retain separate evidence and strict protocol gate
   assert.deepEqual(serverUpgradeBaselines, [
     'v0.1.0-alpha.2',
     'v0.1.0-alpha.8',
-    'v0.1.0-alpha.12',
+    'v0.1.0-alpha.13',
   ]);
   assert.deepEqual(serverUpgradeBaselines, [
     upgradeBaseline,
@@ -460,7 +460,7 @@ test('both full package upgrade profiles bind protocol facts, provenance and rec
     verifyPreviousRunnerUpgrade,
   } = await import('./upgrade.mjs');
   const descriptor = {
-    version: 'v0.1.0-alpha.12',
+    version: 'v0.1.0-alpha.13',
     sourceCommit: 'a'.repeat(40),
     runners: { 'linux-amd64': { installer: { sha256: 'b'.repeat(64) } } },
   };

@@ -328,6 +328,26 @@ describe('notification routing', () => {
     expect(affectedRead('/attention', change)).toBe(true);
   });
 
+  it('keeps review audit pages frozen while current decision facts revalidate', () => {
+    for (const change of [
+      event('review.updated', '', 'review-one'),
+      event('resource.updated', '', 'resource-one'),
+    ]) {
+      expect(affectedRead('/reviews/review-one?view=summary', change)).toBe(
+        true,
+      );
+      expect(
+        affectedRead('/reviews/review-one/events?through=42', change),
+      ).toBe(false);
+      expect(
+        affectedRead(
+          '/reviews/review-one/events?through=42&cursor=original',
+          change,
+        ),
+      ).toBe(false);
+    }
+  });
+
   it('updates personal read badges without treating reading as processing responsibility', () => {
     const change = event('personal_read.updated', '', 'member');
     expect(affectedRead('/me/inbox', change)).toBe(true);

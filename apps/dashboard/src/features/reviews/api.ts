@@ -57,9 +57,19 @@ export const reviewLabels: Record<ReviewStatus, string> = {
 
 export interface ReviewResult {
   review: Review;
-  events: ReviewEvent[];
+  feedback?: ReviewEvent;
   replayed?: boolean;
 }
+
+export interface ReviewEventPage {
+  events: ReviewEvent[];
+  through: number;
+  cursor: string;
+  nextCursor: string;
+}
+
+export const reviewPath = (id: string) =>
+  `/reviews/${encodeURIComponent(id)}?view=summary`;
 
 export interface ReviewListPage {
   reviews: Review[];
@@ -81,7 +91,7 @@ const json = (value: unknown) => ({
 });
 export const reviewsApi = {
   get: (id: string, signal?: AbortSignal) =>
-    request<ReviewResult>(`/reviews/${encodeURIComponent(id)}`, { signal }),
+    request<ReviewResult>(reviewPath(id), { signal }),
   create: (
     roomId: string,
     input: {
@@ -94,12 +104,12 @@ export const reviewsApi = {
     },
   ) =>
     request<ReviewResult>(
-      `/rooms/${encodeURIComponent(roomId)}/reviews`,
+      `/rooms/${encodeURIComponent(roomId)}/reviews?view=summary`,
       json(input),
     ),
   act: (id: string, input: ReviewActionInput) =>
     request<ReviewResult>(
-      `/reviews/${encodeURIComponent(id)}/actions`,
+      `/reviews/${encodeURIComponent(id)}/actions?view=summary`,
       json(input),
     ),
 };
