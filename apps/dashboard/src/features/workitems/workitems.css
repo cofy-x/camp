@@ -154,6 +154,11 @@
 }
 .work-item-row-title {
   font: 600 13px/1.45 var(--p9-body-font);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .work-item-list > li > button:hover {
   background: var(--p9-light);
