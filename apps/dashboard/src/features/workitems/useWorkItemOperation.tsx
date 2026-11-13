@@ -13,77 +13,20 @@ import {
   workItemsApi,
   type WorkItem,
   type WorkItemInput,
-  type WorkItemOperation,
   type WorkActionName,
   type WorkActionInput,
 } from './api';
-
-type Pending =
-  | {
-      kind: 'create';
-      roomId: string;
-      body: WorkItemInput;
-      draftSnapshot?: string;
-    }
-  | {
-      kind: 'action';
-      itemId: string;
-      action: WorkActionName;
-      body: WorkActionInput;
-    }
-  | { kind: 'decision'; itemId: string; body: WorkItemOperation };
-
-function isPending(value: unknown): value is Pending {
-  if (!value || typeof value !== 'object') return false;
-  const pending = value as Partial<Pending>;
-  if (!pending.body || typeof pending.body !== 'object') return false;
-  const body = pending.body;
-  if (typeof body.requestId !== 'string' || !body.requestId) return false;
-  if (pending.kind === 'create')
-    return (
-      typeof pending.roomId === 'string' &&
-      (pending.draftSnapshot === undefined ||
-        typeof pending.draftSnapshot === 'string') &&
-      'goal' in body &&
-      typeof body.goal === 'string' &&
-      (body.completionCriteria === undefined ||
-        typeof body.completionCriteria === 'string') &&
-      (body.evidenceIds === undefined ||
-        (Array.isArray(body.evidenceIds) &&
-          body.evidenceIds.every((id) => typeof id === 'string')))
-    );
-  if (pending.kind === 'action')
-    return (
-      typeof pending.itemId === 'string' &&
-      typeof pending.action === 'string' &&
-      'revision' in body &&
-      Number.isSafeInteger(body.revision)
-    );
-  return (
-    pending.kind === 'decision' &&
-    typeof pending.itemId === 'string' &&
-    'revision' in body &&
-    Number.isSafeInteger(body.revision) &&
-    'kind' in body &&
-    typeof body.kind === 'string' &&
-    'reason' in body &&
-    typeof body.reason === 'string'
-  );
-}
-
-async function submit(pending: Pending) {
-  return pending.kind === 'create'
-    ? workItemsApi.create(pending.roomId, pending.body)
-    : pending.kind === 'action'
-      ? workItemsApi.act(pending.itemId, pending.action, pending.body)
-      : workItemsApi.decide(pending.itemId, pending.body);
-}
+import {
+  isPending,
+  submitRetainedWorkRequest,
+  type Pending,
+} from './workRequestRecovery';
 
 // Persist exact intent before dispatch. Lost responses never free the form to
 // create a second authorization; only its original receipt or replay resolves it.
 export function useWorkItemOperation(
   scope: string,
-  onConfirmed: (item: WorkItem) => void,
+  onConfirmed: (item: WorkItem, request: Pending) => void,
   recoveryScopes: string[] = [],
   beforeConfirmed?: (
     item: WorkItem,
@@ -164,7 +107,7 @@ export function useWorkItemOperation(
     setConfirmation(original.value);
     setRecorded('');
     setMissing(false);
-    callback.current(item);
+    callback.current(item, original.value);
     return true;
   }
 
@@ -181,7 +124,7 @@ export function useWorkItemOperation(
       saved = true;
       retained.current = { storageKey, value };
       setRecovery(retained.current);
-      const response = await submit(value);
+      const response = await submitRetainedWorkRequest(value);
       return await confirmed(response.item);
     } catch (error) {
       const uncertain =
@@ -286,15 +229,6 @@ export function useWorkItemOperation(
           roomId,
           body: { ...body, requestId: crypto.randomUUID() },
           draftSnapshot,
-        },
-        false,
-      ),
-    decide: (itemId: string, body: Omit<WorkItemOperation, 'requestId'>) =>
-      send(
-        {
-          kind: 'decision',
-          itemId,
-          body: { ...body, requestId: crypto.randomUUID() },
         },
         false,
       ),

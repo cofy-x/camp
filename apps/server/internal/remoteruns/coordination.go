@@ -13,10 +13,14 @@ func coordinationIntent(intent *p.CoordinationIntent) *storage.CoordinationInten
 	if intent == nil {
 		return nil
 	}
-	return &storage.CoordinationIntent{
+	out := &storage.CoordinationIntent{
 		CallID: intent.CallID, Kind: intent.Kind,
 		TargetAgentID: intent.TargetAgentID, Instruction: intent.Instruction,
 		Question: intent.Question, Options: slices.Clone(intent.Options),
 		Summary: intent.Summary, ArtifactPaths: slices.Clone(intent.ArtifactPaths),
 	}
+	if intent.WorkItemCompletion != nil {
+		out.WorkItemCompletion = &storage.WorkItemCompletion{CriteriaMet: intent.WorkItemCompletion.CriteriaMet, Reason: intent.WorkItemCompletion.Reason}
+	}
+	return out
 }

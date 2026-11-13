@@ -254,6 +254,24 @@ describe('shared read ownership', () => {
 });
 
 describe('notification routing', () => {
+  it('refreshes scoped Work defaults for authorization changes, without reacting to progress noise', () => {
+    const path = '/rooms/one/work-item-defaults?policyId=rule';
+    for (const type of [
+      'room.updated',
+      'membership.updated',
+      'agent.updated',
+      'runner.updated',
+      'execution_defaults.updated',
+      'automation.policy.updated',
+    ]) {
+      expect(affectedRead(path, event(type, 'one')), type).toBe(true);
+      expect(affectedRead(path, event(type, 'two')), type).toBe(false);
+    }
+    expect(affectedRead(path, event('runner.updated'))).toBe(true);
+    for (const type of ['message.created', 'run.activity', 'work_item.updated'])
+      expect(affectedRead(path, event(type, 'one')), type).toBe(false);
+  });
+
   it('refreshes joined Room names and catalogs without refreshing unrelated Room filters', () => {
     const change = event('room.updated', 'one', 'one');
     for (const path of [

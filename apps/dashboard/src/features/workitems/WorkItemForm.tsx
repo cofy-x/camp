@@ -2,7 +2,7 @@ import { useId } from 'react';
 import { Button, Checkbox, Select } from '@cofy-x/camp-platinum';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
 import { useAccount } from '../../team/AuthContext';
-import { DraftRecovery } from '../reviews/DraftRecovery';
+import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
 import type { Agent, Message, WorkspaceStatus } from '../workspace/api';
 import type { AutomationPolicy, SourceEvent } from '../automation/api';
 import { useWorkItemOperation } from './useWorkItemOperation';
@@ -10,69 +10,9 @@ import { EvidenceChooser } from './WorkItemEvidence';
 import { WorkGrant, suggestedParticipants } from './WorkGrant';
 import { useWorkDefaults } from './useWorkDefaults';
 import { matchesCreationDraft } from './creationDraft';
-import type { WorkBudget, WorkItem, WorkItemInput } from './api';
-
-export function localDateTime(value: string) {
-  if (!value) return '';
-  const date = new Date(value);
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16);
-}
-
-export function utcDateTime(value: string) {
-  return value ? new Date(value).toISOString() : '';
-}
-
-export const initialWorkBudget: WorkBudget = {
-  maxEvaluations: 12,
-  maxTasks: 4,
-  maxModelRequests: 96,
-  maxActions: 16,
-  maxFollowUps: 8,
-};
-
-const limits: { key: keyof WorkBudget; label: string; max: number }[] = [
-  { key: 'maxEvaluations', label: 'Assessments', max: 1000 },
-  { key: 'maxTasks', label: 'Collaborations', max: 100 },
-  { key: 'maxModelRequests', label: 'Model requests', max: 9600 },
-  { key: 'maxActions', label: 'Actions', max: 1000 },
-  { key: 'maxFollowUps', label: 'Follow-ups', max: 100 },
-];
-
-export function BudgetEditor({
-  value,
-  onChange,
-  label = 'Total allowance',
-}: {
-  value: WorkBudget;
-  onChange: (value: WorkBudget) => void;
-  label?: string;
-}) {
-  return (
-    <fieldset>
-      <legend>{label}</legend>
-      <div className="work-item-limits">
-        {limits.map(({ key, label, max }) => (
-          <label key={key}>
-            {label}
-            <input
-              className="p9-field"
-              type="number"
-              min={key === 'maxFollowUps' ? 0 : 1}
-              max={max}
-              required
-              value={value[key]}
-              onChange={(event) =>
-                onChange({ ...value, [key]: Number(event.target.value) })
-              }
-            />
-          </label>
-        ))}
-      </div>
-    </fieldset>
-  );
-}
+import type { WorkItem, WorkItemInput } from './api';
+import { WorkBudgetEditor } from './WorkBudgetEditor';
+import { initialWorkBudget, localDateTime, utcDateTime } from './workSettings';
 
 type CreateDraft = Omit<WorkItemInput, 'requestId'> & {
   deadline?: string;
@@ -112,6 +52,7 @@ export function WorkItemForm({
   );
   const values = draft.value ?? {
     goal: sourceMessage?.content ?? sourceEvent?.preview ?? '',
+    completionMode: 'automatic' as const,
     completionCriteria: '',
     evidenceIds: sourceEvent ? [sourceEvent.id] : [],
     policyId: '',
@@ -238,6 +179,24 @@ export function WorkItemForm({
             />
           </div>
         )}
+        <Select
+          label="Completion"
+          value={
+            values.completionMode ??
+            (values.completionCriteria?.trim() ? 'criteria' : 'human')
+          }
+          onChange={(event) =>
+            edit({
+              completionMode: event.target.value as 'automatic' | 'human',
+            })
+          }
+        >
+          <option value="automatic">When the goal is met</option>
+          <option value="human">I'll confirm</option>
+          {!values.completionMode && values.completionCriteria?.trim() && (
+            <option value="criteria">Saved completion criteria</option>
+          )}
+        </Select>
         <WorkGrant
           members={members}
           selected={participants}
@@ -264,15 +223,17 @@ export function WorkItemForm({
               <textarea
                 className="p9-field"
                 rows={2}
+                placeholder={
+                  values.completionMode === 'automatic'
+                    ? 'Use the goal above'
+                    : undefined
+                }
                 value={values.completionCriteria ?? ''}
                 onChange={(event) =>
                   edit({ completionCriteria: event.target.value })
                 }
               />
             </label>
-            {!values.completionCriteria?.trim() && (
-              <p>You will confirm when this work is done.</p>
-            )}
             <EvidenceChooser
               roomId={roomId}
               selected={values.evidenceIds ?? []}
@@ -303,7 +264,7 @@ export function WorkItemForm({
             <details>
               <summary>Allowance and access</summary>
               <div className="work-item-form">
-                <BudgetEditor
+                <WorkBudgetEditor
                   value={values.budget ?? defaults?.budget ?? initialWorkBudget}
                   onChange={(budget) => edit({ budget })}
                 />
@@ -360,7 +321,9 @@ export function WorkItemForm({
       {settings.error && (
         <p className="app-error" role="alert">
           {settings.error}{' '}
-          <Button onClick={settings.retry}>Retry work settings</Button>
+          <Button onClick={() => void settings.retry()}>
+            Retry work settings
+          </Button>
         </p>
       )}
       {availability?.available === false && (

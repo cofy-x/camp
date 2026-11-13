@@ -3,11 +3,12 @@ package runnerprotocol
 // Collaboration is an immutable, server-authorized execution scope. A model
 // can choose a participant; it cannot choose runners or increase its authority.
 type Collaboration struct {
-	Inputs       *TaskInputScope `json:"inputs,omitempty"`
-	ID           string          `json:"id"`
-	Goal         string          `json:"goal"`
-	AgentID      string          `json:"agentId"`
-	Participants []Participant   `json:"participants"`
+	WorkItemCompletionCriteria string          `json:"workItemCompletionCriteria,omitempty"`
+	Inputs                     *TaskInputScope `json:"inputs,omitempty"`
+	ID                         string          `json:"id"`
+	Goal                       string          `json:"goal"`
+	AgentID                    string          `json:"agentId"`
+	Participants               []Participant   `json:"participants"`
 }
 type Participant struct {
 	ID     string `json:"id"`
@@ -15,14 +16,20 @@ type Participant struct {
 	Access string `json:"access"`
 }
 type CoordinationIntent struct {
-	CallID        string   `json:"callId"`
-	Kind          string   `json:"kind"`
-	TargetAgentID string   `json:"targetAgentId,omitempty"`
-	Instruction   string   `json:"instruction,omitempty"`
-	Question      string   `json:"question,omitempty"`
-	Options       []string `json:"options,omitempty"`
-	Summary       string   `json:"summary,omitempty"`
-	ArtifactPaths []string `json:"artifactPaths"`
+	CallID             string              `json:"callId"`
+	Kind               string              `json:"kind"`
+	TargetAgentID      string              `json:"targetAgentId,omitempty"`
+	Instruction        string              `json:"instruction,omitempty"`
+	Question           string              `json:"question,omitempty"`
+	Options            []string            `json:"options,omitempty"`
+	Summary            string              `json:"summary,omitempty"`
+	ArtifactPaths      []string            `json:"artifactPaths"`
+	WorkItemCompletion *WorkItemCompletion `json:"workItemCompletion,omitempty"`
+}
+
+type WorkItemCompletion struct {
+	CriteriaMet bool   `json:"criteriaMet"`
+	Reason      string `json:"reason"`
 }
 
 // TaskInputScope binds read-back to the current Attempt's frozen prefix.

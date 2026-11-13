@@ -19,6 +19,7 @@ import {
   openInboxActivity,
   signIn,
   work,
+  openWorkAction,
   workspace,
 } from './team-helpers';
 
@@ -765,9 +766,7 @@ test('failed attention refresh shows an unknown count, keeps accepted rows, and 
         releaseRecovery();
       }
     };
-    await work(page)
-      .getByRole('button', { name: 'Refresh', exact: true })
-      .click();
+    await openWorkAction(page, 'Refresh');
     await expect(inboxToggle(page)).toContainText('Needs me (?)');
     await expect(inboxToggle(page)).toHaveAccessibleName(
       /attention count unavailable/,
@@ -790,9 +789,7 @@ test('failed attention refresh shows an unknown count, keeps accepted rows, and 
       .click();
 
     failure = 403;
-    await work(page)
-      .getByRole('button', { name: 'Refresh', exact: true })
-      .click();
+    await openWorkAction(page, 'Refresh');
     await expect(work(page).getByRole('alert')).toContainText(
       'Attention access was refused.',
     );

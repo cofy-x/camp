@@ -1,88 +1,27 @@
 import { useEffect, useState } from 'react';
-import { Button, Select, Tabs } from '@cofy-x/camp-platinum';
+import { Button, type DesktopAPI, type MenuItem } from '@cofy-x/camp-platinum';
 import { useAccount } from '../../team/AuthContext';
-import { useTeam } from '../../team/TeamContext';
 import { useRead } from '../../shared/reads/useRead';
 import type { Agent, WorkspaceStatus } from '../workspace/api';
 import type { AutomationPolicy } from '../automation/api';
 import { Report } from '../workspace/Report';
-import { EvidenceRecord } from './WorkItemEvidence';
-import { WorkItemHistory } from './WorkItemHistory';
+import { WorkItemActivity } from './WorkItemActivity';
+import { WorkItemRecords } from './WorkItemRecords';
+import { WorkItemResult } from './WorkItemResult';
 import { WorkItemActions } from './WorkItemActions';
 import { useWorkItemOperation } from './useWorkItemOperation';
-import { decisionLabel, type WorkItem } from './api';
+import type { WorkItem } from './api';
+import { confirmedWorkAction, type Pending } from './workRequestRecovery';
 import { workItemOverviewFallback, workItemStatus } from './presentation';
 
 function stamp(value: string) {
   return value ? new Date(value).toLocaleString() : '';
 }
 
-function Result({ item }: { item: WorkItem }) {
-  const team = useTeam();
-  const result = item.result;
-  if (!result) return null;
-  const onlyFile = result.files.length === 1 ? result.files[0] : undefined;
-  const directFile =
-    onlyFile &&
-    onlyFile.status !== 'D' &&
-    onlyFile.status !== 'deleted' &&
-    !result.filesLimited;
-
-  function open(path?: string) {
-    if (!result) return;
-    void team.navigate({
-      app: 'library',
-      resourceId: result.resourceId,
-      commit: result.commit,
-      path,
-      contextRoomId: item.roomId,
-    });
-  }
-
-  return (
-    <section className="work-item-result" aria-label="Work result">
-      {result.commit && (
-        <>
-          <div className="work-item-file-heading">
-            <span>{result.published ? 'Published to Room' : 'Team draft'}</span>
-            {!directFile && <Button onClick={() => open()}>Open files</Button>}
-          </div>
-          <ul className="work-item-files">
-            {result.files.map((file) => (
-              <li key={file.path}>
-                {file.status === 'D' || file.status === 'deleted' ? (
-                  <span>{file.path}</span>
-                ) : (
-                  <Button onClick={() => open(file.path)}>{file.path}</Button>
-                )}
-                <span>
-                  {file.status === 'D' || file.status === 'deleted'
-                    ? 'Deleted'
-                    : file.status === 'A' || file.status === 'added'
-                      ? 'Added'
-                      : 'Changed'}
-                </span>
-              </li>
-            ))}
-          </ul>
-          {result.filesLimited && (
-            <p>More files are available in Open files.</p>
-          )}
-        </>
-      )}
-      {result.summary && (
-        <Report
-          key={`${result.taskId}:${result.commit}`}
-          content={result.summary}
-          stateKey={`work-report:${item.id}:${result.taskId}:${result.commit}`}
-        />
-      )}
-    </section>
-  );
-}
-
 export function WorkItemDetail({
   id,
+  active = true,
+  desktop,
   initialRequest,
   members,
   policies,
@@ -95,6 +34,8 @@ export function WorkItemDetail({
   onOpenRoom,
 }: {
   id: string;
+  active?: boolean;
+  desktop: DesktopAPI;
   initialRequest?: number;
   members: Agent[];
   policies: AutomationPolicy[];
@@ -107,26 +48,34 @@ export function WorkItemDetail({
   onOpenRoom?: () => void;
 }) {
   const { user } = useAccount();
-  const team = useTeam();
   const [item, setItem] = useState<WorkItem | null>(null);
   const itemRead = useRead<{ item: WorkItem }>(
     `/work-items/${encodeURIComponent(id)}`,
+    { enabled: active },
   );
   const error = itemRead.error;
   const [retry, setRetry] = useState(0);
   const [viewSelection, setViewSelection] = useState({
     request: initialRequest,
     view: 'overview',
+    section: 'allowance',
   });
   const view =
     viewSelection.request === initialRequest ? viewSelection.view : 'overview';
-  const [history, setHistory] = useState('decisions');
+  const managementSection = viewSelection.section;
 
   function setView(view: string) {
-    setViewSelection({ request: initialRequest, view });
+    setViewSelection((current) => ({
+      ...current,
+      request: initialRequest,
+      view,
+    }));
   }
 
-  function saved(next: WorkItem) {
+  function saved(next: WorkItem, request: Pending) {
+    const action = confirmedWorkAction(request);
+    if (action && action !== 'authorize' && action !== 'unfollow')
+      setView('overview');
     setItem((current) =>
       !current || next.revision >= current.revision ? next : current,
     );
@@ -173,25 +122,115 @@ export function WorkItemDetail({
   const overviewFallback = item
     ? workItemOverviewFallback(item, Boolean(editable))
     : null;
+
+  function manage(section: string) {
+    setViewSelection({ request: initialRequest, view: 'manage', section });
+  }
+
+  function more(button: HTMLButtonElement) {
+    const items: MenuItem[] = [];
+    if (editable && !terminal && item?.status !== 'stopping') {
+      items.push(
+        { label: 'Allowance and access…', action: () => manage('allowance') },
+        {
+          label: 'Completion…',
+          disabled: Boolean(item?.activeTaskId),
+          action: () => manage('completion'),
+        },
+        {
+          label: 'Set reminder…',
+          disabled: Boolean(item?.activeTaskId),
+          action: () => manage('reminder'),
+        },
+        { label: 'Add context…', action: () => manage('context') },
+        { label: 'Following…', action: () => manage('following') },
+        ...(policies.some(
+          (policy) =>
+            policy.enabled &&
+            policy.mode === 'auto' &&
+            policy.ownerUserId === user.id,
+        ) || item?.policyId
+          ? [
+              {
+                label: 'Automatic follow-up…',
+                disabled: !contextReady,
+                action: () => manage('automatic'),
+              },
+            ]
+          : []),
+        {
+          label: item?.activeTaskId ? 'Stop work…' : 'Stop following up…',
+          action: () => manage('stop'),
+        },
+      );
+    }
+    if (editable && !terminal && item && !item.activeTaskId) {
+      if (item.result && item.questionKind !== 'completion')
+        items.push({
+          label: 'Request changes…',
+          action: () => manage('changes'),
+        });
+      if (
+        item.questionKind !== 'completion' &&
+        (!item.result || item.completionMode !== 'human')
+      )
+        items.push({ label: 'Mark done…', action: () => manage('complete') });
+    }
+    if (editable && !terminal && hasQuestion && !item?.activeTaskId) {
+      items.push({
+        label: 'Answer and start work…',
+        action: () => manage('continue'),
+      });
+      if (item?.questionKind === 'completion')
+        items.push({ label: 'Reply…', action: () => manage('reply') });
+    }
+    items.push({ label: 'Records…', action: () => setView('records') });
+    if (onOpenRoom) items.push({ label: 'Open Room', action: onOpenRoom });
+    items.push({
+      label: 'Refresh',
+      action: () => {
+        setRetry((value) => value + 1);
+        void itemRead.refresh();
+      },
+    });
+    const rect = button.getBoundingClientRect();
+    desktop.contextMenu(items, { x: rect.left, y: rect.bottom });
+  }
+
   return (
     <section aria-label="Work item detail" className="work-item-detail">
       <div className="workspace-panel-heading">
-        <Button onClick={onBack}>Back to Work</Button>
+        <Button
+          onClick={
+            selectedView === 'overview' ? onBack : () => setView('overview')
+          }
+        >
+          {selectedView === 'overview' ? 'Back to Work' : 'Back to item'}
+        </Button>
         <div className="app-actions">
-          {onOpenRoom && <Button onClick={onOpenRoom}>Open Room</Button>}
+          {selectedView !== 'activity' && (
+            <Button onClick={() => setView('activity')}>Activity</Button>
+          )}
           <Button
-            onClick={() => {
-              setRetry((value) => value + 1);
-              team.refresh();
-            }}
+            aria-haspopup="menu"
+            aria-label="More work actions"
+            onClick={(event) => more(event.currentTarget)}
           >
-            {error ? 'Retry work' : 'Refresh'}
+            More
           </Button>
         </div>
       </div>
       {error && (
         <p className="app-error" role="alert">
-          {error}
+          {error}{' '}
+          <Button
+            onClick={() => {
+              setRetry((value) => value + 1);
+              void itemRead.refresh();
+            }}
+          >
+            Retry work
+          </Button>
         </p>
       )}
       {!item && !error && <p role="status">Loading work…</p>}
@@ -233,24 +272,7 @@ export function WorkItemDetail({
               </div>
             )}
           </header>
-          <Tabs
-            label="Work details"
-            value={selectedView}
-            onChange={setView}
-            tabs={[
-              { id: 'overview', label: 'Overview' },
-              { id: 'activity', label: 'Activity' },
-              ...(editable && !terminal
-                ? [
-                    {
-                      id: 'manage',
-                      label: 'Manage',
-                      disabled: item.status === 'stopping',
-                    },
-                  ]
-                : []),
-            ]}
-          >
+          <div className="work-item-content" aria-label="Work details">
             <div
               hidden={selectedView !== 'overview'}
               className="work-item-overview"
@@ -295,7 +317,8 @@ export function WorkItemDetail({
                   stateKey={`work-update:${item.id}:${item.activeTaskId}`}
                 />
               )}
-              {!hasQuestion && !earlierResult && <Result item={item} />}
+              {(!hasQuestion || item.questionKind === 'completion') &&
+                !earlierResult && <WorkItemResult item={item} />}
               {hasQuestion && (!editable || terminal) && (
                 <p>{item.execution?.question?.text ?? item.question}</p>
               )}
@@ -319,6 +342,7 @@ export function WorkItemDetail({
             <WorkItemActions
               key={item.id}
               item={item}
+              readsActive={active}
               members={members}
               policies={policies}
               contextReady={contextReady}
@@ -327,137 +351,30 @@ export function WorkItemDetail({
               operation={operation}
               view={selectedView}
               onViewChange={setView}
+              managementSection={managementSection}
+              onManage={manage}
               readOnly={!editable || Boolean(terminal)}
             />
             <div
-              hidden={selectedView !== 'activity'}
+              hidden={selectedView !== 'records'}
               className="work-item-records"
             >
-              {(hasQuestion || earlierResult) && item.result && (
-                <details>
-                  <summary>Files and earlier progress</summary>
-                  <Result item={item} />
-                </details>
-              )}
-              {item.completionCriteria && (
-                <details>
-                  <summary>Complete when</summary>
-                  <p>{item.completionCriteria}</p>
-                </details>
-              )}
-              <Select
-                label="Show activity"
-                value={history}
-                onChange={(event) => setHistory(event.target.value)}
-              >
-                <option value="decisions">Decisions</option>
-                <option value="evidence">Context</option>
-                <option value="tasks">Work sessions</option>
-                <option value="timers">Reminders</option>
-                <option value="actions">External actions</option>
-              </Select>
-              <WorkItemHistory
-                itemId={item.id}
-                kind="evidence"
-                active={selectedView === 'activity' && history === 'evidence'}
-                title="Context"
-                initial={item.evidence}
-
+              <WorkItemRecords
+                item={item}
+                active={active && selectedView === 'records'}
+                hasQuestion={Boolean(hasQuestion)}
+                earlierResult={earlierResult}
                 refreshKey={retry}
-                render={(evidence) => (
-                  <EvidenceRecord
-                    key={evidence.eventId}
-                    id={evidence.eventId}
-                    label={`Source event · ${stamp(evidence.createdAt)}`}
-                  />
-                )}
-              />
-              <WorkItemHistory
-                itemId={item.id}
-                kind="tasks"
-                active={selectedView === 'activity' && history === 'tasks'}
-                title="Work sessions"
-                initial={item.tasks}
-
-                refreshKey={retry}
-                render={(task) => (
-                  <div className="work-item-record" key={task.id}>
-                    <div className="automation-heading">
-                      <strong>{task.status}</strong>
-                      <Button onClick={() => onOpenTask(task.id)}>
-                        Open execution
-                      </Button>
-                    </div>
-                    {task.summary && <p>{task.summary}</p>}
-                    <small>{stamp(task.createdAt)}</small>
-                  </div>
-                )}
-              />
-              <WorkItemHistory
-                itemId={item.id}
-                kind="timers"
-                active={selectedView === 'activity' && history === 'timers'}
-                title="Reminders"
-                initial={item.timers}
-                refreshKey={retry}
-                render={(timer) => (
-                  <div className="work-item-record" key={timer.id}>
-                    <strong>
-                      {timer.status} · {stamp(timer.dueAt)}
-                    </strong>
-                    <p>{timer.condition}</p>
-                    {timer.eventId && <EvidenceRecord id={timer.eventId} />}
-                  </div>
-                )}
-              />
-              <WorkItemHistory
-                itemId={item.id}
-                kind="actions"
-                active={selectedView === 'activity' && history === 'actions'}
-                title="External actions"
-                initial={item.actions}
-                refreshKey={retry}
-                render={(action) => (
-                  <div className="work-item-record" key={action.id}>
-                    <strong>
-                      {action.kind} · {action.status}
-                    </strong>
-                    <pre>{action.body}</pre>
-                    {action.taskId && (
-                      <Button onClick={() => onOpenTask(action.taskId!)}>
-                        Open execution
-                      </Button>
-                    )}
-                    <small>{stamp(action.createdAt)}</small>
-                  </div>
-                )}
-              />
-              <WorkItemHistory
-                itemId={item.id}
-                kind="decisions"
-                active={selectedView === 'activity' && history === 'decisions'}
-                title="Decisions"
-                initial={item.decisions}
-                refreshKey={retry}
-                render={(decision) => (
-                  <div className="work-item-record" key={decision.id}>
-                    <strong>
-                      {decisionLabel[decision.kind] ?? decision.kind}
-                    </strong>
-                    <p>{decision.reason}</p>
-                    <small>
-                      {decision.actorKind} · {stamp(decision.createdAt)}
-                    </small>
-                    {decision.taskId && (
-                      <Button onClick={() => onOpenTask(decision.taskId!)}>
-                        Open execution
-                      </Button>
-                    )}
-                  </div>
-                )}
+                onOpenTask={onOpenTask}
               />
             </div>
-          </Tabs>
+            <WorkItemActivity
+              itemId={id}
+              active={active && selectedView === 'activity'}
+              refreshKey={retry}
+              onOpenTask={onOpenTask}
+            />
+          </div>
         </>
       )}
     </section>

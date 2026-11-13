@@ -1,39 +1,16 @@
-import { useEffect, useState } from 'react';
-import { workItemsApi, type WorkItemDefaults } from './api';
+import { useRead } from '../../shared/reads/useRead';
+import type { WorkItemDefaults } from './api';
 
-export function useWorkDefaults(roomId: string, policyId = '') {
-  const scope = JSON.stringify([roomId, policyId]);
-  const [snapshot, setSnapshot] = useState<{
-    scope: string;
-    defaults: WorkItemDefaults | null;
-    error: string;
-  }>({ scope: '', defaults: null, error: '' });
-  const [retry, setRetry] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    void workItemsApi
-      .defaults(roomId, controller.signal, policyId)
-      .then(({ defaults }) => {
-        if (!controller.signal.aborted) {
-          setSnapshot({ scope, defaults, error: '' });
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setSnapshot((current) => ({
-            scope,
-            defaults: current.scope === scope ? current.defaults : null,
-            error:
-              error instanceof Error
-                ? error.message
-                : 'Could not load work settings.',
-          }));
-      });
-    return () => controller.abort();
-  }, [roomId, policyId, scope, retry]);
+export function useWorkDefaults(roomId: string, policyId = '', enabled = true) {
+  const read = useRead<{ defaults: WorkItemDefaults }>(
+    roomId
+      ? `/rooms/${encodeURIComponent(roomId)}/work-item-defaults${policyId ? `?policyId=${encodeURIComponent(policyId)}` : ''}`
+      : null,
+    { enabled },
+  );
   return {
-    defaults: snapshot.scope === scope ? snapshot.defaults : null,
-    error: snapshot.scope === scope ? snapshot.error : '',
-    retry: () => setRetry((value) => value + 1),
+    defaults: read.data?.defaults ?? null,
+    error: read.error,
+    retry: read.refresh,
   };
 }

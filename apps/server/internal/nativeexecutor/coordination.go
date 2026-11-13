@@ -159,6 +159,12 @@ func validateCoordination(task p.Collaboration, i p.CoordinationIntent) error {
 			return errors.New("Artifacts must be relative workspace file paths")
 		}
 	}
+	if i.WorkItemCompletion != nil && (i.Kind != "finish" || task.WorkItemCompletionCriteria == "" || !text(i.WorkItemCompletion.Reason, 8192)) {
+		return errors.New("A Work completion judgment requires its authorized scope and a bounded reason")
+	}
+	if i.Kind == "finish" && task.WorkItemCompletionCriteria != "" && i.WorkItemCompletion == nil {
+		return errors.New("State whether the Work completion criteria were met and provide the evidence")
+	}
 	switch i.Kind {
 	case "handoff":
 		found := false

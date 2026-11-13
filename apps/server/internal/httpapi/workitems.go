@@ -96,7 +96,7 @@ func (a *API) workItemRoutes(mux *http.ServeMux) {
 					writeError(w, 400, "invalid_work_item", "Choose the action through its typed route.")
 					return
 				}
-				kinds := map[string]string{"start": "execute", "answer": "answer", "answer_continue": "answer_continue", "wait": "wait", "complete": "complete", "stop": "stop", "delegate": "delegate", "attach": "evidence", "follow": "follow", "unfollow": "unfollow", "authorize": "authorize"}
+				kinds := map[string]string{"start": "execute", "answer": "answer", "answer_continue": "answer_continue", "wait": "wait", "complete": "complete", "stop": "stop", "delegate": "delegate", "attach": "evidence", "follow": "follow", "unfollow": "unfollow", "authorize": "authorize", "completion": "completion"}
 				var ok bool
 				in.Kind, ok = kinds[r.PathValue("action")]
 				if !ok {

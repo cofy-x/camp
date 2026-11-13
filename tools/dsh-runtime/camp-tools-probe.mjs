@@ -41,7 +41,14 @@ const scenarios = {
   coordination: [
     [
       'camp_finish',
-      { summary: 'Coordination fixture finished.', artifactPaths: [] },
+      {
+        summary: 'Coordination fixture finished.',
+        artifactPaths: [],
+        workItemCompletion: {
+          criteriaMet: true,
+          reason: 'The saved fixture output was verified.',
+        },
+      },
     ],
   ],
   write: [
@@ -520,6 +527,10 @@ async function run(access) {
       );
       assert.match(JSON.stringify(events), /queued-after-coordination-probe/);
       assert.equal(calls.filter((call) => call.route === '/intent').length, 1);
+      assert.deepEqual(
+        calls.find((call) => call.route === '/intent').workItemCompletion,
+        scenarios.coordination[0][1].workItemCompletion,
+      );
     } else if (access === 'history') {
       assert.equal(step, 2, 'History read or finish caused an extra request.');
       assert.match(output, /historical-original-keyless-fixture/);

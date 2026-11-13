@@ -20,6 +20,18 @@ func attachWorkTask(ctx context.Context, q *sqlgen.Queries, w *orchestration.Wor
 	}
 	t.WorkItemID = w.ID
 	t.WorkItemCompletionCriteria = w.CompletionCriteria
+	t.WorkItemCompletionAuthorized = w.CompletionMode == "automatic"
+	if t.WorkItemCompletionAuthorized {
+		for _, participant := range t.Participants {
+			runner, err := q.GetRunner(ctx, participant.RunnerID)
+			if err != nil {
+				return err
+			}
+			if err := workCompletionRunnerCompatible(runner.Capabilities, true); err != nil {
+				return err
+			}
+		}
+	}
 	evs, e := q.WorkExecutionEvidence(ctx, w.ID)
 	if e != nil {
 		return e
@@ -52,6 +64,7 @@ func attachWorkTask(ctx context.Context, q *sqlgen.Queries, w *orchestration.Wor
 	w.Question = ""
 	w.QuestionKind = ""
 	w.WaitCondition = ""
+	w.PendingCompletion = nil
 	if e := inheritWorkWatches(ctx, q, *w, *t); e != nil {
 		return e
 	}
@@ -117,7 +130,8 @@ func reserveWorkContinuation(ctx context.Context, q *sqlgen.Queries, t Collabora
 	return saveWorkItem(ctx, q, &w)
 }
 
-// A task result is new evidence. It never closes a matter or restores a grant.
+// A task result is new evidence. Only an explicitly authorized completion
+// judgment can close its parent after publication; it never restores a grant.
 func syncWorkItemTask(ctx context.Context, q *sqlgen.Queries, t CollaborationTask) error {
 	if t.WorkItemID == "" || (t.Status != "completed" && t.Status != "cancelled" && t.Status != "interrupted") {
 		return nil
@@ -136,7 +150,8 @@ func syncWorkItemTask(ctx context.Context, q *sqlgen.Queries, t CollaborationTas
 	stopping := w.StopRequested || w.Status == "stopping"
 	terminal := w.Status == "completed" || w.Status == "cancelled"
 	w.ActiveTaskID = ""
-	eligible := !stopping && !terminal && t.Status == "completed" && !workExpired(w) && w.PolicyID != ""
+	judgment := w.CompletionMode == "automatic" && t.WorkItemCompletionAuthorized && t.WorkItemCompletion != nil && t.WorkItemCompletionCriteria == w.CompletionCriteria
+	eligible := !stopping && !terminal && t.Status == "completed" && !workExpired(w) && w.PolicyID != "" && !(judgment && t.WorkItemCompletion.CriteriaMet)
 	if stopping {
 		w.Status = "cancelled"
 		w.Question, w.WaitCondition, w.QuestionKind = "", "", ""
@@ -160,6 +175,16 @@ func syncWorkItemTask(ctx context.Context, q *sqlgen.Queries, t CollaborationTas
 	}
 	if e = appendWorkDecision(ctx, q, w, orchestration.WorkDecision{Kind: "result", Reason: content, ActorKind: "system", ActorID: "task", TaskID: t.ID, EvidenceIDs: []string{id}}); e != nil {
 		return e
+	}
+	if !stopping && !terminal && t.Status == "completed" && judgment && !workExpired(w) {
+		if e = applyTaskWorkCompletion(ctx, q, &w, t, id); e != nil {
+			return e
+		}
+	}
+	if !stopping && !terminal && t.Status == "completed" && w.PolicyID == "" && w.CompletionMode == "human" && w.Question == "" && !workExpired(w) {
+		if e = requestWorkCompletionConfirmation(ctx, q, &w); e != nil {
+			return e
+		}
 	}
 	if stopping {
 		if e = workNotice(ctx, q, &w, "work_item_finished", "Further follow-ups are stopped. Collaboration ended with status "+t.Status+"; its recorded cleanup outcome remains available."); e != nil {

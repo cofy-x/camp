@@ -75,6 +75,16 @@ export function apply(ctx) {
           description:
             'The result for people in the Room, including actual validation and limitations.',
         },
+        workItemCompletion: {
+          type: 'object',
+          additionalProperties: false,
+          description:
+            'For an explicitly authorized automatic Work item, state whether its frozen completion criteria are met. Cite actual checks, saved results and remaining limits. This is a judgment; Camp validates publication, current authority and external receipts.',
+          properties: {
+            criteriaMet: { type: 'boolean', required: true },
+            reason: { type: 'string', required: true },
+          },
+        },
         artifactPaths,
       },
     },

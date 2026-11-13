@@ -42,5 +42,8 @@ func fixtureTaskIntent(spec p.ExecutionSpec, scenario string) (*p.CoordinationIn
 		intent.Question = "Who should receive the final guide?"
 		intent.Options = []string{"Internal team", "Customers"}
 	}
+	if intent.Kind == "finish" && spec.Task.WorkItemCompletionCriteria != "" {
+		intent.WorkItemCompletion = &p.WorkItemCompletion{CriteriaMet: true, Reason: "The fixed fixture completed its saved result and configured checks."}
+	}
 	return intent, nil
 }

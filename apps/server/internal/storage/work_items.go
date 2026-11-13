@@ -303,6 +303,12 @@ func insertWorkItem(ctx context.Context, q *sqlgen.Queries, room, owner string, 
 	if !validText(in.Goal, 8192, false) || !validText(in.CompletionCriteria, 8192, true) {
 		return w, problem("invalid_work_item", "Provide a goal and optional completion criteria of at most 8192 bytes each.")
 	}
+	if in.CompletionMode != "" && in.CompletionMode != "automatic" && in.CompletionMode != "human" {
+		return w, problem("invalid_work_item", "Choose automatic completion or human confirmation.")
+	}
+	if in.CompletionMode == "automatic" && in.CompletionCriteria == "" {
+		in.CompletionCriteria = in.Goal
+	}
 	in.Budget = defaultWorkBudget(in.Budget)
 	if err = validateWorkBudget(in.Budget); err != nil {
 		return
@@ -341,6 +347,7 @@ func insertWorkItem(ctx context.Context, q *sqlgen.Queries, room, owner string, 
 	}
 	w = orchestration.WorkItem{ID: newID(), RoomID: room, OwnerUserID: owner, PolicyID: in.PolicyID, Goal: in.Goal, CompletionCriteria: in.CompletionCriteria, Status: "open", Revision: 1, Deadline: in.Deadline, Budget: in.Budget, CreatedAt: now(), UpdatedAt: now()}
 	w.ExpiresAt, w.DueAt = w.Deadline, in.DueAt
+	w.CompletionMode = in.CompletionMode
 	normalizeWorkItem(&w)
 	if in.PolicyID != "" {
 		w.DelegationStartAfter, err = q.AutomationFrontier(ctx, room)
@@ -484,6 +491,31 @@ func (s *Store) OperateWorkItem(ctx context.Context, id string, in orchestration
 		}
 		d := orchestration.WorkDecision{Kind: in.Kind, Reason: in.Reason, ReasonSource: reasonSource, ActorKind: "user", ActorID: actorID(ctx), EvidenceIDs: in.EvidenceIDs}
 		switch in.Kind {
+		case "completion":
+			if w.ActiveTaskID != "" || w.Status == "stopping" {
+				return problem("task_busy", "Finish or stop the active work before changing its completion authorization.")
+			}
+			if in.CompletionMode != "automatic" && in.CompletionMode != "human" {
+				return problem("invalid_work_item", "Choose automatic completion or human confirmation.")
+			}
+			criteria := strings.TrimSpace(in.CompletionCriteria)
+			if !validText(criteria, 8192, true) {
+				return problem("invalid_work_item", "Use completion criteria of at most 8192 UTF-8 bytes.")
+			}
+			if in.CompletionMode == "automatic" && criteria == "" {
+				criteria = w.Goal
+			}
+			w.CompletionMode, w.CompletionCriteria = in.CompletionMode, criteria
+			w.PendingCompletion = nil
+			body, _ := json.Marshal(struct {
+				Mode     string `json:"completionMode"`
+				Criteria string `json:"completionCriteria"`
+			}{w.CompletionMode, w.CompletionCriteria})
+			evidence, err := recordWorkHumanFact(ctx, q, &w, "completion_settings", string(body))
+			if err != nil {
+				return err
+			}
+			d.EvidenceIDs = append(d.EvidenceIDs, evidence)
 		case "authorize":
 			if workExpired(w) && in.Deadline == "" {
 				return problem("invalid_work_item", "Provide a future deadline to authorize an expired matter.")
@@ -677,6 +709,12 @@ func (s *Store) OperateWorkItem(ctx context.Context, id string, in orchestration
 		}
 		if e = appendWorkDecision(ctx, q, w, d); e != nil {
 			return e
+		}
+		if in.Kind == "complete" && w.Status == "waiting" {
+			w.PendingCompletion = &orchestration.PendingWorkCompletion{Reason: in.Reason}
+			if e = advanceWorkCompletionFrontier(ctx, q, &w); e != nil {
+				return e
+			}
 		}
 		if e = saveWorkItem(ctx, q, &w); e != nil {
 			return e

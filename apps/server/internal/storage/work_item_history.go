@@ -30,7 +30,7 @@ type workHistoryCursor struct {
 
 func validWorkHistoryKind(kind string) bool {
 	switch kind {
-	case "evidence", "decisions", "tasks", "timers", "actions":
+	case "timeline", "evidence", "decisions", "tasks", "timers", "actions":
 		return true
 	default:
 		return false
@@ -68,7 +68,7 @@ func encodeWorkHistoryCursor(cursor workHistoryCursor) string {
 func (s *Store) WorkItemHistory(ctx context.Context, id, kind, cursor string, limit int) (out WorkHistoryPage, err error) {
 	out.Items = []json.RawMessage{}
 	if !validWorkHistoryKind(kind) || limit < 0 || limit > 20 {
-		return out, problem("invalid_page", "Choose evidence, decisions, tasks, timers or actions and at most 20 records.")
+		return out, problem("invalid_page", "Choose timeline, evidence, decisions, tasks, timers or actions and at most 20 records.")
 	}
 	if limit == 0 {
 		limit = 20
@@ -144,7 +144,7 @@ func workHistoryFrontier(ctx context.Context, q *sqlgen.Queries, id, kind string
 	switch kind {
 	case "evidence":
 		return q.WorkHistoryEvidenceFrontier(ctx, id)
-	case "decisions":
+	case "timeline", "decisions":
 		return q.WorkHistoryDecisionsFrontier(ctx, id)
 	case "tasks":
 		return q.WorkHistoryTasksFrontier(ctx, id)
@@ -159,6 +159,18 @@ func workHistoryFrontier(ctx context.Context, q *sqlgen.Queries, id, kind string
 func workHistoryRows(ctx context.Context, q *sqlgen.Queries, id, kind string, after, through, limit int64) ([]workHistoryRow, error) {
 	out := []workHistoryRow{}
 	switch kind {
+	case "timeline":
+		before := after
+		if before == 0 {
+			before = through + 1
+		}
+		rows, err := q.WorkHistoryTimelinePage(ctx, sqlgen.WorkHistoryTimelinePageParams{WorkItemID: id, BeforeSeq: before, ThroughSeq: through, ResultLimit: limit})
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			out = append(out, workHistoryRow{Seq: row.Seq, Value: row.Value})
+		}
 	case "evidence":
 		rows, err := q.WorkHistoryEvidencePage(ctx, sqlgen.WorkHistoryEvidencePageParams{WorkItemID: id, AfterSeq: after, ThroughSeq: through, ResultLimit: limit})
 		if err != nil {

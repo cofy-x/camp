@@ -3,39 +3,49 @@ package orchestration
 // WorkItem owns a matter across finite execution grants. Its state and evidence
 // never constitute an execution capability.
 type WorkItem struct {
-	QuestionKind             WorkQuestionKind `json:"questionKind,omitempty"`
-	StopRequested            bool             `json:"stopRequested,omitempty"`
-	Execution                *WorkExecution   `json:"execution,omitempty"`
-	Result                   *WorkResult      `json:"result,omitempty"`
-	CompletionMode           string           `json:"completionMode"`
-	DueAt                    string           `json:"dueAt,omitempty"`
-	ExpiresAt                string           `json:"expiresAt"`
-	DelegationStartAfter     int64            `json:"delegationStartAfter,omitempty"`
-	DelegationPolicyRevision int64            `json:"delegationPolicyRevision,omitempty"`
-	Seq                      int64            `json:"seq"`
-	ID                       string           `json:"id"`
-	RoomID                   string           `json:"roomId"`
-	OwnerUserID              string           `json:"ownerUserId"`
-	PolicyID                 string           `json:"policyId,omitempty"`
-	Goal                     string           `json:"goal"`
-	CompletionCriteria       string           `json:"completionCriteria"`
-	Status                   string           `json:"status"`
-	Revision                 int64            `json:"revision"`
-	ActiveTaskID             string           `json:"activeTaskId,omitempty"`
-	Question                 string           `json:"question,omitempty"`
-	WaitCondition            string           `json:"waitCondition,omitempty"`
-	Deadline                 string           `json:"deadline"`
-	Budget                   WorkBudget       `json:"budget"`
-	Usage                    WorkUsage        `json:"usage"`
-	Evidence                 []WorkEvidence   `json:"evidence"`
-	Decisions                []WorkDecision   `json:"decisions"`
-	Tasks                    []WorkTask       `json:"tasks"`
-	Timers                   []WorkTimer      `json:"timers"`
-	Actions                  []WorkAction     `json:"actions"`
-	Watches                  []WorkWatch      `json:"watches"`
-	HistoryLimited           bool             `json:"historyLimited,omitempty"`
-	CreatedAt                string           `json:"createdAt"`
-	UpdatedAt                string           `json:"updatedAt"`
+	QuestionKind             WorkQuestionKind       `json:"questionKind,omitempty"`
+	StopRequested            bool                   `json:"stopRequested,omitempty"`
+	Execution                *WorkExecution         `json:"execution,omitempty"`
+	Result                   *WorkResult            `json:"result,omitempty"`
+	CompletionMode           string                 `json:"completionMode"`
+	PendingCompletion        *PendingWorkCompletion `json:"pendingCompletion,omitempty"`
+	DueAt                    string                 `json:"dueAt,omitempty"`
+	ExpiresAt                string                 `json:"expiresAt"`
+	DelegationStartAfter     int64                  `json:"delegationStartAfter,omitempty"`
+	DelegationPolicyRevision int64                  `json:"delegationPolicyRevision,omitempty"`
+	Seq                      int64                  `json:"seq"`
+	ID                       string                 `json:"id"`
+	RoomID                   string                 `json:"roomId"`
+	OwnerUserID              string                 `json:"ownerUserId"`
+	PolicyID                 string                 `json:"policyId,omitempty"`
+	Goal                     string                 `json:"goal"`
+	CompletionCriteria       string                 `json:"completionCriteria"`
+	Status                   string                 `json:"status"`
+	Revision                 int64                  `json:"revision"`
+	ActiveTaskID             string                 `json:"activeTaskId,omitempty"`
+	Question                 string                 `json:"question,omitempty"`
+	WaitCondition            string                 `json:"waitCondition,omitempty"`
+	Deadline                 string                 `json:"deadline"`
+	Budget                   WorkBudget             `json:"budget"`
+	Usage                    WorkUsage              `json:"usage"`
+	Evidence                 []WorkEvidence         `json:"evidence"`
+	Decisions                []WorkDecision         `json:"decisions"`
+	Tasks                    []WorkTask             `json:"tasks"`
+	Timers                   []WorkTimer            `json:"timers"`
+	Actions                  []WorkAction           `json:"actions"`
+	Watches                  []WorkWatch            `json:"watches"`
+	HistoryLimited           bool                   `json:"historyLimited,omitempty"`
+	CreatedAt                string                 `json:"createdAt"`
+	UpdatedAt                string                 `json:"updatedAt"`
+}
+
+// PendingWorkCompletion retains an accepted judgment while external receipts
+// settle. Any intervening evidence or decision invalidates this proposal.
+type PendingWorkCompletion struct {
+	TaskID           string `json:"taskId"`
+	Reason           string `json:"reason"`
+	EvidenceThrough  int64  `json:"evidenceThrough"`
+	DecisionsThrough int64  `json:"decisionsThrough"`
 }
 
 type WorkBudget struct {
@@ -113,6 +123,7 @@ type WorkAction struct {
 }
 
 type WorkItemInput struct {
+	CompletionMode      string     `json:"completionMode,omitempty"`
 	Start               bool       `json:"start,omitempty"`
 	Follow              bool       `json:"follow,omitempty"`
 	SourceEventID       string     `json:"sourceEventId,omitempty"`
@@ -132,6 +143,8 @@ type WorkItemInput struct {
 }
 
 type WorkItemOperation struct {
+	CompletionMode      string      `json:"completionMode,omitempty"`
+	CompletionCriteria  string      `json:"completionCriteria,omitempty"`
 	Comment             string      `json:"comment,omitempty"`
 	Content             string      `json:"content,omitempty"`
 	TaskID              string      `json:"taskId,omitempty"`

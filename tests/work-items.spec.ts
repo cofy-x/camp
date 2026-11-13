@@ -10,6 +10,7 @@ import {
   openRoomMore,
   signIn,
   work,
+  openWorkAction,
   workspace,
 } from './team-helpers';
 import { watchPageErrors } from './page-errors';
@@ -286,6 +287,9 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
   await work(page)
     .getByLabel('What needs to happen?', { exact: true })
     .fill('Confirm the customer’s acceptance');
+  await work(page)
+    .getByLabel('Completion', { exact: true })
+    .selectOption('human');
   let creates = 0;
   await page.route(`**/api/rooms/${room.id}/work-items`, async (route) => {
     if (route.request().method() !== 'POST') return route.fallback();
@@ -362,9 +366,7 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
   await expect(
     detail(page).getByLabel('Your answer', { exact: true }),
   ).toHaveCount(0);
-  await detail(page)
-    .getByRole('button', { name: 'Mark done…', exact: true })
-    .click();
+  await openWorkAction(page, 'Mark done…');
   await detail(page)
     .getByRole('form', { name: 'Next step', exact: true })
     .getByLabel('Note (optional)', { exact: true })
@@ -373,7 +375,9 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
     .getByRole('button', { name: 'Mark done', exact: true })
     .click();
   await expect(
-    detail(page).getByText('Completed', { exact: true }),
+    detail(page)
+      .locator('.work-item-heading')
+      .getByText('Completed', { exact: true }),
   ).toBeVisible();
   await expect(
     detail(page).getByRole('form', { name: 'Next step', exact: true }),
@@ -421,11 +425,9 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
     },
   );
   try {
-    await detail(page)
-      .getByRole('tab', { name: 'Activity', exact: true })
-      .click();
+    await openWorkAction(page, 'Records…');
     await expect(
-      detail(page).getByLabel('Show activity', { exact: true }),
+      detail(page).getByLabel('Show records', { exact: true }),
     ).toHaveValue('decisions');
     await expect(
       detail(page)
@@ -478,9 +480,7 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
         exact: true,
       }),
     ).toHaveCount(0);
-    await detail(page)
-      .getByRole('button', { name: 'Refresh', exact: true })
-      .click();
+    await openWorkAction(page, 'Refresh');
     await expect(
       detail(page)
         .getByRole('region', { name: 'Decisions', exact: true })
@@ -492,6 +492,9 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
   } finally {
     recoverHistory();
   }
+  await detail(page)
+    .getByRole('button', { name: 'Back to item', exact: true })
+    .click();
   await detail(page)
     .getByRole('button', { name: 'Back to Work', exact: true })
     .click();
@@ -603,18 +606,13 @@ test('message follow-up links the original and future replies in one recorded ma
         response.url().endsWith(`/api/work-items/${item.id}`) &&
         response.request().method() === 'GET',
     ),
-    detail(page).getByRole('button', { name: 'Refresh', exact: true }).click(),
+    openWorkAction(page, 'Refresh'),
   ]);
-  await detail(page).getByRole('tab', { name: 'Manage', exact: true }).click();
-  await detail(page)
-    .getByLabel('Manage work', { exact: true })
-    .selectOption('following');
+  await openWorkAction(page, 'Following…');
   await expect(
     detail(page).getByText('Following replies', { exact: true }),
   ).toBeVisible();
-  await detail(page)
-    .getByLabel('Manage work', { exact: true })
-    .selectOption('allowance');
+  await openWorkAction(page, 'Allowance and access…');
   const allowance = detail(page).getByRole('form', {
     name: 'Work allowance',
     exact: true,
@@ -639,7 +637,7 @@ test('message follow-up links the original and future replies in one recorded ma
     }),
   ).toBeVisible();
   await detail(page)
-    .getByRole('tab', { name: 'Overview', exact: true })
+    .getByRole('button', { name: 'Back to item', exact: true })
     .click();
   await expect(allowance).toBeHidden();
   await detail(page)
@@ -654,11 +652,11 @@ test('message follow-up links the original and future replies in one recorded ma
     .getByRole('button', { name: 'Review allowance', exact: true })
     .click();
   await expect(
-    detail(page).getByRole('tab', { name: 'Manage', exact: true }),
-  ).toHaveAttribute('aria-selected', 'true');
+    detail(page).getByRole('button', { name: 'Back to Work', exact: true }),
+  ).toBeHidden();
   await expect(
-    detail(page).getByLabel('Manage work', { exact: true }),
-  ).toHaveValue('allowance');
+    detail(page).getByRole('form', { name: 'Work allowance', exact: true }),
+  ).toBeVisible();
   await expect(
     allowance.getByLabel('Collaborations', { exact: true }),
   ).toHaveValue('5');
@@ -708,9 +706,7 @@ test('message follow-up links the original and future replies in one recorded ma
           .item.budget.maxTasks,
     )
     .toBe(5);
-  await detail(page)
-    .getByLabel('Manage work', { exact: true })
-    .selectOption('reminder');
+  await openWorkAction(page, 'Set reminder…');
   const reminders: WorkActionInput[] = [];
   page.on('request', (request) => {
     if (
@@ -737,9 +733,9 @@ test('message follow-up links the original and future replies in one recorded ma
   ).json()) as { item: WorkItem };
   expect(beforeReminder.item.timers).toHaveLength(0);
   await detail(page)
-    .getByRole('tab', { name: 'Overview', exact: true })
+    .getByRole('button', { name: 'Back to item', exact: true })
     .click();
-  await detail(page).getByRole('tab', { name: 'Manage', exact: true }).click();
+  await openWorkAction(page, 'Set reminder…');
   await expect(
     detail(page).getByLabel('Waiting for (optional)', { exact: true }),
   ).toHaveValue(condition);
@@ -781,11 +777,12 @@ test('message follow-up links the original and future replies in one recorded ma
         response.url().endsWith(`/api/work-items/${item.id}`) &&
         response.request().method() === 'GET',
     ),
-    detail(page).getByRole('button', { name: 'Refresh', exact: true }).click(),
+    openWorkAction(page, 'Refresh'),
   ]);
   await expect(
-    detail(page).getByRole('tab', { name: 'Manage', exact: true }),
-  ).toHaveAttribute('aria-selected', 'true');
+    detail(page).getByRole('button', { name: 'Back to Work', exact: true }),
+  ).toBeVisible();
+  await openWorkAction(page, 'Set reminder…');
   const unsentCondition = 'Keep this unfinished follow-up reminder.';
   await detail(page)
     .getByLabel('Waiting for (optional)', { exact: true })
@@ -804,20 +801,18 @@ test('message follow-up links the original and future replies in one recorded ma
     }),
   ).toBeVisible();
   await expect(
-    detail(page).getByRole('tab', { name: 'Overview', exact: true }),
-  ).toHaveAttribute('aria-selected', 'true');
+    detail(page).getByRole('button', { name: 'Back to Work', exact: true }),
+  ).toBeVisible();
   await expect(
     detail(page).getByLabel('Manage work', { exact: true }),
   ).toBeHidden();
   await expect(reminderTime).toBeHidden();
-  await detail(page).getByRole('tab', { name: 'Manage', exact: true }).click();
+  await openWorkAction(page, 'Set reminder…');
   await expect(
     detail(page).getByLabel('Waiting for (optional)', { exact: true }),
   ).toHaveValue(unsentCondition);
   expect(reminders).toHaveLength(1);
-  await detail(page)
-    .getByLabel('Manage work', { exact: true })
-    .selectOption('allowance');
+  await openWorkAction(page, 'Allowance and access…');
   failAllowanceDraft = true;
   const privateNote = 'Keep this allowance note after the work is completed.';
   await allowance
@@ -829,7 +824,7 @@ test('message follow-up links the original and future replies in one recorded ma
       .filter({ hasText: 'The allowance draft could not be saved.' }),
   ).toBeVisible();
   await detail(page)
-    .getByRole('tab', { name: 'Overview', exact: true })
+    .getByRole('button', { name: 'Back to item', exact: true })
     .click();
   await expect(allowance).toBeHidden();
   const current = (await (
@@ -845,11 +840,11 @@ test('message follow-up links the original and future replies in one recorded ma
     },
   );
   expect(externallyCompleted.ok()).toBe(true);
-  await detail(page)
-    .getByRole('button', { name: 'Refresh', exact: true })
-    .click();
+  await openWorkAction(page, 'Refresh');
   await expect(
-    detail(page).getByText('Completed', { exact: true }),
+    detail(page)
+      .locator('.work-item-heading')
+      .getByText('Completed', { exact: true }),
   ).toBeVisible();
   await expect(
     detail(page)
@@ -1137,9 +1132,7 @@ test('the current task question answers in place with task revision and an exact
       updatedAt: new Date().toISOString(),
     },
   });
-  await detail(page)
-    .getByRole('button', { name: 'Refresh', exact: true })
-    .click();
+  await openWorkAction(page, 'Refresh');
   await expect(
     detail(page).getByRole('heading', {
       name: 'Which audience should the proposal address?',
@@ -1169,10 +1162,10 @@ test('the current task question answers in place with task revision and an exact
   ).toHaveValue('New customers');
   await expect(
     detail(page).getByRole('tablist', { name: 'Work details', exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(
-    detail(page).getByRole('tab', { name: 'Overview', exact: true }),
-  ).toHaveAttribute('aria-selected', 'true');
+    detail(page).getByRole('button', { name: 'Back to Work', exact: true }),
+  ).toBeVisible();
   await expect(
     detail(page).getByRole('heading', {
       name: 'Which audience should the proposal address?',
@@ -1187,7 +1180,7 @@ test('the current task question answers in place with task revision and an exact
     detail(page).getByLabel('Manage work', { exact: true }),
   ).toBeHidden();
   await expect(
-    detail(page).getByLabel('Show activity', { exact: true }),
+    detail(page).getByLabel('Show records', { exact: true }),
   ).toBeHidden();
   await expect(
     detail(page).getByRole('button', { name: 'Cancel', exact: true }),
@@ -1201,11 +1194,9 @@ test('the current task question answers in place with task revision and an exact
   await expect(
     detail(page).getByLabel('Your answer', { exact: true }),
   ).toHaveValue('New customers');
+  await openWorkAction(page, 'Records…');
   await detail(page)
-    .getByRole('tab', { name: 'Activity', exact: true })
-    .click();
-  await detail(page)
-    .getByLabel('Show activity', { exact: true })
+    .getByLabel('Show records', { exact: true })
     .selectOption('tasks');
   await expect(
     detail(page).getByRole('region', { name: 'Work sessions', exact: true }),
@@ -1221,15 +1212,12 @@ test('the current task question answers in place with task revision and an exact
       exact: true,
     }),
   ).toBeVisible();
-  await detail(page).getByRole('tab', { name: 'Manage', exact: true }).click();
-  await detail(page)
-    .getByLabel('Manage work', { exact: true })
-    .selectOption('following');
+  await openWorkAction(page, 'Following…');
   await expect(
     detail(page).getByText('No conversations followed.', { exact: true }),
   ).toBeVisible();
   await detail(page)
-    .getByRole('tab', { name: 'Overview', exact: true })
+    .getByRole('button', { name: 'Back to item', exact: true })
     .click();
   await expect(
     detail(page).getByLabel('Your answer', { exact: true }),
@@ -1245,9 +1233,7 @@ test('the current task question answers in place with task revision and an exact
     revision: 2,
     execution: { ...value.item.execution!, revision: 4 },
   });
-  await detail(page)
-    .getByRole('button', { name: 'Refresh', exact: true })
-    .click();
+  await openWorkAction(page, 'Refresh');
   await expect(
     detail(page).getByRole('button', {
       name: 'Use current state',
@@ -1397,9 +1383,7 @@ test('results expose exact files and the final finite grant; stop remains visibl
     }),
   ).toBe(true);
   value.setItem({ result: { ...value.item.result!, files: resultFiles } });
-  await detail(page)
-    .getByRole('button', { name: 'Refresh', exact: true })
-    .click();
+  await openWorkAction(page, 'Refresh');
   await expect(
     workResult.getByRole('button', { name: 'Open files', exact: true }),
   ).toBeVisible();
@@ -1426,9 +1410,7 @@ test('results expose exact files and the final finite grant; stop remains visibl
   await library(page)
     .getByRole('button', { name: /^Close .+ — Library$/ })
     .click();
-  await detail(page)
-    .getByRole('button', { name: 'Request changes…', exact: true })
-    .click();
+  await openWorkAction(page, 'Request changes…');
   await expect(
     detail(page).getByText('Up to 6 turns · 24 model requests', {
       exact: true,
@@ -1443,9 +1425,7 @@ test('results expose exact files and the final finite grant; stop remains visibl
   await expect(
     detail(page).getByRole('form', { name: 'Next step', exact: true }),
   ).toHaveCount(0);
-  await detail(page)
-    .getByRole('button', { name: 'Request changes…', exact: true })
-    .click();
+  await openWorkAction(page, 'Request changes…');
   const actions: Record<string, unknown>[] = [];
   await page.route(
     `**/api/work-items/${value.item.id}/actions/start`,
@@ -1475,12 +1455,7 @@ test('results expose exact files and the final finite grant; stop remains visibl
   await detail(page)
     .getByRole('button', { name: 'Start work', exact: true })
     .click();
-  await expect(
-    detail(page).getByRole('button', { name: 'Stop…', exact: true }),
-  ).toBeVisible();
-  await detail(page)
-    .getByRole('button', { name: 'Stop…', exact: true })
-    .click();
+  await openWorkAction(page, 'Stop work…');
   await page.route(
     `**/api/work-items/${value.item.id}/actions/stop`,
     (route) => {
@@ -1499,9 +1474,7 @@ test('results expose exact files and the final finite grant; stop remains visibl
     ),
   ).toBeVisible();
   value.setItem({ revision: 4, status: 'cancelled', activeTaskId: undefined });
-  await detail(page)
-    .getByRole('button', { name: 'Refresh', exact: true })
-    .click();
+  await openWorkAction(page, 'Refresh');
   await expect(
     detail(page).getByText('Cancelled', { exact: true }),
   ).toBeVisible();
@@ -1556,11 +1529,9 @@ test('completed work keeps exact files ahead of a lazy full report and retains i
   await disclosure.focus();
   await disclosure.press('Enter');
   await expect(result).toContainText('EXACT_FINAL_REPORT_RECOMMENDATION');
+  await openWorkAction(page, 'Records…');
   await detail(page)
-    .getByRole('tab', { name: 'Activity', exact: true })
-    .click();
-  await detail(page)
-    .getByRole('tab', { name: 'Overview', exact: true })
+    .getByRole('button', { name: 'Back to item', exact: true })
     .click();
   await expect(result.locator('details')).toHaveAttribute('open', '');
   await expect(result).toContainText('EXACT_FINAL_REPORT_RECOMMENDATION');
@@ -1627,7 +1598,9 @@ test('completion confirmation is explicit and waits for unresolved external acti
     ),
   ).toBeVisible();
   await expect(
-    detail(page).getByText('Completed', { exact: true }),
+    detail(page)
+      .locator('.work-item-heading')
+      .getByText('Completed', { exact: true }),
   ).toHaveCount(0);
   expect(confirms).toHaveLength(1);
   expect(confirms[0]).toMatchObject({ revision: 1 });
@@ -1638,11 +1611,11 @@ test('completion confirmation is explicit and waits for unresolved external acti
     waitCondition: undefined,
     actions: [],
   });
-  await detail(page)
-    .getByRole('button', { name: 'Refresh', exact: true })
-    .click();
+  await openWorkAction(page, 'Refresh');
   await expect(
-    detail(page).getByText('Completed', { exact: true }),
+    detail(page)
+      .locator('.work-item-heading')
+      .getByText('Completed', { exact: true }),
   ).toBeVisible();
   expect(errors.errors).toEqual([]);
 });
@@ -1724,10 +1697,10 @@ test('blocked work opens its saved execution for an explicit continuation grant'
   await expect(
     detail(page).getByRole('button', { name: 'Start work…', exact: true }),
   ).toHaveCount(0);
-  await detail(page).getByRole('tab', { name: 'Manage', exact: true }).click();
+  await openWorkAction(page, 'Allowance and access…');
   await expect(
-    detail(page).getByLabel('Manage work', { exact: true }),
-  ).toHaveValue('allowance');
+    detail(page).getByRole('form', { name: 'Work allowance', exact: true }),
+  ).toBeVisible();
   let releaseSave!: () => void;
   let observedSave!: () => void;
   const saveGate = new Promise<void>((resolve) => {
@@ -1752,7 +1725,7 @@ test('blocked work opens its saved execution for an explicit continuation grant'
     .getByLabel('Note (optional)', { exact: true })
     .fill('Keep this allowance note.');
   await detail(page)
-    .getByRole('tab', { name: 'Overview', exact: true })
+    .getByRole('button', { name: 'Back to item', exact: true })
     .click();
   await detail(page)
     .getByRole('button', { name: 'Review and continue…', exact: true })
@@ -1897,11 +1870,9 @@ test('linked task and run inspection stay inside Work and return to the same mat
     }),
   );
   await value.open();
+  await openWorkAction(page, 'Records…');
   await detail(page)
-    .getByRole('tab', { name: 'Activity', exact: true })
-    .click();
-  await detail(page)
-    .getByLabel('Show activity', { exact: true })
+    .getByLabel('Show records', { exact: true })
     .selectOption('tasks');
   await detail(page)
     .getByRole('button', { name: 'Open execution', exact: true })
@@ -2198,4 +2169,191 @@ test('assessment context pages retain frozen work and memory revisions after cur
     detail(page).getByText('Cancelled', { exact: true }),
   ).toBeVisible();
   expect(errors.errors).toEqual([]);
+});
+
+test('Activity retains its accepted page, local retry and private answer through earlier progress', async ({
+  page,
+}) => {
+  const value = await presentation(
+    page,
+    async () => {
+      await page.reload();
+    },
+    {
+      status: 'waiting_for_person',
+      question: 'Which launch day should we use?',
+      questionKind: 'judgment',
+    },
+  );
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let failed = true;
+  const entry = (seq: number, content: string) => ({
+    id: `progress-${seq}`,
+    seq,
+    kind: 'wait',
+    content,
+    taskId: '',
+    createdAt: value.item.createdAt,
+  });
+  await page.route(
+    `**/api/work-items/${value.item.id}/history/timeline?*`,
+    async (route) => {
+      const cursor = new URL(route.request().url()).searchParams.get('cursor');
+      if (cursor === 'earlier') {
+        if (failed)
+          return route.fulfill({
+            status: 503,
+            json: { error: 'Earlier progress is unavailable.' },
+          });
+        await gate;
+        return route.fulfill({
+          json: {
+            items: [entry(1, 'Earlier progress retained')],
+            nextCursor: '',
+          },
+        });
+      }
+      return route.fulfill({
+        json: {
+          items: [
+            entry(3, 'The document was saved'),
+            entry(2, 'Waiting for the customer'),
+          ],
+          nextCursor: 'earlier',
+        },
+      });
+    },
+  );
+  await value.open();
+  await detail(page)
+    .getByLabel('Your answer', { exact: true })
+    .fill('Use Thursday.');
+  await detail(page)
+    .getByRole('button', { name: 'Activity', exact: true })
+    .click();
+  const activity = detail(page).getByRole('region', {
+    name: 'Activity',
+    exact: true,
+  });
+  await expect(activity).toContainText('The document was saved');
+  await expect(
+    detail(page).getByLabel('Show records', { exact: true }),
+  ).toBeHidden();
+  await activity.getByRole('button', { name: 'Earlier', exact: true }).click();
+  await expect(activity.getByRole('alert')).toContainText(
+    'Earlier progress is unavailable.',
+  );
+  await expect(activity).toContainText('The document was saved');
+  failed = false;
+  await activity
+    .getByRole('button', { name: 'Retry Activity', exact: true })
+    .click();
+  await expect(activity.getByRole('alert')).toBeVisible();
+  await expect(activity).toContainText('The document was saved');
+  release();
+  await expect(activity).toContainText('Earlier progress retained');
+  await expect(activity.getByRole('alert')).toHaveCount(0);
+  await expect(activity.locator('[data-history-record]').first()).toBeFocused();
+  await activity.getByRole('button', { name: 'Latest', exact: true }).click();
+  await expect(activity).toContainText('The document was saved');
+  await detail(page)
+    .getByRole('button', { name: 'Back to item', exact: true })
+    .click();
+  await expect(
+    detail(page).getByLabel('Your answer', { exact: true }),
+  ).toHaveValue('Use Thursday.');
+});
+
+test('new Work declares automatic completion while a saved legacy draft keeps human confirmation', async ({
+  page,
+}) => {
+  await signIn(page);
+  const room = await createRoom(
+    page,
+    `Completion choices ${randomUUID().slice(0, 8)}`,
+  );
+  await openItems(page);
+  await work(page)
+    .getByRole('button', { name: 'New work…', exact: true })
+    .click();
+  await expect(
+    work(page).getByLabel('Completion', { exact: true }),
+  ).toHaveValue('automatic');
+  const goal = 'Prepare the checked release note';
+  await work(page)
+    .getByLabel('What needs to happen?', { exact: true })
+    .fill(goal);
+  await work(page)
+    .getByRole('button', { name: 'Keep track', exact: true })
+    .click();
+  await expect(detail(page)).toContainText(goal);
+  const { items } = (await (
+    await page.request.get(`/api/rooms/${room.id}/work-items`)
+  ).json()) as { items: WorkItem[] };
+  expect(
+    (await (await page.request.get(`/api/work-items/${items[0].id}`)).json())
+      .item,
+  ).toMatchObject({
+    completionMode: 'automatic',
+    completionCriteria: goal,
+    tasks: [],
+  });
+  await openWorkAction(page, 'Completion…');
+  await detail(page)
+    .getByLabel('Completion', { exact: true })
+    .selectOption('human');
+  await detail(page)
+    .getByRole('button', { name: 'Save completion settings', exact: true })
+    .click();
+  await expect(
+    detail(page).getByRole('button', { name: 'Back to Work', exact: true }),
+  ).toBeVisible();
+  await detail(page)
+    .getByRole('button', { name: 'Back to Work', exact: true })
+    .click();
+  const legacyKey = `work-item-create:${room.id}:manual`;
+  const { draft: retainedDraft } = await (
+    await page.request.get(
+      `/api/me/drafts/conversation?key=${encodeURIComponent(legacyKey)}`,
+    )
+  ).json();
+  expect(
+    (
+      await mutate(
+        page,
+        '/me/drafts/conversation',
+        {
+          key: legacyKey,
+          value: { goal: 'Saved human-confirmed work' },
+          revision: retainedDraft.revision,
+        },
+        'PUT',
+      )
+    ).ok(),
+  ).toBe(true);
+  await work(page)
+    .getByRole('button', { name: 'New work…', exact: true })
+    .click();
+  await expect(
+    work(page).getByLabel('Completion', { exact: true }),
+  ).toHaveValue('human');
+  await work(page)
+    .getByRole('button', { name: 'Keep track', exact: true })
+    .click();
+  await expect(detail(page)).toContainText('Saved human-confirmed work');
+  const { items: recorded } = (await (
+    await page.request.get(`/api/rooms/${room.id}/work-items`)
+  ).json()) as { items: WorkItem[] };
+  expect(
+    (
+      await (
+        await page.request.get(
+          `/api/work-items/${recorded.find((item) => item.goal === 'Saved human-confirmed work')!.id}`,
+        )
+      ).json()
+    ).item,
+  ).toMatchObject({ completionMode: 'human', tasks: [] });
 });

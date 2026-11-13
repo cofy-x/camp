@@ -71,6 +71,10 @@ func recordWorkActionResult(ctx context.Context, q *sqlgen.Queries, d orchestrat
 	if err != nil {
 		return err
 	}
+	pendingCompletion, err := pendingWorkCompletionCurrent(ctx, q, &w)
+	if err != nil {
+		return err
+	}
 	receipt := workActionReceipt{ActionID: action.ID, DeliveryID: d.ID, Kind: action.Kind, TaskID: d.TaskID, Status: d.Status, Withdrawn: d.Withdrawn, Uncertain: workActionUncertain(d), Reason: truncateUTF8(d.Reason, 4096), CommentID: d.CommentID, URL: d.URL, Attempts: d.Attempts, Receipts: d.Receipts, ReceiptScanLimited: d.ReceiptScanLimited}
 	semantic, err := json.Marshal(receipt)
 	if err != nil {
@@ -91,7 +95,7 @@ func recordWorkActionResult(ctx context.Context, q *sqlgen.Queries, d orchestrat
 	}
 	status := "context"
 	confirmed := (d.Status == "sent" || d.Status == "withdrawn") && !receipt.Uncertain
-	if confirmed && workActionReassessmentAllowed(ctx, q, w) {
+	if confirmed && !pendingCompletion && workActionReassessmentAllowed(ctx, q, w) {
 		status = "pending"
 	}
 	id := fmt.Sprintf("action:%s:%d", d.ID, d.Revision)
@@ -110,6 +114,26 @@ func recordWorkActionResult(ctx context.Context, q *sqlgen.Queries, d orchestrat
 		text := reason + " Review its delivery evidence and explicit recovery controls. No comment was replayed."
 		if err = workNotice(ctx, q, &w, "work_item_attention", text); err != nil {
 			return err
+		}
+	}
+	if pendingCompletion {
+		if confirmed {
+			proposal := w.PendingCompletion
+			completed, err := finalizeWorkItem(ctx, q, &w, proposal.Reason, true)
+			if err != nil {
+				return err
+			}
+			if completed {
+				w.PendingCompletion = nil
+				if err = appendWorkDecision(ctx, q, w, orchestration.WorkDecision{Kind: "complete", Reason: proposal.Reason, ActorKind: "system", ActorID: "confirmed-receipts", TaskID: proposal.TaskID, EvidenceIDs: []string{id}}); err != nil {
+					return err
+				}
+			}
+		}
+		if w.PendingCompletion != nil {
+			if err = advanceWorkCompletionFrontier(ctx, q, &w); err != nil {
+				return err
+			}
 		}
 	}
 	return saveWorkItem(ctx, q, &w)
@@ -186,6 +210,12 @@ func workCompletionPending(ctx context.Context, q *sqlgen.Queries, w orchestrati
 // deterministic precondition. Human and model callers share this rule. Callers
 // persist w and record whether completion succeeded or waits for action receipts.
 func completeWorkItem(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem, reason string) (bool, error) {
+	return finalizeWorkItem(ctx, q, w, reason, false)
+}
+
+// accepted is used only by receipt handling after the retained judgment's
+// evidence/decision frontiers and current owner have been revalidated.
+func finalizeWorkItem(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem, reason string, accepted bool) (bool, error) {
 	current, err := getWorkItem(ctx, q, w.ID)
 	if err != nil {
 		return false, err
@@ -199,16 +229,8 @@ func completeWorkItem(ctx context.Context, q *sqlgen.Queries, w *orchestration.W
 	if w.ActiveTaskID != "" {
 		return false, problem("task_busy", "Finish or cancel the active collaboration before completing its matter.")
 	}
-	if _, human := UserFromContext(ctx); !human && (w.CompletionMode == "human" || w.CompletionCriteria == "") {
-		w.Status, w.Question = "waiting_for_person", "Confirm whether this matter is complete: "+truncateUTF8(w.Goal, 512)
-		w.QuestionKind = orchestration.WorkQuestionCompletion
-		if err = q.CancelWorkTimers(ctx, w.ID); err != nil {
-			return false, err
-		}
-		if err = workNotice(ctx, q, w, "work_item_attention", w.Question); err != nil {
-			return false, err
-		}
-		return false, nil
+	if _, human := UserFromContext(ctx); !accepted && !human && (w.CompletionMode == "human" || w.CompletionCriteria == "") {
+		return false, requestWorkCompletionConfirmation(ctx, q, w)
 	}
 	pending, err := workCompletionPending(ctx, q, *w)
 	if err != nil {

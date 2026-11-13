@@ -14,7 +14,17 @@ import (
 
 func workActionFixture(t *testing.T, criteria ...string) (*Store, context.Context, orchestration.WorkItem, CollaborationTask, []orchestration.Delivery) {
 	t.Helper()
+	return workActionFixtureWithMode(t, "", criteria...)
+}
+
+func workActionFixtureWithMode(t *testing.T, mode string, criteria ...string) (*Store, context.Context, orchestration.WorkItem, CollaborationTask, []orchestration.Delivery) {
+	t.Helper()
 	s, task, policy := automationDeliveryFixture(t)
+	if mode == "automatic" {
+		if _, err := s.db.Exec("UPDATE runners SET capabilities=json_set(capabilities,'$.workItemCompletionVersion',1)"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	actor := WithUser(ctx, User{ID: policy.OwnerUserID})
 	room, err := s.GetRoom(ctx, task.RoomID)
 	if err != nil {
@@ -25,7 +35,7 @@ func workActionFixture(t *testing.T, criteria ...string) (*Store, context.Contex
 	if len(criteria) > 0 {
 		completionCriteria = criteria[0]
 	}
-	w, err := s.CreateWorkItem(actor, room.ID, orchestration.WorkItemInput{RequestID: newID(), Goal: "Deliver the document", CompletionCriteria: completionCriteria, PolicyID: policy.ID, EvidenceIDs: []string{"room:" + message.ID}})
+	w, err := s.CreateWorkItem(actor, room.ID, orchestration.WorkItemInput{CompletionMode: mode, RequestID: newID(), Goal: "Deliver the document", CompletionCriteria: completionCriteria, PolicyID: policy.ID, EvidenceIDs: []string{"room:" + message.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,6 +52,12 @@ func workActionFixture(t *testing.T, criteria ...string) (*Store, context.Contex
 		}
 		// Exercise the durable terminal-task owner without a native/model call.
 		task.Status, task.ActiveRunID, task.ActiveAttemptID, task.Summary = "completed", "", "", "The document is ready."
+		if mode == "automatic" {
+			task.WorkItemCompletion = &WorkItemCompletion{CriteriaMet: true, Reason: "The saved document meets the criteria; its configured delivery receipts must settle."}
+		}
+		if err := queueAutomationTaskNotice(ctx, q, task, "task_finished", task.Summary); err != nil {
+			return err
+		}
 		if err := saveTask(ctx, q, &task); err != nil {
 			return err
 		}
@@ -53,7 +69,7 @@ func workActionFixture(t *testing.T, criteria ...string) (*Store, context.Contex
 		if err = q.UpdateAutomationEvent(ctx, sqlgen.UpdateAutomationEventParams{ID: r.ID, Status: "context", Reason: "task_result_reviewed"}); err != nil {
 			return err
 		}
-		return queueAutomationTaskNotice(ctx, q, task, "task_finished", task.Summary)
+		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -197,8 +213,19 @@ func TestWorkActionUnknownRequiresAttentionAndReadOnlyRecovery(t *testing.T) {
 		t.Fatal("reconciliation dispatched or overrode wait", current, err)
 	}
 	assertScalar(t, s, "SELECT count(*) FROM work_action_receipts", 2)
-	assertScalar(t, s, "SELECT count(*) FROM automation_events WHERE kind='action.result' AND status='pending'", 1)
-	assertScalar(t, s, "SELECT count(*) FROM automation_events WHERE kind='action.result' AND status='context'", 1)
+	assertScalar(t, s, "SELECT count(*) FROM automation_events WHERE kind='action.result' AND status='pending'", 0)
+	assertScalar(t, s, "SELECT count(*) FROM automation_events WHERE kind='action.result' AND status='context'", 2)
+	// The accepted completion is waiting for the other configured destination;
+	// reconciling this receipt must not ask a model to approve the same result.
+	remaining, err := s.ClaimAutomationDelivery(ctx)
+	if err != nil || remaining == nil || remaining.Reconcile {
+		t.Fatal(remaining, err)
+	}
+	completeTestWorkAction(t, s, remaining, "sent", 304)
+	current, err = s.GetWorkItem(actor, w.ID)
+	if err != nil || current.Status != "completed" || current.Usage.Actions != 2 {
+		t.Fatal("confirmed effects did not settle the accepted completion", current, err)
+	}
 }
 
 func TestWorkActionLateReceiptPreservesHumanJudgmentAndTerminalState(t *testing.T) {

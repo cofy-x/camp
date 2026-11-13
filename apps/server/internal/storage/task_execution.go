@@ -70,12 +70,15 @@ func validateTaskAttempt(ctx context.Context, q *sqlgen.Queries, r Run, a Attemp
 	// Unsent commands and acceptance must still match the Runner capability.
 	// An executing/uploading result can finish cleanup and persistence after a
 	// downgrade; it cannot obtain another model/history read authorization.
-	if r.TaskInputProtocol != 0 && (!allowCancelled || a.Phase == "dispatching") {
+	if (r.TaskInputProtocol != 0 || t.WorkItemCompletionAuthorized) && (!allowCancelled || a.Phase == "dispatching") {
 		runner, err := q.GetRunner(ctx, r.RunnerID)
 		if err != nil {
 			return err
 		}
 		if err = taskInputRunnerCompatible(runner.Capabilities, r.TaskInputProtocol); err != nil {
+			return err
+		}
+		if err = workCompletionRunnerCompatible(runner.Capabilities, t.WorkItemCompletionAuthorized); err != nil {
 			return err
 		}
 	}
@@ -163,6 +166,7 @@ func finishTaskRound(ctx context.Context, q *sqlgen.Queries, r Run) error {
 			} else {
 				t.Status = "publishing"
 				t.PublicationRunID = r.ID
+				t.WorkItemCompletion = r.Intent.WorkItemCompletion
 			}
 		}
 		if e != nil {
@@ -288,10 +292,15 @@ func (s *Store) ReconcileTask(ctx context.Context, id string) error {
 		t.Status = "completed"
 		t.PublishedCommit = t.CheckpointCommit
 		t.Error = ""
+		// Admit authorized final deliveries before the parent checks whether all
+		// effects are confirmed. The notice and accepted result commit together.
+		if e = taskNotice(ctx, q, t, "task_finished", "Collaboration completed. "+t.Summary); e != nil {
+			return e
+		}
 		if e = saveTask(ctx, q, &t); e != nil {
 			return e
 		}
-		return taskNotice(ctx, q, t, "task_finished", "Collaboration completed. "+t.Summary)
+		return nil
 	})
 }
 
