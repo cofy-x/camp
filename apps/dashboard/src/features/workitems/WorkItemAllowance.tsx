@@ -153,9 +153,11 @@ export function WorkItemAllowance({
           <p>
             Used and reserved allowance stays charged. Saving starts no work.
           </p>
-          <Button primary type="submit" disabled={disabled || stale}>
-            Save allowance
-          </Button>
+          <div className="app-actions">
+            <Button primary type="submit" disabled={disabled || stale}>
+              Save allowance
+            </Button>
+          </div>
         </form>
       </section>
     </>

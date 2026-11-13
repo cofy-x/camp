@@ -220,7 +220,7 @@ Detail previews contain at most 20 evidence/decision/task/timer/action records; 
 
 ## Work item history
 
-`timeline` is a recent-first display projection over the same immutable decisions, with task-result summaries from their saved task. It uses the same actor/item/kind-bound frozen cursor, 20-record and 320 KiB limits as raw history. Earlier pages exclude later arrivals; a new first-page read resumes current observations. The original decisions and evidence remain independently readable.
+`timeline` is a recent-first display projection over the same immutable decisions, with task-result summaries from their saved task and delivery outcomes from their immutable receipt facts. Technical identities remain in the original records. It uses the same actor/item/kind-bound frozen cursor, 20-record and 320 KiB limits as raw history. Earlier pages exclude later arrivals; a new first-page read resumes current observations. The original decisions and evidence remain independently readable.
 
 GET `/api/work-items/:id/history/:kind?cursor=...&limit=20` reads `timeline` or retained `evidence`, `decisions`, `tasks`, `timers` or `actions` beyond the bounded Work Item detail preview. It requires an enabled team member and returns `{items,nextCursor}`. Items retain each kind's complete record shape; evidence contains the original source event ID, and source originals remain available through their owning event endpoint. Reads admit no work and make no model request.
 

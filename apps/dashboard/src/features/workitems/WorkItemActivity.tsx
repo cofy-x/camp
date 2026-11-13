@@ -8,6 +8,7 @@ const labels: Record<string, string> = {
   result: 'Result saved',
   complete: 'Completed',
   completion_pending: 'Waiting for delivery',
+  completion: 'Completion settings changed',
   answer: 'Answer received',
   answer_continue: 'Work continued',
   wait: 'Waiting',

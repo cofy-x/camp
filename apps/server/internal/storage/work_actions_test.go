@@ -136,6 +136,30 @@ func TestWorkActionResultsFreezeReceiptsAndReassessBeforeCompletion(t *testing.T
 	completeTestWorkAction(t, s, second, "sent", 302)
 	assertScalar(t, s, "SELECT count(*) FROM work_action_receipts", 2)
 	assertScalar(t, s, "SELECT count(*) FROM automation_events WHERE kind='action.result'", 2)
+	timeline, err := s.WorkItemHistory(actor, w.ID, "timeline", "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcomes := 0
+	for _, raw := range timeline.Items {
+		var entry struct {
+			Kind    string
+			Content string
+		}
+		if err := json.Unmarshal(raw, &entry); err != nil {
+			t.Fatal(err)
+		}
+		if entry.Kind == "action_result" {
+			outcomes++
+			if entry.Content != "Delivery sent." {
+				t.Fatal("display lost the immutable receipt outcome", entry)
+			}
+		}
+	}
+	if outcomes != 2 {
+		t.Fatal("timeline lost delivery outcomes", outcomes)
+	}
+
 	c := claimAutomation(t, s)
 	if len(c.Events) != 2 || len(c.WorkItems) != 1 || len(c.WorkItems[0].Actions) != 2 {
 		t.Fatal("missing Action outcome context", c)
