@@ -2190,6 +2190,8 @@ test('Activity retains its accepted page, local retry and private answer through
     release = resolve;
   });
   let failed = true;
+  let newerProgress = false;
+  const requestedCursors: string[] = [];
   const entry = (seq: number, content: string) => ({
     id: `progress-${seq}`,
     seq,
@@ -2201,7 +2203,9 @@ test('Activity retains its accepted page, local retry and private answer through
   await page.route(
     `**/api/work-items/${value.item.id}/history/timeline?*`,
     async (route) => {
-      const cursor = new URL(route.request().url()).searchParams.get('cursor');
+      const cursor =
+        new URL(route.request().url()).searchParams.get('cursor') ?? '';
+      requestedCursors.push(cursor);
       if (cursor === 'earlier') {
         if (failed)
           return route.fulfill({
@@ -2212,6 +2216,7 @@ test('Activity retains its accepted page, local retry and private answer through
         return route.fulfill({
           json: {
             items: [entry(1, 'Earlier progress retained')],
+            cursor: 'earlier',
             nextCursor: '',
           },
         });
@@ -2219,9 +2224,15 @@ test('Activity retains its accepted page, local retry and private answer through
       return route.fulfill({
         json: {
           items: [
-            entry(3, 'The document was saved'),
+            entry(
+              3,
+              !cursor && newerProgress
+                ? 'A new customer reply arrived'
+                : 'The document was saved',
+            ),
             entry(2, 'Waiting for the customer'),
           ],
+          cursor: cursor || 'original-first',
           nextCursor: 'earlier',
         },
       });
@@ -2257,8 +2268,14 @@ test('Activity retains its accepted page, local retry and private answer through
   await expect(activity).toContainText('Earlier progress retained');
   await expect(activity.getByRole('alert')).toHaveCount(0);
   await expect(activity.locator('[data-history-record]').first()).toBeFocused();
-  await activity.getByRole('button', { name: 'Latest', exact: true }).click();
+  newerProgress = true;
+  await activity.getByRole('button', { name: 'Newer', exact: true }).click();
   await expect(activity).toContainText('The document was saved');
+  expect(requestedCursors.at(-1)).toBe('original-first');
+  await activity.getByRole('button', { name: 'Earlier', exact: true }).click();
+  await expect(activity).toContainText('Earlier progress retained');
+  await activity.getByRole('button', { name: 'Latest', exact: true }).click();
+  await expect(activity).toContainText('A new customer reply arrived');
   await detail(page)
     .getByRole('button', { name: 'Back to item', exact: true })
     .click();

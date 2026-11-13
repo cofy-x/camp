@@ -17,6 +17,7 @@ const workHistoryPageBytes = 320 << 10
 // page's identity frontier; mutable delivery/task/timer status stays current.
 type WorkHistoryPage struct {
 	Items      []json.RawMessage `json:"items"`
+	Cursor     string            `json:"cursor"`
 	NextCursor string            `json:"nextCursor"`
 }
 
@@ -52,7 +53,7 @@ func decodeWorkHistoryCursor(raw, id, kind string) (workHistoryCursor, error) {
 	decoder := json.NewDecoder(bytes.NewReader(decoded))
 	decoder.DisallowUnknownFields()
 	var extra any
-	if decoder.Decode(&out) != nil || decoder.Decode(&extra) != io.EOF || out.Version != 1 || out.WorkID != id || out.Kind != kind || out.After <= 0 || out.Through < out.After {
+	if decoder.Decode(&out) != nil || decoder.Decode(&extra) != io.EOF || out.Version != 1 || out.WorkID != id || out.Kind != kind || out.After < 0 || out.Through < out.After {
 		return invalid()
 	}
 	return out, nil
@@ -98,6 +99,7 @@ func (s *Store) WorkItemHistory(ctx context.Context, id, kind, cursor string, li
 		if page.Through > frontier {
 			return problem("invalid_page", "The history cursor exceeds its retained frontier.")
 		}
+		out.Cursor = encodeWorkHistoryCursor(page)
 		rows, err := workHistoryRows(ctx, q, id, kind, page.After, page.Through, int64(limit+1))
 		if err != nil {
 			return err

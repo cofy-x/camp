@@ -174,6 +174,16 @@ func TestWorkTimelineRetainsRecentFirstPagesAndOriginals(t *testing.T) {
 		t.Fatal("byte bound did not retain a navigable page", first, err)
 	}
 	appendProgress("New progress after the retained frontier")
+	retained, err := s.WorkItemHistory(member, w.ID, "timeline", first.Cursor, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := json.Marshal(first.Items)
+	after, _ := json.Marshal(retained.Items)
+	if string(before) != string(after) {
+		t.Fatal("returning to the first page replaced its retained frontier")
+	}
+
 	cursor, items := first.NextCursor, append([]json.RawMessage{}, first.Items...)
 	for cursor != "" {
 		page, err := s.WorkItemHistory(member, w.ID, "timeline", cursor, 20)

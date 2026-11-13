@@ -21,6 +21,7 @@ type Histories = Pick<
 
 type Kind = keyof Histories;
 type Position = { cursor: string; previous: string[] };
+type Page<T> = { items: T; cursor?: string; nextCursor: string };
 
 export function WorkItemHistory<K extends Kind>({
   itemId,
@@ -57,11 +58,10 @@ export function WorkItemHistory<K extends Kind>({
       `/work-items/${encodeURIComponent(itemId)}/history/${kind}?${new URLSearchParams({ cursor, limit: '20' })}`,
     [itemId, kind],
   );
-  const read = useRead<{ items: Histories[K]; nextCursor: string }>(
-    query(position.cursor),
-    { enabled: active },
-  );
-  const pending = useRead<{ items: Histories[K]; nextCursor: string }>(
+  const read = useRead<Page<Histories[K]>>(query(position.cursor), {
+    enabled: active,
+  });
+  const pending = useRead<Page<Histories[K]>>(
     navigation ? query(navigation.cursor) : null,
     { enabled: active },
   );
@@ -187,7 +187,10 @@ export function WorkItemHistory<K extends Kind>({
               navigate(
                 {
                   cursor: page!.nextCursor,
-                  previous: [...position.previous, position.cursor],
+                  previous: [
+                    ...position.previous,
+                    page?.cursor ?? position.cursor,
+                  ],
                 },
                 event.currentTarget,
               )
