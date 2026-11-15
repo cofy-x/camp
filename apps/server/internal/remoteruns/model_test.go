@@ -70,7 +70,7 @@ func proxyFixture(t *testing.T, upstream string, reasoning ...string) (*Manager,
 	if len(reasoning) > 0 {
 		effort = reasoning[0]
 	}
-	manager, err := New(ctx, store, Config{DataDir: dir, Models: configuration.ModelInput{BaseURL: upstream, APIKey: "private-upstream-key", Model: "test-model", ReasoningEffort: effort}}, nil)
+	manager, err := New(ctx, store, Config{DataDir: dir, Models: configuration.ModelInput{BaseURL: upstream, APIKey: "private-upstream-key", Model: "test-model", ReasoningEffort: effort, MaxTokens: 4096}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
