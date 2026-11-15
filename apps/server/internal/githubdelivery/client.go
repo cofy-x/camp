@@ -24,7 +24,7 @@ type Credentials interface {
 	Read(string) (configuration.GitHubCredential, error)
 }
 type Files interface {
-	Changes(context.Context, string, string, string) ([]resources.Change, error)
+	Changes(context.Context, string, string, string, []string) ([]resources.Change, error)
 }
 type Client struct {
 	credentials Credentials
@@ -146,12 +146,10 @@ func (c *Client) call(ctx context.Context, token, method, path string, body, out
 	}
 	return nil
 }
-func missing(err error) bool                       { var e protocolError; return errors.As(err, &e) && e.status == 404 }
-func uncertain(err error) bool                     { var e protocolError; return errors.As(err, &e) && e.uncertain }
-func marker(d orchestration.GitHubDelivery) string { return "<!-- camp-delivery:" + d.ID + " -->" }
-func sourceBody(d orchestration.GitHubDelivery) string {
-	return "Produced by Camp from an accepted, published Work result.\n\nWork: `" + d.WorkItemID + "`\nSource version: `" + d.ResultCommit + "`\n\n" + marker(d)
-}
+func missing(err error) bool                           { var e protocolError; return errors.As(err, &e) && e.status == 404 }
+func uncertain(err error) bool                         { var e protocolError; return errors.As(err, &e) && e.uncertain }
+func marker(d orchestration.GitHubDelivery) string     { return "<!-- camp-delivery:" + d.ID + " -->" }
+func sourceBody(d orchestration.GitHubDelivery) string { return d.PullRequestBody() }
 func visibleStage(stage string) bool {
 	return stage == "branch" || stage == "pull_request" || stage == "merge" || stage == "release"
 }
@@ -212,6 +210,9 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 	var effectErr error
 	switch d.Stage {
 	case "prepare":
+		if d.SourceSelection != "gitignore-v1" {
+			return fail("Review and authorize the source selection before preparing this delivery.")
+		}
 		head, parent, e := c.prepare(ctx, token, base, d)
 		if e != nil {
 			return fail("The accepted patch could not be prepared: " + e.Error())

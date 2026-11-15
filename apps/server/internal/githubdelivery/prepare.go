@@ -12,10 +12,6 @@ import (
 )
 
 func (c *Client) prepare(ctx context.Context, token, base string, d orchestration.GitHubDelivery) (head, parent string, err error) {
-	changes, err := c.files.Changes(ctx, d.ResourceID, d.BaselineCommit, d.ResultCommit)
-	if err != nil {
-		return "", "", err
-	}
 	var ref struct {
 		Object struct {
 			SHA string `json:"sha"`
@@ -53,6 +49,14 @@ func (c *Client) prepare(ctx context.Context, token, base string, d orchestratio
 	for _, entry := range tree.Entries {
 		remote[entry.Path] = entry.SHA
 		modes[entry.Path] = entry.Mode
+	}
+	trackedPaths := make([]string, 0, len(remote))
+	for name := range remote {
+		trackedPaths = append(trackedPaths, name)
+	}
+	changes, err := c.files.Changes(ctx, d.ResourceID, d.BaselineCommit, d.ResultCommit, trackedPaths)
+	if err != nil {
+		return "", "", err
 	}
 	entries := []map[string]any{}
 	for _, change := range changes {

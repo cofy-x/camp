@@ -114,7 +114,7 @@ func authorizeGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestr
 	if e != nil {
 		return e
 	}
-	d := orchestration.GitHubDelivery{ID: newID(), WorkItemID: w.ID, RoomID: w.RoomID, Repository: connection.Repository, RepositoryID: connection.RepositoryID, Private: connection.Private, ActorID: connection.ActorID, CIWorkflowID: connection.CIWorkflowID, DeploymentWorkflowID: connection.DeploymentWorkflowID, Spec: *spec, Stage: "result", Status: "waiting_result", Revision: 1, ResourceID: room.ResourceID, BaselineCommit: resource.CurrentCommit, Title: truncateUTF8(strings.Split(w.Goal, "\n")[0], 180), CreatedAt: now()}
+	d := orchestration.GitHubDelivery{SourceSelection: "gitignore-v1", ID: newID(), WorkItemID: w.ID, RoomID: w.RoomID, Repository: connection.Repository, RepositoryID: connection.RepositoryID, Private: connection.Private, ActorID: connection.ActorID, CIWorkflowID: connection.CIWorkflowID, DeploymentWorkflowID: connection.DeploymentWorkflowID, Spec: *spec, Stage: "result", Status: "waiting_result", Revision: 1, ResourceID: room.ResourceID, BaselineCommit: resource.CurrentCommit, Title: truncateUTF8(strings.Split(w.Goal, "\n")[0], 180), CreatedAt: now()}
 	d.Branch = "camp/work-" + d.ID
 	raw, _ := json.Marshal(d)
 	if e = q.InsertGitHubPublication(ctx, sqlgen.InsertGitHubPublicationParams{ID: d.ID, WorkItemID: w.ID, ConnectionID: connection.ID, Status: d.Status, Value: string(raw)}); e != nil {

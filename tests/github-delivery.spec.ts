@@ -252,6 +252,17 @@ test('Work presents one delivery destination and checking an unknown receipt doe
         releaseUrl: 'https://github.com/example/notes/releases/tag/v0.1.1',
       };
       value.status = 'completed';
+      value.result = {
+        taskId: 'feature-task',
+        resourceId: room.resourceId,
+        commit: 'd'.repeat(40),
+        published: true,
+        files: [
+          { path: 'src/export.mjs', status: 'modified' },
+          { path: 'README.md', status: 'modified' },
+        ],
+        summary: 'The feature was implemented and reviewed.',
+      };
       return route.fulfill({ json: { item: value } });
     },
   );
@@ -286,6 +297,16 @@ test('Work presents one delivery destination and checking an unknown receipt doe
     status.getByRole('button', { name: 'Check delivery' }),
   ).toHaveCount(0);
   expect(checks).toBe(1);
+  const source = work(page).getByRole('region', {
+    name: 'Work result',
+    exact: true,
+  });
+  await expect(
+    source.getByRole('button', { name: 'src/export.mjs', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    source.getByRole('button', { name: 'Source files…', exact: true }),
+  ).toBeVisible();
   await openWorkAction(page, 'Refresh');
   await page.setViewportSize({ width: 390, height: 844 });
   expect(

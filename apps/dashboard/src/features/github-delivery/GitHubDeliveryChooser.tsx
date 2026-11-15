@@ -142,7 +142,7 @@ export function GitHubDeliveryChooser({
               }
             />
           )}
-          <p>Workflow changes are excluded.</p>
+          <p>Project ignore rules apply. Workflow changes are excluded.</p>
         </>
       )}
     </div>

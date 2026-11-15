@@ -41,6 +41,7 @@ type GitHubDeliverySpec struct {
 // GitHubDelivery is bounded current state; full originals stay in immutable
 // resource versions and append-only delivery receipts.
 type GitHubDelivery struct {
+	SourceSelection      string             `json:"sourceSelection"`
 	Private              bool               `json:"private"`
 	ID                   string             `json:"id"`
 	WorkItemID           string             `json:"workItemId"`
@@ -80,4 +81,10 @@ type GitHubDeliveryResult struct {
 	// cancellation or a newer Work decision prevents further progression.
 	Effect  string
 	Outcome string
+}
+
+// PullRequestBody is the frozen protocol envelope shared by outbound delivery
+// and authenticated ingress echo detection, never an execution authorization.
+func (d GitHubDelivery) PullRequestBody() string {
+	return "Produced by Camp from an accepted, published Work result.\n\nWork: `" + d.WorkItemID + "`\nSource version: `" + d.ResultCommit + "`\n\n<!-- camp-delivery:" + d.ID + " -->"
 }

@@ -120,6 +120,16 @@ func recordAutomationGitHubEvent(ctx context.Context, tx *sql.Tx, e GitHubEvent)
 	if e.ActorKind == "User" {
 		v.ActorKind = "user"
 	}
+	if e.Kind == "pull_request" {
+		own, err := automationOwnGitHubPublication(ctx, sqlgen.New(tx), e)
+		if err != nil {
+			return err
+		}
+		if own {
+			v.Reason = "own_output"
+			return recordAutomationSourceEvent(ctx, tx, v, false)
+		}
+	}
 	if e.Kind == "issue_comment" {
 		own, err := automationOwnGitHubOutput(ctx, sqlgen.New(tx), e)
 		if err != nil {
@@ -197,4 +207,36 @@ func markAutomationManualDecision(ctx context.Context, q *sqlgen.Queries, eventI
 	e.TaskID = taskID
 	e.Reason = "manual_decision"
 	return updateAutomationEvent(ctx, q, e)
+}
+
+var githubPublicationMarker = regexp.MustCompile(`<!-- camp-delivery:([a-f0-9]{32}) -->$`)
+
+// Only actions the publication worker itself performs are echoes. New comments,
+// edits, changed heads and another actor remain normal independent evidence.
+func automationOwnGitHubPublication(ctx context.Context, q *sqlgen.Queries, event GitHubEvent) (bool, error) {
+	if event.Action != "opened" && (event.Action != "closed" || !event.Merged) {
+		return false, nil
+	}
+	marker := githubPublicationMarker.FindStringSubmatch(event.Body)
+	if marker == nil {
+		return false, nil
+	}
+	row, e := q.GitHubDeliveryByID(ctx, marker[1])
+	if errors.Is(e, sql.ErrNoRows) {
+		return false, nil
+	}
+	if e != nil {
+		return false, e
+	}
+	d, e := githubDeliveryValue(row)
+	if e != nil {
+		return false, e
+	}
+	if event.ActorID != d.ActorID || event.RepositoryID != d.RepositoryID || event.HeadRepositoryID != d.RepositoryID || event.HeadSHA != d.HeadSHA || event.HeadRef != d.Branch || event.BaseRef != d.Spec.BaseBranch || event.Body != d.PullRequestBody() || event.Title != d.Title || d.HeadSHA == "" {
+		return false, nil
+	}
+	if event.Action == "opened" {
+		return true, nil
+	}
+	return d.PullRequest == event.Number && ((d.MergeSHA != "" && d.MergeSHA == event.MergeSHA) || (d.Stage == "merge" && d.Status == "working")), nil
 }

@@ -23,20 +23,26 @@ var RepositoryPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za
 var DeliveryPattern = regexp.MustCompile(`^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`)
 
 type Observation struct {
-	Kind         string `json:"kind"`
-	Action       string `json:"action"`
-	Repository   string `json:"repository"`
-	RepositoryID int64  `json:"repositoryId"`
-	ObjectID     int64  `json:"objectId,omitempty"`
-	Number       int64  `json:"number,omitempty"`
-	ActorID      int64  `json:"actorId,omitempty"`
-	ActorLogin   string `json:"actorLogin,omitempty"`
-	ActorKind    string `json:"actorKind,omitempty"`
-	Title        string `json:"title,omitempty"`
-	Body         string `json:"body,omitempty"`
-	URL          string `json:"url,omitempty"`
-	OccurredAt   string `json:"occurredAt,omitempty"`
-	IgnoreReason string `json:"ignoreReason,omitempty"`
+	HeadSHA          string `json:"headSha,omitempty"`
+	HeadRef          string `json:"headRef,omitempty"`
+	HeadRepositoryID int64  `json:"headRepositoryId,omitempty"`
+	BaseRef          string `json:"baseRef,omitempty"`
+	Merged           bool   `json:"merged,omitempty"`
+	MergeSHA         string `json:"mergeSha,omitempty"`
+	Kind             string `json:"kind"`
+	Action           string `json:"action"`
+	Repository       string `json:"repository"`
+	RepositoryID     int64  `json:"repositoryId"`
+	ObjectID         int64  `json:"objectId,omitempty"`
+	Number           int64  `json:"number,omitempty"`
+	ActorID          int64  `json:"actorId,omitempty"`
+	ActorLogin       string `json:"actorLogin,omitempty"`
+	ActorKind        string `json:"actorKind,omitempty"`
+	Title            string `json:"title,omitempty"`
+	Body             string `json:"body,omitempty"`
+	URL              string `json:"url,omitempty"`
+	OccurredAt       string `json:"occurredAt,omitempty"`
+	IgnoreReason     string `json:"ignoreReason,omitempty"`
 }
 
 func Verify(secret string, body []byte, signature string) bool {
@@ -60,6 +66,18 @@ func PayloadFingerprint(body []byte) string {
 }
 
 type subject struct {
+	Head struct {
+		SHA  string `json:"sha"`
+		Ref  string `json:"ref"`
+		Repo struct {
+			ID int64 `json:"id"`
+		} `json:"repo"`
+	} `json:"head"`
+	Base struct {
+		Ref string `json:"ref"`
+	} `json:"base"`
+	Merged    bool      `json:"merged"`
+	MergeSHA  string    `json:"merge_commit_sha"`
 	ID        int64     `json:"id"`
 	Number    int64     `json:"number"`
 	Title     string    `json:"title"`
@@ -124,6 +142,13 @@ func parseObservation(repository, kind string, body []byte, unbound bool) (Obser
 		supported = contains(p.Action, "opened", "reopened", "edited")
 	case "pull_request":
 		s, path = p.Pull, "pull"
+		if len(s.Head.SHA) == 40 && len(s.Head.Ref) <= 1024 && len(s.Base.Ref) <= 1024 {
+			o.HeadSHA, o.HeadRef, o.HeadRepositoryID, o.BaseRef = s.Head.SHA, s.Head.Ref, s.Head.Repo.ID, s.Base.Ref
+		}
+		o.Merged = s.Merged
+		if len(s.MergeSHA) == 40 {
+			o.MergeSHA = s.MergeSHA
+		}
 		supported = contains(p.Action, "opened", "reopened", "edited", "synchronize", "ready_for_review", "closed")
 	case "issue_comment":
 		s = p.Comment

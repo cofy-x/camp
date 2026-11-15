@@ -19,7 +19,7 @@ type Change struct {
 
 // Changes compares Git trees first, then reads changed blobs in one bounded
 // batch. Unchanged repository files and executable bits remain authoritative.
-func (m *Manager) Changes(ctx context.Context, id, base, result string) (out []Change, err error) {
+func (m *Manager) Changes(ctx context.Context, id, base, result string, trackedPaths []string) (out []Change, err error) {
 	repository, err := m.repository(id)
 	if err != nil {
 		return nil, err
@@ -44,6 +44,37 @@ func (m *Manager) Changes(ctx context.Context, id, base, result string) (out []C
 		if !ok || old != entry {
 			changed[name] = entry
 		}
+	}
+	// Publish source under the accepted project's ignore rules. Existing target
+	// files stay tracked even if an ignore rule now matches their name.
+	tracked := map[string]bool{}
+	for _, name := range trackedPaths {
+		tracked[name] = true
+	}
+	candidates := []string{}
+	for _, entry := range out {
+		if !tracked[entry.Path] {
+			candidates = append(candidates, entry.Path)
+		}
+	}
+	for name := range changed {
+		if !tracked[name] {
+			candidates = append(candidates, name)
+		}
+	}
+	ignored, err := ignoredDeliveryPaths(ctx, repository, after, candidates)
+	if err != nil {
+		return nil, err
+	}
+	kept := out[:0]
+	for _, entry := range out {
+		if !ignored[entry.Path] {
+			kept = append(kept, entry)
+		}
+	}
+	out = kept
+	for name := range ignored {
+		delete(changed, name)
 	}
 	if len(out)+len(changed) == 0 {
 		return nil, errors.New("The accepted result has no source changes to deliver")

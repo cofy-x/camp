@@ -186,6 +186,29 @@ export function WorkItemDetail({
       if (item?.questionKind === 'completion')
         items.push({ label: 'Reply…', action: () => manage('reply') });
     }
+    const delivery = item?.githubDelivery;
+    if (
+      delivery?.pullRequestUrl &&
+      (delivery.releaseUrl || delivery.deploymentUrl) &&
+      delivery.pullRequestUrl.startsWith('https://')
+    )
+      items.push({
+        label: 'Open pull request',
+        action: () => {
+          window.open(delivery.pullRequestUrl, '_blank', 'noopener,noreferrer');
+        },
+      });
+    if (
+      delivery?.releaseUrl &&
+      delivery.deploymentUrl &&
+      delivery.releaseUrl.startsWith('https://')
+    )
+      items.push({
+        label: 'Open release',
+        action: () => {
+          window.open(delivery.releaseUrl, '_blank', 'noopener,noreferrer');
+        },
+      });
     items.push({ label: 'Records…', action: () => setView('records') });
     if (onOpenRoom) items.push({ label: 'Open Room', action: onOpenRoom });
     items.push({

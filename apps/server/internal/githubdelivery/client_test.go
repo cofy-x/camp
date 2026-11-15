@@ -23,7 +23,7 @@ func (fixtureCredential) Read(string) (configuration.GitHubCredential, error) {
 
 type fixtureFiles struct{}
 
-func (fixtureFiles) Changes(context.Context, string, string, string) ([]resources.Change, error) {
+func (fixtureFiles) Changes(context.Context, string, string, string, []string) ([]resources.Change, error) {
 	return []resources.Change{{Path: "notes.md", OldSHA: strings.Repeat("a", 40), OldMode: "100644", SHA: strings.Repeat("b", 40), Content: []byte("Checked note"), Mode: "100644"}}, nil
 }
 
@@ -42,7 +42,7 @@ type protocolFixture struct {
 
 func newProtocol(t *testing.T) *protocolFixture {
 	t.Helper()
-	f := &protocolFixture{writes: map[string]int{}, ci: "success", repositoryID: 10, delivery: orchestration.GitHubDelivery{ID: "delivery-one", WorkItemID: "work-one", Repository: "acme/notes", RepositoryID: 10, ActorID: 7, CIWorkflowID: 11, Spec: orchestration.GitHubDeliverySpec{BaseBranch: "main", Mode: "release", Tag: "v0.1.1"}, Stage: "prepare", Branch: "camp/work-one", ResourceID: "files", BaselineCommit: strings.Repeat("c", 40), ResultCommit: strings.Repeat("d", 40), Title: "Improve notes", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
+	f := &protocolFixture{writes: map[string]int{}, ci: "success", repositoryID: 10, delivery: orchestration.GitHubDelivery{ID: "delivery-one", SourceSelection: "gitignore-v1", WorkItemID: "work-one", Repository: "acme/notes", RepositoryID: 10, ActorID: 7, CIWorkflowID: 11, Spec: orchestration.GitHubDeliverySpec{BaseBranch: "main", Mode: "release", Tag: "v0.1.1"}, Stage: "prepare", Branch: "camp/work-one", ResourceID: "files", BaselineCommit: strings.Repeat("c", 40), ResultCommit: strings.Repeat("d", 40), Title: "Improve notes", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	server := httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(server.Close)
 	f.client = NewClient(fixtureCredential{}, fixtureFiles{})
