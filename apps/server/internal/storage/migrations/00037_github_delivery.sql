@@ -27,4 +27,3 @@ CREATE TABLE github_delivery_receipts (
 CREATE TRIGGER github_delivery_receipt_immutable_update BEFORE UPDATE ON github_delivery_receipts BEGIN SELECT RAISE(ABORT,'delivery receipts are immutable'); END;
 CREATE TRIGGER github_delivery_receipt_immutable_delete BEFORE DELETE ON github_delivery_receipts BEGIN SELECT RAISE(ABORT,'delivery receipts are immutable'); END;
 -- +goose StatementEnd
-

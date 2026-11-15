@@ -108,4 +108,3 @@ WHERE ((d.status IN ('unknown','failed','blocked') AND coalesce(json_extract(d.v
     AND coalesce(json_extract(t.snapshot,'$.question.answer'),'')=''
    )))
  );
-
