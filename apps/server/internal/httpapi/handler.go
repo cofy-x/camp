@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/cofy-x/camp/apps/server/internal/configuration"
+	"github.com/cofy-x/camp/apps/server/internal/githubdelivery"
 	"github.com/cofy-x/camp/apps/server/internal/library"
 	"github.com/cofy-x/camp/apps/server/internal/remoteruns"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 )
 
 type API struct {
+	githubPublisher    *githubdelivery.Manager
 	settings           SettingsService
 	webhookSecrets     *configuration.WebhookSecrets
 	commentCredentials *configuration.GitHubCredentials
@@ -55,6 +57,7 @@ func New(store *storage.Store, logger *slog.Logger, managers ...RoomService) *AP
 	a.memoryRoutes(mux)
 	a.taskRoutes(mux)
 	a.githubRoutes(mux)
+	a.githubDeliveryRoutes(mux)
 	a.feishuRoutes(mux)
 	a.runnerInstallationRoutes(mux)
 	a.authRoutes(mux)

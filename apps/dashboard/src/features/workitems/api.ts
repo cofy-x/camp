@@ -1,3 +1,7 @@
+import type {
+  GitHubDelivery,
+  GitHubDeliverySpec,
+} from '../github-delivery/api';
 import { request } from '../../shared/api/http';
 
 export interface WorkBudget {
@@ -9,6 +13,7 @@ export interface WorkBudget {
 }
 
 export interface WorkItem {
+  githubDelivery?: GitHubDelivery;
   seq: number;
   id: string;
   roomId: string;
@@ -99,6 +104,7 @@ export interface WorkItem {
 }
 
 export interface WorkItemInput {
+  githubDelivery?: GitHubDeliverySpec;
   completionMode?: 'automatic' | 'human';
   requestId: string;
   goal: string;
@@ -127,6 +133,7 @@ export interface WorkItemDefaults {
 }
 
 export type WorkActionName =
+  | 'retry_delivery'
   | 'completion'
   | 'start'
   | 'answer'
@@ -141,6 +148,7 @@ export type WorkActionName =
   | 'authorize';
 
 export interface WorkActionInput {
+  deliveryRevision?: number;
   completionMode?: 'automatic' | 'human';
   completionCriteria?: string;
   requestId: string;
@@ -206,6 +214,7 @@ export interface WorkItemOperation {
 
 export type WorkListItem = Pick<
   WorkItem,
+  | 'githubDelivery'
   | 'seq'
   | 'id'
   | 'roomId'

@@ -35,8 +35,23 @@ func TestAttentionMigrationPreservesExistingMattersAndUnreadNotices(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := createTestWork(t, s, owner, room)
-	w = decideTestWork(t, s, owner, w, orchestration.WorkItemOperation{Kind: "request_judgment", Question: "Keep this original question."})
+	var w orchestration.WorkItem
+	if err = s.transaction(owner, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		var e error
+		w, e = insertWorkItem(owner, q, room.ID, actorID(owner), orchestration.WorkItemInput{Goal: "Retained work"})
+		if e != nil {
+			return e
+		}
+		w.Status, w.Question = "waiting_for_person", "Keep this original question."
+		w.QuestionKind = orchestration.WorkQuestionJudgment
+		if e = workNotice(owner, q, &w, "work_item_attention", w.Question); e != nil {
+			return e
+		}
+		return saveWorkItem(owner, q, &w)
+	}); err != nil {
+		t.Fatal(err)
+	}
 	var original string
 	if err = s.db.QueryRow("SELECT value FROM work_items WHERE id=?", w.ID).Scan(&original); err != nil {
 		t.Fatal(err)

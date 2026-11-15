@@ -125,7 +125,7 @@ func (q *Queries) WorkActionSummaries(ctx context.Context, workItemID string) ([
 const workPendingActions = `-- name: WorkPendingActions :one
 SELECT CAST(count(*) AS INTEGER) FROM work_item_actions a
 LEFT JOIN automation_deliveries d ON d.id=a.delivery_id
-WHERE a.work_item_id=? AND a.delivery_id<>'' AND (
+WHERE a.work_item_id=? AND a.kind='github.comment' AND a.delivery_id<>'' AND (
  d.id IS NULL OR d.status NOT IN ('sent','withdrawn') OR (
   d.status='withdrawn'
   AND coalesce(json_array_length(d.value,'$.receipts'),0)=0

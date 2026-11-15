@@ -203,7 +203,11 @@ func candidateWorkSummary(ctx context.Context, q *sqlgen.Queries, w orchestratio
 
 func workCompletionPending(ctx context.Context, q *sqlgen.Queries, w orchestration.WorkItem) (bool, error) {
 	count, err := q.WorkPendingActions(ctx, w.ID)
-	return count > 0, err
+	if err != nil {
+		return false, err
+	}
+	deliveries, err := q.GitHubDeliveryUnsettled(ctx, w.ID)
+	return count > 0 || deliveries > 0, err
 }
 
 // Completion remains a decision about the matter, with confirmed effects as a

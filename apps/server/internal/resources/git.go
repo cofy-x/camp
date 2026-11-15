@@ -137,6 +137,10 @@ func visitCommit(ctx context.Context, repository, commit string, visit func(stri
 	if err != nil {
 		return err
 	}
+	return visitEntries(ctx, repository, entries, visit)
+}
+
+func visitEntries(ctx context.Context, repository string, entries map[string]treeEntry, visit func(string, treeEntry, []byte) error) error {
 	if len(entries) == 0 {
 		return nil
 	}

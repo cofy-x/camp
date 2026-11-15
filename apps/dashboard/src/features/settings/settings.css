@@ -391,3 +391,41 @@
     margin-top: 3px;
   }
 }
+
+.camp-repository-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+  max-width: 760px;
+}
+.camp-repository-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--p9-shadow);
+}
+.camp-repository-list li span {
+  overflow-wrap: anywhere;
+}
+
+.camp-repository-form {
+  display: grid;
+  gap: 12px;
+  max-width: 660px;
+  margin-block: 12px;
+}
+.camp-repository-form > fieldset {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.camp-repository-form .p9-field {
+  width: 100%;
+  min-width: 0;
+}

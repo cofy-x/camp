@@ -15,6 +15,9 @@ import (
 // behind their explicit detail readers.
 func populateWorkView(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem) error {
 	w.Execution, w.Result = nil, nil
+	if err := populateGitHubDelivery(ctx, q, w); err != nil {
+		return err
+	}
 	raw, err := q.WorkExecutionView(ctx, sqlgen.WorkExecutionViewParams{ActiveTaskID: w.ActiveTaskID, WorkItemID: w.ID})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err

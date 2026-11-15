@@ -82,6 +82,8 @@ func (q *Queries) InspectionResources(ctx context.Context) ([]InspectionResource
 const inspectionRevisions = `-- name: InspectionRevisions :many
 SELECT resource_id,commit_id FROM (
  SELECT id AS resource_id,current_commit AS commit_id FROM resources
+ UNION SELECT CAST(json_extract(value,'$.resourceId') AS TEXT),CAST(json_extract(value,'$.baselineCommit') AS TEXT) FROM github_publications
+ UNION SELECT CAST(json_extract(value,'$.resourceId') AS TEXT),CAST(json_extract(value,'$.resultCommit') AS TEXT) FROM github_publications
  UNION SELECT resource_id,commit_id FROM resource_publications
  UNION SELECT resource_id,previous_commit FROM resource_publications
  UNION SELECT resource_id,submitted_commit FROM reviews

@@ -1,3 +1,4 @@
+import { GitHubDeliveryStatus } from '../github-delivery/GitHubDeliveryStatus';
 import { useEffect, useState } from 'react';
 import { Button, type DesktopAPI, type MenuItem } from '@cofy-x/camp-platinum';
 import { useAccount } from '../../team/AuthContext';
@@ -108,7 +109,7 @@ export function WorkItemDetail({
       (item.execution?.question && !item.execution.question.answer),
     );
   const summary = item?.execution?.summary;
-  const displayStatus = item ? workItemStatus(item) : '';
+  const displayStatus = item ? workItemStatus(item, false) : '';
   const earlierResult = Boolean(
     item?.result &&
     item.activeTaskId &&
@@ -304,7 +305,7 @@ export function WorkItemDetail({
                     </Button>
                   </div>
                 )}
-              {!hasQuestion && item.waitCondition && (
+              {!hasQuestion && !item.githubDelivery && item.waitCondition && (
                 <p className="work-item-wait">
                   {item.waitCondition}
                   {item.timers.find((timer) => timer.status === 'pending')
@@ -318,6 +319,17 @@ export function WorkItemDetail({
                   stateKey={`work-update:${item.id}:${item.activeTaskId}`}
                 />
               )}
+              {item.githubDelivery &&
+                (item.githubDelivery.stage !== 'result' ||
+                  item.githubDelivery.status === 'blocked') && (
+                  <GitHubDeliveryStatus
+                    delivery={item.githubDelivery}
+                    operation={operation}
+                    workRevision={item.revision}
+                    workId={item.id}
+                    editable={Boolean(editable)}
+                  />
+                )}
               {(!hasQuestion || item.questionKind === 'completion') &&
                 !earlierResult && <WorkItemResult item={item} />}
               {hasQuestion && (!editable || terminal) && (

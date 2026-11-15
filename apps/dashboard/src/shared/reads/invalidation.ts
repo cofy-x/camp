@@ -47,6 +47,8 @@ export function affectedRead(path: string, event: WorkspaceEvent): boolean {
     return /^(room\.|message\.|membership\.|task\.|run\.(queued|finished)|resource\.)/.test(
       type,
     );
+  if (route === '/github-repositories')
+    return type === 'github_repository.updated';
   if (route === '/agents') return type === 'agent.updated';
   if (/^\/agents\/[^/]+\/rooms$/.test(route))
     return type === 'membership.updated' && entity === event.entityId;

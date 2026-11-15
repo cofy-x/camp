@@ -60,6 +60,7 @@ WHERE e.id=? AND (
  EXISTS(SELECT 1 FROM work_item_timers t WHERE t.event_id=e.id AND t.status='fired')
  OR EXISTS(SELECT 1 FROM work_item_tasks t WHERE t.result_event_id=e.id)
  OR EXISTS(SELECT 1 FROM work_action_receipts a WHERE a.event_id=e.id)
+ OR EXISTS(SELECT 1 FROM github_delivery_receipts a WHERE a.event_id=e.id)
  OR (e.source_id='workitem' AND e.kind='workitem.evidence' AND e.actor_kind='system' AND e.actor_id='workitem'
   AND EXISTS(
    SELECT 1 FROM work_item_evidence own

@@ -2,7 +2,12 @@ import { workStatus, type WorkItem } from './api';
 
 type PresentedWork = Pick<
   WorkItem,
-  'status' | 'activeTaskId' | 'question' | 'execution' | 'result'
+  | 'status'
+  | 'activeTaskId'
+  | 'question'
+  | 'execution'
+  | 'result'
+  | 'githubDelivery'
 >;
 
 function currentExecution(item: PresentedWork) {
@@ -24,7 +29,11 @@ export function workItemQuestion(item: PresentedWork): string | undefined {
     : item.question;
 }
 
-export function workItemStatus(item: PresentedWork) {
+export function workItemStatus(item: PresentedWork, delivery = true) {
+  if (delivery && item.githubDelivery?.reconcile)
+    return 'Delivery not confirmed';
+  if (delivery && item.githubDelivery?.status === 'blocked')
+    return 'Delivery needs attention';
   const execution = currentExecution(item);
   const executionStatus =
     execution &&

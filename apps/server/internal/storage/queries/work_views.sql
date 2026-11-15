@@ -50,6 +50,7 @@ SELECT w.* FROM work_items w
 LEFT JOIN collaboration_tasks t ON t.id=json_extract(w.value,'$.activeTaskId')
 WHERE w.room_id=sqlc.arg(room_id) AND (sqlc.arg(before_seq)=0 OR w.seq<sqlc.arg(before_seq))
 AND (sqlc.arg(state)='all' OR CASE
+ WHEN EXISTS(SELECT 1 FROM personal_attention a WHERE a.source='work_item' AND a.entity_id=w.id) THEN 'needs_attention'
  WHEN w.status IN ('completed','cancelled') THEN 'done'
  WHEN w.status='stopping' OR coalesce(json_extract(w.value,'$.stopRequested'),0)=1 THEN 'active'
  WHEN w.status IN ('open','needs_attention','waiting_for_person') OR t.status IN ('waiting_for_person','needs_attention','interrupted') THEN 'needs_attention'
