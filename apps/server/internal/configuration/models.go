@@ -75,7 +75,7 @@ type Models struct {
 var fields = []string{"apiKey", "baseUrl", "model", "reasoningEffort", "maxTokens", "maxSteps", "timeoutSeconds"}
 
 func Defaults() Model {
-	return Model{Model: "deepseek-v4-pro", BaseURL: "https://api.deepseek.com/anthropic", MaxTokens: 4096, MaxSteps: 8, TimeoutSeconds: 180}
+	return Model{Model: "deepseek-v4-pro", BaseURL: "https://api.deepseek.com/anthropic", MaxTokens: 8192, MaxSteps: 32, TimeoutSeconds: 600}
 }
 
 func Open(directory string, defaults Model, overrides Overrides) (*Models, error) {

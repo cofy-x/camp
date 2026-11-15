@@ -17,7 +17,7 @@ func TestWorkIntentHTTPDefaultsAndTypedRecordCompletion(t *testing.T) {
 	var proposal struct {
 		Defaults orchestration.WorkItemDefaults `json:"defaults"`
 	}
-	if err := json.Unmarshal(response.Body.Bytes(), &proposal); err != nil || proposal.Defaults.ExpiresAt == "" || proposal.Defaults.Execution.MaxTurns != 6 || proposal.Defaults.Execution.MaxModelRequests != 24 {
+	if err := json.Unmarshal(response.Body.Bytes(), &proposal); err != nil || proposal.Defaults.ExpiresAt == "" || proposal.Defaults.Execution.MaxTurns != 12 || proposal.Defaults.Execution.MaxModelRequests != 96 {
 		t.Fatal(response.Body.String(), err)
 	}
 	requireHTTP(t, teamRequest(t, f, f.memberCookie, "GET", defaultsPath+"?policyId=one&policyId=two", nil), 400)

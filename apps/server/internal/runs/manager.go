@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/configuration"
+	"github.com/cofy-x/camp/apps/server/internal/dsh"
 	"github.com/cofy-x/camp/apps/server/internal/layerfs"
 	"github.com/cofy-x/camp/apps/server/internal/projectenv"
 	"github.com/cofy-x/camp/apps/server/internal/resources"
@@ -230,7 +231,7 @@ func (m *Manager) checkAvailability(ctx context.Context) string {
 	var version struct {
 		Version string `json:"version"`
 	}
-	if err != nil || json.Unmarshal(manifest, &version) != nil || version.Version != "0.2.2-rc.1" {
+	if err != nil || json.Unmarshal(manifest, &version) != nil || version.Version != dsh.Version {
 		return "Run make install-dsh to install the pinned version, or set CAMP_DSH_RUNTIME."
 	}
 	probeDir, err := os.MkdirTemp(m.dir, ".probe-")

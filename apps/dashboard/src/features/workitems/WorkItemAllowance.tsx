@@ -77,7 +77,8 @@ export function WorkItemAllowance({
           </dd>
           <dt>Model requests</dt>
           <dd>
-            {item.usage.modelRequests} used · {item.usage.reservedModelRequests}{' '}
+            {item.usage.modelRequests} used ·{' '}
+            {item.usage.reservedModelRequests - item.usage.modelRequests}{' '}
             reserved / {item.budget.maxModelRequests}
           </dd>
           <dt>Assessments</dt>

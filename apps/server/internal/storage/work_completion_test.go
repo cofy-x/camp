@@ -69,7 +69,7 @@ func TestAutomaticWorkJudgmentAppliesOnlyAfterPublication(t *testing.T) {
 				}
 			}
 			result, err := s.GetWorkItem(actor, work.ID)
-			if err != nil || result.Result == nil || !result.Result.Published || result.Usage.Tasks != 1 || result.Usage.ReservedModelRequests != 24 {
+			if err != nil || result.Result == nil || !result.Result.Published || result.Usage.Tasks != 1 || result.Usage.ReservedModelRequests != result.Usage.ModelRequests {
 				t.Fatal(result, err)
 			}
 			if met {

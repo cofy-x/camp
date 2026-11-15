@@ -304,6 +304,18 @@ func (q *Queries) InsertWorkTimer(ctx context.Context, arg InsertWorkTimerParams
 	return err
 }
 
+const releaseWorkTaskReservation = `-- name: ReleaseWorkTaskReservation :execrows
+UPDATE work_item_tasks SET reservation_released=1 WHERE task_id=? AND reservation_released=0
+`
+
+func (q *Queries) ReleaseWorkTaskReservation(ctx context.Context, taskID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, releaseWorkTaskReservation, taskID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const saveWorkItem = `-- name: SaveWorkItem :execrows
 UPDATE work_items SET policy_id=?,status=?,revision=revision+1,value=?,updated_at=? WHERE id=? AND revision=?
 `
@@ -683,7 +695,7 @@ func (q *Queries) WorkItemForEvent(ctx context.Context, eventID string) ([]WorkI
 }
 
 const workItemForTask = `-- name: WorkItemForTask :one
-SELECT seq, work_item_id, task_id, result_event_id, reserved_requests, created_at FROM work_item_tasks WHERE task_id=?
+SELECT seq, work_item_id, task_id, result_event_id, reserved_requests, created_at, reservation_released FROM work_item_tasks WHERE task_id=?
 `
 
 func (q *Queries) WorkItemForTask(ctx context.Context, taskID string) (WorkItemTask, error) {
@@ -696,6 +708,7 @@ func (q *Queries) WorkItemForTask(ctx context.Context, taskID string) (WorkItemT
 		&i.ResultEventID,
 		&i.ReservedRequests,
 		&i.CreatedAt,
+		&i.ReservationReleased,
 	)
 	return i, err
 }

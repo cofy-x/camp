@@ -288,6 +288,7 @@ export const decisionLabel: Record<string, string> = {
   follow: 'Follow conversation',
   unfollow: 'Stop following conversation',
   authorize: 'Change allowance',
+  allowance_released: 'Release unused allowance',
 };
 
 export interface WorkActivity {

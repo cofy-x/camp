@@ -2,6 +2,8 @@
 
 This independent pnpm workspace pins DSH and its public provider packages in [package.json](package.json) and the [frozen lockfile](pnpm-lock.yaml). The shared harness checkout is read-only reference material, not the production runtime. Use the [repository toolchain](../../CONTRIBUTING.md#development).
 
+The current runtime uses the published `0.2.2-rc.3` packages after review of upstream release `dsh-v0.2.2-rc.3` and master revision `39163dd30f703a79079e2d2446545cff3c453738`. The upgrade includes Messages thinking-prefix compatibility and session cleanup fixes. Camp continues to disable automatic model retries, persistent shells and background jobs; upstream named-Agent teams and desktop plugins do not replace Camp's collaboration or authorization owners. Runtime fingerprints prevent resuming an incompatible earlier native session while retaining its files and original receipts.
+
 From the Camp root:
 
 ```sh

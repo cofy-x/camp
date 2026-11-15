@@ -1,8 +1,12 @@
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import process from 'node:process';
 import { fileURLToPath, URL } from 'node:url';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
+const pin = JSON.parse(
+  readFileSync(new URL('package.json', import.meta.url), 'utf8'),
+).dependencies['@deepseek-ai/dsh'];
 
 if (process.version !== 'v24.16.0') {
   throw new Error(
@@ -29,9 +33,9 @@ const version = spawnSync(
   },
 );
 if (version.error) throw version.error;
-if (version.status !== 0 || version.stdout.trim() !== '0.2.2-rc.1') {
+if (version.status !== 0 || version.stdout.trim() !== pin) {
   throw new Error(
-    'Installed DSH runtime did not report the pinned version 0.2.2-rc.1',
+    `Installed DSH runtime did not report the pinned version ${pin}`,
   );
 }
-process.stdout.write('Camp DSH runtime 0.2.2-rc.1 is ready.\n');
+process.stdout.write(`Camp DSH runtime ${pin} is ready.\n`);

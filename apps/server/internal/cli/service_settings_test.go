@@ -59,7 +59,7 @@ func TestDSHConfigDefaultsAndEnvironmentAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.APIKey != "" || config.Model != "deepseek-v4-pro" || config.BaseURL != "https://api.deepseek.com/anthropic" || config.MaxTokens != 4096 || config.MaxSteps != 8 || config.Timeout != 180*time.Second {
+	if config.APIKey != "" || config.Model != "deepseek-v4-pro" || config.BaseURL != "https://api.deepseek.com/anthropic" || config.MaxTokens != 8192 || config.MaxSteps != 32 || config.Timeout != 600*time.Second {
 		t.Fatal("DSH defaults do not match the documented configuration")
 	}
 	delete(accessed, "CAMP_ENV_FILE")

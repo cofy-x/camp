@@ -10,6 +10,32 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
+func TestNewModelDefaultsRetainExplicitLimitsAndFrozenRevisions(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "settings")
+	previous := Defaults()
+	previous.MaxTokens, previous.MaxSteps, previous.TimeoutSeconds = 4096, 8, 180
+	models, err := Open(directory, previous, Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frozen, original := models.Snapshot()
+	models, err = Open(directory, Defaults(), Overrides{})
+	if err != nil || models.View().MaxTokens != 8192 || models.View().MaxSteps != 32 || models.View().TimeoutSeconds != 600 {
+		t.Fatal("new configuration did not receive the current defaults", err)
+	}
+	retained, err := models.Resolve(frozen)
+	if err != nil || retained != original {
+		t.Fatal("default upgrade changed a frozen model revision", err)
+	}
+	if _, err = models.Update(Update{MaxTokens: ptr(2048), MaxSteps: ptr(4), TimeoutSeconds: ptr(90)}); err != nil {
+		t.Fatal(err)
+	}
+	models, err = Open(directory, Defaults(), Overrides{})
+	if err != nil || models.View().MaxTokens != 2048 || models.View().MaxSteps != 4 || models.View().TimeoutSeconds != 90 {
+		t.Fatal("explicitly managed limits were replaced by defaults", err)
+	}
+}
+
 func TestReasoningSettingsRetainFrozenVersionsAndProviderDefault(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "settings")
 	models, err := Open(directory, Defaults(), Overrides{})

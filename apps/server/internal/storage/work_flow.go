@@ -140,6 +140,11 @@ func syncWorkItemTask(ctx context.Context, q *sqlgen.Queries, t CollaborationTas
 	if e != nil {
 		return e
 	}
+	if link.ReservationReleased == 0 {
+		if e = releaseWorkTaskReservation(ctx, q, t); e != nil {
+			return e
+		}
+	}
 	if link.ResultEventID != "" {
 		return nil
 	}
@@ -190,6 +195,25 @@ func syncWorkItemTask(ctx context.Context, q *sqlgen.Queries, t CollaborationTas
 		if e = workNotice(ctx, q, &w, "work_item_finished", "Further follow-ups are stopped. Collaboration ended with status "+t.Status+"; its recorded cleanup outcome remains available."); e != nil {
 			return e
 		}
+	}
+	return saveWorkItem(ctx, q, &w)
+}
+
+// Final tasks cannot spend their unused grant. Keep the original task and its
+// admission receipts intact while releasing only that unspent reservation.
+func releaseWorkTaskReservation(ctx context.Context, q *sqlgen.Queries, t CollaborationTask) error {
+	n, err := q.ReleaseWorkTaskReservation(ctx, t.ID)
+	if err != nil || n == 0 {
+		return err
+	}
+	w, err := getWorkItem(ctx, q, t.WorkItemID)
+	if err != nil {
+		return err
+	}
+	unused := max(0, t.MaxModelRequests-t.ModelRequestsUsed)
+	w.Usage.ReservedModelRequests -= unused
+	if err = appendWorkDecision(ctx, q, w, orchestration.WorkDecision{Kind: "allowance_released", Reason: fmt.Sprintf("Execution ended. Released %d unused model requests; %d charged requests remain accounted for.", unused, t.ModelRequestsUsed), ActorKind: "system", ActorID: "task", TaskID: t.ID}); err != nil {
+		return err
 	}
 	return saveWorkItem(ctx, q, &w)
 }

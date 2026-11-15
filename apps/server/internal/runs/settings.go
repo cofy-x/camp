@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/configuration"
+	"github.com/cofy-x/camp/apps/server/internal/dsh"
 	"github.com/cofy-x/camp/apps/server/internal/projectenv"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
@@ -143,10 +144,10 @@ func (m *Manager) refreshReadiness(ctx context.Context) error {
 	var manifest struct {
 		Version string `json:"version"`
 	}
-	if runtimeErr == nil && (json.Unmarshal(data, &manifest) != nil || manifest.Version != "0.2.2-rc.1") {
+	if runtimeErr == nil && (json.Unmarshal(data, &manifest) != nil || manifest.Version != dsh.Version) {
 		runtimeErr = errors.New("Install the pinned DSH runtime with make install-dsh.")
 	}
-	record("dsh", "Pinned DSH 0.2.2-rc.1 is installed.", runtimeErr)
+	record("dsh", "Pinned DSH "+dsh.Version+" is installed.", runtimeErr)
 	info, helperErr := os.Stat(m.config.SandboxHelper)
 	if helperErr == nil && (!info.Mode().IsRegular() || info.Mode()&0111 == 0) {
 		helperErr = errors.New("The trusted sandbox helper must be executable.")
