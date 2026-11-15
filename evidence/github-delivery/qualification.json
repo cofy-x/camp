@@ -1,0 +1,37 @@
+{
+  "providerCampaign": {
+    "sourceCommit": "d1c5ad73f35251604501117b18f86ec20200ffa8",
+    "harness": "0.2.2-rc.3",
+    "turns": 3,
+    "modelRequestsUsed": 44,
+    "maxModelRequests": 96,
+    "operatorRecoveryOrBudgetExtensions": 0,
+    "roles": [
+      "Developer (write)",
+      "Reviewer (read only, static inspection)",
+      "Developer (write)"
+    ],
+    "checks": "Developer executed tests/build and exact-head CI repeated them; Reviewer had no shell grant.",
+    "pullRequest": "https://github.com/rcyw/camp-notes/pull/3",
+    "headSHA": "f44acb00fe60064ed11c7894e68e098763b96ced",
+    "mergeSHA": "734eb9003051e0bcf9d18a91826408cbb8df1b4d",
+    "release": "https://github.com/rcyw/camp-notes/releases/tag/v0.1.2",
+    "app": "https://rcyw.github.io/camp-notes/",
+    "hostCheckout": "Clean at 3e3240972357ab6f480d38e4b442cb6d93e15500 throughout campaign"
+  },
+  "publicBrowser": {
+    "appURL": "https://rcyw.github.io/camp-notes/",
+    "version": "0.1.2",
+    "checkedAt": "2026-11-15T05:02:03.367Z",
+    "download": {
+      "filename": "Release - checks.md",
+      "bytes": 49,
+      "exactUTF8Body": true
+    },
+    "reloadPreservedTitleAndBody": true,
+    "narrow390NoHorizontalOverflow": true,
+    "pageErrors": []
+  },
+  "mobileActualDownload": true,
+  "followups": "Paid run exposed generated dist files in source delivery and noisy result controls. Source filtering, own-webhook suppression and simplified result have separate later regression checks. Operator CI setup and generated-source cleanup are separate Notes PRs #2 and #4."
+}
