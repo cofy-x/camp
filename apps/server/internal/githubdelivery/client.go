@@ -174,8 +174,9 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 	}
 	token := credential.Token
 	base := "/repos/" + d.Repository
+	reconcile := d.Reconcile && visibleStage(d.Stage)
 	var repo repository
-	if e = c.call(ctx, token, "GET", base, nil, &repo); e != nil || repo.ID != d.RepositoryID || repo.Private != d.Private || !strings.EqualFold(repo.FullName, d.Repository) || !repo.Permissions.Push {
+	if e = c.call(ctx, token, "GET", base, nil, &repo); e != nil || repo.ID != d.RepositoryID || repo.Private != d.Private || !strings.EqualFold(repo.FullName, d.Repository) || (!repo.Permissions.Push && !reconcile) {
 		return fail("Repository identity, visibility, or current write permission no longer matches the authorization.")
 	}
 	var actor struct {
@@ -206,7 +207,6 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 		result.Delivery.NextCheckAt = time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano)
 		return result
 	}
-	reconcile := d.Reconcile && visibleStage(d.Stage)
 	var effectErr error
 	switch d.Stage {
 	case "prepare":

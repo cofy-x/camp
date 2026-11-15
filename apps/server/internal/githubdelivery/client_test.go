@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -29,6 +30,7 @@ func (fixtureFiles) Changes(context.Context, string, string, string, []string) (
 
 type protocolFixture struct {
 	private                      bool
+	readOnly                     bool
 	client                       *Client
 	delivery                     orchestration.GitHubDelivery
 	writes                       map[string]int
@@ -80,7 +82,7 @@ func (f *protocolFixture) serve(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/user":
 		reply(map[string]any{"id": 7})
 	case path == "":
-		reply(map[string]any{"id": f.repositoryID, "full_name": "acme/notes", "private": f.private, "permissions": map[string]any{"push": true}})
+		reply(map[string]any{"id": f.repositoryID, "full_name": "acme/notes", "private": f.private, "permissions": map[string]any{"push": !f.readOnly}})
 	case path == "/git/ref/heads/main":
 		reply(map[string]any{"object": map[string]any{"sha": strings.Repeat("c", 40), "type": "commit"}})
 	case path == "/git/commits/"+strings.Repeat("c", 40):
@@ -208,6 +210,47 @@ func TestUnknownBranchAbsenceNeverPermitsAnAutomaticResend(t *testing.T) {
 	}
 	if f.writes["/git/refs"] != 1 {
 		t.Fatal("uncertain branch was resent", f.writes)
+	}
+}
+
+func TestReceiptReconciliationNeedsOnlyReadPermissionAndDoesNotGrantFurtherWrites(t *testing.T) {
+	for _, stage := range []string{"branch", "pull_request", "merge", "release"} {
+		t.Run(stage, func(t *testing.T) {
+			f := newProtocol(t)
+			for steps := 0; f.delivery.Stage != stage && steps < 8; steps++ {
+				f.step(t)
+			}
+			f.lost, f.absent = stage, true
+			f.step(t)
+			if f.delivery.Status != "unknown" {
+				t.Fatal("missing receipt did not remain unknown", f.delivery)
+			}
+			writes := maps.Clone(f.writes)
+			f.readOnly = true
+			switch stage {
+			case "branch":
+				f.branch = true
+			case "pull_request":
+				f.pr = true
+			case "merge":
+				f.merged = true
+			case "release":
+				f.released = true
+			}
+			f.step(t)
+			if f.delivery.Reconcile || (f.delivery.Status != "queued" && f.delivery.Status != "succeeded") {
+				t.Fatal("read access could not confirm the exact existing receipt", f.delivery)
+			}
+			if f.delivery.Status == "queued" {
+				f.step(t)
+				if f.delivery.Status != "blocked" {
+					t.Fatal("receipt reading granted another write", f.delivery)
+				}
+			}
+			if !maps.Equal(f.writes, writes) {
+				t.Fatal("receipt reading dispatched another write", f.writes)
+			}
+		})
 	}
 }
 func TestPublicationChecksExactHeadAndCurrentRepositoryIdentity(t *testing.T) {
