@@ -42,12 +42,14 @@ Changing settings does not rewrite queued Runs or an existing task grant. An exp
 
 | Setting                         | Default | Maximum |
 | ------------------------------- | ------- | ------- |
-| Output tokens per model request | 4096    | 8192    |
-| Observed model steps per Run    | 8       | 32      |
-| Execution timeout in seconds    | 180     | 900     |
+| Output tokens per model request | 8192    | 8192    |
+| Observed model steps per Run    | 32      | 32      |
+| Execution timeout in seconds    | 600     | 900     |
 | Concurrent Server Runs          | 2       | 64      |
 
 `CAMP_MAX_CONCURRENT_RUNS` or `serve --max-concurrent-runs` sets Server concurrency. Runner `setup --slots` independently selects its capacity (default one). Each Agent executes serially. These controls bound execution, not exact monetary cost. Collaboration request/round allowances are specified once in the [task API](api.md#collaborations); each upstream request is reserved before sending, including unknown outcomes.
+
+The defaults allow a complete coding round without the previous short output and eight-step ceilings. Explicitly managed values and environment overrides retain their values; frozen model revisions and existing task grants are never rewritten. Work proposes up to twelve rounds and 96 model requests inside its own cumulative allowance, or the selected policy's smaller finite execution limit. A final completed, cancelled or interrupted task releases only its unused reservation for later, separately authorized work. Charged and unknown requests remain spent.
 
 The Runner receives an expiring, revocable **Attempt-scoped** capability for the Server's HTTPS Messages proxy. It cannot choose an upstream URL. Server resolves the frozen model revision, validates authority/budget and never transparently retries a transmitted request or follows provider redirects. Real keys never reach the Runner. DSH receives only that capability; tools receive neither. A custom Server CA is mounted privately and passed via `NODE_EXTRA_CA_CERTS`; TLS verification stays enabled.
 

@@ -29,6 +29,8 @@ function checkout(t, extra = {}) {
       node: '24.16.0',
       pnpm: '12.11.2',
     }),
+    'apps/server/internal/dsh/version.go':
+      'package dsh\nconst Version = "0.2.2-rc.1"\n',
     'README.md': '# Guide\n',
     ...extra,
   };
@@ -164,5 +166,15 @@ test('the command exits unsuccessfully for invalid documentation and succeeds af
   assert.match(
     passed.stdout,
     /Checked 2 Markdown files, 1 local links and pinned versions/,
+  );
+});
+
+test('rejects a compiled runtime pin that differs from the public dependency', (t) => {
+  const root = checkout(t, {
+    'apps/server/internal/dsh/version.go':
+      'package dsh\nconst Version = "9.0.0"\n',
+  });
+  assert.ok(
+    checkDocs(root).errors.some((error) => error.includes('DSH 9.0.0 differs')),
   );
 });

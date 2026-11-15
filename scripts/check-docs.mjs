@@ -153,6 +153,14 @@ export function checkDocs(directory) {
       );
     }
   };
+  const dshVersionFile = 'apps/server/internal/dsh/version.go';
+  compare(
+    dshVersionFile,
+    1,
+    'DSH',
+    read(dshVersionFile).match(/const Version = "([^"]+)"/)?.[1],
+    pins.dsh,
+  );
   for (const file of markdown) {
     if (file.startsWith('docs/decisions/')) continue;
     const { source } = document(file);

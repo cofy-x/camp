@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cofy-x/camp/apps/server/internal/dsh"
 	"github.com/cofy-x/camp/apps/server/internal/execution"
 	"github.com/cofy-x/camp/apps/server/internal/layerfs"
 	"github.com/cofy-x/camp/apps/server/internal/projectenv"
@@ -71,8 +72,8 @@ func openLayerRuntime(ctx context.Context, config Config) (*layerRuntime, error)
 	var manifest struct {
 		Version string `json:"version"`
 	}
-	if json.Unmarshal(manifestBytes, &manifest) != nil || manifest.Version != "0.2.2-rc.1" {
-		return nil, errors.New("Native execution requires DSH 0.2.2-rc.1")
+	if json.Unmarshal(manifestBytes, &manifest) != nil || manifest.Version != dsh.Version {
+		return nil, errors.New("Native execution requires DSH " + dsh.Version)
 	}
 	versionCmd := exec.CommandContext(ctx, config.NodePath, "--version")
 	version, err := versionCmd.Output()

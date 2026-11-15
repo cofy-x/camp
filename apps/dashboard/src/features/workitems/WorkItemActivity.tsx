@@ -16,6 +16,7 @@ const labels: Record<string, string> = {
   stop: 'Work stopped',
   cancel: 'Work stopped',
   authorize: 'Allowance updated',
+  allowance_released: 'Unused allowance released',
   delegate: 'Follow-up changed',
   evidence: 'Context added',
   attach: 'Context added',

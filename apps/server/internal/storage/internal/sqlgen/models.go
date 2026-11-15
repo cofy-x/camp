@@ -742,12 +742,13 @@ type WorkItemRequest struct {
 }
 
 type WorkItemTask struct {
-	Seq              int64
-	WorkItemID       string
-	TaskID           string
-	ResultEventID    string
-	ReservedRequests int64
-	CreatedAt        string
+	Seq                 int64
+	WorkItemID          string
+	TaskID              string
+	ResultEventID       string
+	ReservedRequests    int64
+	CreatedAt           string
+	ReservationReleased int64
 }
 
 type WorkItemTimer struct {

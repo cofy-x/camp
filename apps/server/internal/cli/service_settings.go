@@ -68,11 +68,12 @@ func readServiceSettings(options serveOptions, getenv func(string) string, cwd s
 		}
 		return fallback
 	}
+	defaults := configuration.Defaults()
 	config := serviceSettings{ModelInput: configuration.ModelInput{
 		ModelOverrides:  overrides,
 		APIKey:          values["DEEPSEEK_API_KEY"],
-		BaseURL:         value("DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic"),
-		Model:           value("CAMP_DSH_MODEL", "deepseek-v4-pro"),
+		BaseURL:         value("DEEPSEEK_BASE_URL", defaults.BaseURL),
+		Model:           value("CAMP_DSH_MODEL", defaults.Model),
 		ReasoningEffort: values["CAMP_DSH_REASONING_EFFORT"],
 	}}
 	if !configuration.ValidReasoningEffort(config.ReasoningEffort) {
@@ -82,15 +83,15 @@ func readServiceSettings(options serveOptions, getenv func(string) string, cwd s
 	if err != nil || parsedURL.Hostname() == "" || (parsedURL.Scheme != "https" && parsedURL.Scheme != "http") || parsedURL.User != nil || parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
 		return serviceSettings{}, errors.New("DEEPSEEK_BASE_URL must be an HTTP(S) URL without credentials, query parameters, or a fragment")
 	}
-	config.MaxTokens, err = dshBudget(values, "CAMP_DSH_MAX_TOKENS", 4096, 8192)
+	config.MaxTokens, err = dshBudget(values, "CAMP_DSH_MAX_TOKENS", defaults.MaxTokens, 8192)
 	if err != nil {
 		return serviceSettings{}, err
 	}
-	config.MaxSteps, err = dshBudget(values, "CAMP_DSH_MAX_STEPS", 8, 32)
+	config.MaxSteps, err = dshBudget(values, "CAMP_DSH_MAX_STEPS", defaults.MaxSteps, 32)
 	if err != nil {
 		return serviceSettings{}, err
 	}
-	seconds, err := dshBudget(values, "CAMP_DSH_TIMEOUT_SECONDS", 180, 900)
+	seconds, err := dshBudget(values, "CAMP_DSH_TIMEOUT_SECONDS", defaults.TimeoutSeconds, 900)
 	if err != nil {
 		return serviceSettings{}, err
 	}

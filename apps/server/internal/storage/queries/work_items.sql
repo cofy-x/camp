@@ -46,6 +46,8 @@ UPDATE work_item_timers SET status='fired',event_id=? WHERE id=? AND status='pen
 INSERT INTO work_item_tasks(work_item_id,task_id,reserved_requests,created_at) VALUES(?,?,?,?);
 -- name: WorkTaskResult :exec
 UPDATE work_item_tasks SET result_event_id=? WHERE task_id=? AND result_event_id='';
+-- name: ReleaseWorkTaskReservation :execrows
+UPDATE work_item_tasks SET reservation_released=1 WHERE task_id=? AND reservation_released=0;
 -- name: SaveWorkWatch :exec
 INSERT INTO work_item_watches(work_item_id,source_id,thread_key,enabled) VALUES(?,?,?,?) ON CONFLICT(work_item_id,source_id,thread_key) DO UPDATE SET enabled=excluded.enabled;
 -- name: InsertWorkAction :exec

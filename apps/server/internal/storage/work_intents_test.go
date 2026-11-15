@@ -177,7 +177,7 @@ func TestWorkIntentAnswerTargetsExactActiveQuestionWithoutGrantExpansion(t *test
 		t.Fatal(answered, e)
 	}
 	current, e := s.GetTaskState(ctx, task.ID)
-	if e != nil || current.Question.Answer != input.Content || current.MaxTurns != task.MaxTurns || current.MaxModelRequests != task.MaxModelRequests || answered.Usage.Tasks != 1 || answered.Usage.ReservedModelRequests != 24 {
+	if e != nil || current.Question.Answer != input.Content || current.MaxTurns != task.MaxTurns || current.MaxModelRequests != task.MaxModelRequests || answered.Usage.Tasks != 1 || answered.Usage.ReservedModelRequests != task.MaxModelRequests {
 		t.Fatal("answer expanded or lost finite authorization", current, answered, e)
 	}
 	replay, e := s.OperateWorkItem(actor, w.ID, input, Budget{})
@@ -280,7 +280,7 @@ func TestWorkIntentLaterDelegationAndAnswerContinueAreExplicit(t *testing.T) {
 func TestWorkIntentDefaultsBusinessDueAndAuthorizationExpiryAreSeparate(t *testing.T) {
 	s, actor, _, room, writer, _ := taskFixture(t)
 	defaults, e := s.WorkItemDefaults(actor, room.ID, "")
-	if e != nil || defaults.Execution.MaxTurns != 6 || defaults.Execution.MaxModelRequests != 24 || defaults.Budget.MaxModelRequests != 96 {
+	if e != nil || defaults.Execution.MaxTurns != 12 || defaults.Execution.MaxModelRequests != 96 || defaults.Budget.MaxModelRequests != 96 {
 		t.Fatal(defaults, e)
 	}
 	expiry, e := time.Parse(time.RFC3339Nano, defaults.ExpiresAt)

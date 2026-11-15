@@ -137,7 +137,7 @@ func TestWorkItemTaskResultIsEvidenceAndNewExecutionHasNewFiniteGrant(t *testing
 		t.Fatal(e)
 	}
 	w, _ = s.GetWorkItem(admin, w.ID)
-	if w.Usage.Tasks != 2 || w.ActiveTaskID == task.ID || w.Usage.ReservedModelRequests != 48 {
+	if w.Usage.Tasks != 2 || w.ActiveTaskID == task.ID || w.Usage.ReservedModelRequests != 24 {
 		t.Fatal("the ended task resumed or allowance reset", w)
 	}
 	original, _ := s.GetTaskState(ctx, task.ID)
@@ -219,7 +219,7 @@ func TestWorkItemConcurrentExecutionAndCumulativeModelCeiling(t *testing.T) {
 	_, e = s.OperateTask(admin, task.ID, "continue", TaskOperation{RequestID: newID(), Revision: task.Revision, AddModelRequests: 1})
 	requireCode(t, e, "work_budget_exhausted")
 	w, _ = s.GetWorkItem(admin, w.ID)
-	if w.Usage.ReservedModelRequests != 24 {
+	if w.Usage.ReservedModelRequests != task.MaxModelRequests {
 		t.Fatal(w)
 	}
 }

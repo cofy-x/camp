@@ -13,6 +13,8 @@ import (
 )
 
 const workAuthorizationLifetime = 30 * 24 * time.Hour
+const defaultWorkTurns = 12
+const defaultWorkRequests = 96
 
 func normalizeWorkItem(w *orchestration.WorkItem) {
 	if w.Question == "" {
@@ -57,7 +59,7 @@ func (s *Store) WorkItemDefaults(ctx context.Context, room, policyID string) (ou
 		if e != nil {
 			return missing(e, "The Room")
 		}
-		out = orchestration.WorkItemDefaults{Budget: defaultWorkBudget(orchestration.WorkBudget{}), ExpiresAt: time.Now().Add(workAuthorizationLifetime).UTC().Format(time.RFC3339Nano), ParticipantAgentIDs: []string{}, Execution: orchestration.WorkExecutionAllowance{MaxTurns: 6, MaxModelRequests: 24}}
+		out = orchestration.WorkItemDefaults{Budget: defaultWorkBudget(orchestration.WorkBudget{}), ExpiresAt: time.Now().Add(workAuthorizationLifetime).UTC().Format(time.RFC3339Nano), ParticipantAgentIDs: []string{}, Execution: orchestration.WorkExecutionAllowance{MaxTurns: defaultWorkTurns, MaxModelRequests: defaultWorkRequests}}
 		if policyID != "" {
 			row, e := q.GetAutomationPolicyID(ctx, policyID)
 			if e != nil {
@@ -73,7 +75,7 @@ func (s *Store) WorkItemDefaults(ctx context.Context, room, policyID string) (ou
 			out.Budget = defaultWorkBudget(p.ItemBudget)
 			out.ParticipantAgentIDs = append([]string{}, p.ParticipantAgentIDs...)
 			out.FirstAgentID = p.FirstAgentID
-			out.Execution = orchestration.WorkExecutionAllowance{MaxTurns: 6, MaxModelRequests: min(24, out.Budget.MaxModelRequests)}
+			out.Execution = orchestration.WorkExecutionAllowance{MaxTurns: p.MaxTurns, MaxModelRequests: min(p.MaxModelRequests, out.Budget.MaxModelRequests)}
 			return nil
 		}
 		members, e := q.ListMembers(ctx, room)
@@ -326,8 +328,15 @@ func startWorkExecution(ctx context.Context, q *sqlgen.Queries, w *orchestration
 			return "", e
 		}
 	}
-	maxRequests := min(24, w.Budget.MaxModelRequests-w.Usage.ReservedModelRequests)
-	t, e := createTaskTx(ctx, q, w.RoomID, CreateTaskInput{InputProtocol: 1, Goal: w.Goal, ParticipantAgentIDs: ids, FirstAgentID: first}, b, taskCreation{RequesterUserID: actorID(ctx), OriginAuthorKind: "user", OriginAuthorUserID: actorID(ctx), MaxTurns: 6, MaxModelRequests: maxRequests})
+	maxRequests, maxTurns := min(defaultWorkRequests, w.Budget.MaxModelRequests-w.Usage.ReservedModelRequests), defaultWorkTurns
+	if w.PolicyID != "" {
+		policy, err := workPolicyForItem(ctx, q, *w)
+		if err != nil {
+			return "", err
+		}
+		maxTurns, maxRequests = policy.MaxTurns, min(w.Budget.MaxModelRequests-w.Usage.ReservedModelRequests, policy.MaxModelRequests)
+	}
+	t, e := createTaskTx(ctx, q, w.RoomID, CreateTaskInput{InputProtocol: 1, Goal: w.Goal, ParticipantAgentIDs: ids, FirstAgentID: first}, b, taskCreation{RequesterUserID: actorID(ctx), OriginAuthorKind: "user", OriginAuthorUserID: actorID(ctx), MaxTurns: maxTurns, MaxModelRequests: maxRequests})
 	if e != nil {
 		return "", e
 	}
