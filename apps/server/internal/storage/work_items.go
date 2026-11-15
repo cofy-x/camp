@@ -31,7 +31,7 @@ func getWorkItem(ctx context.Context, q *sqlgen.Queries, id string) (orchestrati
 func workItemSnapshot(w orchestration.WorkItem) ([]byte, error) {
 	w.Evidence, w.Decisions, w.Tasks, w.Timers, w.Actions, w.Watches = nil, nil, nil, nil, nil, nil
 	w.HistoryLimited = false
-	w.Execution, w.Result = nil, nil
+	w.Execution, w.Result, w.GitHubDelivery = nil, nil, nil
 	normalizeWorkItem(&w)
 	return json.Marshal(w)
 }
@@ -401,6 +401,9 @@ func (s *Store) CreateWorkItemWithBudget(ctx context.Context, room string, in or
 		if e != nil {
 			return e
 		}
+		if e = authorizeGitHubDelivery(ctx, q, &out, in.GitHubDelivery); e != nil {
+			return e
+		}
 		sourceID := in.SourceEventID
 		if sourceID == "" && in.MessageID == "" && in.Follow && len(in.EvidenceIDs) == 1 {
 			sourceID = in.EvidenceIDs[0]
@@ -703,12 +706,21 @@ func (s *Store) OperateWorkItem(ctx context.Context, id string, in orchestration
 					return e
 				}
 			}
+		case "retry_delivery":
+			if e = retryGitHubDelivery(ctx, q, &w, in.DeliveryRevision); e != nil {
+				return e
+			}
 		case "ignore":
 		default:
 			return problem("invalid_work_item", "Choose a supported work item decision.")
 		}
 		if e = appendWorkDecision(ctx, q, w, d); e != nil {
 			return e
+		}
+		if in.Kind == "retry_delivery" && w.PendingCompletion != nil {
+			if e = advanceWorkCompletionFrontier(ctx, q, &w); e != nil {
+				return e
+			}
 		}
 		if in.Kind == "complete" && w.Status == "waiting" {
 			w.PendingCompletion = &orchestration.PendingWorkCompletion{Reason: in.Reason}

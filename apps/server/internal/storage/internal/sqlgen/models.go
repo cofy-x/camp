@@ -175,6 +175,14 @@ type GithubDelivery struct {
 	EventID     string
 }
 
+type GithubDeliveryReceipt struct {
+	Seq        int64
+	DeliveryID string
+	Revision   int64
+	EventID    string
+	Value      string
+}
+
 type GithubEvent struct {
 	Seq            int64
 	ID             string
@@ -195,6 +203,35 @@ type GithubEventDecision struct {
 	TaskID    sql.NullString
 	Reason    string
 	CreatedAt string
+}
+
+type GithubPublication struct {
+	Seq          int64
+	ID           string
+	WorkItemID   string
+	ConnectionID string
+	Revision     int64
+	Status       string
+	NextCheckAt  string
+	Value        string
+}
+
+type GithubRepository struct {
+	ID            string
+	OwnerUserID   string
+	Revision      int64
+	RepositoryID  int64
+	Enabled       int64
+	CredentialRef string
+	Value         string
+}
+
+type GithubRepositoryRequest struct {
+	OwnerUserID string
+	RequestID   string
+	RequestHash string
+	Result      string
+	Cancelled   int64
 }
 
 type GithubRequest struct {

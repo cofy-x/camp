@@ -68,7 +68,24 @@ func TestWorkReservationMigrationPreservesChargedUsageTasksAndReceipts(t *testin
 	actor, _ := teamUsers(t, s)
 	runner, _ := enrollTestRunner(t, s, actor, "legacy")
 	room, writer := remoteTestRoom(t, s, actor, runner)
-	w, err := s.CreateWorkItemWithBudget(actor, room.ID, orchestration.WorkItemInput{RequestID: "retained-work", Goal: "A retained matter", Start: true, Budget: orchestration.WorkBudget{MaxEvaluations: 12, MaxTasks: 4, MaxModelRequests: 24, MaxActions: 16, MaxFollowUps: 8}, ParticipantAgentIDs: []string{writer.ID}}, roomBudget)
+	var w orchestration.WorkItem
+	// Seed the historical schema directly; current UI projections intentionally
+	// require the current schema and cannot construct a pre-upgrade fixture.
+	err := s.transaction(actor, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		var e error
+		w, e = insertWorkItem(actor, q, room.ID, actorID(actor), orchestration.WorkItemInput{Goal: "A retained matter", Budget: orchestration.WorkBudget{MaxEvaluations: 12, MaxTasks: 4, MaxModelRequests: 24, MaxActions: 16, MaxFollowUps: 8}})
+		if e != nil {
+			return e
+		}
+		if _, e = startWorkExecution(actor, q, &w, []string{writer.ID}, writer.ID, "", "retained-work", strings.Repeat("f", 64), roomBudget); e != nil {
+			return e
+		}
+		if e = saveWorkItem(actor, q, &w); e != nil {
+			return e
+		}
+		return saveWorkReceipt(actor, q, "retained-work", strings.Repeat("f", 64), w)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

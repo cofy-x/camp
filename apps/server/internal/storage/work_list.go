@@ -16,23 +16,24 @@ const workListPageBytes = 320 << 10
 
 // WorkListItem contains current navigation facts, never a grant or audit history.
 type WorkListItem struct {
-	Seq          int64                          `json:"seq"`
-	ID           string                         `json:"id"`
-	RoomID       string                         `json:"roomId"`
-	RoomName     string                         `json:"roomName"`
-	OwnerUserID  string                         `json:"ownerUserId"`
-	Goal         string                         `json:"goal"`
-	Status       string                         `json:"status"`
-	Revision     int64                          `json:"revision"`
-	DueAt        string                         `json:"dueAt,omitempty"`
-	Question     string                         `json:"question,omitempty"`
-	QuestionKind orchestration.WorkQuestionKind `json:"questionKind,omitempty"`
-	ActiveTaskID string                         `json:"activeTaskId,omitempty"`
-	Execution    *orchestration.WorkExecution   `json:"execution,omitempty"`
-	Result       *orchestration.WorkResult      `json:"result,omitempty"`
-	NeedsYou     bool                           `json:"needsYou"`
-	CreatedAt    string                         `json:"createdAt"`
-	UpdatedAt    string                         `json:"updatedAt"`
+	GitHubDelivery *orchestration.GitHubDelivery  `json:"githubDelivery,omitempty"`
+	Seq            int64                          `json:"seq"`
+	ID             string                         `json:"id"`
+	RoomID         string                         `json:"roomId"`
+	RoomName       string                         `json:"roomName"`
+	OwnerUserID    string                         `json:"ownerUserId"`
+	Goal           string                         `json:"goal"`
+	Status         string                         `json:"status"`
+	Revision       int64                          `json:"revision"`
+	DueAt          string                         `json:"dueAt,omitempty"`
+	Question       string                         `json:"question,omitempty"`
+	QuestionKind   orchestration.WorkQuestionKind `json:"questionKind,omitempty"`
+	ActiveTaskID   string                         `json:"activeTaskId,omitempty"`
+	Execution      *orchestration.WorkExecution   `json:"execution,omitempty"`
+	Result         *orchestration.WorkResult      `json:"result,omitempty"`
+	NeedsYou       bool                           `json:"needsYou"`
+	CreatedAt      string                         `json:"createdAt"`
+	UpdatedAt      string                         `json:"updatedAt"`
 }
 
 type WorkListPage struct {
@@ -153,7 +154,7 @@ func (s *Store) ListWorkItems(ctx context.Context, options WorkListOptions) (out
 			if err = populateWorkView(ctx, q, &item); err != nil {
 				return err
 			}
-			out.Items = append(out.Items, WorkListItem{Seq: item.Seq, ID: item.ID, RoomID: item.RoomID, RoomName: row.RoomName, OwnerUserID: item.OwnerUserID, Goal: item.Goal, Status: item.Status, Revision: item.Revision, DueAt: item.DueAt, Question: item.Question, QuestionKind: item.QuestionKind, ActiveTaskID: item.ActiveTaskID, Execution: item.Execution, Result: item.Result, NeedsYou: row.NeedsYou == 1, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt})
+			out.Items = append(out.Items, WorkListItem{GitHubDelivery: item.GitHubDelivery, Seq: item.Seq, ID: item.ID, RoomID: item.RoomID, RoomName: row.RoomName, OwnerUserID: item.OwnerUserID, Goal: item.Goal, Status: item.Status, Revision: item.Revision, DueAt: item.DueAt, Question: item.Question, QuestionKind: item.QuestionKind, ActiveTaskID: item.ActiveTaskID, Execution: item.Execution, Result: item.Result, NeedsYou: row.NeedsYou == 1, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt})
 			encoded, err := json.Marshal(out)
 			if err != nil {
 				return err

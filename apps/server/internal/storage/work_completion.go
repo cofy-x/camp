@@ -21,6 +21,9 @@ func applyTaskWorkCompletion(ctx context.Context, q *sqlgen.Queries, w *orchestr
 		w.Question = "How should this work continue? " + judgment.Reason
 		return workNotice(ctx, q, w, "work_item_attention", w.Question)
 	}
+	if err := prepareGitHubDelivery(ctx, q, w, task); err != nil {
+		return err
+	}
 	completed, err := completeWorkItem(ctx, q, w, judgment.Reason)
 	if err != nil {
 		return err
@@ -37,6 +40,16 @@ func applyTaskWorkCompletion(ctx context.Context, q *sqlgen.Queries, w *orchestr
 		return nil
 	}
 	w.PendingCompletion = &orchestration.PendingWorkCompletion{TaskID: task.ID, Reason: judgment.Reason}
+	if err := populateGitHubDelivery(ctx, q, w); err != nil {
+		return err
+	}
+	if w.GitHubDelivery != nil && w.GitHubDelivery.Status == "blocked" {
+		w.Status = "needs_attention"
+		w.WaitCondition = w.GitHubDelivery.Reason
+		if err := workNotice(ctx, q, w, "work_item_attention", w.WaitCondition); err != nil {
+			return err
+		}
+	}
 	return advanceWorkCompletionFrontier(ctx, q, w)
 }
 

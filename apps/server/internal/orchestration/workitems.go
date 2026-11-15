@@ -3,6 +3,7 @@ package orchestration
 // WorkItem owns a matter across finite execution grants. Its state and evidence
 // never constitute an execution capability.
 type WorkItem struct {
+	GitHubDelivery           *GitHubDelivery        `json:"githubDelivery,omitempty"`
 	QuestionKind             WorkQuestionKind       `json:"questionKind,omitempty"`
 	StopRequested            bool                   `json:"stopRequested,omitempty"`
 	Execution                *WorkExecution         `json:"execution,omitempty"`
@@ -123,26 +124,28 @@ type WorkAction struct {
 }
 
 type WorkItemInput struct {
-	CompletionMode      string     `json:"completionMode,omitempty"`
-	Start               bool       `json:"start,omitempty"`
-	Follow              bool       `json:"follow,omitempty"`
-	SourceEventID       string     `json:"sourceEventId,omitempty"`
-	MessageID           string     `json:"messageId,omitempty"`
-	ParticipantAgentIDs []string   `json:"participantAgentIds,omitempty"`
-	FirstAgentID        string     `json:"firstAgentId,omitempty"`
-	DueAt               string     `json:"dueAt,omitempty"`
-	ExpiresAt           string     `json:"expiresAt,omitempty"`
-	PolicyRevision      int64      `json:"policyRevision,omitempty"`
-	RequestID           string     `json:"requestId"`
-	Goal                string     `json:"goal"`
-	CompletionCriteria  string     `json:"completionCriteria"`
-	PolicyID            string     `json:"policyId,omitempty"`
-	EvidenceIDs         []string   `json:"evidenceIds"`
-	Deadline            string     `json:"deadline,omitempty"`
-	Budget              WorkBudget `json:"budget"`
+	GitHubDelivery      *GitHubDeliverySpec `json:"githubDelivery,omitempty"`
+	CompletionMode      string              `json:"completionMode,omitempty"`
+	Start               bool                `json:"start,omitempty"`
+	Follow              bool                `json:"follow,omitempty"`
+	SourceEventID       string              `json:"sourceEventId,omitempty"`
+	MessageID           string              `json:"messageId,omitempty"`
+	ParticipantAgentIDs []string            `json:"participantAgentIds,omitempty"`
+	FirstAgentID        string              `json:"firstAgentId,omitempty"`
+	DueAt               string              `json:"dueAt,omitempty"`
+	ExpiresAt           string              `json:"expiresAt,omitempty"`
+	PolicyRevision      int64               `json:"policyRevision,omitempty"`
+	RequestID           string              `json:"requestId"`
+	Goal                string              `json:"goal"`
+	CompletionCriteria  string              `json:"completionCriteria"`
+	PolicyID            string              `json:"policyId,omitempty"`
+	EvidenceIDs         []string            `json:"evidenceIds"`
+	Deadline            string              `json:"deadline,omitempty"`
+	Budget              WorkBudget          `json:"budget"`
 }
 
 type WorkItemOperation struct {
+	DeliveryRevision    int64       `json:"deliveryRevision,omitempty"`
 	CompletionMode      string      `json:"completionMode,omitempty"`
 	CompletionCriteria  string      `json:"completionCriteria,omitempty"`
 	Comment             string      `json:"comment,omitempty"`

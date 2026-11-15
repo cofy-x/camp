@@ -1,7 +1,9 @@
-import { useId } from 'react';
+import { GitHubDeliverySummary } from '../github-delivery/GitHubDeliverySummary';
+import { useId, useState } from 'react';
 import { Button, Checkbox, Select } from '@cofy-x/camp-platinum';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
 import { useAccount } from '../../team/AuthContext';
+import { GitHubDeliveryChooser } from '../github-delivery/GitHubDeliveryChooser';
 import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
 import type { Agent, Message, WorkspaceStatus } from '../workspace/api';
 import type { AutomationPolicy, SourceEvent } from '../automation/api';
@@ -53,6 +55,8 @@ export function WorkItemForm({
 }) {
   const { user } = useAccount();
   const goalId = useId();
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [deliveryReady, setDeliveryReady] = useState(false);
   const scope = sourceMessage?.id ?? sourceEvent?.id ?? 'manual';
   const draftRoom = globalDraft ? '' : roomId;
   const draft = usePrivateDraft<CreateDraft | UnassignedDraft | null>(
@@ -111,6 +115,14 @@ export function WorkItemForm({
   const selectedPolicy = policies.find(
     (policy) => policy.id === values.policyId,
   );
+  const invalidDelivery =
+    Boolean(values.githubDelivery) &&
+    (!deliveryReady ||
+      values.completionMode !== 'automatic' ||
+      Boolean(values.policyId) ||
+      !values.githubDelivery?.baseBranch.trim() ||
+      (values.githubDelivery?.mode === 'release' &&
+        !values.githubDelivery.tag?.trim()));
   const disabled = operation.blocked || !draft.loaded || Boolean(draft.error);
   const invalidParticipants =
     !participants.length ||
@@ -144,6 +156,7 @@ export function WorkItemForm({
       !roomId ||
       !contextReady ||
       !values.goal.trim() ||
+      invalidDelivery ||
       (Boolean(values.policyId) && !defaults) ||
       (start &&
         (!defaults || invalidParticipants || availability?.available === false))
@@ -251,9 +264,31 @@ export function WorkItemForm({
             {!defaults && !settings.error && (
               <p role="status">Loading work settings…</p>
             )}
-            <details className="work-item-options">
+            {values.githubDelivery && (
+              <GitHubDeliverySummary
+                value={values.githubDelivery}
+                onReady={setDeliveryReady}
+              />
+            )}
+            {values.githubDelivery &&
+              (values.completionMode !== 'automatic' || values.policyId) && (
+                <p role="alert" className="app-error">
+                  GitHub delivery requires automatic completion and direct
+                  authorization.
+                </p>
+              )}
+            <details
+              className="work-item-options"
+              onToggle={(event) => setOptionsOpen(event.currentTarget.open)}
+            >
               <summary>Options</summary>
               <div className="work-item-form">
+                {optionsOpen && (
+                  <GitHubDeliveryChooser
+                    value={values.githubDelivery}
+                    onChange={(githubDelivery) => edit({ githubDelivery })}
+                  />
+                )}
                 <label>
                   Due date
                   <input
@@ -389,6 +424,7 @@ export function WorkItemForm({
           primary
           disabled={
             disabled ||
+            invalidDelivery ||
             !roomId ||
             !contextReady ||
             !values.goal.trim() ||
@@ -402,6 +438,7 @@ export function WorkItemForm({
         <Button
           disabled={
             disabled ||
+            invalidDelivery ||
             !roomId ||
             !contextReady ||
             !values.goal.trim() ||

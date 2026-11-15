@@ -376,3 +376,19 @@ button.work-activity-heading:hover {
   gap: 8px;
   white-space: pre-wrap;
 }
+
+.work-item-delivery {
+  display: grid;
+  gap: 8px;
+  padding-block: 10px;
+  border-bottom: 1px solid var(--p9-shadow);
+}
+.work-item-delivery .work-item-file-heading {
+  align-items: baseline;
+}
+.work-item-delivery span {
+  overflow-wrap: anywhere;
+}
+.work-item-delivery > .p9-button {
+  justify-self: start;
+}

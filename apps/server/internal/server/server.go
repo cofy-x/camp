@@ -14,6 +14,7 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/collaboration"
 	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"github.com/cofy-x/camp/apps/server/internal/eventflow"
+	"github.com/cofy-x/camp/apps/server/internal/githubdelivery"
 	"github.com/cofy-x/camp/apps/server/internal/httpapi"
 	"github.com/cofy-x/camp/apps/server/internal/library"
 	"github.com/cofy-x/camp/apps/server/internal/remoteruns"
@@ -124,6 +125,13 @@ func Run(ctx context.Context, config Config) error {
 		return fmt.Errorf("initialize event processing: %w", err)
 	}
 	defer events.Shutdown(context.Background())
+	deliveryCredentials, err := configuration.OpenGitHubCredentials(filepath.Join(config.DataDir, "configuration", "github-delivery"))
+	if err != nil {
+		return err
+	}
+	delivery := githubdelivery.New(store, deliveryCredentials, resources.New(filepath.Join(config.DataDir, "resources")), logger)
+	defer delivery.Shutdown(context.Background())
+	api.EnableGitHubDelivery(delivery)
 	api.EnableAutomation(commentCredentials)
 	api.EnableTeam(auth, config.TrustedOrigins, config.PublicOrigin)
 	api.EnableRemote(runManager)
@@ -179,7 +187,7 @@ func Run(ctx context.Context, config Config) error {
 	return errors.Join(serveErr, shutdownService(shutdown, httpServer, func(ctx context.Context) error {
 		// Stop intake effects before the execution scheduler drains. Persisted
 		// uncertain work is reconciled on restart, never replayed at shutdown.
-		eventErr := events.Shutdown(ctx)
+		eventErr := errors.Join(events.Shutdown(ctx), delivery.Shutdown(ctx))
 		return errors.Join(eventErr, runManager.Shutdown(ctx))
 	}, cancelRequests))
 }

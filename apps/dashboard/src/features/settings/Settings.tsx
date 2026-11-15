@@ -1,3 +1,4 @@
+import { GitHubRepositories } from '../github-delivery/GitHubRepositories';
 import { useEffect, useId, useState } from 'react';
 import {
   Button,
@@ -567,6 +568,7 @@ function TeamPanel({ desktop }: { desktop: AppWindowProps['desktop'] }) {
 export function Settings(props: AppWindowProps) {
   const { user, signOut } = useAccount();
   const team = useTeam();
+  const [githubLocked, setGitHubLocked] = useState(false);
   const [section, setSection] = useState(
     user.role === 'admin' ? 'readiness' : 'account',
   );
@@ -612,6 +614,7 @@ export function Settings(props: AppWindowProps) {
           ['team', 'Team'],
         ]
       : []),
+    ['github', 'GitHub'],
     ['appearance', 'Appearance'],
     ['account', 'Account'],
   ];
@@ -629,6 +632,12 @@ export function Settings(props: AppWindowProps) {
           label="Control panel"
           value={section}
           onChange={(event) => {
+            if (githubLocked) {
+              setError(
+                'Save or clear the GitHub credential edits before leaving.',
+              );
+              return;
+            }
             setSection(event.target.value);
             setError('');
             setNotice('');
@@ -652,6 +661,12 @@ export function Settings(props: AppWindowProps) {
               className={section === id ? 'selected' : ''}
               aria-current={section === id ? 'page' : undefined}
               onClick={() => {
+                if (githubLocked) {
+                  setError(
+                    'Save or clear the GitHub credential edits before leaving.',
+                  );
+                  return;
+                }
                 setSection(id);
                 setError('');
                 setNotice('');
@@ -801,6 +816,9 @@ export function Settings(props: AppWindowProps) {
             </>
           )}
           {section === 'team' && <TeamPanel desktop={props.desktop} />}
+          {section === 'github' && (
+            <GitHubRepositories onLockChange={setGitHubLocked} />
+          )}
           {section === 'appearance' && <Appearance {...props} />}
           {section === 'account' && (
             <>

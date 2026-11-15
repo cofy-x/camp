@@ -25,6 +25,25 @@ export function WorkItemResult({ item }: { item: WorkItem }) {
     });
   }
 
+  const report = result.summary ? (
+    <Report
+      key={`${result.taskId}:${result.commit}`}
+      content={result.summary}
+      stateKey={`work-report:${item.id}:${result.taskId}:${result.commit}`}
+    />
+  ) : null;
+  if (item.githubDelivery)
+    return (
+      <section className="work-item-result" aria-label="Work result">
+        {report}
+        {result.commit && (
+          <div className="app-actions">
+            <Button onClick={() => open()}>Source files…</Button>
+          </div>
+        )}
+      </section>
+    );
+
   return (
     <section className="work-item-result" aria-label="Work result">
       {result.commit && (
@@ -56,13 +75,7 @@ export function WorkItemResult({ item }: { item: WorkItem }) {
           )}
         </>
       )}
-      {result.summary && (
-        <Report
-          key={`${result.taskId}:${result.commit}`}
-          content={result.summary}
-          stateKey={`work-report:${item.id}:${result.taskId}:${result.commit}`}
-        />
-      )}
+      {report}
     </section>
   );
 }
