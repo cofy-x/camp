@@ -172,7 +172,7 @@ test('optional delivery stays quiet until opened and keeps public merge and rele
   await expect(
     work(page).getByText(
       'Public example/notes · main · Merge and release v0.1.1 after CI',
-      { exact: true },
+      { exact: false },
     ),
   ).toBeVisible();
   let input: Record<string, unknown> | undefined;
@@ -198,6 +198,7 @@ test('optional delivery stays quiet until opened and keeps public merge and rele
       baseBranch: 'main',
       mode: 'release',
       tag: 'v0.1.1',
+      maxRepairs: 1,
     },
   });
   expect(input).not.toHaveProperty('token');

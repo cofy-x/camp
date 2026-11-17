@@ -24,6 +24,10 @@ func (fixtureCredential) Read(string) (configuration.GitHubCredential, error) {
 
 type fixtureFiles struct{}
 
+func (fixtureFiles) ReadFile(context.Context, string, string, string) ([]byte, error) {
+	return []byte(`{"version":"0.1.2"}`), nil
+}
+
 func (fixtureFiles) Changes(context.Context, string, string, string, []string) ([]resources.Change, error) {
 	return []resources.Change{{Path: "notes.md", OldSHA: strings.Repeat("a", 40), OldMode: "100644", SHA: strings.Repeat("b", 40), Content: []byte("Checked note"), Mode: "100644"}}, nil
 }

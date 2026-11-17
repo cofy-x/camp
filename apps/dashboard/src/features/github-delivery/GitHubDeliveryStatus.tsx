@@ -2,6 +2,7 @@ import type { WorkOperation } from '../workitems/useWorkItemOperation';
 import { useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
 import { useReadStore } from '../../shared/reads/useRead';
+import { useTeam } from '../../team/TeamContext';
 import { githubDeliveryApi, type GitHubDelivery } from './api';
 
 const labels: Record<string, string> = {
@@ -9,7 +10,9 @@ const labels: Record<string, string> = {
   prepare: 'Preparing source',
   branch: 'Preparing pull request',
   pull_request: 'Opening pull request',
+  update_branch: 'Updating pull request',
   checks: 'Waiting for CI',
+  review: 'Waiting for GitHub requirements',
   merge: 'Merging pull request',
   release: 'Publishing release',
   deployment: 'Waiting for deployment',
@@ -21,13 +24,20 @@ export function GitHubDeliveryStatus({
   editable,
   operation,
   workRevision,
+  onReviewScope,
+  onProjectSettings,
+  canRepair = false,
 }: {
   delivery: GitHubDelivery;
   workId: string;
   editable: boolean;
   operation: WorkOperation;
   workRevision: number;
+  onReviewScope?: () => void;
+  onProjectSettings?: () => void;
+  canRepair?: boolean;
 }) {
+  const team = useTeam();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const reads = useReadStore();
@@ -41,6 +51,27 @@ export function GitHubDeliveryStatus({
       ? 'Open release'
       : 'Open pull request';
   const safeURL = url?.startsWith('https://') ? url : undefined;
+  const code = delivery.failureCode;
+  const execution = code === 'execution_unavailable';
+  const reconnect = code === 'credential' || code === 'connection' || execution;
+  const scopeChanged = ['project_changed', 'rule_changed'].includes(code ?? '');
+  const allowance = [
+    'work_budget_exhausted',
+    'daily_task_limit',
+    'agent_changed',
+    'repair_limit',
+    'execution_unavailable',
+  ].includes(code ?? '');
+  const canResume =
+    !code || ['action_failed', 'connection', 'credential'].includes(code);
+
+  const repairFailure = [
+    'ci_failed',
+    'review_changes',
+    'repair_limit',
+    'work_budget_exhausted',
+    'daily_task_limit',
+  ].includes(code ?? '');
 
   async function check() {
     setPending(true);
@@ -65,15 +96,17 @@ export function GitHubDeliveryStatus({
         <span>
           {checking
             ? 'Checking delivery'
-            : delivery.status === 'succeeded'
-              ? 'Delivered'
-              : delivery.status === 'stopped'
-                ? 'Delivery stopped'
-                : delivery.status === 'unknown'
-                  ? 'Delivery not confirmed'
-                  : delivery.status === 'blocked'
-                    ? 'Delivery needs attention'
-                    : (labels[delivery.stage] ?? 'Delivering')}{' '}
+            : delivery.status === 'repairing'
+              ? 'Repairing the result'
+              : delivery.status === 'succeeded'
+                ? 'Delivered'
+                : delivery.status === 'stopped'
+                  ? 'Delivery stopped'
+                  : delivery.status === 'unknown'
+                    ? 'Delivery not confirmed'
+                    : delivery.status === 'blocked'
+                      ? 'Delivery needs attention'
+                      : (labels[delivery.stage] ?? 'Delivering')}{' '}
           · {delivery.repository}
         </span>
         {safeURL && (
@@ -97,6 +130,50 @@ export function GitHubDeliveryStatus({
       {editable &&
         delivery.status === 'blocked' &&
         !delivery.reconcile &&
+        canRepair &&
+        repairFailure && (
+          <Button
+            disabled={pending || operation.blocked}
+            onClick={() =>
+              void operation.act(workId, 'repair_delivery', {
+                revision: workRevision,
+                deliveryRevision: delivery.revision,
+              })
+            }
+          >
+            Repair and continue
+          </Button>
+        )}
+      {editable &&
+        delivery.status === 'blocked' &&
+        !delivery.reconcile &&
+        !(canRepair && repairFailure) &&
+        (reconnect || scopeChanged || allowance) && (
+          <Button
+            onClick={() =>
+              reconnect
+                ? void team.navigate({
+                    app: 'settings',
+                    section: execution ? 'models' : 'github',
+                  })
+                : scopeChanged && onProjectSettings
+                  ? onProjectSettings()
+                  : onReviewScope?.()
+            }
+          >
+            {reconnect
+              ? execution
+                ? 'Configure execution…'
+                : 'Reconnect repository…'
+              : scopeChanged
+                ? 'Review project settings…'
+                : 'Review allowance and access…'}
+          </Button>
+        )}
+      {editable &&
+        delivery.status === 'blocked' &&
+        !delivery.reconcile &&
+        canResume &&
         delivery.stage !== 'result' && (
           <Button
             disabled={pending || operation.blocked}

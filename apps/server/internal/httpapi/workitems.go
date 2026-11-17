@@ -9,6 +9,26 @@ import (
 
 func (a *API) workItemRoutes(mux *http.ServeMux) {
 	register := func(route string, h http.HandlerFunc) { mux.HandleFunc(route, a.authorizeRoute(route, h)) }
+	register("POST /api/rooms/{id}/project-settings", func(w http.ResponseWriter, r *http.Request) {
+		var in orchestration.ProjectSettingsInput
+		if !decode(w, r, &in, 32<<10) {
+			return
+		}
+		out, err := a.store.SaveProjectSettings(r.Context(), r.PathValue("id"), in)
+		a.respond(w, r, out, err)
+	})
+	register("GET /api/project-setting-requests/{id}", func(w http.ResponseWriter, r *http.Request) {
+		out, err := a.store.ProjectSettingRequest(r.Context(), r.PathValue("id"), false)
+		a.respond(w, r, out, err)
+	})
+	register("POST /api/project-setting-requests/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
+		var in struct{}
+		if !decode(w, r, &in, 4096) {
+			return
+		}
+		out, err := a.store.ProjectSettingRequest(r.Context(), r.PathValue("id"), true)
+		a.respond(w, r, out, err)
+	})
 	register("GET /api/work-items", func(w http.ResponseWriter, r *http.Request) {
 		allowed := map[string]bool{"scope": true, "view": true, "roomId": true, "cursor": true, "limit": true}
 		for key, values := range r.URL.Query() {
@@ -96,7 +116,7 @@ func (a *API) workItemRoutes(mux *http.ServeMux) {
 					writeError(w, 400, "invalid_work_item", "Choose the action through its typed route.")
 					return
 				}
-				kinds := map[string]string{"start": "execute", "answer": "answer", "answer_continue": "answer_continue", "wait": "wait", "complete": "complete", "stop": "stop", "delegate": "delegate", "attach": "evidence", "follow": "follow", "unfollow": "unfollow", "authorize": "authorize", "completion": "completion", "retry_delivery": "retry_delivery"}
+				kinds := map[string]string{"start": "execute", "answer": "answer", "answer_continue": "answer_continue", "wait": "wait", "complete": "complete", "stop": "stop", "delegate": "delegate", "attach": "evidence", "follow": "follow", "unfollow": "unfollow", "authorize": "authorize", "completion": "completion", "retry_delivery": "retry_delivery", "repair_delivery": "repair_delivery"}
 				var ok bool
 				in.Kind, ok = kinds[r.PathValue("action")]
 				if !ok {

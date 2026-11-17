@@ -69,11 +69,14 @@ func selectAssessmentWorkItem(ctx context.Context, q *sqlgen.Queries, c orchestr
 	for _, ev := range c.Events {
 		ids = append(ids, ev.ID)
 	}
-	w, e := insertWorkItem(ctx, q, c.Policy.RoomID, c.Policy.OwnerUserID, orchestration.WorkItemInput{Goal: a.Goal, CompletionCriteria: criteria, PolicyID: c.Policy.ID, EvidenceIDs: ids, Budget: defaultWorkBudget(c.Policy.ItemBudget)})
+	w, e := insertWorkItem(ctx, q, c.Policy.RoomID, c.Policy.OwnerUserID, orchestration.WorkItemInput{Goal: a.Goal, CompletionCriteria: criteria, PolicyID: c.Policy.ID, PolicyRevision: c.Policy.Revision, EvidenceIDs: ids, Budget: defaultWorkBudget(c.Policy.ItemBudget)})
 	if e != nil {
 		return w, e
 	}
 	w.Usage.Evaluations = 1
+	if e = projectRuleDelivery(ctx, q, &w, c.Policy); e != nil {
+		return w, e
+	}
 	a.WorkItemID = w.ID
 	for _, ev := range c.Events {
 		if ev.SourceID == c.Policy.SourceID {

@@ -103,6 +103,8 @@ export function GitHubDeliveryChooser({
               edit({
                 mode: event.target.value as GitHubDeliverySpec['mode'],
                 tag: undefined,
+                versionLine: undefined,
+                maxRepairs: event.target.value === 'pr' ? 0 : 1,
                 waitForDeployment: false,
               })
             }
@@ -117,13 +119,35 @@ export function GitHubDeliveryChooser({
           </Select>
           {value.mode === 'release' && (
             <>
+              <Select
+                label="Release version"
+                value={value.versionLine !== undefined ? 'source' : 'exact'}
+                onChange={(e) =>
+                  edit(
+                    e.target.value === 'source'
+                      ? { versionLine: '', tag: undefined }
+                      : { versionLine: undefined, tag: '' },
+                  )
+                }
+              >
+                <option value="exact">Exact tag</option>
+                <option value="source">From package.json</option>
+              </Select>
               <label>
-                Release tag
+                {value.versionLine !== undefined
+                  ? 'Allowed release line (major.minor)'
+                  : 'Release tag'}
                 <input
                   className="p9-field"
                   required
-                  value={value.tag ?? ''}
-                  onChange={(event) => edit({ tag: event.target.value })}
+                  value={value.versionLine ?? value.tag ?? ''}
+                  onChange={(e) =>
+                    edit(
+                      value.versionLine !== undefined
+                        ? { versionLine: e.target.value }
+                        : { tag: e.target.value },
+                    )
+                  }
                 />
               </label>
               <Checkbox
@@ -141,6 +165,19 @@ export function GitHubDeliveryChooser({
                 edit({ waitForDeployment: event.target.checked })
               }
             />
+          )}
+          {value.mode !== 'pr' && (
+            <Checkbox
+              label="Repair CI and approved review feedback automatically"
+              checked={Boolean(value.maxRepairs)}
+              onChange={(e) => edit({ maxRepairs: e.target.checked ? 1 : 0 })}
+            />
+          )}
+          {Boolean(value.maxRepairs) && (
+            <p>
+              Up to {value.maxRepairs} repair{value.maxRepairs === 1 ? '' : 's'}{' '}
+              within this Work's total allowance.
+            </p>
           )}
           <p>Project ignore rules apply. Workflow changes are excluded.</p>
         </>

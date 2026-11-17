@@ -14,6 +14,8 @@ This contract applies when adding UI reads, live events, histories, rendering or
 
 When replacing an ordinary-view read path, remove its superseded callers and refresh loops. Full or compatibility readers need an explicit remaining owner; normal navigation must not fetch both the old heavy record and its new projection.
 
+Personal project settings extend the existing one-Room Work defaults read; never add a fetch per Room to the desktop or Work list. Project changes invalidate only matching scoped proposals, while submitted drafts retain their frozen revision. Accepted source ledgers and repair diagnostics are not loaded into list projections.
+
 GitHub source delivery uses an indexed due queue, not browser polling or Room-wide refresh. Empty-queue checks take no write transaction; active CI/deployment observations have a finite deadline and check allowance. Worker claim leases stay internal. Unchanged waiting results retain transport receipts without appending duplicate matter evidence or invalidating ordinary Work views. Repository metadata is read through the shared store only when Settings or selected delivery options need it. [The protocol](github.md#authorized-code-delivery), [queue queries](../apps/server/internal/storage/queries/github_delivery.sql) and [browser cases](../tests/github-delivery.spec.ts) own this scope.
 
 ## Reads and live observations

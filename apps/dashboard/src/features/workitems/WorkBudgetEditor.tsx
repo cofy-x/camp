@@ -12,7 +12,7 @@ export function WorkBudgetEditor({
 }) {
   return (
     <fieldset>
-      <legend>{label}</legend>
+      {label && <legend>{label}</legend>}
       <div className="work-item-limits">
         {workBudgetLimits.map(({ key, label, max }) => (
           <label key={key}>

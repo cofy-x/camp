@@ -23,14 +23,19 @@ type Manager struct {
 	done        chan struct{}
 	once        sync.Once
 	logger      *slog.Logger
+	models      Models
 }
 
-func New(store *storage.Store, credentials *configuration.GitHubCredentials, files Files, logger *slog.Logger) *Manager {
+type Models interface {
+	Snapshot() (string, configuration.Model)
+}
+
+func New(store *storage.Store, credentials *configuration.GitHubCredentials, files Files, models Models, logger *slog.Logger) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	if logger == nil {
 		logger = slog.Default()
 	}
-	m := &Manager{store: store, credentials: credentials, client: NewClient(credentials, files), ctx: ctx, cancel: cancel, done: make(chan struct{}), logger: logger}
+	m := &Manager{store: store, credentials: credentials, client: NewClient(credentials, files), models: models, ctx: ctx, cancel: cancel, done: make(chan struct{}), logger: logger}
 	go m.run()
 	return m
 }
@@ -59,7 +64,14 @@ func (m *Manager) run() {
 			}
 		}
 		if claim != nil {
-			if err := m.store.CompleteGitHubDelivery(m.ctx, claim.Delivery.ID, claim.Delivery.Revision, result); err == nil {
+			var budget storage.Budget
+			if m.models != nil {
+				revision, model := m.models.Snapshot()
+				if model.APIKey != "" {
+					budget = storage.Budget{RequireRunner: true, RuntimeKey: revision, Model: model.Model, MaxTokens: model.MaxTokens, MaxSteps: model.MaxSteps, TimeoutSeconds: model.TimeoutSeconds}
+				}
+			}
+			if err := m.store.CompleteGitHubDelivery(m.ctx, claim.Delivery.ID, claim.Delivery.Revision, result, budget); err == nil {
 				claim = nil
 			} else if m.ctx.Err() == nil {
 				m.logger.Error("GitHub delivery receipt could not be committed", "delivery_id", claim.Delivery.ID)

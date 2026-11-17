@@ -1262,3 +1262,11 @@
   padding-block: 8px;
   background: var(--p9-face);
 }
+
+/* Work is the destination for the complete goal; discussion keeps its notice compact. */
+.workspace-system-event-row > .workspace-work-notice {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}

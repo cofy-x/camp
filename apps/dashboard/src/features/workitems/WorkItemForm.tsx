@@ -19,6 +19,7 @@ import { initialWorkBudget, localDateTime, utcDateTime } from './workSettings';
 type CreateDraft = Omit<WorkItemInput, 'requestId'> & {
   deadline?: string;
   expiryEdited?: boolean;
+  projectDefaultsPending?: boolean;
 };
 
 type UnassignedDraft = {
@@ -77,13 +78,27 @@ export function WorkItemForm({
     policyId: '',
     follow: Boolean(sourceMessage || sourceEvent),
   };
-  const values: CreateDraft = {
+  const baseValues: CreateDraft = {
     ...(saved ?? initial),
     goal:
       draft.value?.goal ?? sourceMessage?.content ?? sourceEvent?.preview ?? '',
   };
-  const settings = useWorkDefaults(roomId, values.policyId, contextReady);
+  const settings = useWorkDefaults(roomId, baseValues.policyId, contextReady);
   const defaults = settings.defaults;
+  const project = defaults?.project?.enabled ? defaults.project : undefined;
+  const values: CreateDraft = {
+    ...baseValues,
+    ...((!saved || saved.projectDefaultsPending) && project
+      ? {
+          completionMode: project.completionMode,
+          participantAgentIds: project.participantAgentIds,
+          firstAgentId: project.firstAgentId,
+          budget: project.budget,
+          githubDelivery: project.githubDelivery,
+          projectRevision: project.revision,
+        }
+      : {}),
+  };
   const participants =
     values.participantAgentIds ??
     suggestedParticipants(members, defaults, defaultAgentId);
@@ -119,10 +134,10 @@ export function WorkItemForm({
     Boolean(values.githubDelivery) &&
     (!deliveryReady ||
       values.completionMode !== 'automatic' ||
-      Boolean(values.policyId) ||
       !values.githubDelivery?.baseBranch.trim() ||
       (values.githubDelivery?.mode === 'release' &&
-        !values.githubDelivery.tag?.trim()));
+        !values.githubDelivery.tag?.trim() &&
+        !values.githubDelivery.versionLine?.trim()));
   const disabled = operation.blocked || !draft.loaded || Boolean(draft.error);
   const invalidParticipants =
     !participants.length ||
@@ -137,7 +152,12 @@ export function WorkItemForm({
       : 'Follow this conversation';
 
   function edit(change: Partial<CreateDraft>) {
-    const next = { ...values, ...change };
+    const next = {
+      ...values,
+      ...change,
+      projectDefaultsPending:
+        !defaults && (!saved || saved.projectDefaultsPending),
+    };
     if (globalDraft) {
       const { goal, ...roomValues } = next;
       draft.setValue({
@@ -155,6 +175,7 @@ export function WorkItemForm({
       disabled ||
       !roomId ||
       !contextReady ||
+      !defaults ||
       !values.goal.trim() ||
       invalidDelivery ||
       (Boolean(values.policyId) && !defaults) ||
@@ -162,7 +183,12 @@ export function WorkItemForm({
         (!defaults || invalidParticipants || availability?.available === false))
     )
       return;
-    const { expiryEdited, deadline, ...input } = values;
+    const {
+      expiryEdited,
+      deadline,
+      projectDefaultsPending: _projectDefaultsPending,
+      ...input
+    } = values;
     void operation.create(
       roomId,
       {
@@ -233,25 +259,18 @@ export function WorkItemForm({
           </div>
         )}
         {roomId && contextReady && (
-          <>
-            <Select
-              label="Completion"
-              value={
-                values.completionMode ??
-                (values.completionCriteria?.trim() ? 'criteria' : 'human')
-              }
-              onChange={(event) =>
-                edit({
-                  completionMode: event.target.value as 'automatic' | 'human',
-                })
-              }
-            >
-              <option value="automatic">When the goal is met</option>
-              <option value="human">I'll confirm</option>
-              {!values.completionMode && values.completionCriteria?.trim() && (
-                <option value="criteria">Saved completion criteria</option>
-              )}
-            </Select>
+          <fieldset
+            className="work-proposal"
+            aria-label="Work authorization"
+            disabled={!defaults}
+          >
+            {values.completionMode !== 'automatic' && (
+              <p className="work-grant-limits">
+                {values.completionMode === 'human'
+                  ? "You'll confirm completion"
+                  : 'Saved completion criteria apply'}
+              </p>
+            )}
             <WorkGrant
               members={members}
               selected={participants}
@@ -270,19 +289,39 @@ export function WorkItemForm({
                 onReady={setDeliveryReady}
               />
             )}
-            {values.githubDelivery &&
-              (values.completionMode !== 'automatic' || values.policyId) && (
-                <p role="alert" className="app-error">
-                  GitHub delivery requires automatic completion and direct
-                  authorization.
-                </p>
-              )}
+            {values.githubDelivery && values.completionMode !== 'automatic' && (
+              <p role="alert" className="app-error">
+                GitHub delivery requires automatic completion.
+              </p>
+            )}
             <details
               className="work-item-options"
               onToggle={(event) => setOptionsOpen(event.currentTarget.open)}
             >
               <summary>Options</summary>
               <div className="work-item-form">
+                <Select
+                  label="Completion"
+                  value={
+                    values.completionMode ??
+                    (values.completionCriteria?.trim() ? 'criteria' : 'human')
+                  }
+                  onChange={(event) =>
+                    edit({
+                      completionMode: event.target.value as
+                        'automatic' | 'human',
+                    })
+                  }
+                >
+                  <option value="automatic">When the goal is met</option>
+                  <option value="human">I'll confirm</option>
+                  {!values.completionMode &&
+                    values.completionCriteria?.trim() && (
+                      <option value="criteria">
+                        Saved completion criteria
+                      </option>
+                    )}
+                </Select>
                 {optionsOpen && (
                   <GitHubDeliveryChooser
                     value={values.githubDelivery}
@@ -383,7 +422,7 @@ export function WorkItemForm({
                 </details>
               </div>
             </details>
-          </>
+          </fieldset>
         )}
       </fieldset>
       {selectedPolicy && (
@@ -403,6 +442,38 @@ export function WorkItemForm({
             <pre>{selectedPolicy.rules}</pre>
           </details>
         </div>
+      )}
+      {values.projectRevision &&
+      project &&
+      values.projectRevision !== project.revision ? (
+        <p role="alert" className="app-error">
+          Project settings changed. Your goal is preserved.{' '}
+          <Button
+            onClick={() =>
+              edit({
+                projectRevision: project.revision,
+                completionMode: project.completionMode,
+                budget: project.budget,
+                participantAgentIds: project.participantAgentIds,
+                firstAgentId: project.firstAgentId,
+                githubDelivery: project.githubDelivery,
+              })
+            }
+          >
+            Use current defaults
+          </Button>
+        </p>
+      ) : null}
+      {values.projectRevision && defaults && !project ? (
+        <p role="alert" className="app-error">
+          Project defaults are disabled. Your goal and choices are preserved.{' '}
+          <Button onClick={() => edit({ projectRevision: undefined })}>
+            Use these choices
+          </Button>
+        </p>
+      ) : null}
+      {roomId && contextReady && !defaults && !settings.error && (
+        <p role="status">Loading work settings…</p>
       )}
       {settings.error && (
         <p className="app-error" role="alert">
@@ -427,6 +498,7 @@ export function WorkItemForm({
             invalidDelivery ||
             !roomId ||
             !contextReady ||
+            !defaults ||
             !values.goal.trim() ||
             !defaults ||
             invalidParticipants ||
@@ -441,6 +513,7 @@ export function WorkItemForm({
             invalidDelivery ||
             !roomId ||
             !contextReady ||
+            !defaults ||
             !values.goal.trim() ||
             (Boolean(values.policyId) && !defaults)
           }

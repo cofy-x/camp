@@ -288,6 +288,7 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
   await work(page)
     .getByLabel('What needs to happen?', { exact: true })
     .fill('Confirm the customer’s acceptance');
+  await work(page).locator('.work-item-options > summary').click();
   await work(page)
     .getByLabel('Completion', { exact: true })
     .selectOption('human');

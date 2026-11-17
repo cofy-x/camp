@@ -129,7 +129,7 @@ func Run(ctx context.Context, config Config) error {
 	if err != nil {
 		return err
 	}
-	delivery := githubdelivery.New(store, deliveryCredentials, resources.New(filepath.Join(config.DataDir, "resources")), logger)
+	delivery := githubdelivery.New(store, deliveryCredentials, resources.New(filepath.Join(config.DataDir, "resources")), runManager.ModelConfiguration(), logger)
 	defer delivery.Shutdown(context.Background())
 	api.EnableGitHubDelivery(delivery)
 	api.EnableAutomation(commentCredentials)

@@ -57,8 +57,14 @@ export function WorkGrant({
       <details className="work-grant-agents">
         <summary aria-label="Change Agents" aria-describedby={summaryId}>
           <span className="work-grant-summary" id={summaryId}>
-            {agents.map((agent) => agent.name).join(', ') || 'Choose an Agent'}
-            {agents.length
+            {agents
+              .map((agent) =>
+                agents.length > 1
+                  ? `${agent.name} (${agent.access === 'write' ? 'edit' : 'read'})`
+                  : agent.name,
+              )
+              .join(', ') || 'Choose an Agent'}
+            {agents.length === 1
               ? ` · ${agents.some((agent) => agent.access === 'write') ? 'May edit Room files' : 'Read access'}`
               : ''}
           </span>

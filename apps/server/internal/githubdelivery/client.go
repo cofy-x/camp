@@ -25,6 +25,7 @@ type Credentials interface {
 }
 type Files interface {
 	Changes(context.Context, string, string, string, []string) ([]resources.Change, error)
+	ReadFile(context.Context, string, string, string) ([]byte, error)
 }
 type Client struct {
 	credentials Credentials
@@ -151,7 +152,7 @@ func uncertain(err error) bool                         { var e protocolError; re
 func marker(d orchestration.GitHubDelivery) string     { return "<!-- camp-delivery:" + d.ID + " -->" }
 func sourceBody(d orchestration.GitHubDelivery) string { return d.PullRequestBody() }
 func visibleStage(stage string) bool {
-	return stage == "branch" || stage == "pull_request" || stage == "merge" || stage == "release"
+	return stage == "branch" || stage == "update_branch" || stage == "pull_request" || stage == "merge" || stage == "release"
 }
 
 // Step dispatches at most one visible effect. Lost responses are reconciled with
@@ -166,24 +167,51 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 			result.Delivery.Status = "unknown"
 		}
 		result.Delivery.Reason = reason
+		if result.Delivery.FailureCode == "" {
+			result.Delivery.FailureCode = "action_failed"
+		}
 		return result
+	}
+	failWith := func(code, reason string) orchestration.GitHubDeliveryResult {
+		result.Delivery.FailureCode = code
+		return fail(reason)
+	}
+	readFailure := func(err error, reason string) orchestration.GitHubDeliveryResult {
+		var scope evidenceError
+		if errors.As(err, &scope) {
+			return failWith("check_scope", scope.Error())
+		}
+		var protocol protocolError
+		if errors.As(err, &protocol) && (protocol.status == 0 || protocol.status == 429 || protocol.status >= 500) && !d.Reconcile && d.ReadFailures < 3 {
+			result.Delivery.ReadFailures++
+			result.Delivery.Status, result.Delivery.Reason = "waiting", "Waiting for GitHub to respond."
+			result.Delivery.NextCheckAt = time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano)
+			return result
+		}
+		return failWith("connection", reason)
 	}
 	credential, e := c.credentials.Read(ref)
 	if e != nil || credential.ActorID != d.ActorID {
-		return fail("The authorized GitHub account credential is unavailable.")
+		return failWith("credential", "The authorized GitHub account credential is unavailable.")
 	}
 	token := credential.Token
 	base := "/repos/" + d.Repository
 	reconcile := d.Reconcile && visibleStage(d.Stage)
 	var repo repository
-	if e = c.call(ctx, token, "GET", base, nil, &repo); e != nil || repo.ID != d.RepositoryID || repo.Private != d.Private || !strings.EqualFold(repo.FullName, d.Repository) || (!repo.Permissions.Push && !reconcile) {
-		return fail("Repository identity, visibility, or current write permission no longer matches the authorization.")
+	if e = c.call(ctx, token, "GET", base, nil, &repo); e != nil {
+		return readFailure(e, "Reconnect the repository before continuing delivery.")
+	}
+	if repo.ID != d.RepositoryID || repo.Private != d.Private || !strings.EqualFold(repo.FullName, d.Repository) || (!repo.Permissions.Push && !reconcile) {
+		return failWith("repository_changed", "Repository identity, visibility, or current write permission no longer matches the authorization.")
 	}
 	var actor struct {
 		ID int64 `json:"id"`
 	}
-	if e = c.call(ctx, token, "GET", "/user", nil, &actor); e != nil || actor.ID != d.ActorID {
-		return fail("The GitHub account no longer matches the authorized actor.")
+	if e = c.call(ctx, token, "GET", "/user", nil, &actor); e != nil {
+		return readFailure(e, "Reconnect the authorized GitHub account.")
+	}
+	if actor.ID != d.ActorID {
+		return failWith("credential", "The GitHub account no longer matches the authorized actor.")
 	}
 	next := func(stage string) {
 		result.Delivery.Stage = stage
@@ -191,6 +219,7 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 		result.Delivery.NextCheckAt = time.Now().UTC().Format(time.RFC3339Nano)
 		result.Delivery.Reason = ""
 		result.Delivery.Reconcile = false
+		result.Delivery.FailureCode, result.Delivery.ReadFailures = "", 0
 	}
 	done := func() {
 		result.Delivery.Status = "succeeded"
@@ -213,12 +242,60 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 		if d.SourceSelection != "gitignore-v1" {
 			return fail("Review and authorize the source selection before preparing this delivery.")
 		}
+		if d.Spec.VersionLine != "" {
+			tag, err := c.sourceTag(ctx, d)
+			if err != nil {
+				return failWith("version", err.Error())
+			}
+			d.Spec.Tag, result.Delivery.Spec.Tag = tag, tag
+		}
+		if d.Spec.Mode == "release" {
+			var tag any
+			err := c.call(ctx, token, "GET", base+"/git/ref/tags/"+url.PathEscape(d.Spec.Tag), nil, &tag)
+			if err == nil {
+				return failWith("version", "The authorized release tag already exists. Review the accepted source version before delivering.")
+			}
+			if !missing(err) {
+				return readFailure(err, "The release version could not be checked.")
+			}
+		}
 		head, parent, e := c.prepare(ctx, token, base, d)
 		if e != nil {
-			return fail("The accepted patch could not be prepared: " + e.Error())
+			return failWith("source_changed", "The accepted patch could not be prepared: "+e.Error())
 		}
 		result.Delivery.HeadSHA, result.Delivery.BaseSHA = head, parent
-		next("branch")
+		if d.PreviousHeadSHA != "" {
+			next("update_branch")
+		} else {
+			next("branch")
+		}
+	case "update_branch":
+		path := base + "/git/refs/heads/" + url.PathEscape(d.Branch)
+		var ref struct {
+			Object struct {
+				SHA  string `json:"sha"`
+				Type string `json:"type"`
+			} `json:"object"`
+		}
+		if e = c.call(ctx, token, "GET", base+"/git/ref/heads/"+url.PathEscape(d.Branch), nil, &ref); e != nil {
+			return readFailure(e, "The delivery branch could not be checked.")
+		}
+		if !reconcile {
+			if ref.Object.SHA != d.PreviousHeadSHA {
+				return failWith("source_changed", "The pull request branch changed outside this repair. Review its source.")
+			}
+			result.Effect = "update_branch"
+			effectErr = c.call(ctx, token, "PATCH", path, map[string]any{"sha": d.HeadSHA, "force": false}, &ref)
+			if uncertain(effectErr) {
+				result.Outcome, reconcile = "unknown", true
+				effectErr = c.call(ctx, token, "GET", base+"/git/ref/heads/"+url.PathEscape(d.Branch), nil, &ref)
+			}
+		}
+		if effectErr == nil && ref.Object.SHA == d.HeadSHA && ref.Object.Type == "commit" {
+			next("checks")
+		} else if effectErr == nil {
+			effectErr = errors.New("The repaired branch head is not confirmed")
+		}
 	case "branch":
 		path := base + "/git/ref/heads/" + url.PathEscape(d.Branch)
 		var ref struct {
@@ -267,20 +344,40 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 				next("checks")
 			}
 		}
-	case "checks":
+	case "checks", "review":
 		var pr pullRequest
-		if e = c.call(ctx, token, "GET", base+"/pulls/"+strconv.FormatInt(d.PullRequest, 10), nil, &pr); e != nil || !validPR(pr, d) || pr.State != "open" {
-			return fail("The pull request changed or closed before its checks were accepted.")
+		if e = c.call(ctx, token, "GET", base+"/pulls/"+strconv.FormatInt(d.PullRequest, 10), nil, &pr); e != nil {
+			return readFailure(e, "The pull request could not be checked.")
+		}
+		if !validPR(pr, d) || pr.State != "open" {
+			return failWith("source_changed", "The pull request changed or closed before its checks were accepted.")
 		}
 		ready, failed, e := c.checks(ctx, token, base, d.HeadSHA, d.CIWorkflowID, "pull_request")
 		if e != nil {
-			return fail("The exact-source CI results could not be read.")
+			return readFailure(e, "The exact-source CI results could not be read.")
 		}
 		if failed {
-			return fail("CI did not pass for the authorized pull request head.")
+			result.Delivery.Diagnostics = c.ciDiagnostics(ctx, token, base, d)
+			return failWith("ci_failed", "CI did not pass for the authorized pull request head.")
 		}
 		if !ready {
+			result.Delivery.Stage = "checks"
 			return wait("Waiting for CI.")
+		}
+		feedback, e := c.reviewFeedback(ctx, token, base, d)
+		if e != nil {
+			return readFailure(e, "Approved review feedback could not be checked.")
+		}
+		if feedback != "" {
+			result.Delivery.Diagnostics = feedback
+			return failWith("review_changes", "An approved reviewer requested changes on this exact source version.")
+		}
+		if pr.MergeableState == "blocked" || pr.MergeableState == "unknown" || pr.MergeableState == "unstable" {
+			result.Delivery.Stage = "review"
+			return wait("Waiting for GitHub repository checks and review requirements.")
+		}
+		if pr.MergeableState == "behind" || pr.MergeableState == "dirty" {
+			return failWith("source_changed", "The target branch moved or has conflicts. Review the source before rebasing this delivery.")
 		}
 		next("merge")
 	case "merge":
@@ -288,6 +385,10 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 		var pr pullRequest
 		if e = c.call(ctx, token, "GET", path, nil, &pr); e != nil || !validPR(pr, d) {
 			return fail("The pull request head or target changed. No merge was authorized.")
+		}
+		if !reconcile && (pr.MergeableState == "blocked" || pr.MergeableState == "unknown" || pr.MergeableState == "unstable") {
+			result.Delivery.Stage = "review"
+			return wait("Waiting for GitHub repository checks and review requirements.")
 		}
 		if reconcile {
 			if !pr.Merged {
@@ -299,12 +400,26 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 			// Re-read exact-head checks immediately before the CAS merge. GitHub's own
 			// branch protection remains authoritative; no admin bypass is requested.
 			ready, failed, e := c.checks(ctx, token, base, d.HeadSHA, d.CIWorkflowID, "pull_request")
-			if e != nil || failed {
-				return fail("Current exact-source CI no longer permits merging.")
+			if e != nil {
+				return readFailure(e, "Current exact-source CI could not be verified before merging.")
+			}
+			if failed {
+				result.Delivery.Stage = "checks"
+				result.Delivery.Diagnostics = c.ciDiagnostics(ctx, token, base, d)
+				return failWith("ci_failed", "Current exact-source CI no longer permits merging.")
 			}
 			if !ready {
 				next("checks")
 				return result
+			}
+			feedback, err := c.reviewFeedback(ctx, token, base, d)
+			if err != nil {
+				return readFailure(err, "Approved review feedback could not be checked.")
+			}
+			if feedback != "" {
+				result.Delivery.Stage = "checks"
+				result.Delivery.Diagnostics = feedback
+				return failWith("review_changes", "An approved reviewer requested changes on this exact source version.")
 			}
 			var merged struct {
 				Merged bool   `json:"merged"`
@@ -433,13 +548,14 @@ func validSHA(s string) bool {
 }
 
 type pullRequest struct {
-	Number   int64  `json:"number"`
-	URL      string `json:"html_url"`
-	Body     string `json:"body"`
-	State    string `json:"state"`
-	Merged   bool   `json:"merged"`
-	MergeSHA string `json:"merge_commit_sha"`
-	User     struct {
+	MergeableState string `json:"mergeable_state"`
+	Number         int64  `json:"number"`
+	URL            string `json:"html_url"`
+	Body           string `json:"body"`
+	State          string `json:"state"`
+	Merged         bool   `json:"merged"`
+	MergeSHA       string `json:"merge_commit_sha"`
+	User           struct {
 		ID int64 `json:"id"`
 	} `json:"user"`
 	Head struct {
@@ -509,7 +625,7 @@ func (c *Client) releaseReceipt(ctx context.Context, token, base string, d orche
 
 func (c *Client) checks(ctx context.Context, token, base, sha string, workflowID int64, event string) (ready, failed bool, err error) {
 	if !validSHA(sha) || workflowID < 1 {
-		return false, true, nil
+		return false, false, evidenceError{"Review the authorized source head and required workflow before accepting CI."}
 	}
 	var runs struct {
 		Total int `json:"total_count"`
@@ -527,7 +643,7 @@ func (c *Client) checks(ctx context.Context, token, base, sha string, workflowID
 		return
 	}
 	if runs.Total > 100 {
-		return false, true, nil
+		return false, false, evidenceError{"The exact-source workflow history exceeds the bounded check reader. Review the CI results."}
 	}
 	found := false
 	ready = true
@@ -542,7 +658,7 @@ func (c *Client) checks(ctx context.Context, token, base, sha string, workflowID
 			continue
 		}
 		if run.SHA != sha || run.Event != event {
-			return false, true, nil
+			return false, false, evidenceError{"The CI evidence does not match the authorized source and event."}
 		}
 		if run.Workflow == workflowID {
 			found = true

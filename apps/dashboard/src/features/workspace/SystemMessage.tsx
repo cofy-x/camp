@@ -90,7 +90,9 @@ export function SystemMessage({
       </span>
       <div className="workspace-message-copy">
         <div className="workspace-system-event-row">
-          <p className="workspace-message-text">
+          <p
+            className={`workspace-message-text${workOrigin ? ' workspace-work-notice' : ''}`}
+          >
             {workOrigin && (
               <>
                 <strong>

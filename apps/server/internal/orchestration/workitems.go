@@ -3,6 +3,7 @@ package orchestration
 // WorkItem owns a matter across finite execution grants. Its state and evidence
 // never constitute an execution capability.
 type WorkItem struct {
+	ProjectRevision          int64                  `json:"projectRevision,omitempty"`
 	GitHubDelivery           *GitHubDelivery        `json:"githubDelivery,omitempty"`
 	QuestionKind             WorkQuestionKind       `json:"questionKind,omitempty"`
 	StopRequested            bool                   `json:"stopRequested,omitempty"`
@@ -124,6 +125,7 @@ type WorkAction struct {
 }
 
 type WorkItemInput struct {
+	ProjectRevision     int64               `json:"projectRevision,omitempty"`
 	GitHubDelivery      *GitHubDeliverySpec `json:"githubDelivery,omitempty"`
 	CompletionMode      string              `json:"completionMode,omitempty"`
 	Start               bool                `json:"start,omitempty"`
@@ -208,6 +210,7 @@ type WorkItemSummary struct {
 // Defaults are an advisory, server-owned finite proposal. Only an explicit
 // create/start/delegate command establishes authority and freezes current facts.
 type WorkItemDefaults struct {
+	Project             *ProjectSettings       `json:"project,omitempty"`
 	Budget              WorkBudget             `json:"budget"`
 	ExpiresAt           string                 `json:"expiresAt"`
 	ParticipantAgentIDs []string               `json:"participantAgentIds"`

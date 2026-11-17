@@ -36,6 +36,8 @@ type GitHubDeliverySpec struct {
 	Tag                string `json:"tag,omitempty"`
 	Prerelease         bool   `json:"prerelease,omitempty"`
 	WaitForDeployment  bool   `json:"waitForDeployment,omitempty"`
+	MaxRepairs         int    `json:"maxRepairs,omitempty"`
+	VersionLine        string `json:"versionLine,omitempty"`
 }
 
 // GitHubDelivery is bounded current state; full originals stay in immutable
@@ -73,6 +75,20 @@ type GitHubDelivery struct {
 	NextCheckAt          string             `json:"nextCheckAt,omitempty"`
 	Checks               int                `json:"checks"`
 	Reconcile            bool               `json:"reconcile,omitempty"`
+	FailureCode          string             `json:"failureCode,omitempty"`
+	Diagnostics          string             `json:"diagnostics,omitempty"`
+	ReadFailures         int                `json:"readFailures,omitempty"`
+	Repairs              int                `json:"repairs"`
+	RepairTaskID         string             `json:"repairTaskId,omitempty"`
+	InitialTaskID        string             `json:"initialTaskId,omitempty"`
+	ParticipantAgentIDs  []string           `json:"participantAgentIds,omitempty"`
+	FirstAgentID         string             `json:"firstAgentId,omitempty"`
+	InitialResultCommit  string             `json:"initialResultCommit,omitempty"`
+	PullRequestEnvelope  string             `json:"pullRequestEnvelope,omitempty"`
+	PreviousHeadSHA      string             `json:"previousHeadSha,omitempty"`
+	ProjectRevision      int64              `json:"projectRevision,omitempty"`
+	PolicyRevision       int64              `json:"policyRevision,omitempty"`
+	ReviewerIDs          []int64            `json:"reviewerIds,omitempty"`
 }
 
 type GitHubDeliveryResult struct {
@@ -86,5 +102,11 @@ type GitHubDeliveryResult struct {
 // PullRequestBody is the frozen protocol envelope shared by outbound delivery
 // and authenticated ingress echo detection, never an execution authorization.
 func (d GitHubDelivery) PullRequestBody() string {
+	if d.PullRequestEnvelope != "" {
+		return d.PullRequestEnvelope
+	}
+	if d.InitialResultCommit != "" {
+		return "Produced by Camp from an accepted, published Work result.\n\nWork: `" + d.WorkItemID + "`\nInitial source version: `" + d.InitialResultCommit + "`\n\n<!-- camp-delivery:" + d.ID + " -->"
+	}
 	return "Produced by Camp from an accepted, published Work result.\n\nWork: `" + d.WorkItemID + "`\nSource version: `" + d.ResultCommit + "`\n\n<!-- camp-delivery:" + d.ID + " -->"
 }

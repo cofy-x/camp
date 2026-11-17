@@ -34,6 +34,7 @@ export function WorkItemDetail({
   onOpenTask,
   onViewProgress,
   onOpenRoom,
+  onProjectSettings,
 }: {
   id: string;
   active?: boolean;
@@ -48,6 +49,7 @@ export function WorkItemDetail({
   onOpenTask: (id: string) => void;
   onViewProgress?: (taskId: string, runId: string) => void;
   onOpenRoom?: () => void;
+  onProjectSettings?: () => void;
 }) {
   const { user } = useAccount();
   const [item, setItem] = useState<WorkItem | null>(null);
@@ -351,6 +353,17 @@ export function WorkItemDetail({
                     workRevision={item.revision}
                     workId={item.id}
                     editable={Boolean(editable)}
+                    onReviewScope={() => manage('allowance')}
+                    onProjectSettings={onProjectSettings}
+                    canRepair={
+                      !item.activeTaskId &&
+                      (item.githubDelivery.repairs ?? 0) < 3 &&
+                      item.usage.tasks < item.budget.maxTasks &&
+                      item.usage.reservedModelRequests <
+                        item.budget.maxModelRequests &&
+                      item.usage.actions < item.budget.maxActions &&
+                      availability?.available !== false
+                    }
                   />
                 )}
               {(!hasQuestion || item.questionKind === 'completion') &&

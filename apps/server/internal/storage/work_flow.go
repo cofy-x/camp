@@ -191,6 +191,9 @@ func syncWorkItemTask(ctx context.Context, q *sqlgen.Queries, t CollaborationTas
 			return e
 		}
 	}
+	if e = settleGitHubRepair(ctx, q, &w, t); e != nil {
+		return e
+	}
 	if stopping {
 		if e = workNotice(ctx, q, &w, "work_item_finished", "Further follow-ups are stopped. Collaboration ended with status "+t.Status+"; its recorded cleanup outcome remains available."); e != nil {
 			return e

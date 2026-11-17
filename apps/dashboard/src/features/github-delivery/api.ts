@@ -23,6 +23,8 @@ export interface GitHubDeliverySpec {
   tag?: string;
   prerelease?: boolean;
   waitForDeployment?: boolean;
+  maxRepairs?: number;
+  versionLine?: string;
 }
 
 export interface GitHubDelivery {
@@ -39,6 +41,8 @@ export interface GitHubDelivery {
   headSha?: string;
   mergeSha?: string;
   reconcile?: boolean;
+  failureCode?: string;
+  repairs?: number;
 }
 
 export type RepositoryInput = Pick<
