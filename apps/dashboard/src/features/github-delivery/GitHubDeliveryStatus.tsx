@@ -67,6 +67,7 @@ export function GitHubDeliveryStatus({
 
   const repairFailure = [
     'ci_failed',
+    'execution_unavailable',
     'review_changes',
     'repair_limit',
     'work_budget_exhausted',

@@ -7,13 +7,17 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/orchestration"
 )
 
-func failDeliveryCI(t *testing.T, s *Store, claim *GitHubDeliveryClaim) orchestration.GitHubDeliveryResult {
+func failDeliveryCI(t *testing.T, s *Store, claim *GitHubDeliveryClaim, budgets ...Budget) orchestration.GitHubDeliveryResult {
 	t.Helper()
 	d := claim.Delivery
 	d.Stage, d.Status, d.FailureCode, d.Reason, d.Diagnostics = "checks", "blocked", "ci_failed", "CI failed for this head.", "Expected a nonempty title."
 	d.HeadSHA, d.PullRequest = strings.Repeat("e", 40), 12
 	r := orchestration.GitHubDeliveryResult{Delivery: d}
-	if err := s.CompleteGitHubDelivery(ctx, d.ID, d.Revision, r, roomBudget); err != nil {
+	budget := roomBudget
+	if len(budgets) > 0 {
+		budget = budgets[0]
+	}
+	if err := s.CompleteGitHubDelivery(ctx, d.ID, d.Revision, r, budget); err != nil {
 		t.Fatal(err)
 	}
 	return r
@@ -82,7 +86,7 @@ func TestGitHubRepairRechecksSourceScopeBudgetAndUnknownEffects(t *testing.T) {
 			case "source":
 				_, _ = s.db.Exec("UPDATE resources SET current_commit=? WHERE id=?", strings.Repeat("f", 40), w.GitHubDelivery.ResourceID)
 			case "agent":
-				_, _ = s.db.Exec("UPDATE agents SET revision=revision+1 WHERE id=?", w.GitHubDelivery.ParticipantAgentIDs[0])
+				_, _ = s.db.Exec("UPDATE agents SET access='read',revision=revision+1 WHERE id=?", w.GitHubDelivery.ParticipantAgentIDs[0])
 			case "budget":
 				_, _ = s.db.Exec("UPDATE work_items SET value=json_set(value,'$.budget.maxTasks',1) WHERE id=?", w.ID)
 			}
@@ -103,5 +107,26 @@ func TestGitHubRepairRechecksSourceScopeBudgetAndUnknownEffects(t *testing.T) {
 				t.Fatal(got.GitHubDelivery)
 			}
 		})
+	}
+}
+
+func TestGitHubRepairDoesNotTreatCosmeticAgentChangesAsNewAuthority(t *testing.T) {
+	s, actor, w, _ := deliveryFixture(t, 1)
+	claim := claimDelivery(t, s)
+	if _, err := s.db.Exec("UPDATE agents SET name='Renamed writer',revision=revision+1 WHERE id=?", w.GitHubDelivery.ParticipantAgentIDs[0]); err != nil {
+		t.Fatal(err)
+	}
+	larger := roomBudget
+	larger.MaxTokens *= 2
+	larger.MaxSteps *= 2
+	larger.TimeoutSeconds *= 2
+	failDeliveryCI(t, s, claim, larger)
+	got, err := s.GetWorkItem(actor, w.ID)
+	if err != nil || got.ActiveTaskID == "" || got.Usage.Tasks != 2 || got.GitHubDelivery.Repairs != 1 {
+		t.Fatal(got, err)
+	}
+	task, err := s.GetTaskState(ctx, got.ActiveTaskID)
+	if err != nil || task.Budget.MaxTokens > roomBudget.MaxTokens || task.Budget.MaxSteps > roomBudget.MaxSteps || task.Budget.TimeoutSeconds > roomBudget.TimeoutSeconds {
+		t.Fatal("repair enlarged the frozen per-request allowance", task.Budget, err)
 	}
 }

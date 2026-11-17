@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -72,15 +71,22 @@ func startGitHubRepair(ctx context.Context, q *sqlgen.Queries, w *orchestration.
 	if err != nil {
 		return err
 	}
+	budget.MaxTokens = min(budget.MaxTokens, original.Budget.MaxTokens)
+	budget.MaxSteps = min(budget.MaxSteps, original.Budget.MaxSteps)
+	budget.TimeoutSeconds = min(budget.TimeoutSeconds, original.Budget.TimeoutSeconds)
 	current, err := taskParticipants(ctx, q, room, d.ParticipantAgentIDs)
 	if err != nil {
 		return err
 	}
 	// A changed Agent instruction, file access, ownership or Runner is new scope.
-	before, _ := json.Marshal(original.Participants)
-	after, _ := json.Marshal(current)
-	if string(before) != string(after) {
-		return problem("agent_changed", "An approved Agent or Runner changed. Review the execution scope before repairing.")
+	if len(original.Participants) != len(current) {
+		return problem("agent_changed", "The approved execution scope changed. Review it before repairing.")
+	}
+	for i, before := range original.Participants {
+		after := current[i]
+		if before.RunnerID != after.RunnerID || before.Agent.ID != after.Agent.ID || before.Agent.OwnerUserID != after.Agent.OwnerUserID || before.Agent.Access != after.Agent.Access || before.Agent.Instructions != after.Agent.Instructions {
+			return problem("agent_changed", "An approved Agent's access, instructions, owner or Runner changed. Review the execution scope before repairing.")
+		}
 	}
 	requests := min(original.MaxModelRequests, w.Budget.MaxModelRequests-w.Usage.ReservedModelRequests)
 	turns := original.MaxTurns

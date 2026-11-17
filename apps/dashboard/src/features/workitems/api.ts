@@ -13,6 +13,7 @@ export interface WorkBudget {
 }
 
 export interface WorkItem {
+  projectRevision?: number;
   githubDelivery?: GitHubDelivery;
   seq: number;
   id: string;
