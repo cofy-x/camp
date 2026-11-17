@@ -345,7 +345,7 @@ func insertWorkItem(ctx context.Context, q *sqlgen.Queries, room, owner string, 
 			return w, problem("revision_conflict", "The policy changed before this matter was created.")
 		}
 	}
-	w = orchestration.WorkItem{ID: newID(), RoomID: room, OwnerUserID: owner, PolicyID: in.PolicyID, Goal: in.Goal, CompletionCriteria: in.CompletionCriteria, Status: "open", Revision: 1, Deadline: in.Deadline, Budget: in.Budget, CreatedAt: now(), UpdatedAt: now()}
+	w = orchestration.WorkItem{ID: newID(), ProjectRevision: in.ProjectRevision, RoomID: room, OwnerUserID: owner, PolicyID: in.PolicyID, Goal: in.Goal, CompletionCriteria: in.CompletionCriteria, Status: "open", Revision: 1, Deadline: in.Deadline, Budget: in.Budget, CreatedAt: now(), UpdatedAt: now()}
 	w.ExpiresAt, w.DueAt = w.Deadline, in.DueAt
 	w.CompletionMode = in.CompletionMode
 	normalizeWorkItem(&w)
@@ -398,10 +398,19 @@ func (s *Store) CreateWorkItemWithBudget(ctx context.Context, room string, in or
 			return nil
 		}
 		out, e = insertWorkItem(ctx, q, room, actorID(ctx), in)
+		if in.ProjectRevision != 0 {
+			p, pe := projectSettings(ctx, q, actorID(ctx), room)
+			if pe != nil {
+				return pe
+			}
+			if p == nil || !p.Enabled || p.Revision != in.ProjectRevision {
+				return problem("revision_conflict", "Project settings changed. Review the current proposal before starting.")
+			}
+		}
 		if e != nil {
 			return e
 		}
-		if e = authorizeGitHubDelivery(ctx, q, &out, in.GitHubDelivery); e != nil {
+		if e = authorizeGitHubDelivery(ctx, q, &out, in.GitHubDelivery, in.FirstAgentID); e != nil {
 			return e
 		}
 		sourceID := in.SourceEventID
@@ -708,6 +717,10 @@ func (s *Store) OperateWorkItem(ctx context.Context, id string, in orchestration
 			}
 		case "retry_delivery":
 			if e = retryGitHubDelivery(ctx, q, &w, in.DeliveryRevision); e != nil {
+				return e
+			}
+		case "repair_delivery":
+			if e = repairGitHubDelivery(ctx, q, &w, in.DeliveryRevision, b); e != nil {
 				return e
 			}
 		case "ignore":

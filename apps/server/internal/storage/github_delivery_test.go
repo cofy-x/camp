@@ -10,7 +10,7 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/orchestration"
 )
 
-func deliveryFixture(t *testing.T) (*Store, context.Context, orchestration.WorkItem, orchestration.GitHubRepository) {
+func deliveryFixture(t *testing.T, repairs ...int) (*Store, context.Context, orchestration.WorkItem, orchestration.GitHubRepository) {
 	t.Helper()
 	s, actor, _, room, writer, _ := taskFixture(t)
 	if _, e := s.db.Exec("UPDATE runners SET capabilities=json_set(capabilities,'$.workItemCompletionVersion',1,'$.taskInputsVersion',1)"); e != nil {
@@ -25,7 +25,11 @@ func deliveryFixture(t *testing.T) (*Store, context.Context, orchestration.WorkI
 	if e != nil || !found || replay.ID != repo.ID {
 		t.Fatal(replay, found, e)
 	}
-	w, e := s.CreateWorkItemWithBudget(actor, room.ID, orchestration.WorkItemInput{RequestID: newID(), Goal: "Improve the release notes", Start: true, CompletionMode: "automatic", ParticipantAgentIDs: []string{writer.ID}, FirstAgentID: writer.ID, GitHubDelivery: &orchestration.GitHubDeliverySpec{ConnectionID: repo.ID, ConnectionRevision: repo.Revision, BaseBranch: "main", Mode: "release", Tag: "v0.1.1"}}, roomBudget)
+	maxRepairs := 0
+	if len(repairs) > 0 {
+		maxRepairs = repairs[0]
+	}
+	w, e := s.CreateWorkItemWithBudget(actor, room.ID, orchestration.WorkItemInput{RequestID: newID(), Goal: "Improve the release notes", Start: true, CompletionMode: "automatic", ParticipantAgentIDs: []string{writer.ID}, FirstAgentID: writer.ID, GitHubDelivery: &orchestration.GitHubDeliverySpec{ConnectionID: repo.ID, ConnectionRevision: repo.Revision, BaseBranch: "main", Mode: "release", Tag: "v0.1.1", MaxRepairs: maxRepairs}}, roomBudget)
 	if e != nil {
 		t.Fatal(e)
 	}

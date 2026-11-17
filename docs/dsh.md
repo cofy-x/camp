@@ -22,6 +22,8 @@ Both platforms require confirmed descendant quiescence before checks, capture an
 
 ## Environment and persistence
 
+Read-only Agents receive file reading and bounded discovery tools, without shell execution. The per-Run capability brief states this actual tool grant; a Reviewer inspects source/check evidence and hands command or final-check requirements back to an approved writer. Missing shell access alone is not a human judgment or a reason to widen permissions. Tool adapters and storage continue to enforce access independently of that brief.
+
 Resource environments are optional. [Project preparation](../tools/project-runtime/README.md) owns locked Node installation, restricted network access, disabled scripts/hooks and private caches. Production copies prepared dependencies into the selected Linux/Mac workspace; tools and final checks run without networking. Missing tools/preparation failures remain explicit, and Server validates check coverage.
 
 Go validates exported archive paths, types, limits and digest before [Server publication](architecture.md#file-and-publication-ownership). Only confirmed captured bytes survive failure. LayerFS is disposable; prepared Linux baselines use the bounded [cache policy](../apps/server/internal/nativeexecutor/cache.go), and private session logs have a separate lifetime from temporary seeds/archives.

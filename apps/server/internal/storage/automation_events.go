@@ -214,7 +214,7 @@ var githubPublicationMarker = regexp.MustCompile(`<!-- camp-delivery:([a-f0-9]{3
 // Only actions the publication worker itself performs are echoes. New comments,
 // edits, changed heads and another actor remain normal independent evidence.
 func automationOwnGitHubPublication(ctx context.Context, q *sqlgen.Queries, event GitHubEvent) (bool, error) {
-	if event.Action != "opened" && (event.Action != "closed" || !event.Merged) {
+	if event.Action != "opened" && event.Action != "synchronize" && (event.Action != "closed" || !event.Merged) {
 		return false, nil
 	}
 	marker := githubPublicationMarker.FindStringSubmatch(event.Body)
@@ -235,7 +235,7 @@ func automationOwnGitHubPublication(ctx context.Context, q *sqlgen.Queries, even
 	if event.ActorID != d.ActorID || event.RepositoryID != d.RepositoryID || event.HeadRepositoryID != d.RepositoryID || event.HeadSHA != d.HeadSHA || event.HeadRef != d.Branch || event.BaseRef != d.Spec.BaseBranch || event.Body != d.PullRequestBody() || event.Title != d.Title || d.HeadSHA == "" {
 		return false, nil
 	}
-	if event.Action == "opened" {
+	if event.Action == "opened" || (event.Action == "synchronize" && d.Repairs > 0 && d.PullRequest == event.Number) {
 		return true, nil
 	}
 	return d.PullRequest == event.Number && ((d.MergeSHA != "" && d.MergeSHA == event.MergeSHA) || (d.Stage == "merge" && d.Status == "working")), nil

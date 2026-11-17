@@ -183,6 +183,16 @@ type GithubDeliveryReceipt struct {
 	Value      string
 }
 
+type GithubDeliverySource struct {
+	DeliveryID     string
+	Attempt        int64
+	ResourceID     string
+	BaselineCommit string
+	ResultCommit   string
+	TaskID         string
+	CreatedAt      string
+}
+
 type GithubEvent struct {
 	Seq            int64
 	ID             string
@@ -372,6 +382,20 @@ type PersonalRunnerDefault struct {
 	UserID   string
 	RunnerID sql.NullString
 	Revision int64
+}
+
+type ProjectSetting struct {
+	OwnerUserID string
+	RoomID      string
+	Revision    int64
+	Value       string
+}
+
+type ProjectSettingRequest struct {
+	OwnerUserID string
+	RequestID   string
+	RequestHash string
+	Result      string
 }
 
 type Resource struct {

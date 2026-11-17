@@ -13,6 +13,7 @@ export interface WorkBudget {
 }
 
 export interface WorkItem {
+  projectRevision?: number;
   githubDelivery?: GitHubDelivery;
   seq: number;
   id: string;
@@ -104,6 +105,7 @@ export interface WorkItem {
 }
 
 export interface WorkItemInput {
+  projectRevision?: number;
   githubDelivery?: GitHubDeliverySpec;
   completionMode?: 'automatic' | 'human';
   requestId: string;
@@ -125,6 +127,7 @@ export interface WorkItemInput {
 }
 
 export interface WorkItemDefaults {
+  project?: ProjectSettings;
   budget: WorkBudget;
   expiresAt: string;
   participantAgentIds: string[];
@@ -132,7 +135,21 @@ export interface WorkItemDefaults {
   execution: { maxTurns: number; maxModelRequests: number };
 }
 
+export interface ProjectSettings {
+  roomId: string;
+  revision: number;
+  enabled: boolean;
+  participantAgentIds: string[];
+  firstAgentId: string;
+  budget: WorkBudget;
+  completionMode: 'automatic' | 'human';
+  githubDelivery?: GitHubDeliverySpec;
+  ruleId?: string;
+  ruleRevision?: number;
+}
+
 export type WorkActionName =
+  | 'repair_delivery'
   | 'retry_delivery'
   | 'completion'
   | 'start'

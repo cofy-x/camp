@@ -32,10 +32,13 @@ export function GitHubDeliverySummary({
           : 'GitHub repository'}{' '}
         · {value.baseBranch} ·{' '}
         {value.mode === 'release'
-          ? `Merge and release ${value.tag ?? ''} after CI`
+          ? `Merge and release ${value.versionLine ? value.versionLine + '.x from package.json' : (value.tag ?? '')} after CI`
           : value.mode === 'merge'
             ? 'Merge after CI'
             : 'Open pull request'}
+        {value.maxRepairs
+          ? ` · ${value.maxRepairs} automatic repair${value.maxRepairs === 1 ? '' : 's'} within the total allowance`
+          : ''}
       </p>
       {!ready && (
         <p

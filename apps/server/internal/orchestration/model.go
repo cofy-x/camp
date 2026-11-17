@@ -21,21 +21,31 @@ const (
 // Trigger identifies an immutable source event. Content remains with its owning
 // Message or task request; source metadata cannot widen an execution grant.
 type Trigger struct {
-	WorkItemID    string         `json:"workItemId,omitempty"`
-	Source        string         `json:"source"`
-	EventID       string         `json:"eventId"`
-	Kind          Kind           `json:"kind"`
-	ActorKind     string         `json:"actorKind"`
-	ActorID       string         `json:"actorId"`
-	RoomID        string         `json:"roomId"`
-	ThreadRootID  string         `json:"threadRootId"`
-	MessageID     string         `json:"messageId,omitempty"`
-	TaskID        string         `json:"taskId,omitempty"`
-	SourceEventID string         `json:"sourceEventId,omitempty"`
-	Request       *RequestRef    `json:"request,omitempty"`
-	Automation    *AutomationRef `json:"automation,omitempty"`
-	InputRevision int64          `json:"inputRevision,omitempty"`
-	OccurredAt    string         `json:"occurredAt"`
+	WorkItemID     string             `json:"workItemId,omitempty"`
+	Source         string             `json:"source"`
+	EventID        string             `json:"eventId"`
+	Kind           Kind               `json:"kind"`
+	ActorKind      string             `json:"actorKind"`
+	ActorID        string             `json:"actorId"`
+	RoomID         string             `json:"roomId"`
+	ThreadRootID   string             `json:"threadRootId"`
+	MessageID      string             `json:"messageId,omitempty"`
+	TaskID         string             `json:"taskId,omitempty"`
+	SourceEventID  string             `json:"sourceEventId,omitempty"`
+	Request        *RequestRef        `json:"request,omitempty"`
+	Automation     *AutomationRef     `json:"automation,omitempty"`
+	DeliveryRepair *DeliveryRepairRef `json:"deliveryRepair,omitempty"`
+	InputRevision  int64              `json:"inputRevision,omitempty"`
+	OccurredAt     string             `json:"occurredAt"`
+}
+
+// DeliveryRepairRef binds finite repair admission to an immutable delivery
+// claim, exact source head and attempt; it is not a fresh human instruction.
+type DeliveryRepairRef struct {
+	DeliveryID string `json:"deliveryId"`
+	Revision   int64  `json:"revision"`
+	HeadSHA    string `json:"headSha"`
+	Attempt    int    `json:"attempt"`
 }
 
 // AutomationRef locates the policy revision and frozen assessment that delegated

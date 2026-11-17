@@ -25,6 +25,7 @@ import {
 
 type Selection =
   | { kind: 'list' }
+  | { kind: 'project'; roomId: string }
   | {
       kind: 'create';
       roomId: string;
@@ -245,9 +246,11 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
       window.id,
       selection.kind === 'create'
         ? 'New Work'
-        : location
-          ? `${location} — Work`
-          : 'Work',
+        : selection.kind === 'project'
+          ? `${location ? location + ' — ' : ''}Project settings`
+          : location
+            ? `${location} — Work`
+            : 'Work',
     );
   }, [desktop, window.id, location, selection.kind]);
   useEffect(
@@ -370,6 +373,17 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
         setRoomFilter(roomId);
         resetPage();
       }),
+    projectSettings: () =>
+      void move(() => {
+        setSelection({
+          kind: 'project',
+          roomId:
+            activeRoomId ||
+            roomFilter ||
+            (rooms.length === 1 ? rooms[0].id : ''),
+        });
+        setInspection({ taskId: '', runId: '' });
+      }),
     newWork: () =>
       void move(() => {
         const roomId = roomFilter || (rooms.length === 1 ? rooms[0].id : '');
@@ -383,7 +397,9 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
     creationRoom: (roomId: string) =>
       void move(() =>
         setSelection((current) =>
-          current.kind === 'create' ? { ...current, roomId } : current,
+          current.kind === 'create' || current.kind === 'project'
+            ? { ...current, roomId }
+            : current,
         ),
       ),
     openTask: (taskId: string) =>

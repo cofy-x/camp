@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -51,60 +52,75 @@ func populateGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestra
 	if e != nil {
 		return e
 	}
+	d.Diagnostics = "" // Full evidence stays in immutable receipts and task inputs.
 	w.GitHubDelivery = &d
 	return nil
 }
-func authorizeGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem, spec *orchestration.GitHubDeliverySpec) error {
-	if spec == nil {
-		return nil
-	}
-	if w.CompletionMode != "automatic" || w.PolicyID != "" {
-		return problem("invalid_delivery", "GitHub delivery needs a directly authorized Work with automatic completion.")
-	}
+func validateGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w orchestration.WorkItem, spec *orchestration.GitHubDeliverySpec) (orchestration.GitHubRepository, int, error) {
 	row, e := q.GitHubRepository(ctx, spec.ConnectionID)
 	if e != nil {
-		return missing(e, "The repository connection")
+		return orchestration.GitHubRepository{}, 0, missing(e, "The repository connection")
 	}
 	if row.OwnerUserID != w.OwnerUserID || row.OwnerUserID != actorID(ctx) || row.Enabled == 0 {
-		return problem("forbidden", "Choose your own enabled repository connection.")
+		return orchestration.GitHubRepository{}, 0, problem("forbidden", "Choose your own enabled repository connection.")
 	}
 	if row.Revision != spec.ConnectionRevision {
-		return problem("revision_conflict", "The repository connection changed. Review its current settings.")
+		return orchestration.GitHubRepository{}, 0, problem("revision_conflict", "The repository connection changed. Review its current settings.")
 	}
 	connection, e := repositoryValue(row)
 	if e != nil {
-		return e
+		return orchestration.GitHubRepository{}, 0, e
 	}
 	if !validGitHubRef(spec.BaseBranch) {
-		return problem("invalid_delivery", "Choose a valid target branch.")
+		return orchestration.GitHubRepository{}, 0, problem("invalid_delivery", "Choose a valid target branch.")
 	}
 	effects := 2
 	switch spec.Mode {
 	case "pr":
 		if spec.Tag != "" || spec.WaitForDeployment {
-			return problem("invalid_delivery", "A pull request cannot publish a release or deployment.")
+			return orchestration.GitHubRepository{}, 0, problem("invalid_delivery", "A pull request cannot publish a release or deployment.")
 		}
 	case "merge":
 		effects = 3
 		if spec.Tag != "" {
-			return problem("invalid_delivery", "Choose release mode to publish a tag.")
+			return orchestration.GitHubRepository{}, 0, problem("invalid_delivery", "Choose release mode to publish a tag.")
 		}
 	case "release":
 		effects = 4
-		if !validGitHubRef(spec.Tag) {
-			return problem("invalid_delivery", "Provide an exact valid release tag.")
+		if spec.VersionLine == "" && !validGitHubRef(spec.Tag) {
+			return orchestration.GitHubRepository{}, 0, problem("invalid_delivery", "Provide an exact valid release tag.")
 		}
 	default:
-		return problem("invalid_delivery", "Choose pull request, merge, or release.")
+		return orchestration.GitHubRepository{}, 0, problem("invalid_delivery", "Choose pull request, merge, or release.")
 	}
 	if spec.Mode != "pr" && connection.CIWorkflowID < 1 {
-		return problem("invalid_delivery", "Configure a required CI workflow before automatic merging.")
+		return orchestration.GitHubRepository{}, 0, problem("invalid_delivery", "Configure a required CI workflow before automatic merging.")
 	}
 	if spec.WaitForDeployment && connection.DeploymentWorkflowID < 1 {
-		return problem("invalid_delivery", "Configure the deployment workflow first.")
+		return orchestration.GitHubRepository{}, 0, problem("invalid_delivery", "Configure the deployment workflow first.")
 	}
 	if w.Usage.Actions+effects > w.Budget.MaxActions {
-		return problem("work_budget_exhausted", "The delivery exceeds this matter's finite external action allowance.")
+		return orchestration.GitHubRepository{}, 0, problem("work_budget_exhausted", "The delivery exceeds this matter's finite external action allowance.")
+	}
+	if spec.MaxRepairs < 0 || spec.MaxRepairs > 3 || (spec.MaxRepairs > 0 && spec.Mode == "pr") {
+		return orchestration.GitHubRepository{}, 0, problem("invalid_delivery", "Allow zero to three repairs for a checked delivery.")
+	}
+	if spec.VersionLine != "" && (spec.Mode != "release" || spec.Tag != "" || !validVersionLine(spec.VersionLine)) {
+		return orchestration.GitHubRepository{}, 0, problem("invalid_delivery", "Use a major.minor release line with the version from package.json, or an exact tag.")
+	}
+	return connection, effects, nil
+}
+
+func authorizeGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem, spec *orchestration.GitHubDeliverySpec, first ...string) error {
+	if spec == nil {
+		return nil
+	}
+	if w.CompletionMode != "automatic" {
+		return problem("invalid_delivery", "GitHub delivery needs automatic completion.")
+	}
+	connection, effects, e := validateGitHubDelivery(ctx, q, *w, spec)
+	if e != nil {
+		return e
 	}
 	room, e := q.GetRoom(ctx, w.RoomID)
 	if e != nil {
@@ -115,6 +131,24 @@ func authorizeGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestr
 		return e
 	}
 	d := orchestration.GitHubDelivery{SourceSelection: "gitignore-v1", ID: newID(), WorkItemID: w.ID, RoomID: w.RoomID, Repository: connection.Repository, RepositoryID: connection.RepositoryID, Private: connection.Private, ActorID: connection.ActorID, CIWorkflowID: connection.CIWorkflowID, DeploymentWorkflowID: connection.DeploymentWorkflowID, Spec: *spec, Stage: "result", Status: "waiting_result", Revision: 1, ResourceID: room.ResourceID, BaselineCommit: resource.CurrentCommit, Title: truncateUTF8(strings.Split(w.Goal, "\n")[0], 180), CreatedAt: now()}
+	if w.PolicyID != "" {
+		policy, err := workPolicyForItem(ctx, q, *w)
+		if err != nil {
+			return err
+		}
+		d.PolicyRevision = policy.Revision
+		d.FirstAgentID = policy.FirstAgentID
+		if source, err := q.GetGitHubSource(ctx, policy.SourceID); err == nil && source.RepositoryID == d.RepositoryID && source.RoomID == w.RoomID {
+			for _, actor := range policy.AllowedActorIDs {
+				if id, err := strconv.ParseInt(actor, 10, 64); err == nil && id > 0 {
+					d.ReviewerIDs = append(d.ReviewerIDs, id)
+				}
+			}
+		}
+	}
+	if len(first) > 0 {
+		d.FirstAgentID = first[0]
+	}
 	d.Branch = "camp/work-" + d.ID
 	raw, _ := json.Marshal(d)
 	if e = q.InsertGitHubPublication(ctx, sqlgen.InsertGitHubPublicationParams{ID: d.ID, WorkItemID: w.ID, ConnectionID: connection.ID, Status: d.Status, Value: string(raw)}); e != nil {
@@ -153,16 +187,36 @@ func prepareGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestrat
 	if e != nil {
 		return e
 	}
-	if d.Status != "waiting_result" {
+	if d.Status != "waiting_result" && !((d.Status == "repairing" || d.Status == "blocked" && d.FailureCode == "execution_result") && d.RepairTaskID == task.ID) {
 		return nil
 	}
 	if task.PublishedCommit == "" || task.ResourceID != d.ResourceID || task.BaseSharedCommit != d.BaselineCommit {
 		d.Status = "blocked"
+		d.FailureCode = "source_changed"
 		d.Reason = "Room files changed from the originally authorized delivery baseline. The published result is retained; review its source before external delivery."
 		return saveGitHubDelivery(ctx, q, &d)
 	}
+	if d.InitialResultCommit == "" && d.Spec.MaxRepairs > 0 {
+		d.InitialResultCommit = task.PublishedCommit
+	}
+	if d.InitialTaskID == "" {
+		d.InitialTaskID = task.ID
+		for _, participant := range task.Participants {
+			d.ParticipantAgentIDs = append(d.ParticipantAgentIDs, participant.Agent.ID)
+		}
+		if d.FirstAgentID == "" && len(d.ParticipantAgentIDs) > 0 {
+			d.FirstAgentID = d.ParticipantAgentIDs[0]
+		}
+	}
 	d.ResultCommit = task.PublishedCommit
+	if d.PullRequestEnvelope == "" {
+		d.PullRequestEnvelope = d.PullRequestBody()
+	}
+	if e = q.InsertGitHubDeliverySource(ctx, sqlgen.InsertGitHubDeliverySourceParams{DeliveryID: d.ID, Attempt: int64(d.Repairs), ResourceID: d.ResourceID, BaselineCommit: d.BaselineCommit, ResultCommit: d.ResultCommit, TaskID: task.ID, CreatedAt: now()}); e != nil {
+		return e
+	}
 	d.Stage, d.Status = "prepare", "queued"
+	d.FailureCode, d.Diagnostics, d.Reason = "", "", ""
 	d.NextCheckAt = now()
 	deadline := time.Now().Add(time.Hour)
 	expiry, _ := time.Parse(time.RFC3339Nano, w.ExpiresAt)
@@ -202,6 +256,15 @@ func (s *Store) ClaimGitHubDelivery(ctx context.Context) (out *GitHubDeliveryCla
 			owner, e := q.GetUser(ctx, w.OwnerUserID)
 			if e != nil {
 				return e
+			}
+			if !d.Reconcile {
+				if authority := githubProjectAuthority(ctx, q, w, d); authority != nil {
+					d.Status, d.FailureCode, d.Reason = "blocked", "project_changed", authority.Error()
+					if e = githubDeliveryAttention(ctx, q, &w, &d); e != nil {
+						return e
+					}
+					continue
+				}
 			}
 			stopped := w.StopRequested || workTerminal(w)
 			if !owner.Enabled || ((repo.Enabled == 0 || workExpired(w)) && !d.Reconcile) {
@@ -270,7 +333,7 @@ func (s *Store) ClaimGitHubDelivery(ctx context.Context) (out *GitHubDeliveryCla
 	return
 }
 func githubVisibleStage(stage string) bool {
-	return stage == "branch" || stage == "pull_request" || stage == "merge" || stage == "release"
+	return stage == "branch" || stage == "update_branch" || stage == "pull_request" || stage == "merge" || stage == "release"
 }
 func githubDeliveryAttention(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem, d *orchestration.GitHubDelivery) error {
 	if e := saveGitHubDelivery(ctx, q, d); e != nil {
@@ -287,7 +350,7 @@ func githubDeliveryAttention(ctx context.Context, q *sqlgen.Queries, w *orchestr
 	return event(ctx, q, "work_item.updated", d.RoomID, d.WorkItemID)
 }
 
-func (s *Store) CompleteGitHubDelivery(ctx context.Context, id string, revision int64, result orchestration.GitHubDeliveryResult) error {
+func (s *Store) CompleteGitHubDelivery(ctx context.Context, id string, revision int64, result orchestration.GitHubDeliveryResult, budgets ...Budget) error {
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
 		rawResult, _ := json.Marshal(result)
@@ -332,6 +395,39 @@ func (s *Store) CompleteGitHubDelivery(ctx context.Context, id string, revision 
 			d.Reason = "The receipt was retained; further delivery is withdrawn because its matter changed."
 		}
 		if d.Status == "blocked" || d.Status == "unknown" {
+			if current && d.Status == "blocked" && (d.FailureCode == "ci_failed" || d.FailureCode == "review_changes") && d.Spec.MaxRepairs > d.Repairs && !d.Reconcile {
+				var budget Budget
+				if len(budgets) > 0 {
+					budget = budgets[0]
+				}
+				if _, e = tx.ExecContext(ctx, "SAVEPOINT delivery_repair"); e != nil {
+					return e
+				}
+				repairErr := startGitHubRepair(ctx, q, &w, &d, budget)
+				if repairErr == nil {
+					_, e = tx.ExecContext(ctx, "RELEASE delivery_repair")
+					return e
+				}
+				var domain *Error
+				if !errors.As(repairErr, &domain) {
+					return repairErr
+				}
+				if _, e = tx.ExecContext(ctx, "ROLLBACK TO delivery_repair"); e != nil {
+					return e
+				}
+				if _, e = tx.ExecContext(ctx, "RELEASE delivery_repair"); e != nil {
+					return e
+				}
+				w, e = getWorkItem(ctx, q, d.WorkItemID)
+				if e != nil {
+					return e
+				}
+				d = result.Delivery
+				d.FailureCode, d.Reason = domain.Code, domain.Message
+			}
+			if d.Spec.MaxRepairs > 0 && d.Repairs >= d.Spec.MaxRepairs && (d.FailureCode == "ci_failed" || d.FailureCode == "review_changes") {
+				d.FailureCode, d.Reason = "repair_limit", d.Reason+" The automatic repair allowance ended. Review the result before authorizing new work."
+			}
 			return githubDeliveryAttention(ctx, q, &w, &d)
 		}
 		if e = saveGitHubDelivery(ctx, q, &d); e != nil {
@@ -489,4 +585,10 @@ func retryGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestratio
 	d.Deadline = deadline.UTC().Format(time.RFC3339Nano)
 	w.WaitCondition = "Waiting for confirmed GitHub delivery receipts."
 	return saveGitHubDelivery(ctx, q, &d)
+}
+
+var versionLinePattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+
+func validVersionLine(line string) bool {
+	return len(line) <= 24 && versionLinePattern.MatchString(line)
 }

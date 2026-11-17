@@ -5,6 +5,7 @@ import {
   type AppWindowProps,
 } from '@cofy-x/camp-platinum';
 import { WorkItemDetail } from './WorkItemDetail';
+import { ProjectSettings } from './ProjectSettings';
 import { WorkItemForm } from './WorkItemForm';
 import { TaskDetail } from '../collaboration/TaskDetail';
 import { RunInspector } from '../workspace/RunInspector';
@@ -64,7 +65,10 @@ export function Work(props: AppWindowProps) {
             onClick={(event) => {
               const rect = event.currentTarget.getBoundingClientRect();
               props.desktop.contextMenu(
-                [{ label: 'Refresh', action: work.refresh }],
+                [
+                  { label: 'Project settings…', action: work.projectSettings },
+                  { label: 'Refresh', action: work.refresh },
+                ],
                 { x: rect.left, y: rect.bottom },
               );
             }}
@@ -76,7 +80,7 @@ export function Work(props: AppWindowProps) {
           </Button>
         </div>
       </div>
-      {selection.kind === 'create' && (
+      {(selection.kind === 'create' || selection.kind === 'project') && (
         <div className="app-toolbar work-app-toolbar work-create-toolbar">
           <Button onClick={work.showList}>Back to Work</Button>
           <Select
@@ -180,6 +184,15 @@ export function Work(props: AppWindowProps) {
               )}
             </div>
           </div>
+          {selection.kind === 'project' && selection.roomId && context && (
+            <ProjectSettings
+              key={selection.roomId}
+              roomId={selection.roomId}
+              members={context.members}
+              policies={context.policies}
+              onClose={work.showList}
+            />
+          )}
           {selection.kind === 'create' && (
             <div className="work-create">
               <WorkItemForm
@@ -238,6 +251,7 @@ export function Work(props: AppWindowProps) {
                   onOpenTask={work.openTask}
                   onViewProgress={work.viewProgress}
                   onOpenRoom={openRoom}
+                  onProjectSettings={work.projectSettings}
                 />
               )}
             </div>

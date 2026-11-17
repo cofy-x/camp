@@ -21,6 +21,12 @@ func (c *Client) prepare(ctx context.Context, token, base string, d orchestratio
 		return "", "", errors.New("the target branch is unavailable")
 	}
 	parent = ref.Object.SHA
+	if d.PreviousHeadSHA != "" {
+		if err = c.call(ctx, token, "GET", base+"/git/ref/heads/"+url.PathEscape(d.Branch), nil, &ref); err != nil || ref.Object.SHA != d.PreviousHeadSHA {
+			return "", "", errors.New("the previously accepted pull request head changed")
+		}
+		parent = d.PreviousHeadSHA
+	}
 	if !validSHA(parent) {
 		return "", "", errors.New("the target source version is invalid")
 	}

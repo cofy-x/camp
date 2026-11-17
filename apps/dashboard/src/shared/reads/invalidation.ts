@@ -124,7 +124,7 @@ export function affectedRead(path: string, event: WorkspaceEvent): boolean {
   if (room && route.endsWith('/work-item-defaults'))
     return (
       (!event.roomId || room === event.roomId) &&
-      /^(room\.updated|membership\.updated|agent\.updated|runner\.updated|execution_defaults\.updated|automation\.policy\.updated)$/.test(
+      /^(project\.updated|room\.updated|membership\.updated|agent\.updated|runner\.updated|execution_defaults\.updated|automation\.policy\.updated)$/.test(
         type,
       )
     );

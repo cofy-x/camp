@@ -119,7 +119,7 @@ func Conversation(ctx context.Context, reader ConversationReader, run storage.Ru
 	}{origin.AuthorName, origin.AuthorUserID})
 	text += "\nCurrent requester: " + string(requester) + "\nCurrent request:\n" + run.Prompt + "\n"
 	if run.AgentSnapshot.Access == "read" {
-		text += "Your access is read-only. Inspect and explain when useful; do not attempt file writes or dependency installation.\n"
+		text += "Your access is read-only. Available tools provide file reads and bounded discovery, without shell or command execution. Inspect and explain when useful; do not attempt file writes or dependency installation, and do not claim command checks. In a collaboration, hand command/check requirements back to an approved writer instead of requesting broader tools from a person.\n"
 	} else {
 		text += "Work only in /workspace. Create or change files when the request calls for it. Read applicable repository instructions and run relevant available checks. Do not install tools or dependencies unless explicitly requested and supported.\n"
 	}

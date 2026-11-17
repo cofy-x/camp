@@ -60,6 +60,10 @@ func (s *Store) WorkItemDefaults(ctx context.Context, room, policyID string) (ou
 			return missing(e, "The Room")
 		}
 		out = orchestration.WorkItemDefaults{Budget: defaultWorkBudget(orchestration.WorkBudget{}), ExpiresAt: time.Now().Add(workAuthorizationLifetime).UTC().Format(time.RFC3339Nano), ParticipantAgentIDs: []string{}, Execution: orchestration.WorkExecutionAllowance{MaxTurns: defaultWorkTurns, MaxModelRequests: defaultWorkRequests}}
+		out.Project, e = projectSettings(ctx, q, actorID(ctx), room)
+		if e != nil {
+			return e
+		}
 		if policyID != "" {
 			row, e := q.GetAutomationPolicyID(ctx, policyID)
 			if e != nil {
@@ -91,6 +95,12 @@ func (s *Store) WorkItemDefaults(ctx context.Context, room, policyID string) (ou
 		}
 		if out.FirstAgentID != "" {
 			out.ParticipantAgentIDs = []string{out.FirstAgentID}
+		}
+		if p := out.Project; p != nil && p.Enabled {
+			out.Budget = p.Budget
+			out.ParticipantAgentIDs = append([]string{}, p.ParticipantAgentIDs...)
+			out.FirstAgentID = p.FirstAgentID
+			out.Execution.MaxModelRequests = min(defaultWorkRequests, p.Budget.MaxModelRequests)
 		}
 		return nil
 	})
@@ -283,7 +293,7 @@ func workIntentReason(in orchestration.WorkItemOperation) (string, string, error
 		}
 		return in.Content, "user", nil
 	}
-	labels := map[string]string{"retry_delivery": "Resumed the originally authorized GitHub delivery after repair.", "execute": "Started a finite collaboration.", "wait": "Scheduled a follow-up.", "complete": "Confirmed the matter is complete.", "stop": "Stopped this matter.", "cancel": "Stopped future follow-ups.", "delegate": "Changed automatic follow-up delegation.", "evidence": "Associated immutable source evidence.", "follow": "Followed a source conversation.", "unfollow": "Stopped following a source conversation.", "completion": "Changed the completion authorization for future work.", "authorize": "Changed the finite authorization.", "request_judgment": "Requested a human judgment.", "ignore": "Recorded no action for this evidence."}
+	labels := map[string]string{"repair_delivery": "Authorized one finite repair of the recorded delivery failure.", "retry_delivery": "Resumed the originally authorized GitHub delivery after repair.", "execute": "Started a finite collaboration.", "wait": "Scheduled a follow-up.", "complete": "Confirmed the matter is complete.", "stop": "Stopped this matter.", "cancel": "Stopped future follow-ups.", "delegate": "Changed automatic follow-up delegation.", "evidence": "Associated immutable source evidence.", "follow": "Followed a source conversation.", "unfollow": "Stopped following a source conversation.", "completion": "Changed the completion authorization for future work.", "authorize": "Changed the finite authorization.", "request_judgment": "Requested a human judgment.", "ignore": "Recorded no action for this evidence."}
 	return labels[in.Kind], "system", nil
 }
 

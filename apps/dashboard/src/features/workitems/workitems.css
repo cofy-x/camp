@@ -392,3 +392,9 @@ button.work-activity-heading:hover {
 .work-item-delivery > .p9-button {
   justify-self: start;
 }
+
+.work-item-form .work-proposal {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
