@@ -105,11 +105,9 @@ export function DocumentEditor({
       const commit = result.publication.commit;
       const current = draft.getValue();
       if (current?.baseCommit === submitted.baseCommit) {
-        draft.setValue(
-          current.content === submitted.content
-            ? null
-            : { ...current, baseCommit: commit },
-        );
+        if (current.content === submitted.content)
+          draft.setValue(null, { keepSavedOnConflict: true });
+        else draft.setValue({ ...current, baseCommit: commit });
       }
       setPublished({ content: submitted.content, commit });
       setSharedConflict(false);

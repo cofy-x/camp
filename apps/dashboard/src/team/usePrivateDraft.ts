@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { APIError } from '../shared/api/http';
 import { teamApi, type PrivateDraft } from './api';
 import { useAccount } from './AuthContext';
 import { registerDraftWriter } from './draftRegistry';
@@ -18,7 +19,8 @@ export function usePrivateDraft<T>(kind: string, key: string, initial: T) {
     serial: 0,
     saved: 0,
     loaded: false,
-    blocked: false,
+    blocked: '' as '' | 'revision_conflict' | 'save_failed',
+    keepSavedOnConflict: false,
     mounted: true,
   });
   const active = useRef<Promise<boolean> | null>(null);
@@ -58,11 +60,13 @@ export function usePrivateDraft<T>(kind: string, key: string, initial: T) {
         current.loaded = true;
         current.serial = local ? 1 : 0;
         current.saved = 0;
-        current.blocked = Boolean(
+        current.blocked =
           local &&
           local.revision !== draft.revision &&
-          JSON.stringify(local.value) !== JSON.stringify(draft.value),
-        );
+          JSON.stringify(local.value) !== JSON.stringify(draft.value)
+            ? 'revision_conflict'
+            : '';
+        current.keepSavedOnConflict = false;
         setValueState(next);
         setLoaded(true);
         setError(
@@ -85,6 +89,18 @@ export function usePrivateDraft<T>(kind: string, key: string, initial: T) {
       current.mounted = false;
     };
   }, [kind, key, storageKey, loadAttempt]);
+  const keepSavedDraft = useCallback(() => {
+    const current = state.current;
+    // Retire the local operation while keeping its observed revision. Future
+    // edits must still compare before replacing the newer saved text.
+    current.saved = current.serial;
+    current.blocked = '';
+    backup(null);
+    if (current.mounted) {
+      setComparison(null);
+      setError('');
+    }
+  }, [backup]);
   const flush = useCallback((): Promise<boolean> => {
     const current = state.current;
     if (active.current) return active.current;
@@ -117,7 +133,13 @@ export function usePrivateDraft<T>(kind: string, key: string, initial: T) {
         if (current.mounted) setError('');
         return current.serial === current.saved;
       } catch (error) {
-        current.blocked = true;
+        const changed =
+          error instanceof APIError && error.code === 'revision_conflict';
+        if (changed && current.keepSavedOnConflict) {
+          keepSavedDraft();
+          return true;
+        }
+        current.blocked = changed ? 'revision_conflict' : 'save_failed';
         if (current.mounted)
           setError(
             error instanceof Error
@@ -132,17 +154,23 @@ export function usePrivateDraft<T>(kind: string, key: string, initial: T) {
     })();
     active.current = task;
     return task;
-  }, [kind, key, backup]);
+  }, [kind, key, backup, keepSavedDraft]);
   const getValue = useCallback(() => state.current.value, []);
   const setValue = useCallback(
-    (next: T) => {
+    (next: T, { keepSavedOnConflict = false } = {}) => {
       const current = state.current;
       current.value = next;
       current.serial++;
-      backup({ value: next, revision: current.revision });
+      current.keepSavedOnConflict = next === null && keepSavedOnConflict;
+      if (
+        current.keepSavedOnConflict &&
+        current.blocked === 'revision_conflict'
+      )
+        keepSavedDraft();
+      else backup({ value: next, revision: current.revision });
       setValueState(next);
     },
-    [backup],
+    [backup, keepSavedDraft],
   );
   const inspectConflict = useCallback(async () => {
     if (!state.current.loaded) {
@@ -165,7 +193,7 @@ export function usePrivateDraft<T>(kind: string, key: string, initial: T) {
       return false;
     }
     state.current.revision = comparison.revision;
-    state.current.blocked = false;
+    state.current.blocked = '';
     state.current.serial++;
     setComparison(null);
     return flush();
@@ -176,7 +204,8 @@ export function usePrivateDraft<T>(kind: string, key: string, initial: T) {
     state.current.value = next;
     state.current.revision = comparison.revision;
     state.current.saved = state.current.serial;
-    state.current.blocked = false;
+    state.current.blocked = '';
+    state.current.keepSavedOnConflict = false;
     backup(null);
     setValueState(next);
     setComparison(null);

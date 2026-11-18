@@ -9,90 +9,125 @@ import {
   workspace,
 } from './team-helpers';
 
-test('a publication receipt preserves a newer private draft saved elsewhere', async ({
-  page,
-}, info) => {
-  await signIn(page);
-  const room = await createRoom(
+for (const editDuringCleanup of [false, true]) {
+  test(`publication preserves a newer saved draft with ${editDuringCleanup ? 'continued local typing' : 'a clean local editor'}`, async ({
     page,
-    `publish-draft-race-${info.project.name}`,
-  );
-  await workspace(page)
-    .getByRole('button', { name: 'Files', exact: true })
-    .click();
-  await newDocument(page, 'handoff.md', 'Text submitted for publication.');
-  const key = `${room.resourceId}:handoff.md`;
-  const readDraft = async () =>
-    (
-      await (
-        await page.request.get(
-          `/api/me/drafts/document?key=${encodeURIComponent(key)}`,
-        )
-      ).json()
-    ).draft;
-  await expect
-    .poll(async () => (await readDraft()).value?.content)
-    .toBe('Text submitted for publication.');
-  let release!: () => void;
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  let acceptedCommit = '';
-  await page.route(
-    `**/api/resources/${room.resourceId}/files`,
-    async (route) => {
-      if (route.request().method() !== 'PUT') return route.fallback();
-      const response = await route.fetch();
-      expect(response.ok()).toBe(true);
-      acceptedCommit = (await response.json()).publication.commit;
-      await held;
-      return route.fulfill({ response });
-    },
-  );
-  try {
-    const win = library(page);
-    await win
-      .getByRole('button', { name: 'Publish Changes', exact: true })
-      .click();
-    await expect.poll(() => acceptedCommit).not.toBe('');
-    const original = await readDraft();
-    const other = {
-      ...original.value,
-      baseCommit: acceptedCommit,
-      content: 'New work from another session.',
-    };
-    const update = await mutate(
+  }, info) => {
+    await signIn(page);
+    const room = await createRoom(
       page,
-      '/me/drafts/document',
-      { key, value: other, revision: original.revision },
-      'PUT',
+      `publish-draft-race-${info.project.name}-${editDuringCleanup}`,
     );
-    expect(update.ok()).toBe(true);
-    release();
-    await expect(win.getByRole('alert')).toContainText('saved draft changed');
-    expect((await readDraft()).value).toEqual(other);
-    await win
-      .getByRole('button', { name: 'Compare Private Drafts', exact: true })
+    await workspace(page)
+      .getByRole('button', { name: 'Files', exact: true })
       .click();
-    await expect(win.getByText(other.content, { exact: true })).toBeVisible();
-    await expect(
-      win.getByRole('button', { name: 'Save My Draft', exact: true }),
-    ).toHaveCount(0);
-    await win
-      .getByRole('button', { name: 'Use Other Draft', exact: true })
-      .click();
-    await expect(
-      win.getByLabel('Document content', { exact: true }),
-    ).toHaveValue(other.content);
-    const shared = await page.request.get(
-      `/api/resources/${room.resourceId}/file?path=handoff.md&commit=${acceptedCommit}`,
+    const submitted = 'Text submitted for publication.';
+    await newDocument(page, 'handoff.md', submitted);
+    const key = `${room.resourceId}:handoff.md`;
+    const readDraft = async () =>
+      (
+        await (
+          await page.request.get(
+            `/api/me/drafts/document?key=${encodeURIComponent(key)}`,
+          )
+        ).json()
+      ).draft;
+    await expect
+      .poll(async () => (await readDraft()).value?.content)
+      .toBe(submitted);
+    let finishPublication!: () => void;
+    const publicationHeld = new Promise<void>((resolve) => {
+      finishPublication = resolve;
+    });
+    let finishCleanup!: () => void;
+    const cleanupHeld = new Promise<void>((resolve) => {
+      finishCleanup = resolve;
+    });
+    let acceptedCommit = '';
+    let cleanupRejected = false;
+    await page.route(
+      `**/api/resources/${room.resourceId}/files`,
+      async (route) => {
+        if (route.request().method() !== 'PUT') return route.fallback();
+        const response = await route.fetch();
+        expect(response.ok()).toBe(true);
+        acceptedCommit = (await response.json()).publication.commit;
+        await publicationHeld;
+        return route.fulfill({ response });
+      },
     );
-    expect(await shared.text()).toBe('Text submitted for publication.');
-  } finally {
-    release();
-    await page.unrouteAll({ behavior: 'wait' });
-  }
-});
+    await page.route('**/api/me/drafts/document', async (route) => {
+      if (route.request().method() !== 'DELETE') return route.fallback();
+      expect(route.request().postDataJSON().key).toBe(key);
+      const response = await route.fetch();
+      expect(response.status()).toBe(409);
+      cleanupRejected = true;
+      await cleanupHeld;
+      return route.fulfill({ response });
+    });
+    try {
+      const win = library(page);
+      const editor = win.getByLabel('Document content', { exact: true });
+      await win
+        .getByRole('button', { name: 'Publish Changes', exact: true })
+        .click();
+      await expect.poll(() => acceptedCommit).not.toBe('');
+      const original = await readDraft();
+      const other = {
+        ...original.value,
+        baseCommit: acceptedCommit,
+        content: 'New work from another session.',
+      };
+      const update = await mutate(
+        page,
+        '/me/drafts/document',
+        { key, value: other, revision: original.revision },
+        'PUT',
+      );
+      expect(update.ok()).toBe(true);
+      finishPublication();
+      await expect.poll(() => cleanupRejected).toBe(true);
+      const local = 'My new edit entered while cleanup was pending.';
+      if (editDuringCleanup) await editor.fill(local);
+      finishCleanup();
+
+      if (editDuringCleanup) {
+        await expect(win.getByRole('alert')).toContainText(
+          'saved draft changed',
+        );
+        await expect(editor).toHaveValue(local);
+        await win
+          .getByRole('button', { name: 'Compare Private Drafts', exact: true })
+          .click();
+        await expect(
+          win.getByText(other.content, { exact: true }),
+        ).toBeVisible();
+        await expect(
+          win.getByRole('button', { name: 'Save My Draft', exact: true }),
+        ).toBeVisible();
+      } else {
+        await win
+          .getByRole('button', { name: 'Back to Preview', exact: true })
+          .click();
+        await expect(win.getByText(submitted, { exact: true })).toBeVisible();
+        await expect(win.getByRole('alert')).toHaveCount(0);
+        await win
+          .getByRole('button', { name: 'Edit Text', exact: true })
+          .click();
+        await expect(editor).toHaveValue(other.content);
+      }
+      expect((await readDraft()).value).toEqual(other);
+      const shared = await page.request.get(
+        `/api/resources/${room.resourceId}/file?path=handoff.md&commit=${acceptedCommit}`,
+      );
+      expect(await shared.text()).toBe(submitted);
+    } finally {
+      finishPublication();
+      finishCleanup();
+      await page.unrouteAll({ behavior: 'wait' });
+    }
+  });
+}
 
 test('two sessions compare a private draft conflict before explicitly replacing it', async ({
   page,

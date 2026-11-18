@@ -133,7 +133,12 @@ export function WorkGrant({
         )}
         <span>Team-visible draft</span>
       </p>
-      {execution && <ExecutionNotice execution={execution} />}
+      {execution && (
+        <ExecutionNotice
+          execution={execution}
+          agentId={agents.length === 1 ? agents[0].id : undefined}
+        />
+      )}
       {selected.length > 8 && (
         <p className="app-error" role="alert">
           Choose at most eight Agents.
@@ -145,8 +150,10 @@ export function WorkGrant({
 
 function ExecutionNotice({
   execution,
+  agentId,
 }: {
   execution: ReturnType<typeof useWorkExecution>;
+  agentId?: string;
 }) {
   const { navigate } = useTeam();
   if (execution.error)
@@ -166,7 +173,11 @@ function ExecutionNotice({
       <p className="work-execution-notice app-error" role="status">
         <span>{execution.issue.message}</span>
         <Button
-          onClick={() => void navigate({ app: agents ? 'agents' : 'runners' })}
+          onClick={() =>
+            void navigate(
+              agents ? { app: 'agents', agentId } : { app: 'runners' },
+            )
+          }
         >
           {agents ? 'Open Agents' : 'Open Runners'}
         </Button>
