@@ -97,7 +97,13 @@ export function affectedRead(path: string, event: WorkspaceEvent): boolean {
       (task === event.entityId && type === 'task.updated') ||
       (type.startsWith('run.') && type !== 'run.activity')
     );
-  if (work) return type === 'work_item.updated' && work === event.entityId;
+  if (work)
+    return (
+      (type === 'work_item.updated' && work === event.entityId) ||
+      (type === 'task.updated' &&
+        work === event.workItemId &&
+        route === `/work-items/${encodedEntity}`)
+    );
   if (route === '/work-items')
     return (
       (!url.searchParams.get('roomId') ||

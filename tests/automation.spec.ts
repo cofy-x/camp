@@ -41,7 +41,7 @@ async function openAutomation(page: Page) {
   ).toBeEnabled();
 }
 
-test('an applied GitHub event opens its Work directly from Activity', async ({
+test('GitHub Activity opens its Work directly @work-loop', async ({
   page,
   browserName,
 }) => {

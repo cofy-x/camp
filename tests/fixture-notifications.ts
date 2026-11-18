@@ -23,7 +23,12 @@ export async function fixtureNotifications(page: Page) {
       }
     };
   });
-  return async (type: string, roomId: string, entityId: string) => {
+  return async (
+    type: string,
+    roomId: string,
+    entityId: string,
+    workItemId?: string,
+  ) => {
     await page.waitForFunction(() => {
       const state = (
         window as typeof window & {
@@ -33,7 +38,7 @@ export async function fixtureNotifications(page: Page) {
       return Boolean(state?.source);
     });
     await page.evaluate(
-      ({ type, roomId, entityId }) => {
+      ({ type, roomId, entityId, workItemId }) => {
         const state = (
           window as typeof window & {
             campFixtureNotifications: {
@@ -51,12 +56,13 @@ export async function fixtureNotifications(page: Page) {
               type,
               roomId,
               entityId,
+              workItemId,
               createdAt: new Date().toISOString(),
             }),
           }),
         );
       },
-      { type, roomId, entityId },
+      { type, roomId, entityId, workItemId },
     );
   };
 }

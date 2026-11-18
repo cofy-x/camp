@@ -231,6 +231,7 @@ export interface WorkspaceEvent {
   type: string;
   roomId: string;
   entityId: string;
+  workItemId?: string;
   createdAt: string;
 }
 

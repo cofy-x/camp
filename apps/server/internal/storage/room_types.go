@@ -186,11 +186,12 @@ type Conversation struct {
 	Resumable     bool   `json:"resumable"`
 }
 type WorkspaceEvent struct {
-	ID        int64  `json:"id"`
-	Type      string `json:"type"`
-	RoomID    string `json:"roomId"`
-	EntityID  string `json:"entityId"`
-	CreatedAt string `json:"createdAt"`
+	ID         int64  `json:"id"`
+	Type       string `json:"type"`
+	RoomID     string `json:"roomId"`
+	EntityID   string `json:"entityId"`
+	WorkItemID string `json:"workItemId,omitempty"`
+	CreatedAt  string `json:"createdAt"`
 }
 type Budget struct {
 	RequireRunner  bool   `json:"-"`

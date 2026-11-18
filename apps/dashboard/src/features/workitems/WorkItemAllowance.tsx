@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useId } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
 import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
@@ -32,17 +32,23 @@ export function WorkItemAllowance({
   readOnly: boolean;
   contextReady: boolean;
 }) {
+  const expiryId = useId();
   const draft = usePrivateDraft<AllowanceDraft | null>(
     'conversation',
     `work-item-allowance:${item.id}`,
     null,
   );
+  const currentExpiry = item.expiresAt ?? item.deadline;
+  const currentLocalExpiry = localDateTime(currentExpiry);
   const values = draft.value ?? {
     revision: item.revision,
     budget: item.budget,
-    expiresAt: localDateTime(item.expiresAt ?? item.deadline),
+    expiresAt: currentLocalExpiry,
     reason: '',
   };
+  const localExpiry = values.expiresAt ?? values.deadline ?? '';
+  const expiryEdited =
+    values.deadlineEdited && localExpiry !== currentLocalExpiry;
   const disabled =
     readOnly ||
     !contextReady ||
@@ -70,32 +76,6 @@ export function WorkItemAllowance({
     <>
       <DraftRecovery draft={draft} preview={(value) => value?.reason ?? ''} />
       <section aria-label="Allowance and access">
-        <dl className="automation-facts">
-          <dt>Work sessions</dt>
-          <dd>
-            {item.usage.tasks} / {item.budget.maxTasks}
-          </dd>
-          <dt>Model requests</dt>
-          <dd>
-            {item.usage.modelRequests} used ·{' '}
-            {item.usage.reservedModelRequests - item.usage.modelRequests}{' '}
-            reserved / {item.budget.maxModelRequests}
-          </dd>
-          <dt>Assessments</dt>
-          <dd>
-            {item.usage.evaluations} / {item.budget.maxEvaluations}
-          </dd>
-          <dt>External actions</dt>
-          <dd>
-            {item.usage.actions} / {item.budget.maxActions}
-          </dd>
-          <dt>Follow-ups</dt>
-          <dd>
-            {item.usage.followUps} / {item.budget.maxFollowUps}
-          </dd>
-          <dt>Authorization expires</dt>
-          <dd>{new Date(item.expiresAt ?? item.deadline).toLocaleString()}</dd>
-        </dl>
         <form
           className="work-item-form"
           aria-label="Work allowance"
@@ -107,7 +87,7 @@ export function WorkItemAllowance({
               comment: values.reason,
               budget: values.budget,
               expiresAt: values.deadlineEdited
-                ? utcDateTime(values.expiresAt ?? values.deadline ?? '')
+                ? utcDateTime(localExpiry)
                 : undefined,
             });
           }}
@@ -128,19 +108,29 @@ export function WorkItemAllowance({
             <WorkBudgetEditor
               value={values.budget}
               onChange={(budget) => edit({ budget })}
+              current={item}
             />
-            <label>
-              Authorization expires
+            <div className="work-item-limit">
+              <label htmlFor={expiryId}>Authorization expires</label>
               <input
+                id={expiryId}
+                aria-describedby={
+                  expiryEdited ? `${expiryId}-current` : undefined
+                }
                 className="p9-field"
                 type="datetime-local"
                 required
-                value={values.expiresAt ?? values.deadline ?? ''}
+                value={localExpiry}
                 onChange={(event) =>
                   edit({ expiresAt: event.target.value, deadlineEdited: true })
                 }
               />
-            </label>
+              {expiryEdited && (
+                <small id={`${expiryId}-current`}>
+                  Current expiry {new Date(currentExpiry).toLocaleString()}
+                </small>
+              )}
+            </div>
             <label>
               Note (optional)
               <textarea
@@ -151,9 +141,7 @@ export function WorkItemAllowance({
               />
             </label>
           </fieldset>
-          <p>
-            Used and reserved allowance stays charged. Saving starts no work.
-          </p>
+          <p>Saving changes the limits. Continue work separately.</p>
           <div className="app-actions">
             <Button primary type="submit" disabled={disabled || stale}>
               Save allowance

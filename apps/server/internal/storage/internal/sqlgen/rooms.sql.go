@@ -1184,24 +1184,37 @@ func (q *Queries) ListUnfinishedRuns(ctx context.Context) ([]string, error) {
 }
 
 const listWorkspaceEvents = `-- name: ListWorkspaceEvents :many
-SELECT id, type, room_id, entity_id, created_at FROM workspace_events WHERE id>? ORDER BY id LIMIT 500
+SELECT e.id, e.type, e.room_id, e.entity_id, e.created_at, CAST(CASE WHEN e.type='task.updated' THEN COALESCE((
+ SELECT t.work_item_id FROM work_item_tasks t WHERE t.task_id=e.entity_id
+),'') ELSE '' END AS TEXT) AS work_item_id
+FROM workspace_events e WHERE e.id>? ORDER BY e.id LIMIT 500
 `
 
-func (q *Queries) ListWorkspaceEvents(ctx context.Context, id int64) ([]WorkspaceEvent, error) {
+type ListWorkspaceEventsRow struct {
+	ID         int64
+	Type       string
+	RoomID     string
+	EntityID   string
+	CreatedAt  string
+	WorkItemID string
+}
+
+func (q *Queries) ListWorkspaceEvents(ctx context.Context, id int64) ([]ListWorkspaceEventsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listWorkspaceEvents, id)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []WorkspaceEvent{}
+	items := []ListWorkspaceEventsRow{}
 	for rows.Next() {
-		var i WorkspaceEvent
+		var i ListWorkspaceEventsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Type,
 			&i.RoomID,
 			&i.EntityID,
 			&i.CreatedAt,
+			&i.WorkItemID,
 		); err != nil {
 			return nil, err
 		}

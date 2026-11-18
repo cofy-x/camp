@@ -6,10 +6,10 @@ E2E_INSTALL_ARGS ?= chromium
 REMOTE_ARGS ?=
 GO_TEST_SHARD ?=
 
-.PHONY: help install dev build build-dashboard build-go test test-go test-go-race test-js check-docs typecheck format format-go format-check format-check-go lint lint-go lint-fix lint-fix-format generate generate-check test-e2e smoke-production clean
+.PHONY: help install dev build build-dashboard build-go test test-go-race test-go test-js check-docs typecheck format format-go format-check format-check-go lint lint-go lint-fix lint-fix-format generate generate-check test-e2e test-work-loop smoke-production clean
 
 help:
-	@echo "make install | install-dsh | install-project-runtime | install-layerfs | package-runner | package-linux | dev | build | test | test-dsh | test-layerfs | test-project-env | test-go-race | check-docs | typecheck | format | format-check | lint | lint-fix | lint-fix-format | generate | generate-check | test-e2e | smoke-production"
+	@echo "make install | install-dsh | install-project-runtime | install-layerfs | package-runner | package-linux | dev | build | test | test-dsh | test-layerfs | test-project-env | test-go-race | check-docs | typecheck | format | format-check | lint | lint-fix | lint-fix-format | generate | generate-check | test-e2e | test-work-loop | smoke-production"
 
 install:
 	$(PNPM) install --frozen-lockfile
@@ -115,6 +115,11 @@ lint-fix-format: format-go
 test-e2e:
 	$(PNPM) exec playwright install $(E2E_INSTALL_ARGS)
 	$(PNPM) run test:e2e $(E2E_ARGS)
+
+test-work-loop:
+	$(GO) test ./apps/server/internal/storage -run '^TestWorkReservationRetainsAnUnknownModelRequestAfterCancellation$$' -count=1
+	$(PNPM) exec vitest run apps/dashboard/src/shared/reads/store.test.ts
+	$(PNPM) run test:e2e --grep @work-loop $(E2E_ARGS)
 
 smoke-production:
 	$(PNPM) run smoke:production

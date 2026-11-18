@@ -45,6 +45,8 @@ Lead with current facts and the next useful action. Use grouping, alignment and 
 
 Keep labels concrete and vocabulary consistent. Empty states offer visible, editable starting points and enough explanation to choose; populated panels should not retain that tutorial. Tooltips supplement labels, never carry a required permission, consequence or recovery. Blocking errors remain outside disclosures.
 
+Give each field and action a stable accessible name. Associate consequences, limits and errors with their controls so a keyboard user, screen reader or browser agent can discover them in the same place. Use the owning API and its receipts when automation needs to verify an identity, a transition or the result of a write.
+
 Keep empty states compact and align their icons, text and actions as one group. Keep a command in its existing toolbar when that toolbar remains visible; do not repeat it in the empty pane. Use a quiet status row for unavailable optional Agent work, with one relevant setup destination. Room discussion remains usable without expanding a warning or reading setup instructions.
 
 Distinguish configured from verified, private draft from shared version, captured from published, checks from tool activity, and completed work from human approval. A request allowance is not a billing cap. Simplification must preserve these facts and the user's unsaved input. Technical names belong in diagnostics when they do not help a product decision.
@@ -143,6 +145,8 @@ A matter's default detail leads with its goal, current question or progress, and
 
 When a paused execution has used the Work item's entire model allowance, lead with **Increase allowance…**. After saving more headroom, return to the matter and offer explicit continuation from the saved execution. Saving an allowance starts no work.
 
+Show usage and pending reservations beside the corresponding allowance field. When an edit differs from the accepted limit or expiry, keep the current authorization next to that field until the change is accepted.
+
 Work has a desktop icon and one window for matters across Rooms. Its compact toolbar offers View and Room filters, New work, and More for refresh. Detail similarly keeps refresh in More; failed reads always retain an adjacent visible retry. My work defaults to the authenticated person's unfinished matters, with actionable questions and recovery needs first. Needs me aggregates their current judgments, reviews and exceptions from one Server-owned attention projection; normal waiting, running and historical failures remain quiet. It shares the global first page and unresolved count with the Inbox Palette, while Work owns Room filtering and further pages. Rows show the actual title, required step and necessary Room/type context, and open the existing matter, review or recovery owner. No queue action starts execution, approves or dismisses work. Completed shows their completed/cancelled matters, and All work includes team-visible matters. Room shortcuts select All work with that Room. Reading and notification unread state do not change business responsibility. Failed reads retain matching accepted rows with a visible retry; revoked access clears them, and an unknown count never appears as zero.
 
 Matter facts, questions and existing authorized decisions load independently of Room configuration. Missing or failed settings cannot hide them. New execution, policy changes and allowance edits require matching accepted Room members and policies; pending context never substitutes empty permission or Agent defaults. Context retry preserves the matter's draft and revision/receipt guards.
@@ -199,6 +203,7 @@ Embed before/after images directly in the PR, preferring GitHub image attachment
 | Changed app | Normal, loading/empty, long names, failed/uncertain writes and recovery |
 | Narrow/short/resized windows | Reachable composer/actions, bounded scroll, no page overflow, focus-safe navigation |
 | Reads and live updates | Primary content usable during related loading/failure, retained drafts/focus/history, affected [performance checks](performance.md#validation-and-evidence) |
+| Discoverability | Required actions and their current context found by role, name and field description during keyboard and browser-agent use |
 | DPR 1, fractional (e.g. 1.5), DPR 2 | Text, borders, title stripes, icons and Unicode fallbacks |
 
 Typical review sizes are 1440 × 900 desktop and 390 × 844 touch; include smaller app bounds and zoom where relevant. Use actual keyboard, pointer and touch actions alongside screenshots: switch, resize/shade, open/dismiss, edit and recover. Compare copy as well as geometry, including a failed state when reducing detail. Use [contribution checks](../CONTRIBUTING.md#checks); visual fixtures, actual protocol tests, native isolation and real model runs establish different evidence.

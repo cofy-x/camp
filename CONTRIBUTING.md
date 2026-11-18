@@ -88,6 +88,14 @@ make test-e2e E2E_ARGS="--project=chromium --project=firefox --project=webkit --
 
 SQL migrations and named queries live in `apps/server/internal/storage`. After changing them, run `make generate` and `make generate-check`; maintain generated sqlc output with its inputs. Use `make format` or `make lint-fix-format` for formatting and safe lint fixes. Preserve existing data through append-only migrations; never reset a database to repair an upgrade.
 
+### Work follow-through
+
+Run `make test-work-loop` for a focused GitHub intake, Activity and allowance recovery check. It reuses the storage and read-store regressions and a tagged browser suite with fresh keyless data. Install the selected Playwright browsers first. Use `E2E_ARGS` and `E2E_PORT` from the browser checks above when needed.
+
+Use a signed fixture to check intake, deduplication and setup recovery before spending a real request. Verify that Activity opens the recorded Work directly. Leave Work open while its collaboration pauses and check that its recovery action appears in place. Save a higher Work cap, confirm that execution remains paused, then explicitly continue the same collaboration from its saved files.
+
+For explicitly authorized live acceptance, use a separate test Room or repository and the [real-provider tools](docs/dsh.md#real-provider-verification) for the relevant boundary. Record the revision, scenario, Work and collaboration identities, consumed requests and verified result. A real GitHub callback requires a GitHub delivery receipt and Camp's recorded event. A real recovery requires an observed pause, authorization and continuation from the same checkpoint, followed by reading the exact saved version. Keep credentials and real-data evidence private. Use synthetic data for comparisons that will be shared.
+
 ## Documentation
 
 Keep each rule or procedure in its owning contract/tool README and link to it elsewhere. README owns quick start; the [documentation map](docs/README.md) routes readers by task. Update incoming links when moving a section. Prefer links to authoritative manifests and code over copying constants or job matrices.
