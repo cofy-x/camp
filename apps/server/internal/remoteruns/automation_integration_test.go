@@ -156,9 +156,9 @@ func TestAutomationObservedAssessmentQuestionExternalAnswerAndOnePublication(t *
 		}
 		return event, payload, guid
 	}
-	awaitEvent := func(id, status string) orchestration.SourceEvent {
+	awaitEvent := func(id, status string) storage.AutomationActivityItem {
 		t.Helper()
-		var found orchestration.SourceEvent
+		var found storage.AutomationActivityItem
 		remoteEventually(t, 5*time.Second, "event did not reach "+status, func() bool {
 			page, err := h.store.AutomationEvents(h.actor, room.ID, 0, nil, 20)
 			if err != nil {
@@ -189,6 +189,9 @@ func TestAutomationObservedAssessmentQuestionExternalAnswerAndOnePublication(t *
 		t.Fatal("accepted event has no task")
 	}
 	task := h.taskState(t, admission.TaskID, "waiting_for_person")
+	if admission.RelatedWorkItemID != task.WorkItemID || task.WorkItemID == "" {
+		t.Fatal("accepted event does not lead to its Work", admission)
+	}
 	if task.SourceEventID != accepted.ID || task.AutomationSourceEventID != "github:"+accepted.ID {
 		t.Fatalf("automatic task lost its source resolver or generic provenance: %+v", task)
 	}

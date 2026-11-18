@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/cofy-x/camp/apps/server/internal/orchestration"
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
@@ -188,7 +189,8 @@ func (s *Store) ProjectSettingRequest(ctx context.Context, id string, cancel boo
 
 // Only admission through this exact, current personal rule grant can inherit
 // delivery. Ordinary defaults and untrusted source text confer no authority.
-func projectRuleDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem, policy orchestration.Policy) error {
+func projectRuleDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem, candidate orchestration.Candidate) error {
+	policy := candidate.Policy
 	owner, err := q.GetUser(ctx, w.OwnerUserID)
 	if err != nil || !owner.Enabled {
 		return problem("forbidden", "The project owner is unavailable.")
@@ -221,5 +223,20 @@ func projectRuleDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestratio
 		return err
 	}
 	d.ProjectRevision, d.PolicyRevision = p.Revision, policy.Revision
+	for _, event := range candidate.Events {
+		if event.SourceID != policy.SourceID || event.RepositoryID != d.RepositoryID ||
+			event.Number == 0 || !strings.HasPrefix(event.Kind, "issues.") {
+			continue
+		}
+		issue, err := githubEvent(ctx, q, event.ExternalEventID)
+		if err != nil {
+			return err
+		}
+		d.IssueNumber = event.Number
+		if title := strings.Join(strings.Fields(issue.Title), " "); title != "" {
+			d.Title = truncateUTF8(title, 180)
+		}
+		break
+	}
 	return saveGitHubDelivery(ctx, q, &d)
 }

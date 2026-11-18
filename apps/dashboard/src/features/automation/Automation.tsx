@@ -7,7 +7,12 @@ import { type Agent, type Room, type WorkspaceStatus } from '../workspace/api';
 import { githubApi, type GitHubSource } from '../github/api';
 import { GitHubEvents } from '../github/GitHubEvents';
 import { GitHubSources } from '../github/GitHubSources';
-import type { AutomationPolicy, SourceEventPage, SourceEvent } from './api';
+import type {
+  AutomationActivityItem,
+  AutomationPolicy,
+  SourceEventPage,
+  SourceEvent,
+} from './api';
 import { CommentCredential, PolicyEditor } from './AutomationPolicy';
 import { FollowEvent } from './FollowEvent';
 import { EvaluationDecision } from './EvaluationDecision';
@@ -21,14 +26,18 @@ const statusLabels: Record<string, string> = {
   observed: 'Observation recorded',
   would_accept: 'Would start a collaboration',
   ignored: 'Ignored',
+  ignore: 'Ignored',
   unavailable: 'Assessment unavailable',
   needs_attention: 'Needs attention',
   context: 'Context recorded',
   answered: 'Question answered',
   stopped: 'Stopped',
   waiting: 'Waiting for evidence',
+  wait: 'Waiting for evidence',
   waiting_for_person: 'Needs judgment',
+  request_judgment: 'Needs judgment',
   completed: 'Work item completed',
+  complete: 'Completion assessed',
 };
 
 const attentionReasons: Record<string, string> = {
@@ -71,11 +80,16 @@ function activityPath(roomId: string, sourceId: string, cursor: Cursor) {
   return `/rooms/${encodeURIComponent(roomId)}/automation-events?${query}`;
 }
 
-function eventStatus(event: SourceEvent) {
+function eventStatus(event: AutomationActivityItem) {
   if (event.sourceId === 'task') return eventLabels[event.kind] ?? event.kind;
   if (event.reason === 'explicit_run') return 'Agent run started';
   if (event.reason === 'post_only') return 'Discussion only';
-  if (event.reason === 'own_output') return 'Camp comment';
+  if (event.reason === 'own_output')
+    return event.kind.startsWith('pull_request.')
+      ? 'Camp pull request'
+      : 'Camp comment';
+  if (event.status === 'accepted' && event.relatedWorkItemId)
+    return 'Work started';
   if (event.status === 'observed') {
     if (
       event.assessmentOutcome === 'accept' ||
@@ -117,7 +131,7 @@ function EventRecord({
   onTrackEvent,
   onOpenWorkItem,
 }: {
-  event: SourceEvent;
+  event: AutomationActivityItem;
   onOpenTask: (id: string) => void;
   onReviewGitHub: (id: string) => void;
   onTrackEvent: (event: SourceEvent) => void;
@@ -125,6 +139,9 @@ function EventRecord({
 }) {
   const [open, setOpen] = useState(false);
   const command = event.sourceId === 'task';
+  const ownOutput = event.reason === 'own_output';
+  const workItemId = event.relatedWorkItemId ?? event.workItemId;
+  const taskId = event.taskId;
   const kind = eventLabels[event.kind] ?? event.kind;
   const outcome = eventStatus(event);
   const attention =
@@ -172,15 +189,14 @@ function EventRecord({
       )}
       <div className="automation-heading automation-event-outcome">
         <strong>{outcome}</strong>
-        {event.taskId && (
-          <Button onClick={() => onOpenTask(event.taskId!)}>
-            Open Collaboration
-          </Button>
-        )}
-        {event.workItemId && (
-          <Button onClick={() => onOpenWorkItem(event.workItemId!)}>
-            Open Work Item
-          </Button>
+        {workItemId ? (
+          <Button onClick={() => onOpenWorkItem(workItemId)}>Open Work</Button>
+        ) : (
+          taskId && (
+            <Button onClick={() => onOpenTask(taskId)}>
+              Open Collaboration
+            </Button>
+          )
         )}
       </div>
       {attentionReason && <p>{attentionReason}</p>}
@@ -198,8 +214,9 @@ function EventRecord({
           )}
           {open &&
             event.externalEventId &&
-            !event.taskId &&
-            event.reason !== 'own_output' && (
+            !taskId &&
+            !workItemId &&
+            !ownOutput && (
               <Button onClick={() => onReviewGitHub(event.externalEventId!)}>
                 Review GitHub Event
               </Button>
@@ -238,7 +255,7 @@ function EventRecord({
             )}
           </details>
           {open && <FollowEvent event={event} />}
-          {open && (
+          {open && !ownOutput && !workItemId && (
             <Button onClick={() => onTrackEvent(event)}>
               Track Work Item…
             </Button>
@@ -600,6 +617,7 @@ export function Automation({
             {!ready && !error && <p role="status">Loading settings…</p>}
             {ready && (
               <>
+                <GitHubSources roomId={room.id} sources={sources} />
                 <div className="automation-view-controls">
                   <Select
                     label="Event source"
@@ -648,7 +666,6 @@ export function Automation({
                     onEditingBlocked={() => setView('settings')}
                   />
                 )}
-                <GitHubSources roomId={room.id} sources={sources} />
               </>
             )}
           </div>

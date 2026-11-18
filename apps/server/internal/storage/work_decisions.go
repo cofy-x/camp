@@ -74,7 +74,7 @@ func selectAssessmentWorkItem(ctx context.Context, q *sqlgen.Queries, c orchestr
 		return w, e
 	}
 	w.Usage.Evaluations = 1
-	if e = projectRuleDelivery(ctx, q, &w, c.Policy); e != nil {
+	if e = projectRuleDelivery(ctx, q, &w, c); e != nil {
 		return w, e
 	}
 	a.WorkItemID = w.ID

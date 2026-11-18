@@ -2,6 +2,7 @@ import { createHmac, randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
 import type {
+  AutomationActivityItem,
   AutomationPolicy,
   SourceEventPage,
   Delivery,
@@ -15,6 +16,7 @@ import {
   createRoom,
   mutate,
   signIn,
+  work,
   workspace,
 } from './team-helpers';
 import { watchPageErrors } from './page-errors';
@@ -38,6 +40,102 @@ async function openAutomation(page: Page) {
     panel(page).getByRole('button', { name: 'Save Policy', exact: true }),
   ).toBeEnabled();
 }
+
+test('an applied GitHub event opens its Work directly from Activity', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  await signIn(page);
+  const room = await createRoom(page, `Issue flow ${randomUUID().slice(0, 8)}`);
+  const goal = 'Open the top note search result with Enter';
+  const response = await mutate(page, `/rooms/${room.id}/work-items`, {
+    requestId: randomUUID(),
+    goal,
+  });
+  expect(response.ok()).toBe(true);
+  const { item } = await response.json();
+  let taskReads = 0;
+  await page.route('**/api/tasks/fixture-issue-execution?*', (route) => {
+    taskReads++;
+    return route.abort();
+  });
+  const accepted: AutomationActivityItem = {
+    seq: 1,
+    id: 'github:fixture-issue-event',
+    roomId: room.id,
+    sourceId: 'fixture-github',
+    threadKey: '123:7',
+    kind: 'issues.opened',
+    actorId: '7',
+    actorLogin: 'example-maintainer',
+    actorKind: 'human',
+    externalEventId: 'fixture-issue-event',
+    repository: 'example/notes',
+    number: 7,
+    content: 'The real event content is available in Details.',
+    preview: goal,
+    occurredAt: '2026-11-03T02:00:00Z',
+    status: 'accepted',
+    taskId: 'fixture-issue-execution',
+    relatedWorkItemId: item.id,
+  };
+  await page.route(`**/api/rooms/${room.id}/automation-events?*`, (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            ...accepted,
+            seq: 2,
+            id: 'github:fixture-pr-event',
+            threadKey: '123:8',
+            kind: 'pull_request.opened',
+            externalEventId: 'fixture-pr-event',
+            number: 8,
+            status: 'ignored',
+            reason: 'own_output',
+            taskId: undefined,
+            relatedWorkItemId: undefined,
+          },
+          accepted,
+        ],
+        through: 2,
+        nextBefore: null,
+        nextAfter: null,
+        hasMore: false,
+      } satisfies SourceEventPage,
+    }),
+  );
+
+  await openActivity(page);
+  const events = panel(page).getByRole('region', { name: 'Automation events' });
+  await expect(events.getByText('Work started', { exact: true })).toBeVisible();
+  await expect(
+    events.getByRole('button', { name: 'Open Collaboration' }),
+  ).toHaveCount(0);
+  const issue = events
+    .getByRole('listitem')
+    .filter({ hasText: 'Work started' });
+  await issue.getByText('Details', { exact: true }).click();
+  await expect(issue.getByText('Event data', { exact: true })).toBeVisible();
+  await expect(
+    issue.getByRole('button', { name: 'Track Work Item…' }),
+  ).toHaveCount(0);
+  const echo = events
+    .getByRole('listitem')
+    .filter({ hasText: 'Camp pull request' });
+  await expect(echo).toBeVisible();
+  await echo.getByText('Details', { exact: true }).click();
+  await expect(
+    echo.getByRole('button', { name: /Track Work Item|Review GitHub Event/ }),
+  ).toHaveCount(0);
+  await issue
+    .getByRole('button', { name: 'Open Work', exact: true })
+    .press('Enter');
+  await expect(work(page).getByRole('heading', { name: goal })).toBeVisible();
+  expect(taskReads).toBe(0);
+  expect(errors.errors).toEqual([]);
+});
 
 test('policy drafts survive navigation and uncertain saves recover the committed receipt', async ({
   page,

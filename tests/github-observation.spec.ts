@@ -216,7 +216,17 @@ test('source setup recovers a lost response after reload without persisting its 
     page,
     `GitHub source recovery-${randomUUID().slice(0, 8)}`,
   );
-  await openSources(page);
+  await openRoomMore(page, 'Sources & rules…');
+  const connect = settings(page).getByText('Connect GitHub…', { exact: true });
+  await expect(connect).toBeInViewport();
+  await expect(settings(page).getByLabel('Event source')).toBeInViewport();
+  await expect(
+    settings(page).getByLabel('Repository', { exact: true }),
+  ).toBeHidden();
+  await connect.press('Enter');
+  await expect(
+    settings(page).getByLabel('Repository', { exact: true }),
+  ).toBeVisible();
   let submissions = 0;
   await page.route(`**/api/rooms/${room.id}/github-sources`, async (route) => {
     if (route.request().method() !== 'POST') return route.fallback();
@@ -245,7 +255,10 @@ test('source setup recovers a lost response after reload without persisting its 
   );
   expect(storage).not.toContain(secret);
   await errors.reload();
-  await openSources(page);
+  await openRoomMore(page, 'Sources & rules…');
+  await expect(
+    settings(page).getByRole('button', { name: 'Check Saved Operation' }),
+  ).toBeInViewport();
   await settings(page)
     .getByRole('button', { name: 'Check Saved Operation' })
     .click();

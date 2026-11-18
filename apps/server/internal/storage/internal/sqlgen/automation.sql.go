@@ -14,7 +14,8 @@ SELECT e.seq, e.id, e.room_id, e.source_id, e.thread_key, e.kind, e.actor_id, e.
  CAST(coalesce(CASE WHEN e.source_id='room' THEN json_extract(e.value,'$.content')
   WHEN e.source_id='task' THEN m.content ELSE json_extract(g.value,'$.title') END,'') AS TEXT) AS preview,
  CAST(coalesce(json_extract(a.assessment,'$.outcome'),'') AS TEXT) AS assessment_outcome,
- CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason
+ CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason,
+ CAST(coalesce(json_extract(a.assessment,'$.workItemId'),'') AS TEXT) AS assessed_work_item_id
 FROM automation_events e
 LEFT JOIN messages m ON m.id=e.message_id AND m.room_id=e.room_id AND e.source_id='task'
 LEFT JOIN github_events g ON g.id=e.external_event_id AND g.room_id=e.room_id AND g.source_id=e.source_id
@@ -32,25 +33,26 @@ type AutomationActivityAscendingParams struct {
 }
 
 type AutomationActivityAscendingRow struct {
-	Seq               int64
-	ID                string
-	RoomID            string
-	SourceID          string
-	ThreadKey         string
-	Kind              string
-	ActorID           string
-	ActorKind         string
-	MessageID         string
-	ExternalEventID   string
-	Status            string
-	Value             string
-	EvaluationID      string
-	TaskID            string
-	Reason            string
-	PolicyRevision    int64
-	Preview           string
-	AssessmentOutcome string
-	AssessmentReason  string
+	Seq                int64
+	ID                 string
+	RoomID             string
+	SourceID           string
+	ThreadKey          string
+	Kind               string
+	ActorID            string
+	ActorKind          string
+	MessageID          string
+	ExternalEventID    string
+	Status             string
+	Value              string
+	EvaluationID       string
+	TaskID             string
+	Reason             string
+	PolicyRevision     int64
+	Preview            string
+	AssessmentOutcome  string
+	AssessmentReason   string
+	AssessedWorkItemID string
 }
 
 func (q *Queries) AutomationActivityAscending(ctx context.Context, arg AutomationActivityAscendingParams) ([]AutomationActivityAscendingRow, error) {
@@ -87,6 +89,7 @@ func (q *Queries) AutomationActivityAscending(ctx context.Context, arg Automatio
 			&i.Preview,
 			&i.AssessmentOutcome,
 			&i.AssessmentReason,
+			&i.AssessedWorkItemID,
 		); err != nil {
 			return nil, err
 		}
@@ -106,7 +109,8 @@ SELECT e.seq, e.id, e.room_id, e.source_id, e.thread_key, e.kind, e.actor_id, e.
  CAST(coalesce(CASE WHEN e.source_id='room' THEN json_extract(e.value,'$.content')
   WHEN e.source_id='task' THEN m.content ELSE json_extract(g.value,'$.title') END,'') AS TEXT) AS preview,
  CAST(coalesce(json_extract(a.assessment,'$.outcome'),'') AS TEXT) AS assessment_outcome,
- CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason
+ CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason,
+ CAST(coalesce(json_extract(a.assessment,'$.workItemId'),'') AS TEXT) AS assessed_work_item_id
 FROM automation_events e
 LEFT JOIN messages m ON m.id=e.message_id AND m.room_id=e.room_id AND e.source_id='task'
 LEFT JOIN github_events g ON g.id=e.external_event_id AND g.room_id=e.room_id AND g.source_id=e.source_id
@@ -124,25 +128,26 @@ type AutomationActivityDescendingParams struct {
 }
 
 type AutomationActivityDescendingRow struct {
-	Seq               int64
-	ID                string
-	RoomID            string
-	SourceID          string
-	ThreadKey         string
-	Kind              string
-	ActorID           string
-	ActorKind         string
-	MessageID         string
-	ExternalEventID   string
-	Status            string
-	Value             string
-	EvaluationID      string
-	TaskID            string
-	Reason            string
-	PolicyRevision    int64
-	Preview           string
-	AssessmentOutcome string
-	AssessmentReason  string
+	Seq                int64
+	ID                 string
+	RoomID             string
+	SourceID           string
+	ThreadKey          string
+	Kind               string
+	ActorID            string
+	ActorKind          string
+	MessageID          string
+	ExternalEventID    string
+	Status             string
+	Value              string
+	EvaluationID       string
+	TaskID             string
+	Reason             string
+	PolicyRevision     int64
+	Preview            string
+	AssessmentOutcome  string
+	AssessmentReason   string
+	AssessedWorkItemID string
 }
 
 func (q *Queries) AutomationActivityDescending(ctx context.Context, arg AutomationActivityDescendingParams) ([]AutomationActivityDescendingRow, error) {
@@ -179,6 +184,7 @@ func (q *Queries) AutomationActivityDescending(ctx context.Context, arg Automati
 			&i.Preview,
 			&i.AssessmentOutcome,
 			&i.AssessmentReason,
+			&i.AssessedWorkItemID,
 		); err != nil {
 			return nil, err
 		}
@@ -198,7 +204,8 @@ SELECT e.seq, e.id, e.room_id, e.source_id, e.thread_key, e.kind, e.actor_id, e.
  CAST(coalesce(CASE WHEN e.source_id='room' THEN json_extract(e.value,'$.content')
   WHEN e.source_id='task' THEN m.content ELSE json_extract(g.value,'$.title') END,'') AS TEXT) AS preview,
  CAST(coalesce(json_extract(a.assessment,'$.outcome'),'') AS TEXT) AS assessment_outcome,
- CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason
+ CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason,
+ CAST(coalesce(json_extract(a.assessment,'$.workItemId'),'') AS TEXT) AS assessed_work_item_id
 FROM automation_events e
 LEFT JOIN messages m ON m.id=e.message_id AND m.room_id=e.room_id AND e.source_id='task'
 LEFT JOIN github_events g ON g.id=e.external_event_id AND g.room_id=e.room_id AND g.source_id=e.source_id
@@ -218,25 +225,26 @@ type AutomationActivitySourceAscendingParams struct {
 }
 
 type AutomationActivitySourceAscendingRow struct {
-	Seq               int64
-	ID                string
-	RoomID            string
-	SourceID          string
-	ThreadKey         string
-	Kind              string
-	ActorID           string
-	ActorKind         string
-	MessageID         string
-	ExternalEventID   string
-	Status            string
-	Value             string
-	EvaluationID      string
-	TaskID            string
-	Reason            string
-	PolicyRevision    int64
-	Preview           string
-	AssessmentOutcome string
-	AssessmentReason  string
+	Seq                int64
+	ID                 string
+	RoomID             string
+	SourceID           string
+	ThreadKey          string
+	Kind               string
+	ActorID            string
+	ActorKind          string
+	MessageID          string
+	ExternalEventID    string
+	Status             string
+	Value              string
+	EvaluationID       string
+	TaskID             string
+	Reason             string
+	PolicyRevision     int64
+	Preview            string
+	AssessmentOutcome  string
+	AssessmentReason   string
+	AssessedWorkItemID string
 }
 
 func (q *Queries) AutomationActivitySourceAscending(ctx context.Context, arg AutomationActivitySourceAscendingParams) ([]AutomationActivitySourceAscendingRow, error) {
@@ -274,6 +282,7 @@ func (q *Queries) AutomationActivitySourceAscending(ctx context.Context, arg Aut
 			&i.Preview,
 			&i.AssessmentOutcome,
 			&i.AssessmentReason,
+			&i.AssessedWorkItemID,
 		); err != nil {
 			return nil, err
 		}
@@ -293,7 +302,8 @@ SELECT e.seq, e.id, e.room_id, e.source_id, e.thread_key, e.kind, e.actor_id, e.
  CAST(coalesce(CASE WHEN e.source_id='room' THEN json_extract(e.value,'$.content')
   WHEN e.source_id='task' THEN m.content ELSE json_extract(g.value,'$.title') END,'') AS TEXT) AS preview,
  CAST(coalesce(json_extract(a.assessment,'$.outcome'),'') AS TEXT) AS assessment_outcome,
- CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason
+ CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason,
+ CAST(coalesce(json_extract(a.assessment,'$.workItemId'),'') AS TEXT) AS assessed_work_item_id
 FROM automation_events e
 LEFT JOIN messages m ON m.id=e.message_id AND m.room_id=e.room_id AND e.source_id='task'
 LEFT JOIN github_events g ON g.id=e.external_event_id AND g.room_id=e.room_id AND g.source_id=e.source_id
@@ -313,25 +323,26 @@ type AutomationActivitySourceDescendingParams struct {
 }
 
 type AutomationActivitySourceDescendingRow struct {
-	Seq               int64
-	ID                string
-	RoomID            string
-	SourceID          string
-	ThreadKey         string
-	Kind              string
-	ActorID           string
-	ActorKind         string
-	MessageID         string
-	ExternalEventID   string
-	Status            string
-	Value             string
-	EvaluationID      string
-	TaskID            string
-	Reason            string
-	PolicyRevision    int64
-	Preview           string
-	AssessmentOutcome string
-	AssessmentReason  string
+	Seq                int64
+	ID                 string
+	RoomID             string
+	SourceID           string
+	ThreadKey          string
+	Kind               string
+	ActorID            string
+	ActorKind          string
+	MessageID          string
+	ExternalEventID    string
+	Status             string
+	Value              string
+	EvaluationID       string
+	TaskID             string
+	Reason             string
+	PolicyRevision     int64
+	Preview            string
+	AssessmentOutcome  string
+	AssessmentReason   string
+	AssessedWorkItemID string
 }
 
 func (q *Queries) AutomationActivitySourceDescending(ctx context.Context, arg AutomationActivitySourceDescendingParams) ([]AutomationActivitySourceDescendingRow, error) {
@@ -369,6 +380,7 @@ func (q *Queries) AutomationActivitySourceDescending(ctx context.Context, arg Au
 			&i.Preview,
 			&i.AssessmentOutcome,
 			&i.AssessmentReason,
+			&i.AssessedWorkItemID,
 		); err != nil {
 			return nil, err
 		}
