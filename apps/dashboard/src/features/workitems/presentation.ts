@@ -1,16 +1,14 @@
 import { workStatus, type WorkItem } from './api';
 
-type PresentedWork = Pick<
+type WorkQuestionSource = Pick<
   WorkItem,
-  | 'status'
-  | 'activeTaskId'
-  | 'question'
-  | 'execution'
-  | 'result'
-  | 'githubDelivery'
+  'status' | 'activeTaskId' | 'question' | 'questionKind' | 'execution'
 >;
 
-function currentExecution(item: PresentedWork) {
+type PresentedWork = WorkQuestionSource &
+  Pick<WorkItem, 'result' | 'githubDelivery'>;
+
+function currentExecution(item: WorkQuestionSource) {
   return item.activeTaskId &&
     item.execution?.taskId === item.activeTaskId &&
     !['completed', 'cancelled', 'stopping'].includes(item.status)
@@ -18,15 +16,46 @@ function currentExecution(item: PresentedWork) {
     : undefined;
 }
 
-export function workItemQuestion(item: PresentedWork): string | undefined {
+type CurrentQuestion =
+  | {
+      kind: 'task';
+      id: string;
+      text: string;
+      options: string[];
+      taskId: string;
+      taskRevision: number;
+    }
+  | { kind: 'judgment' | 'completion'; text: string };
+
+// Execution can include the latest historical task. Select reply targets from
+// the current task and keep earlier questions as evidence.
+export function workItemQuestion(
+  item: WorkQuestionSource,
+): CurrentQuestion | undefined {
   if (['completed', 'cancelled', 'stopping'].includes(item.status))
     return undefined;
   const execution = currentExecution(item);
-  return execution?.status === 'waiting_for_person' &&
-    execution.question &&
+  if (
+    execution?.status === 'waiting_for_person' &&
+    !execution.activeRunId &&
+    execution.question?.text &&
     !execution.question.answer
-    ? execution.question.text
-    : item.question;
+  ) {
+    const { id, text, options } = execution.question;
+    return {
+      kind: 'task',
+      id,
+      text,
+      options,
+      taskId: execution.taskId,
+      taskRevision: execution.revision,
+    };
+  }
+  if (item.question)
+    return {
+      kind: item.questionKind === 'completion' ? 'completion' : 'judgment',
+      text: item.question,
+    };
 }
 
 export function workItemStatus(item: PresentedWork, delivery = true) {
@@ -47,13 +76,10 @@ export function workItemStatus(item: PresentedWork, delivery = true) {
       cancelling: 'Stopping',
     }[execution.status];
   if (executionStatus) return executionStatus;
-  const question =
-    item.question ||
-    (item.execution?.question && !item.execution.question.answer);
   if (
     item.status === 'open' &&
     !item.activeTaskId &&
-    !question &&
+    !workItemQuestion(item) &&
     item.execution?.status === 'completed' &&
     !item.execution.error &&
     item.result?.taskId &&
@@ -64,16 +90,8 @@ export function workItemStatus(item: PresentedWork, delivery = true) {
 }
 
 export function workItemOverviewFallback(
-  item: Pick<
-    WorkItem,
-    | 'status'
-    | 'activeTaskId'
-    | 'question'
-    | 'waitCondition'
-    | 'execution'
-    | 'result'
-    | 'decisions'
-  >,
+  item: WorkQuestionSource &
+    Pick<WorkItem, 'waitCondition' | 'result' | 'decisions'>,
   editable: boolean,
 ): { label: string; createdAt?: string; note?: string } | null {
   const earlierResult =
@@ -87,8 +105,7 @@ export function workItemOverviewFallback(
   if (
     item.status === 'stopping' ||
     (editable && item.activeTaskId) ||
-    item.question ||
-    (item.execution?.question && !item.execution.question.answer) ||
+    workItemQuestion(item) ||
     item.execution?.error ||
     visibleSummary ||
     item.waitCondition ||

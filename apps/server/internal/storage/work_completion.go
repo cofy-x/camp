@@ -39,7 +39,6 @@ func applyTaskWorkCompletion(ctx context.Context, q *sqlgen.Queries, w *orchestr
 		w.PendingCompletion = nil
 		return nil
 	}
-	w.PendingCompletion = &orchestration.PendingWorkCompletion{TaskID: task.ID, Reason: judgment.Reason}
 	if err := populateGitHubDelivery(ctx, q, w); err != nil {
 		return err
 	}
@@ -50,6 +49,13 @@ func applyTaskWorkCompletion(ctx context.Context, q *sqlgen.Queries, w *orchestr
 			return err
 		}
 	}
+	return retainWorkCompletion(ctx, q, w, task.ID, judgment.Reason)
+}
+
+// Retain the accepted judgment after its audit decision has committed to the
+// transaction. The receipt owner can then finish it against this frontier.
+func retainWorkCompletion(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem, taskID, reason string) error {
+	w.PendingCompletion = &orchestration.PendingWorkCompletion{TaskID: taskID, Reason: reason}
 	return advanceWorkCompletionFrontier(ctx, q, w)
 }
 

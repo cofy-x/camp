@@ -14,7 +14,11 @@ import { WorkItemActions } from './WorkItemActions';
 import { useWorkItemOperation } from './useWorkItemOperation';
 import type { WorkItem } from './api';
 import { confirmedWorkAction, type Pending } from './workRequestRecovery';
-import { workItemOverviewFallback, workItemStatus } from './presentation';
+import {
+  workItemOverviewFallback,
+  workItemQuestion,
+  workItemStatus,
+} from './presentation';
 
 function stamp(value: string) {
   return value ? new Date(value).toLocaleString() : '';
@@ -97,19 +101,13 @@ export function WorkItemDetail({
       !current || item.revision >= current.revision ? item : current,
     );
   }, [itemRead.data]);
-  const editable =
-    item && (item.ownerUserId === user.id || user.role === 'admin');
-  const terminal = item && ['completed', 'cancelled'].includes(item.status);
+  const owner = item?.ownerUserId === user.id;
+  const editable = item && (owner || user.role === 'admin');
+  const closing =
+    item && ['completed', 'cancelled', 'stopping'].includes(item.status);
   const selectedView =
-    (!editable || terminal || item?.status === 'stopping') && view === 'manage'
-      ? 'overview'
-      : view;
-  const hasQuestion =
-    item &&
-    Boolean(
-      item.question ||
-      (item.execution?.question && !item.execution.question.answer),
-    );
+    (!editable || closing) && view === 'manage' ? 'overview' : view;
+  const question = item && workItemQuestion(item);
   const summary = item?.execution?.summary;
   const displayStatus = item ? workItemStatus(item, false) : '';
   const earlierResult = Boolean(
@@ -133,7 +131,7 @@ export function WorkItemDetail({
 
   function more(button: HTMLButtonElement) {
     const items: MenuItem[] = [];
-    if (editable && !terminal && item?.status !== 'stopping') {
+    if (editable && !closing) {
       items.push(
         { label: 'Allowance and access…', action: () => manage('allowance') },
         {
@@ -168,24 +166,24 @@ export function WorkItemDetail({
         },
       );
     }
-    if (editable && !terminal && item && !item.activeTaskId) {
-      if (item.result && item.questionKind !== 'completion')
+    if (editable && !closing && item && !item.activeTaskId) {
+      if (item.result && question?.kind !== 'completion')
         items.push({
           label: 'Request changes…',
           action: () => manage('changes'),
         });
       if (
-        item.questionKind !== 'completion' &&
+        question?.kind !== 'completion' &&
         (!item.result || item.completionMode !== 'human')
       )
         items.push({ label: 'Mark done…', action: () => manage('complete') });
     }
-    if (editable && !terminal && hasQuestion && !item?.activeTaskId) {
+    if (editable && !closing && question && !item?.activeTaskId) {
       items.push({
         label: 'Answer and start work…',
         action: () => manage('continue'),
       });
-      if (item?.questionKind === 'completion')
+      if (question.kind === 'completion')
         items.push({ label: 'Reply…', action: () => manage('reply') });
     }
     const delivery = item?.githubDelivery;
@@ -266,9 +264,9 @@ export function WorkItemDetail({
         <>
           <header className="work-item-heading">
             <GoalHeading goal={item.goal} />
-            {(!hasQuestion || item.dueAt || (progress && onViewProgress)) && (
+            {(!question || item.dueAt || (progress && onViewProgress)) && (
               <div className="work-item-state">
-                {!hasQuestion && (
+                {!question && (
                   <p>
                     {displayStatus}
                     {item.execution?.currentAgentName && item.activeTaskId
@@ -279,7 +277,7 @@ export function WorkItemDetail({
                       : ''}
                   </p>
                 )}
-                {hasQuestion && item.dueAt && (
+                {question && item.dueAt && (
                   <p>
                     Due{' '}
                     {item.dueAt.length === 10
@@ -330,7 +328,7 @@ export function WorkItemDetail({
                     </Button>
                   </div>
                 )}
-              {!hasQuestion && !item.githubDelivery && item.waitCondition && (
+              {!question && !item.githubDelivery && item.waitCondition && (
                 <p className="work-item-wait">
                   {item.waitCondition}
                   {item.timers.find((timer) => timer.status === 'pending')
@@ -338,7 +336,7 @@ export function WorkItemDetail({
                     : ''}
                 </p>
               )}
-              {!hasQuestion && summary && summary !== item.result?.summary && (
+              {!question && summary && summary !== item.result?.summary && (
                 <Report
                   content={summary}
                   stateKey={`work-update:${item.id}:${item.activeTaskId}`}
@@ -352,11 +350,13 @@ export function WorkItemDetail({
                     operation={operation}
                     workRevision={item.revision}
                     workId={item.id}
-                    editable={Boolean(editable)}
+                    editable={owner}
                     onReviewScope={() => manage('allowance')}
                     onProjectSettings={onProjectSettings}
                     canRepair={
+                      !closing &&
                       !item.activeTaskId &&
+                      item.completionMode === 'automatic' &&
                       (item.githubDelivery.repairs ?? 0) < 3 &&
                       item.usage.tasks < item.budget.maxTasks &&
                       item.usage.reservedModelRequests <
@@ -366,11 +366,9 @@ export function WorkItemDetail({
                     }
                   />
                 )}
-              {(!hasQuestion || item.questionKind === 'completion') &&
+              {(!question || question.kind === 'completion') &&
                 !earlierResult && <WorkItemResult item={item} />}
-              {hasQuestion && (!editable || terminal) && (
-                <p>{item.execution?.question?.text ?? item.question}</p>
-              )}
+              {question && !editable && <p>{question.text}</p>}
               {overviewFallback && (
                 <div className="work-item-overview-record">
                   <p>
@@ -402,7 +400,7 @@ export function WorkItemDetail({
               onViewChange={setView}
               managementSection={managementSection}
               onManage={manage}
-              readOnly={!editable || Boolean(terminal)}
+              readOnly={!editable || Boolean(closing)}
             />
             <div
               hidden={selectedView !== 'records'}
@@ -411,7 +409,7 @@ export function WorkItemDetail({
               <WorkItemRecords
                 item={item}
                 active={active && selectedView === 'records'}
-                hasQuestion={Boolean(hasQuestion)}
+                hasQuestion={Boolean(question)}
                 earlierResult={earlierResult}
                 refreshKey={retry}
                 onOpenTask={onOpenTask}

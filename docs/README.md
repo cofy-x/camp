@@ -20,6 +20,7 @@ Read [AGENTS.md](../AGENTS.md) and [CONTRIBUTING.md](../CONTRIBUTING.md), then t
 | Contract | Owns |
 | --- | --- |
 | [Architecture](architecture.md) | Module/state ownership, durable authority and current implementation limits |
+| [Lifecycle map](lifecycles.md) | State owners and interactions across business workflows, execution and browser recovery |
 | [API](api.md) | Authentication, wire types, request bounds and transactional preconditions |
 | [Design](design.md) | Product principles, attention cost, desktop interactions, visual style and UI review |
 | [Performance](performance.md) | Responsive reads/rendering, bounded history and streamed writes, regression owners and measurement |

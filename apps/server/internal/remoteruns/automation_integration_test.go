@@ -98,7 +98,7 @@ func TestAutomationObservedAssessmentQuestionExternalAnswerAndOnePublication(t *
 		text, _ := json.Marshal(assessment)
 		_ = json.NewEncoder(w).Encode(map[string]any{"stop_reason": "end_turn", "content": []any{map[string]string{"type": "text", "text": string(text)}}})
 	}))
-	defer provider.Close()
+	t.Cleanup(provider.Close)
 	h := newRemoteHarness(t, configuration.ModelInput{BaseURL: provider.URL, APIKey: "private-assessment-fixture-key", Model: "fixture-model"})
 	runner := h.start(t, h.join(t, "automation-runner", "fixture", nil, nativeexecutor.Config{}))
 	room, writer := h.room(t, "Automated guide", runner.config.RunnerID)
@@ -303,5 +303,9 @@ func TestAutomationObservedAssessmentQuestionExternalAnswerAndOnePublication(t *
 	if err != nil || unchanged.Status != "completed" || unchanged.TurnsUsed != 2 || unchanged.InputRevision != finished.InputRevision {
 		t.Fatal("new request changed the completed task", unchanged, err)
 	}
-	h.taskState(t, newAdmission.TaskID, "completed")
+	next := h.taskState(t, newAdmission.TaskID, "completed")
+	remoteEventually(t, 5*time.Second, "the follow-up matter did not settle", func() bool {
+		w, err := h.store.GetWorkItem(h.actor, next.WorkItemID)
+		return err == nil && w.Status == "completed"
+	})
 }

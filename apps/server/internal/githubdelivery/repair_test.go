@@ -87,8 +87,9 @@ func TestReviewFeedbackRequiresApprovedActorAndExactHead(t *testing.T) {
 		t.Fatal("stale-source feedback started repair", result)
 	}
 	sha = d.HeadSHA
+	d.Stage = "review"
 	result := f.client.Step(context.Background(), d, "")
-	if result.Delivery.Status != "blocked" || result.Delivery.FailureCode != "review_changes" || !strings.Contains(result.Delivery.Diagnostics, "title is missing") || !strings.Contains(result.Delivery.Diagnostics, "Render the saved note title") || len(f.writes) != 0 {
+	if result.Delivery.Status != "blocked" || result.Delivery.Stage != "checks" || result.Delivery.FailureCode != "review_changes" || !strings.Contains(result.Delivery.Diagnostics, "title is missing") || !strings.Contains(result.Delivery.Diagnostics, "Render the saved note title") || len(f.writes) != 0 {
 		t.Fatal(result, f.writes)
 	}
 }

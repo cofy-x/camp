@@ -257,7 +257,10 @@ func (s *Store) ClaimGitHubDelivery(ctx context.Context) (out *GitHubDeliveryCla
 			if e != nil {
 				return e
 			}
-			if !d.Reconcile {
+			// A due, already claimed write may have happened. The write grant
+			// can expire or be revoked without settling its receipt.
+			receiptOnly := d.Reconcile || (d.Status == "working" && d.VisibleWriteStage())
+			if !receiptOnly {
 				if authority := githubProjectAuthority(ctx, q, w, d); authority != nil {
 					d.Status, d.FailureCode, d.Reason = "blocked", "project_changed", authority.Error()
 					if e = githubDeliveryAttention(ctx, q, &w, &d); e != nil {
@@ -268,7 +271,7 @@ func (s *Store) ClaimGitHubDelivery(ctx context.Context) (out *GitHubDeliveryCla
 			}
 			stopped := w.StopRequested || workTerminal(w)
 			if !owner.Enabled || ((repo.Enabled == 0 || workExpired(w)) && !d.Reconcile) {
-				if d.Reconcile || (d.Status == "working" && githubVisibleStage(d.Stage)) {
+				if receiptOnly {
 					d.Status, d.Reconcile = "unknown", true
 				} else {
 					d.Status = "blocked"
@@ -281,7 +284,7 @@ func (s *Store) ClaimGitHubDelivery(ctx context.Context) (out *GitHubDeliveryCla
 			}
 			if stopped && !d.Reconcile {
 				// A dispatched but unconfirmed write stays unknown even after withdrawal.
-				if d.Status == "working" && githubVisibleStage(d.Stage) {
+				if receiptOnly {
 					d.Status, d.Reconcile = "unknown", true
 					d.Reason = "Delivery was stopped while an external action was unconfirmed. Check its receipt."
 				} else {
@@ -296,31 +299,30 @@ func (s *Store) ClaimGitHubDelivery(ctx context.Context) (out *GitHubDeliveryCla
 				}
 				continue
 			}
-			deadline, _ := time.Parse(time.RFC3339Nano, d.Deadline)
-			if !d.Reconcile && !deadline.IsZero() && time.Now().After(deadline) {
-				d.Status = "blocked"
-				d.Reason = "The finite delivery deadline ended. Review the recorded result."
-				if e = githubDeliveryAttention(ctx, q, &w, &d); e != nil {
+			if !receiptOnly {
+				deadline, _ := time.Parse(time.RFC3339Nano, d.Deadline)
+				if !deadline.IsZero() && time.Now().After(deadline) {
+					d.Status = "blocked"
+					d.Reason = "The finite delivery deadline ended. Review the recorded result."
+					if e = githubDeliveryAttention(ctx, q, &w, &d); e != nil {
+						return e
+					}
+					continue
+				}
+				current, e := pendingWorkCompletionCurrent(ctx, q, &w)
+				if e != nil {
 					return e
 				}
-				continue
-			}
-			if d.Status == "working" && githubVisibleStage(d.Stage) {
-				d.Reconcile = true
-			}
-			current, e := pendingWorkCompletionCurrent(ctx, q, &w)
-			if e != nil {
-				return e
-			}
-			if !current && !d.Reconcile {
-				d.Status = "blocked"
-				d.Reason = "The matter changed after its result was accepted. Review the delivery before further actions."
-				if e = githubDeliveryAttention(ctx, q, &w, &d); e != nil {
-					return e
+				if !current {
+					d.Status = "blocked"
+					d.Reason = "The matter changed after its result was accepted. Review the delivery before further actions."
+					if e = githubDeliveryAttention(ctx, q, &w, &d); e != nil {
+						return e
+					}
+					continue
 				}
-				continue
 			}
-			d.Status = "working"
+			d.Status, d.Reconcile = "working", receiptOnly
 			d.NextCheckAt = time.Now().Add(3 * time.Minute).UTC().Format(time.RFC3339Nano)
 			if e = saveGitHubDelivery(ctx, q, &d); e != nil {
 				return e
@@ -331,9 +333,6 @@ func (s *Store) ClaimGitHubDelivery(ctx context.Context) (out *GitHubDeliveryCla
 		return nil
 	})
 	return
-}
-func githubVisibleStage(stage string) bool {
-	return stage == "branch" || stage == "update_branch" || stage == "pull_request" || stage == "merge" || stage == "release"
 }
 func githubDeliveryAttention(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem, d *orchestration.GitHubDelivery) error {
 	if e := saveGitHubDelivery(ctx, q, d); e != nil {
@@ -493,7 +492,7 @@ func (s *Store) CheckGitHubDelivery(ctx context.Context, workID string, revision
 		if d.Revision != revision {
 			return problem("revision_conflict", "The delivery changed. Reload its current receipt.")
 		}
-		if (d.Status != "unknown" && d.Status != "blocked") || !d.Reconcile || !githubVisibleStage(d.Stage) {
+		if (d.Status != "unknown" && d.Status != "blocked") || !d.Reconcile || !d.VisibleWriteStage() {
 			return problem("invalid_delivery", "Only an unconfirmed external action needs a receipt check.")
 		}
 		if w.PendingCompletion != nil && !w.StopRequested && !workTerminal(w) {
@@ -568,7 +567,7 @@ func retryGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestratio
 	if !current {
 		return problem("invalid_delivery", "The accepted result or its Work context changed. Authorize fresh work instead of replaying an old delivery.")
 	}
-	if githubVisibleStage(d.Stage) {
+	if d.VisibleWriteStage() {
 		if w.Usage.Actions >= w.Budget.MaxActions {
 			return problem("work_budget_exhausted", "This retry needs one remaining external action.")
 		}

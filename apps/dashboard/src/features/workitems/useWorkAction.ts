@@ -8,6 +8,7 @@ import { utcDateTime } from './workSettings';
 import { useWorkDefaults } from './useWorkDefaults';
 import type { WorkOperation } from './useWorkItemOperation';
 import type { WorkActionInput, WorkActionName, WorkItem } from './api';
+import { workItemQuestion } from './presentation';
 import { confirmedWorkAction } from './workRequestRecovery';
 import {
   restoreWorkActionDraft,
@@ -47,12 +48,10 @@ export function useWorkAction({
   const questionTextId = useId();
   const waitConditionId = useId();
   const settings = useWorkDefaults(item.roomId, '', readsActive && !readOnly);
-  const question =
-    item.execution?.question && !item.execution.question.answer
-      ? item.execution.question
-      : null;
-  const hasQuestion = Boolean(question || item.question);
-  const completionQuestion = !question && item.questionKind === 'completion';
+  const question = workItemQuestion(item);
+  const taskQuestion = question?.kind === 'task' ? question : undefined;
+  const hasQuestion = Boolean(question);
+  const completionQuestion = question?.kind === 'completion';
   const draft = usePrivateDraft<WorkActionDraft | null>(
     'conversation',
     `work-item-decision:${item.id}`,
@@ -62,15 +61,15 @@ export function useWorkAction({
     draft.value ?? {
       revision: item.revision,
       intent: hasQuestion && !completionQuestion ? 'answer' : '',
-      taskId: question ? item.execution?.taskId : undefined,
-      taskRevision: question ? item.execution?.revision : undefined,
-      questionId: question?.id,
+      taskId: taskQuestion?.taskId,
+      taskRevision: taskQuestion?.taskRevision,
+      questionId: taskQuestion?.id,
     },
   );
   const savedIntent = values.intent ?? '';
   const section =
     managementSection || workManagementForIntent(savedIntent) || 'allowance';
-  const intent =
+  const selectedIntent =
     view === 'manage'
       ? workSectionIntent(section, savedIntent)
       : view === 'overview'
@@ -80,6 +79,11 @@ export function useWorkAction({
             ? ''
             : savedIntent
         : '';
+  const intent =
+    !hasQuestion &&
+    (selectedIntent === 'answer' || selectedIntent === 'answer_continue')
+      ? ''
+      : selectedIntent;
   const content = values.content ?? '';
   const comment = values.comment ?? '';
   const participants =
@@ -105,10 +109,10 @@ export function useWorkAction({
     operation.blocked ||
     !draft.loaded ||
     Boolean(draft.error);
-  const taskChanged = question
-    ? values.taskId !== item.execution?.taskId ||
-      values.taskRevision !== item.execution?.revision ||
-      values.questionId !== question.id
+  const taskChanged = taskQuestion
+    ? values.taskId !== taskQuestion.taskId ||
+      values.taskRevision !== taskQuestion.taskRevision ||
+      values.questionId !== taskQuestion.id
     : Boolean(values.taskId);
   const stale = values.revision !== item.revision || taskChanged;
   const active = Boolean(item.activeTaskId);
@@ -148,9 +152,9 @@ export function useWorkAction({
   function current() {
     edit({
       revision: item.revision,
-      taskId: question ? item.execution?.taskId : undefined,
-      taskRevision: question ? item.execution?.revision : undefined,
-      questionId: question?.id,
+      taskId: taskQuestion?.taskId,
+      taskRevision: taskQuestion?.taskRevision,
+      questionId: taskQuestion?.id,
     });
   }
 
@@ -209,7 +213,7 @@ export function useWorkAction({
 
   const labels: Partial<Record<WorkActionName, string>> = {
     start: 'Start work',
-    answer: question ? 'Answer and continue' : 'Send answer',
+    answer: taskQuestion ? 'Answer and continue' : 'Send answer',
     answer_continue: 'Answer and start work',
     wait: 'Save reminder',
     complete: 'Mark done',

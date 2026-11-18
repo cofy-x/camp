@@ -1303,6 +1303,73 @@ test('the current task question answers in place with task revision and an exact
   expect(errors.errors).toEqual([]);
 });
 
+test('a stopped task retains its files and private reply without asking an old question', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  const savedReply = 'Keep the proposal focused on existing customers.';
+  const question = 'Who should the proposal address?';
+  const value = await presentation(page, errors.reload, {
+    status: 'running',
+    activeTaskId: 'proposal-task',
+    execution: {
+      taskId: 'proposal-task',
+      status: 'waiting_for_person',
+      revision: 2,
+      summary: '',
+      error: '',
+      question: {
+        id: 'proposal-question',
+        text: question,
+        options: [],
+        answer: '',
+      },
+      currentAgentName: 'Writer',
+      activeRunId: '',
+      updatedAt: '2026-11-17T08:00:00Z',
+    },
+    result: {
+      taskId: 'proposal-task',
+      summary: '',
+      resourceId: 'proposal-files',
+      commit: 'saved-proposal',
+      published: false,
+      files: [{ path: 'proposal.md', status: 'added' }],
+    },
+  });
+  await value.open();
+  await detail(page)
+    .getByLabel('Your answer', { exact: true })
+    .fill(savedReply);
+  value.setItem({
+    status: 'cancelled',
+    revision: 2,
+    activeTaskId: undefined,
+    execution: { ...value.item.execution!, status: 'cancelled', revision: 3 },
+  });
+  await openWorkAction(page, 'Refresh');
+  const saved = detail(page).getByRole('region', { name: 'Your saved input' });
+  await expect(saved).toContainText(savedReply);
+  await capture(page, 'stopped-question');
+  await expect(
+    detail(page).getByText('Cancelled', { exact: true }),
+  ).toBeVisible();
+  await expect(detail(page).getByText(question, { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(
+    detail(page).getByRole('button', { name: 'proposal.md', exact: true }),
+  ).toBeVisible();
+  await expect(
+    detail(page).getByRole('button', {
+      name: 'Answer and continue',
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  expect(errors.errors).toEqual([]);
+});
+
 test('results expose exact files and the final finite grant; stop remains visible until execution stops', async ({
   page,
   browserName,

@@ -176,7 +176,7 @@ func repairGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestrati
 	if d.Revision != revision {
 		return problem("revision_conflict", "The delivery changed. Review its current outcome.")
 	}
-	if d.Status != "blocked" || d.Reconcile || d.Stage != "checks" || d.Repairs >= 3 {
+	if d.Status != "blocked" || d.Reconcile || (d.Stage != "checks" && d.Stage != "review") || d.Repairs >= 3 {
 		return problem("invalid_delivery", "Review a known CI or review failure before authorizing one finite repair.")
 	}
 	switch d.FailureCode {

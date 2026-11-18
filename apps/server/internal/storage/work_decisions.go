@@ -201,6 +201,11 @@ func applyAutomationWorkDecisionTx(ctx context.Context, tx *sql.Tx, c orchestrat
 	if e = appendWorkDecision(ctx, q, w, d); e != nil {
 		return "", e
 	}
+	if a.Outcome == "complete" && w.Status == "waiting" {
+		if e = retainWorkCompletion(ctx, q, &w, "", a.Reason); e != nil {
+			return "", e
+		}
+	}
 	if e = saveWorkItem(ctx, q, &w); e != nil {
 		return "", e
 	}

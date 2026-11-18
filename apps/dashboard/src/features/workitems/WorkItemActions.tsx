@@ -50,6 +50,7 @@ export function WorkItemActions({
     completionQuestion,
     draft,
     values,
+    savedIntent,
     section,
     intent,
     content,
@@ -111,10 +112,10 @@ export function WorkItemActions({
           value?.content ?? value?.comment ?? value?.reason ?? ''
         }
       />
-      {!readOnly && view === 'overview' && hasQuestion && (
+      {!readOnly && view === 'overview' && question && (
         <section className="work-item-question" aria-label="Question for you">
-          <h4 id={questionTextId}>{question?.text ?? item.question}</h4>
-          {question?.options?.length ? (
+          <h4 id={questionTextId}>{question.text}</h4>
+          {question.kind === 'task' && question.options.length ? (
             <div className="app-actions">
               {question.options.map((option) => (
                 <Button
@@ -237,15 +238,19 @@ export function WorkItemActions({
                   value={content}
                   onChange={(event) => edit({ content: event.target.value })}
                 />
-                {question && (
+                {question?.kind === 'task' && (
                   <p>
                     Continues the current work session within its existing
                     allowance.
                   </p>
                 )}
-                {!question && intent === 'answer' && item.policyId && (
-                  <p>The automatic rule may continue work after your answer.</p>
-                )}
+                {question?.kind !== 'task' &&
+                  intent === 'answer' &&
+                  item.policyId && (
+                    <p>
+                      The automatic rule may continue work after your answer.
+                    </p>
+                  )}
               </>
             ) : intent === 'completion' ? (
               <>
@@ -518,18 +523,24 @@ export function WorkItemActions({
           </div>
         </form>
       )}
-      {readOnly && draft.value && (
-        <section aria-label="Your saved input">
-          <p>Your saved input</p>
-          <pre>
-            {values.content ||
-              comment ||
-              values.waitCondition ||
-              values.question ||
-              (values.evidenceIds ?? []).join('\n')}
-          </pre>
-        </section>
-      )}
+      {draft.value &&
+        (readOnly ||
+          (view === 'overview' &&
+            !hasQuestion &&
+            content &&
+            (savedIntent === 'answer' ||
+              savedIntent === 'answer_continue'))) && (
+          <section aria-label="Your saved input">
+            <p>Your saved input</p>
+            <pre>
+              {values.content ||
+                comment ||
+                values.waitCondition ||
+                values.question ||
+                (values.evidenceIds ?? []).join('\n')}
+            </pre>
+          </section>
+        )}
       {(allowanceProblem || (readOnly && allowanceDraft)) &&
         (readOnly
           ? !allowanceRecoveryOpen

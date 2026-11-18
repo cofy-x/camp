@@ -142,6 +142,44 @@ func TestGitHubDeliveryRecoversCrashedWritesAsReadOnlyClaims(t *testing.T) {
 		t.Fatal(recovered)
 	}
 }
+
+func TestGitHubDeliveryChecksCrashedWritesAfterWriteAuthorityEnds(t *testing.T) {
+	past := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano)
+	for _, fence := range []struct {
+		name  string
+		path  string
+		value any
+	}{
+		{"delivery deadline", "$.deadline", past},
+		{"project grant", "$.projectRevision", 1},
+		{"rule grant", "$.policyRevision", 1},
+	} {
+		t.Run(fence.name, func(t *testing.T) {
+			s, actor, w, _ := deliveryFixture(t)
+			completeDeliveryStage(t, s, claimDelivery(t, s), "branch", "queued")
+			abandoned := claimDelivery(t, s).Delivery
+			// Model a restarted worker with a due write and a past deadline
+			// or a frozen grant whose current configuration is now absent.
+			if _, err := s.db.Exec("UPDATE github_publications SET next_check_at=?,value=json_set(value,?,?) WHERE id=?", past, fence.path, fence.value, abandoned.ID); err != nil {
+				t.Fatal(err)
+			}
+			check := claimDelivery(t, s).Delivery
+			if !check.Reconcile || check.Stage != abandoned.Stage || check.ID != abandoned.ID {
+				t.Fatal("the abandoned write did not retain a read-only recovery path", check)
+			}
+			check.Reconcile = false
+			completeDeliveryStage(t, s, &GitHubDeliveryClaim{Delivery: check}, "pull_request", "queued")
+			if next, err := s.ClaimGitHubDelivery(ctx); err != nil || next != nil {
+				t.Fatal("finding the receipt authorized another write", next, err)
+			}
+			current, err := s.GetWorkItem(actor, w.ID)
+			if err != nil || current.GitHubDelivery == nil || current.GitHubDelivery.Status != "blocked" || current.Usage.Actions != w.Usage.Actions {
+				t.Fatal("the following write remained authorized or spent allowance", current, err)
+			}
+		})
+	}
+}
+
 func TestGitHubConnectionRequestCancellationFencesLateCredentialActivation(t *testing.T) {
 	s, actor, _, _, _, _ := taskFixture(t)
 	input := orchestration.GitHubRepositoryInput{RequestID: newID(), Repository: "acme/notes", Token: "never-save-this-token", Enabled: true}

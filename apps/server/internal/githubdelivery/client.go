@@ -151,9 +151,6 @@ func missing(err error) bool                           { var e protocolError; re
 func uncertain(err error) bool                         { var e protocolError; return errors.As(err, &e) && e.uncertain }
 func marker(d orchestration.GitHubDelivery) string     { return "<!-- camp-delivery:" + d.ID + " -->" }
 func sourceBody(d orchestration.GitHubDelivery) string { return d.PullRequestBody() }
-func visibleStage(stage string) bool {
-	return stage == "branch" || stage == "update_branch" || stage == "pull_request" || stage == "merge" || stage == "release"
-}
 
 // Step dispatches at most one visible effect. Lost responses are reconciled with
 // reads in the same invocation; absence never authorizes a second write.
@@ -161,10 +158,11 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 	result := orchestration.GitHubDeliveryResult{Delivery: d}
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
+	reconcile := d.Reconcile && d.VisibleWriteStage()
 	fail := func(reason string) orchestration.GitHubDeliveryResult {
 		result.Delivery.Status = "blocked"
-		if d.Reconcile && visibleStage(d.Stage) {
-			result.Delivery.Status = "unknown"
+		if reconcile {
+			result.Delivery.Status, result.Delivery.Reconcile = "unknown", true
 		}
 		result.Delivery.Reason = reason
 		if result.Delivery.FailureCode == "" {
@@ -196,7 +194,6 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 	}
 	token := credential.Token
 	base := "/repos/" + d.Repository
-	reconcile := d.Reconcile && visibleStage(d.Stage)
 	var repo repository
 	if e = c.call(ctx, token, "GET", base, nil, &repo); e != nil {
 		return readFailure(e, "Reconnect the repository before continuing delivery.")
@@ -357,6 +354,7 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 			return readFailure(e, "The exact-source CI results could not be read.")
 		}
 		if failed {
+			result.Delivery.Stage = "checks"
 			result.Delivery.Diagnostics = c.ciDiagnostics(ctx, token, base, d)
 			return failWith("ci_failed", "CI did not pass for the authorized pull request head.")
 		}
@@ -369,6 +367,7 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 			return readFailure(e, "Approved review feedback could not be checked.")
 		}
 		if feedback != "" {
+			result.Delivery.Stage = "checks"
 			result.Delivery.Diagnostics = feedback
 			return failWith("review_changes", "An approved reviewer requested changes on this exact source version.")
 		}

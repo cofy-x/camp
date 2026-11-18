@@ -44,6 +44,7 @@ type protocolFixture struct {
 	ci                           string
 	otherHead                    bool
 	repositoryID                 int64
+	partialMergeReceipt          bool
 }
 
 func newProtocol(t *testing.T) *protocolFixture {
@@ -60,7 +61,11 @@ func (f *protocolFixture) pull() map[string]any {
 	if f.otherHead {
 		head = strings.Repeat("f", 40)
 	}
-	return map[string]any{"number": 12, "html_url": "https://github.com/acme/notes/pull/12", "body": sourceBody(f.delivery), "state": "open", "user": map[string]any{"id": 7}, "head": map[string]any{"sha": head, "ref": f.delivery.Branch, "repo": map[string]any{"id": 10}}, "base": map[string]any{"ref": "main", "repo": map[string]any{"id": 10}}, "merged": f.merged, "merge_commit_sha": strings.Repeat("f", 40)}
+	mergeSHA := strings.Repeat("f", 40)
+	if f.partialMergeReceipt {
+		mergeSHA = ""
+	}
+	return map[string]any{"number": 12, "html_url": "https://github.com/acme/notes/pull/12", "body": sourceBody(f.delivery), "state": "open", "user": map[string]any{"id": 7}, "head": map[string]any{"sha": head, "ref": f.delivery.Branch, "repo": map[string]any{"id": 10}}, "base": map[string]any{"ref": "main", "repo": map[string]any{"id": 10}}, "merged": f.merged, "merge_commit_sha": mergeSHA}
 }
 func (f *protocolFixture) serve(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Authorization") != "Bearer private-repository-token" {
@@ -214,6 +219,26 @@ func TestUnknownBranchAbsenceNeverPermitsAnAutomaticResend(t *testing.T) {
 	}
 	if f.writes["/git/refs"] != 1 {
 		t.Fatal("uncertain branch was resent", f.writes)
+	}
+}
+
+func TestUnknownMergeStaysCheckableWhenTheReadbackLacksAnExactCommit(t *testing.T) {
+	f := newProtocol(t)
+	for range 4 {
+		f.step(t)
+	}
+	if f.delivery.Stage != "merge" {
+		t.Fatal(f.delivery)
+	}
+	f.lost, f.partialMergeReceipt = "merge", true
+	f.step(t)
+	if f.delivery.Status != "unknown" || !f.delivery.Reconcile || !f.merged {
+		t.Fatal("an incomplete readback turned an uncertain merge into a known failure", f.delivery)
+	}
+	f.partialMergeReceipt = false
+	f.step(t)
+	if f.delivery.Stage != "release" || f.delivery.Reconcile || f.writes["/pulls/12/merge"] != 1 {
+		t.Fatal("recovering the exact commit repeated the merge", f.delivery, f.writes)
 	}
 }
 
