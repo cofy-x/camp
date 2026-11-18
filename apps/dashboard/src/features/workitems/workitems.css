@@ -227,6 +227,13 @@
   content: '·';
   margin-right: 6px;
 }
+.work-grant .work-execution-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 2px 0 0;
+}
 .work-item-context {
   border-left: 2px solid var(--p9-shadow);
   padding-left: 12px;

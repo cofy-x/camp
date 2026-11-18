@@ -128,6 +128,15 @@ export function affectedRead(path: string, event: WorkspaceEvent): boolean {
         type,
       )
     );
+  if (room && route.endsWith('/work-execution'))
+    return (
+      type === 'runner.updated' ||
+      type === 'execution_defaults.updated' ||
+      (type === 'agent.updated' &&
+        url.searchParams.getAll('agentId').includes(event.entityId)) ||
+      (room === event.roomId &&
+        (type === 'room.updated' || type === 'membership.updated'))
+    );
   if (room) {
     if (event.roomId && room !== event.roomId) return false;
     if (route.endsWith('/members'))

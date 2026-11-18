@@ -16,6 +16,8 @@ When replacing an ordinary-view read path, remove its superseded callers and ref
 
 Personal project settings extend the existing one-Room Work defaults read; never add a fetch per Room to the desktop or Work list. Project changes invalidate only matching scoped proposals, while submitted drafts retain their frozen revision. Accepted source ledgers and repair diagnostics are not loaded into list projections.
 
+Work checks Runner access only while proposing a finite execution. Key the advisory read by the Room, selected Agents and completion mode. Goal and instruction editing reuse the accepted result. Relevant route, membership and grant changes revalidate the proposal through the shared read store.
+
 GitHub source delivery uses an indexed due queue, not browser polling or Room-wide refresh. Empty-queue checks take no write transaction; active CI/deployment observations have a finite deadline and check allowance. Worker claim leases stay internal. Unchanged waiting results retain transport receipts without appending duplicate matter evidence or invalidating ordinary Work views. Repository metadata is read through the shared store only when Settings or selected delivery options need it. [The protocol](github.md#authorized-code-delivery), [queue queries](../apps/server/internal/storage/queries/github_delivery.sql) and [browser cases](../tests/github-delivery.spec.ts) own this scope.
 
 ## Reads and live observations

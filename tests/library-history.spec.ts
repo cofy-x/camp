@@ -10,6 +10,70 @@ import {
 } from './team-helpers';
 import { watchPageErrors } from './page-errors';
 
+test('Return to Latest keeps the open file while changing its exact version', async ({
+  page,
+}, info) => {
+  await signIn(page);
+  const room = await createRoom(page, `version-file-${info.project.name}`);
+  const filesURL = `/resources/${room.resourceId}/files`;
+  let commit: string = (
+    await (await page.request.get(`/api${filesURL}`)).json()
+  ).commit;
+
+  async function publish(path: string, content: string) {
+    const saved = await mutate(
+      page,
+      filesURL,
+      {
+        requestId: randomUUID(),
+        expectedCommit: commit,
+        path,
+        content,
+      },
+      'PUT',
+    );
+    expect(saved.ok()).toBe(true);
+    commit = (await saved.json()).publication.commit;
+  }
+
+  await publish('handoff.md', 'The original handoff.');
+  const historical = commit;
+  await publish('about.md', 'Separate general information.');
+  await publish('handoff.md', 'The latest handoff.');
+  await workspace(page)
+    .getByRole('button', { name: 'Files', exact: true })
+    .click();
+  const win = library(page);
+  await win.getByRole('button', { name: 'History', exact: true }).click();
+  await win
+    .locator('.camp-library-history article')
+    .last()
+    .getByRole('button', { name: 'View Version', exact: true })
+    .click();
+  await expect(
+    win.getByText('The original handoff.', { exact: true }),
+  ).toBeVisible();
+  const download = win.getByRole('link', {
+    name: 'Download handoff.md',
+    exact: true,
+  });
+  await expect(download).toHaveAttribute(
+    'href',
+    new RegExp(`commit=${historical}`),
+  );
+  await win
+    .getByRole('button', { name: 'Return to Latest', exact: true })
+    .click();
+  await expect(
+    win.getByText('The latest handoff.', { exact: true }),
+  ).toBeVisible();
+  await expect(download).toHaveAttribute(
+    'href',
+    new RegExp(`commit=${commit}`),
+  );
+  await win.screenshot({ path: info.outputPath('kept-file-in-latest.png') });
+});
+
 test('Library navigation cannot show another source’s history while the new read is pending', async ({
   page,
   browserName,

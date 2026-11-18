@@ -71,7 +71,7 @@ func runnerAllowsAgent(ctx context.Context, q *sqlgen.Queries, runner sqlgen.Run
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	return problem("runner_forbidden", "The Runner owner has not authorized this Agent. Choose a permitted Runner or request an Agent grant.")
+	return problem("runner_forbidden", "The Runner owner needs to grant access to this Agent.")
 }
 
 func resolveAgentRunner(ctx context.Context, q *sqlgen.Queries, room sqlgen.Room, agent Agent) (Runner, error) {
@@ -87,7 +87,7 @@ func resolveAgentRunner(ctx context.Context, q *sqlgen.Queries, room sqlgen.Room
 		}
 	}
 	if target == "" {
-		return Runner{}, problem("runner_required", "Set an execution Runner for this Agent before assigning work.")
+		return Runner{}, problem("runner_required", "Assign a Runner to this Agent.")
 	}
 	runner, err := availableRunner(ctx, q, target)
 	if err != nil {

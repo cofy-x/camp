@@ -29,12 +29,11 @@ export function DocumentEditor({
   onPublished: () => void;
   onClose: () => void;
 }) {
-  const draft = usePrivateDraft<Draft>('document', `${resource.id}:${path}`, {
-    resourceId: resource.id,
-    path,
-    baseCommit,
-    content,
-  });
+  const draft = usePrivateDraft<Draft | null>(
+    'document',
+    `${resource.id}:${path}`,
+    null,
+  );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [published, setPublished] = useState<{
@@ -49,6 +48,14 @@ export function DocumentEditor({
   const [request, setRequest] = useState<{ key: string; id: string } | null>(
     null,
   );
+  const baseline: Draft = {
+    resourceId: resource.id,
+    path,
+    baseCommit: published?.commit ?? baseCommit,
+    content: published?.content ?? content,
+  };
+  const value = draft.value ?? baseline;
+  const saved = Boolean(published && !draft.value);
 
   useEffect(
     () =>
@@ -81,15 +88,10 @@ export function DocumentEditor({
   }
 
   async function publish() {
-    const submitted = draft.getValue();
-    if (
-      published?.content === submitted.content &&
-      published?.commit === submitted.baseCommit
-    )
-      return;
+    const submitted = draft.getValue() ?? baseline;
+    if (pending || saved || draft.error) return;
     setPending(true);
     setError('');
-    setPublished(null);
     const key = JSON.stringify(submitted);
     const requestId = request?.key === key ? request.id : crypto.randomUUID();
     setRequest({ key, id: requestId });
@@ -101,11 +103,17 @@ export function DocumentEditor({
         content: submitted.content,
       });
       const commit = result.publication.commit;
-      draft.setValue({ ...draft.getValue(), baseCommit: commit });
+      const current = draft.getValue();
+      if (current?.baseCommit === submitted.baseCommit) {
+        if (current.content === submitted.content)
+          draft.setValue(null, { keepSavedOnConflict: true });
+        else draft.setValue({ ...current, baseCommit: commit });
+      }
       setPublished({ content: submitted.content, commit });
       setSharedConflict(false);
       setLatest(null);
-      void draft.flush();
+      // Finish the revision-checked cleanup before refreshing the draft list.
+      await draft.flush();
       onPublished();
     } catch (error) {
       if (error instanceof APIError && error.status === 409)
@@ -120,9 +128,6 @@ export function DocumentEditor({
     }
   }
 
-  const saved =
-    published?.content === draft.value.content &&
-    published?.commit === draft.value.baseCommit;
   return (
     <section className="camp-document-editor" aria-label={`Edit ${path}`}>
       <div className="camp-section-heading">
@@ -140,10 +145,13 @@ export function DocumentEditor({
       ) : (
         <textarea
           aria-label="Document content"
-          value={draft.value.content}
+          value={value.content}
           spellCheck={false}
           onChange={(event) =>
-            draft.setValue({ ...draft.getValue(), content: event.target.value })
+            draft.setValue({
+              ...(draft.getValue() ?? baseline),
+              content: event.target.value,
+            })
           }
         />
       )}
@@ -159,15 +167,24 @@ export function DocumentEditor({
             {draft.comparison.value?.content ??
               'No private text is saved in that session.'}
           </pre>
-          <p>
-            Your local text stays in the editor above. Choose which private
-            version to keep.
-          </p>
+          {draft.value && (
+            <p>
+              Your local text stays in the editor above. Choose which private
+              version to keep.
+            </p>
+          )}
           <div className="app-actions">
-            <Button onClick={draft.useRemote}>Use Other Draft</Button>
-            <Button onClick={() => void draft.resolveConflict()}>
-              Save My Draft
+            <Button disabled={pending} onClick={draft.useRemote}>
+              Use Other Draft
             </Button>
+            {draft.value && (
+              <Button
+                disabled={pending}
+                onClick={() => void draft.resolveConflict()}
+              >
+                Save My Draft
+              </Button>
+            )}
           </div>
         </details>
       )}
@@ -185,7 +202,7 @@ export function DocumentEditor({
           <Button
             onClick={() => {
               draft.setValue({
-                ...draft.getValue(),
+                ...(draft.getValue() ?? baseline),
                 baseCommit: latest.commit,
               });
               setLatest(null);
@@ -208,7 +225,10 @@ export function DocumentEditor({
                 : 'Private draft · shared files unchanged'}
         </span>
         {draft.error && !draft.comparison && (
-          <Button onClick={() => void draft.inspectConflict()}>
+          <Button
+            disabled={pending}
+            onClick={() => void draft.inspectConflict()}
+          >
             {draft.loaded ? 'Compare Private Drafts' : 'Retry Restore'}
           </Button>
         )}
@@ -223,8 +243,9 @@ export function DocumentEditor({
             !draft.loaded ||
             pending ||
             saved ||
+            Boolean(draft.error) ||
             sharedConflict ||
-            new TextEncoder().encode(draft.value.content).length > 1048576
+            new TextEncoder().encode(value.content).length > 1048576
           }
           onClick={() => void publish()}
         >

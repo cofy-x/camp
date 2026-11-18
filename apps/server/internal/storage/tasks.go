@@ -153,12 +153,21 @@ func taskParticipants(ctx context.Context, q *sqlgen.Queries, room sqlgen.Room, 
 		agent := agentRow(a)
 		runner, err := resolveAgentRunner(ctx, q, room, agent)
 		if err != nil {
-			return nil, err
+			return nil, taskRunnerError(agent.Name, err)
 		}
 		out = append(out, TaskParticipant{Agent: agent, RunnerID: runner.ID, RunnerName: runner.Name})
 	}
 	return out, nil
 }
+
+func taskRunnerError(agent string, err error) error {
+	var rejection *Error
+	if errors.As(err, &rejection) {
+		return problem(rejection.Code, agent+" — "+rejection.Message)
+	}
+	return err
+}
+
 func taskParticipant(t CollaborationTask, id string) (TaskParticipant, bool) {
 	for _, p := range t.Participants {
 		if p.Agent.ID == id {

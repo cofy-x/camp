@@ -70,7 +70,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   >([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [resourceId, setResourceId] = useState(window.params.resourceId ?? '');
-  const [path, setPath] = useState('');
+  const [requestedPath, setPath] = useState('');
   const historyRead = useRead<{ publications: Publication[] }>(
     resourceId ? `/resources/${encodeURIComponent(resourceId)}/history` : null,
     { enabled: history && !comparison },
@@ -87,7 +87,6 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     resourceId: string;
     path: string;
   } | null>(null);
-  useEffect(() => setReviewScope(null), [resourceId, path]);
   const [error, setError] = useState('');
   const libraryRead =
     useRead<Awaited<ReturnType<typeof libraryApi.list>>>('/library');
@@ -102,6 +101,8 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   const filesLoading = filesRead.loading;
   const files = filesRead.data?.files ?? [];
   const commit = filesRead.data?.commit ?? '';
+  const path = files.includes(requestedPath) ? requestedPath : (files[0] ?? '');
+  useEffect(() => setReviewScope(null), [resourceId, path]);
   const [pending, setPending] = useState(false);
   const [revision, setRevision] = useState(0);
   const editorRequest = useRef(0);
@@ -254,10 +255,14 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     [desktop, window.id],
   );
   useEffect(() => {
+    const controller = new AbortController();
     void teamApi
-      .drafts('document')
-      .then((result) => setDrafts(result.drafts))
+      .drafts('document', controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) setDrafts(result.drafts);
+      })
       .catch(() => {});
+    return () => controller.abort();
   }, [revision]);
   useEffect(() => {
     const result = libraryRead.data;
@@ -353,13 +358,6 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     rooms.find(
       (item) => item.resourceId === resourceId && item.id === targetRoom,
     ) ?? rooms.find((item) => item.resourceId === resourceId);
-  useEffect(() => {
-    const listing = filesRead.data;
-    if (!listing) return;
-    setPath((current) =>
-      listing.files.includes(current) ? current : (listing.files[0] ?? ''),
-    );
-  }, [filesRead.data]);
   const reference: Reference | null =
     resource && path
       ? {
@@ -662,6 +660,11 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     setRequestReview(null);
   }
 
+  function returnToLatest() {
+    setPath(path);
+    setVersion(null);
+  }
+
   return {
     team,
     sourcesOpen,
@@ -691,7 +694,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     environmentOpen,
     setEnvironmentOpen,
     version,
-    setVersion,
+    returnToLatest,
     comparison,
     setComparison,
     editor,

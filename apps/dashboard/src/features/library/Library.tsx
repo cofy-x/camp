@@ -43,7 +43,7 @@ export function Library({ desktop, window }: AppWindowProps) {
     environmentOpen,
     setEnvironmentOpen,
     version,
-    setVersion,
+    returnToLatest,
     comparison,
     setComparison,
     editor,
@@ -275,14 +275,7 @@ export function Library({ desktop, window }: AppWindowProps) {
                       ? ` · ${new Date(version.createdAt).toLocaleString()}`
                       : ''}
                   </span>
-                  <Button
-                    onClick={() => {
-                      setVersion(null);
-                      setPath('');
-                    }}
-                  >
-                    Return to Latest
-                  </Button>
+                  <Button onClick={returnToLatest}>Return to Latest</Button>
                 </div>
               )}
               {error && (

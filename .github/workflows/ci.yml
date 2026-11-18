@@ -113,7 +113,7 @@ jobs:
         run: git diff --exit-code
 
   source_go:
-    name: Go tests / ${{ matrix.shard }}/2
+    name: Go tests / ${{ matrix.shard }}
     needs: changes
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.docs != 'true' }}
     runs-on: ubuntu-24.04
@@ -121,7 +121,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: ['1/3', '2/3', '3/3']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -140,7 +140,7 @@ jobs:
         run: make install
       - name: Run every assigned Go test, example and fuzz seed with race detection
         env:
-          GO_TEST_SHARD: ${{ matrix.shard }}/2
+          GO_TEST_SHARD: ${{ matrix.shard }}
         run: make test-go-shard GO_TEST_SHARD="$GO_TEST_SHARD"
       - name: Check tracked files remain unchanged
         run: git diff --exit-code

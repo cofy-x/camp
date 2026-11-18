@@ -105,6 +105,18 @@ func (a *API) workItemRoutes(mux *http.ServeMux) {
 		defaults, err := a.store.WorkItemDefaults(r.Context(), r.PathValue("id"), r.URL.Query().Get("policyId"))
 		a.respond(w, r, map[string]any{"defaults": defaults}, err)
 	})
+	register("GET /api/rooms/{id}/work-execution", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		mode := query.Get("completion")
+		if len(query["completion"]) != 1 || (mode != "automatic" && mode != "human") {
+			writeError(w, 400, "invalid_work_item", "Choose automatic completion or human confirmation.")
+			return
+		}
+		issue, err := a.store.CheckWorkExecution(r.Context(), r.PathValue("id"), query["agentId"], mode == "automatic")
+		a.respond(w, r, struct {
+			Issue *storage.WorkExecutionIssue `json:"issue,omitempty"`
+		}{issue}, err)
+	})
 	operate := func(typed bool) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			var in orchestration.WorkItemOperation

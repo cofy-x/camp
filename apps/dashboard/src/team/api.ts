@@ -134,7 +134,7 @@ export const teamApi = {
       `/me/drafts/${kind}`,
       json('DELETE', { key, revision }),
     ),
-  drafts: (kind: string) =>
+  drafts: (kind: string, signal?: AbortSignal) =>
     request<{
       drafts: {
         kind: string;
@@ -145,5 +145,5 @@ export const teamApi = {
         resourceId: string;
         path: string;
       }[];
-    }>(`/me/drafts?kind=${kind}`),
+    }>(`/me/drafts?kind=${kind}`, { signal }),
 };
