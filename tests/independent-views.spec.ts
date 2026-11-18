@@ -529,11 +529,24 @@ test('a prepared execution waits for matching context without guessing Agents or
 }, info) => {
   const value = await matter(page, `grant-context-${info.project.name}`, false);
   const gate = barrier();
+  const runner = barrier();
+  let checks = 0;
   const original = value.context.members;
   value.context.members = async () => {
     await gate.held;
     return original();
   };
+  await page.route(
+    `**/api/rooms/${value.room.id}/work-execution?*`,
+    async (route) => {
+      const query = new URL(route.request().url()).searchParams;
+      expect(query.getAll('agentId')).toEqual([value.agent.id]);
+      expect(query.get('completion')).toBe('human');
+      checks++;
+      await runner.held;
+      await route.fulfill({ json: {} });
+    },
+  );
   try {
     const detail = await openMatter(page, value.item);
     await expect(
@@ -555,10 +568,17 @@ test('a prepared execution waits for matching context without guessing Agents or
     await expect(
       next.getByText('No available Agents in this Room.', { exact: true }),
     ).toHaveCount(0);
+    expect(checks).toBe(0);
     gate.release();
     await expect(
       next.getByText(value.agent.name, { exact: false }).first(),
     ).toBeVisible();
+    await expect.poll(() => checks).toBe(1);
+    await expect(
+      next.getByRole('button', { name: 'Start work', exact: true }),
+    ).toBeDisabled();
+    await expect(note).toHaveValue(draft);
+    runner.release();
     await expect(
       next.getByRole('button', { name: 'Start work', exact: true }),
     ).toBeEnabled();
@@ -566,6 +586,7 @@ test('a prepared execution waits for matching context without guessing Agents or
     expect(value.reads.writes).toBe(0);
   } finally {
     gate.release();
+    runner.release();
     await page.unrouteAll({ behavior: 'wait' });
   }
 });
