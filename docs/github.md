@@ -67,7 +67,7 @@ Authorization freezes the Room's source baseline, repository identity and visibi
 
 A durable queue progresses through immutable Git object preparation, a unique non-forced branch, a marked pull request, exact-head CI, a squash merge using GitHub's expected-head check, and an exact-merge-commit release. It never overwrites an existing tag or force-pushes a branch. Automatic merge requires the configured workflow and every observed pull-request workflow root for that head to finish successfully; intentional job skips inside a successful workflow do not fail the whole graph. The required CI workflow must run on `pull_request`. GitHub repository rules remain authoritative. GitHub's merge endpoint provides a head compare-and-swap, not a cross-provider transaction or an atomic base-branch comparison.
 
-When an automatic Work item begins with a GitHub issue from the delivery repository, Camp uses the issue title for the pull request and includes a reference to the issue. The reference keeps the issue open for its own resolution. The original title and repository identity come from the recorded source event.
+When an automatic Work item begins with a GitHub issue from the delivery repository, Camp uses its recorded title for the pull request and includes a reference to the issue. Camp uses a generated issue-number subject and frozen delivery details for its commit and automatic squash messages. The reference leaves the issue open for its own resolution.
 
 Authenticated webhooks for the pipeline’s own exact PR creation and merge are recognized by the stored actor, repository, branch, head and frozen body; they do not trigger another automatic request. New comments, edits, changed heads and other actors remain independent source evidence.
 

@@ -129,3 +129,12 @@ func (d GitHubDelivery) PullRequestBody() string {
 	}
 	return body + "\n\nWork: `" + d.WorkItemID + "`\n" + label + ": `" + version + "`\n\n<!-- camp-delivery:" + d.ID + " -->"
 }
+
+// CommitTitle uses a generated subject for issue deliveries because GitHub
+// interprets closing keywords in commit messages.
+func (d GitHubDelivery) CommitTitle() string {
+	if d.IssueNumber > 0 {
+		return "Deliver work for issue #" + strconv.FormatInt(d.IssueNumber, 10)
+	}
+	return d.Title
+}

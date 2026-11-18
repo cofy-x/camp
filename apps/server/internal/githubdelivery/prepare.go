@@ -98,7 +98,7 @@ func (c *Client) prepare(ctx context.Context, token, base string, d orchestratio
 	var result struct {
 		SHA string `json:"sha"`
 	}
-	if err = c.call(ctx, token, "POST", base+"/git/commits", map[string]any{"message": d.Title + "\n\n" + sourceBody(d), "tree": nextTree.SHA, "parents": []string{parent}, "author": identity, "committer": identity}, &result); err != nil {
+	if err = c.call(ctx, token, "POST", base+"/git/commits", map[string]any{"message": d.CommitTitle() + "\n\n" + sourceBody(d), "tree": nextTree.SHA, "parents": []string{parent}, "author": identity, "committer": identity}, &result); err != nil {
 		return "", "", err
 	}
 	if !validSHA(result.SHA) {
