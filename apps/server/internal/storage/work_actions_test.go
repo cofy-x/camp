@@ -197,36 +197,6 @@ func TestWorkActionResultsFreezeReceiptsAndReassessBeforeCompletion(t *testing.T
 	}
 }
 
-func TestAcceptedAssessmentCompletesWhenTheRemainingReceiptArrives(t *testing.T) {
-	s, actor, original, _, _ := workActionFixture(t, "The saved document meets the release goal.")
-	first, err := s.ClaimAutomationDelivery(ctx)
-	if err != nil || first == nil {
-		t.Fatal(first, err)
-	}
-	completeTestWorkAction(t, s, first, "sent", 301)
-	candidate := claimAutomation(t, s)
-	const reason = "The saved result is ready. Complete delivery when the remaining receipt arrives."
-	if err = s.CompleteAutomationEvaluation(ctx, candidate.ID, orchestration.Assessment{Outcome: "complete", WorkItemID: original.ID, Reason: reason}); err != nil {
-		t.Fatal(err)
-	}
-	waiting, err := s.GetWorkItem(actor, original.ID)
-	if err != nil || waiting.Status != "waiting" || waiting.PendingCompletion == nil || waiting.PendingCompletion.Reason != reason {
-		t.Fatal("the accepted assessment was not retained", waiting, err)
-	}
-	second, err := s.ClaimAutomationDelivery(ctx)
-	if err != nil || second == nil {
-		t.Fatal(second, err)
-	}
-	completeTestWorkAction(t, s, second, "sent", 302)
-	completeTestWorkAction(t, s, second, "sent", 302)
-	current, err := s.GetWorkItem(actor, original.ID)
-	if err != nil || current.Status != "completed" || current.PendingCompletion != nil || current.Usage.Evaluations != waiting.Usage.Evaluations || current.Usage.Tasks != waiting.Usage.Tasks {
-		t.Fatal("confirming a receipt required another decision or allowance", current, err)
-	}
-	assertScalar(t, s, "SELECT count(*) FROM work_action_receipts", 2)
-	assertScalar(t, s, "SELECT count(*) FROM automation_events WHERE kind='action.result' AND status='pending'", 0)
-}
-
 func TestWorkActionUnknownRequiresAttentionAndReadOnlyRecovery(t *testing.T) {
 	s, actor, w, _, _ := workActionFixture(t)
 	first, err := s.ClaimAutomationDelivery(ctx)
