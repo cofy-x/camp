@@ -82,7 +82,14 @@ export function WorkItemDetail({
 
   function saved(next: WorkItem, request: Pending) {
     const action = confirmedWorkAction(request);
-    if (action && action !== 'authorize' && action !== 'unfollow')
+    if (
+      action &&
+      action !== 'unfollow' &&
+      (action !== 'authorize' ||
+        (pausedTaskId &&
+          next.activeTaskId === pausedTaskId &&
+          next.budget.maxModelRequests > next.usage.reservedModelRequests))
+    )
       setView('overview');
     setItem((current) =>
       !current || next.revision >= current.revision ? next : current,
@@ -110,6 +117,20 @@ export function WorkItemDetail({
   const question = item && workItemQuestion(item);
   const summary = item?.execution?.summary;
   const displayStatus = item ? workItemStatus(item, false) : '';
+  const execution = item?.execution;
+  const pausedTaskId =
+    !closing &&
+    execution &&
+    execution.taskId === item?.activeTaskId &&
+    !execution.activeRunId &&
+    ['needs_attention', 'interrupted'].includes(execution.status)
+      ? execution.taskId
+      : '';
+  const workAllowanceUsed = Boolean(
+    pausedTaskId &&
+    item &&
+    item.usage.modelRequests >= item.budget.maxModelRequests,
+  );
   const earlierResult = Boolean(
     item?.result &&
     item.activeTaskId &&
@@ -312,22 +333,22 @@ export function WorkItemDetail({
                   {item.execution.error}
                 </p>
               )}
-              {editable &&
-                item.status !== 'stopping' &&
-                item.activeTaskId &&
-                !item.execution?.activeRunId &&
-                ['needs_attention', 'interrupted'].includes(
-                  item.execution?.status ?? '',
-                ) && (
-                  <div className="app-actions">
-                    <Button
-                      primary
-                      onClick={() => onOpenTask(item.activeTaskId!)}
-                    >
-                      Review and continue…
-                    </Button>
-                  </div>
-                )}
+              {editable && pausedTaskId && (
+                <div className="app-actions">
+                  <Button
+                    primary
+                    onClick={() =>
+                      workAllowanceUsed
+                        ? manage('allowance')
+                        : onOpenTask(pausedTaskId)
+                    }
+                  >
+                    {workAllowanceUsed
+                      ? 'Increase allowance…'
+                      : 'Review and continue…'}
+                  </Button>
+                </div>
+              )}
               {!question && !item.githubDelivery && item.waitCondition && (
                 <p className="work-item-wait">
                   {item.waitCondition}

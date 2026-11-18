@@ -166,6 +166,8 @@ Activity defaults to the original ascending sequence order when `direction` is o
 
 Activity pages contain at most 20 whole events and 64 KiB of encoded JSON including its newline. `status`, `reason` and recorded assessment fields remain current within the frozen event identity range. Optional `preview` summarizes visible Room/task messages or the original GitHub title in at most 320 UTF-8 bytes. `assessmentOutcome` is the recorded `accept`, `ignore` or `unavailable` outcome; `assessmentReason` is a summary of its reason in at most 512 bytes. Previews collapse whitespace and use `...` when shortened. They are read projections, never authority or replacements for the complete source/assessment; `content` stays empty in Activity items. Reading a suggested acceptance never changes an event's status or starts work.
 
+An Activity item includes `relatedWorkItemId` when a committed assessment applied its decision to that Work item. It is returned with the bounded page for navigation. `workItemId` on the source event retains its meaning as an explicit intake target.
+
 Canonical source intake and subsequent state writes atomically emit `automation.event.updated` with the canonical event identity and Room. Consumers refresh that event's reads without inferring source identity or status from Room, GitHub or execution notifications. The notification contains no original body or credentials; reads and identical intake replays emit no new event.
 
 Automatic GitHub acceptance also commits `github.event.decided` for its original GitHub identity, keeping that source's list and detail projections current under the same decision as canonical Activity.

@@ -121,7 +121,7 @@ export function GitHubSources({
 }) {
   const { user } = useAccount();
   const operation = useGitHubOperation(`create:${roomId}`);
-  const [expanded, setExpanded] = useState(!sources.length);
+  const [expanded, setExpanded] = useState(operation.blocked);
   const [repository, setRepository] = useState('');
   const [secret, setSecret] = useState('');
   return (
@@ -130,19 +130,25 @@ export function GitHubSources({
       open={expanded}
       onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
-      <summary>Sources ({sources.length})</summary>
-      <ul>
-        {sources.map((source) => (
-          <Source
-            key={source.id}
-            source={source}
-            showIdentity={
-              sources.filter((item) => item.repository === source.repository)
-                .length > 1
-            }
-          />
-        ))}
-      </ul>
+      <summary>
+        {user.role === 'admin' && !sources.length
+          ? 'Connect GitHub…'
+          : 'GitHub sources'}
+      </summary>
+      {sources.length > 0 && (
+        <ul>
+          {sources.map((source) => (
+            <Source
+              key={source.id}
+              source={source}
+              showIdentity={
+                sources.filter((item) => item.repository === source.repository)
+                  .length > 1
+              }
+            />
+          ))}
+        </ul>
+      )}
       {user.role === 'admin' ? (
         <form
           onSubmit={(event) => {
@@ -163,7 +169,6 @@ export function GitHubSources({
               });
           }}
         >
-          <h3>Add GitHub Source</h3>
           <label>
             Repository
             <input

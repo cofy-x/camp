@@ -425,7 +425,11 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 				SHA    string `json:"sha"`
 			}
 			result.Effect = "merge"
-			effectErr = c.call(ctx, token, "PUT", path+"/merge", map[string]any{"sha": d.HeadSHA, "merge_method": "squash", "commit_title": d.Title}, &merged)
+			merge := map[string]any{"sha": d.HeadSHA, "merge_method": "squash", "commit_title": d.CommitTitle()}
+			if d.IssueNumber > 0 {
+				merge["commit_message"] = sourceBody(d)
+			}
+			effectErr = c.call(ctx, token, "PUT", path+"/merge", merge, &merged)
 			if effectErr == nil && !merged.Merged {
 				effectErr = errors.New("GitHub repository rules did not allow this merge")
 			}

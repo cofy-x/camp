@@ -475,3 +475,65 @@ test('progress is offered only for the matter current active execution', async (
   expect(value.reads.run).toBe(0);
   expect(value.executionWrites).toEqual([]);
 });
+
+test('a paused Work item leads to its exhausted allowance and then the saved execution', async ({
+  page,
+}) => {
+  const value = await fixture(page);
+  const usage = {
+    ...value.item.usage,
+    modelRequests: value.item.budget.maxModelRequests,
+    reservedModelRequests: value.item.budget.maxModelRequests,
+  };
+  value.setItem({
+    revision: value.item.revision + 1,
+    usage,
+    execution: {
+      ...value.item.execution!,
+      status: 'needs_attention',
+      activeRunId: '',
+      error: 'The collaboration model request allowance is exhausted.',
+    },
+  });
+  await openWorkAction(page, 'Refresh');
+  const increase = detail(page).getByRole('button', {
+    name: 'Increase allowance…',
+    exact: true,
+  });
+  await expect(increase).toBeVisible();
+  await expect(detail(page).getByRole('alert')).toContainText('is exhausted');
+  await increase.press('Enter');
+  const form = detail(page).getByRole('form', { name: 'Work allowance' });
+  const budget = {
+    ...value.item.budget,
+    maxModelRequests: usage.modelRequests + 4,
+  };
+  await page.route(
+    `**/api/work-items/${value.item.id}/actions/authorize`,
+    (route) => {
+      expect(route.request().postDataJSON()).toMatchObject({
+        budget,
+        revision: value.item.revision,
+      });
+      value.setItem({ revision: value.item.revision + 1, budget });
+      return route.fulfill({ json: { item: value.item } });
+    },
+  );
+  await form
+    .getByRole('spinbutton', { name: 'Model requests', exact: true })
+    .fill(String(budget.maxModelRequests));
+  await form
+    .getByRole('button', { name: 'Save allowance', exact: true })
+    .click();
+  const resume = detail(page).getByRole('button', {
+    name: 'Review and continue…',
+    exact: true,
+  });
+  await expect(resume).toBeVisible();
+  await expect(form).toBeHidden();
+  await resume.click();
+  await expect(collaboration(page)).toBeVisible();
+  expect(value.executionWrites).toEqual([
+    `POST /api/work-items/${value.item.id}/actions/authorize`,
+  ]);
+});

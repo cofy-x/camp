@@ -10,12 +10,17 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
 
+type AutomationActivityItem struct {
+	orchestration.SourceEvent
+	RelatedWorkItemID string `json:"relatedWorkItemId,omitempty"`
+}
+
 type AutomationEventPage struct {
-	Items      []orchestration.SourceEvent `json:"items"`
-	Through    int64                       `json:"through"`
-	NextAfter  *int64                      `json:"nextAfter"`
-	NextBefore *int64                      `json:"nextBefore"`
-	HasMore    bool                        `json:"hasMore"`
+	Items      []AutomationActivityItem `json:"items"`
+	Through    int64                    `json:"through"`
+	NextAfter  *int64                   `json:"nextAfter"`
+	NextBefore *int64                   `json:"nextBefore"`
+	HasMore    bool                     `json:"hasMore"`
 }
 
 type AutomationEventQuery struct {
@@ -35,7 +40,7 @@ func (s *Store) AutomationEvents(ctx context.Context, room string, after int64, 
 // AutomationActivity freezes source identities through a Room frontier. Decision
 // state remains current; previews are bounded read projections of visible facts.
 func (s *Store) AutomationActivity(ctx context.Context, room string, in AutomationEventQuery) (page AutomationEventPage, err error) {
-	page.Items = []orchestration.SourceEvent{}
+	page.Items = []AutomationActivityItem{}
 	if in.Direction == "" {
 		in.Direction = "asc"
 	}
@@ -155,11 +160,17 @@ func readAutomationActivity(ctx context.Context, q *sqlgen.Queries, room string,
 	return out, err
 }
 
-func automationActivityEvent(row sqlgen.AutomationActivityDescendingRow) (item orchestration.SourceEvent, err error) {
-	if err = json.Unmarshal([]byte(row.Value), &item); err != nil {
+func automationActivityEvent(row sqlgen.AutomationActivityDescendingRow) (item AutomationActivityItem, err error) {
+	if err = json.Unmarshal([]byte(row.Value), &item.SourceEvent); err != nil {
 		return item, err
 	}
 	item.Seq, item.Status, item.Reason, item.TaskID, item.EvaluationID, item.PolicyRevision = row.Seq, row.Status, row.Reason, row.TaskID, row.EvaluationID, row.PolicyRevision
+	// Only an applied assessment supplies a navigation target. The original
+	// event's WorkItemID still identifies a targeted fact for intake.
+	switch row.Status {
+	case "accepted", "wait", "request_judgment", "complete", "ignore":
+		item.RelatedWorkItemID = row.AssessedWorkItemID
+	}
 	preview := row.Preview
 	if item.Feishu != nil {
 		_, body, found := strings.Cut(item.Content, "\n\n")

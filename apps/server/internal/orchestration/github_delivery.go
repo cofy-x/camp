@@ -1,5 +1,7 @@
 package orchestration
 
+import "strconv"
+
 // GitHubRepository is a personal connection. Credentials never enter its JSON.
 type GitHubRepository struct {
 	ID                   string `json:"id"`
@@ -70,6 +72,7 @@ type GitHubDelivery struct {
 	ReleaseURL           string             `json:"releaseUrl,omitempty"`
 	DeploymentURL        string             `json:"deploymentUrl,omitempty"`
 	Title                string             `json:"title"`
+	IssueNumber          int64              `json:"issueNumber,omitempty"`
 	CreatedAt            string             `json:"createdAt"`
 	Deadline             string             `json:"deadline,omitempty"`
 	NextCheckAt          string             `json:"nextCheckAt,omitempty"`
@@ -116,8 +119,22 @@ func (d GitHubDelivery) PullRequestBody() string {
 	if d.PullRequestEnvelope != "" {
 		return d.PullRequestEnvelope
 	}
-	if d.InitialResultCommit != "" {
-		return "Produced by Camp from an accepted, published Work result.\n\nWork: `" + d.WorkItemID + "`\nInitial source version: `" + d.InitialResultCommit + "`\n\n<!-- camp-delivery:" + d.ID + " -->"
+	body := "Produced by Camp from an accepted, published Work result."
+	if d.IssueNumber > 0 {
+		body += "\n\nRefs #" + strconv.FormatInt(d.IssueNumber, 10)
 	}
-	return "Produced by Camp from an accepted, published Work result.\n\nWork: `" + d.WorkItemID + "`\nSource version: `" + d.ResultCommit + "`\n\n<!-- camp-delivery:" + d.ID + " -->"
+	label, version := "Source version", d.ResultCommit
+	if d.InitialResultCommit != "" {
+		label, version = "Initial source version", d.InitialResultCommit
+	}
+	return body + "\n\nWork: `" + d.WorkItemID + "`\n" + label + ": `" + version + "`\n\n<!-- camp-delivery:" + d.ID + " -->"
+}
+
+// CommitTitle uses a generated subject for issue deliveries because GitHub
+// interprets closing keywords in commit messages.
+func (d GitHubDelivery) CommitTitle() string {
+	if d.IssueNumber > 0 {
+		return "Deliver work for issue #" + strconv.FormatInt(d.IssueNumber, 10)
+	}
+	return d.Title
 }

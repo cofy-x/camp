@@ -100,7 +100,8 @@ SELECT e.*,
  CAST(coalesce(CASE WHEN e.source_id='room' THEN json_extract(e.value,'$.content')
   WHEN e.source_id='task' THEN m.content ELSE json_extract(g.value,'$.title') END,'') AS TEXT) AS preview,
  CAST(coalesce(json_extract(a.assessment,'$.outcome'),'') AS TEXT) AS assessment_outcome,
- CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason
+ CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason,
+ CAST(coalesce(json_extract(a.assessment,'$.workItemId'),'') AS TEXT) AS assessed_work_item_id
 FROM automation_events e
 LEFT JOIN messages m ON m.id=e.message_id AND m.room_id=e.room_id AND e.source_id='task'
 LEFT JOIN github_events g ON g.id=e.external_event_id AND g.room_id=e.room_id AND g.source_id=e.source_id
@@ -113,7 +114,8 @@ SELECT e.*,
  CAST(coalesce(CASE WHEN e.source_id='room' THEN json_extract(e.value,'$.content')
   WHEN e.source_id='task' THEN m.content ELSE json_extract(g.value,'$.title') END,'') AS TEXT) AS preview,
  CAST(coalesce(json_extract(a.assessment,'$.outcome'),'') AS TEXT) AS assessment_outcome,
- CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason
+ CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason,
+ CAST(coalesce(json_extract(a.assessment,'$.workItemId'),'') AS TEXT) AS assessed_work_item_id
 FROM automation_events e
 LEFT JOIN messages m ON m.id=e.message_id AND m.room_id=e.room_id AND e.source_id='task'
 LEFT JOIN github_events g ON g.id=e.external_event_id AND g.room_id=e.room_id AND g.source_id=e.source_id
@@ -154,7 +156,8 @@ SELECT e.*,
  CAST(coalesce(CASE WHEN e.source_id='room' THEN json_extract(e.value,'$.content')
   WHEN e.source_id='task' THEN m.content ELSE json_extract(g.value,'$.title') END,'') AS TEXT) AS preview,
  CAST(coalesce(json_extract(a.assessment,'$.outcome'),'') AS TEXT) AS assessment_outcome,
- CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason
+ CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason,
+ CAST(coalesce(json_extract(a.assessment,'$.workItemId'),'') AS TEXT) AS assessed_work_item_id
 FROM automation_events e
 LEFT JOIN messages m ON m.id=e.message_id AND m.room_id=e.room_id AND e.source_id='task'
 LEFT JOIN github_events g ON g.id=e.external_event_id AND g.room_id=e.room_id AND g.source_id=e.source_id
@@ -168,7 +171,8 @@ SELECT e.*,
  CAST(coalesce(CASE WHEN e.source_id='room' THEN json_extract(e.value,'$.content')
   WHEN e.source_id='task' THEN m.content ELSE json_extract(g.value,'$.title') END,'') AS TEXT) AS preview,
  CAST(coalesce(json_extract(a.assessment,'$.outcome'),'') AS TEXT) AS assessment_outcome,
- CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason
+ CAST(coalesce(json_extract(a.assessment,'$.reason'),'') AS TEXT) AS assessment_reason,
+ CAST(coalesce(json_extract(a.assessment,'$.workItemId'),'') AS TEXT) AS assessed_work_item_id
 FROM automation_events e
 LEFT JOIN messages m ON m.id=e.message_id AND m.room_id=e.room_id AND e.source_id='task'
 LEFT JOIN github_events g ON g.id=e.external_event_id AND g.room_id=e.room_id AND g.source_id=e.source_id

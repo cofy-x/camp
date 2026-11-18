@@ -45,6 +45,9 @@ type protocolFixture struct {
 	otherHead                    bool
 	repositoryID                 int64
 	partialMergeReceipt          bool
+	preparedMessage              string
+	pullRequestTitle             string
+	squashTitle, squashMessage   string
 }
 
 func newProtocol(t *testing.T) *protocolFixture {
@@ -112,6 +115,11 @@ func (f *protocolFixture) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		reply(map[string]any{"sha": strings.Repeat("b", 40)})
 	case path == "/git/commits":
+		var input struct {
+			Message string `json:"message"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&input)
+		f.preparedMessage = input.Message
 		reply(map[string]any{"sha": strings.Repeat("e", 40)})
 	case path == "/git/refs":
 		f.branch = !f.absent
@@ -126,6 +134,11 @@ func (f *protocolFixture) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		reply(map[string]any{"object": map[string]any{"sha": strings.Repeat("e", 40), "type": "commit"}})
 	case path == "/pulls" && r.Method == "POST":
+		var input struct {
+			Title string `json:"title"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&input)
+		f.pullRequestTitle = input.Title
 		f.pr = !f.absent
 		if lost("pull_request") {
 			return
@@ -148,6 +161,8 @@ func (f *protocolFixture) serve(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(422)
 			return
 		}
+		f.squashTitle, _ = input["commit_title"].(string)
+		f.squashMessage, _ = input["commit_message"].(string)
 		f.merged = !f.absent
 		if lost("merge") {
 			return
@@ -206,6 +221,30 @@ func TestPublicationReconcilesEveryLostVisibleResponseWithoutResending(t *testin
 		})
 	}
 }
+func TestIssueTitleIsDisplayedAndCommitsUseTheRecordedReference(t *testing.T) {
+	f := newProtocol(t)
+	f.delivery.Spec.Mode = "merge"
+	f.delivery.Spec.Tag = ""
+	f.delivery.Title = "Update notes and fixes #99"
+	f.delivery.IssueNumber = 3
+	for range 8 {
+		r := f.step(t)
+		if r.Delivery.Status == "succeeded" {
+			break
+		}
+		if r.Delivery.Status != "queued" {
+			t.Fatal(r)
+		}
+	}
+	body := sourceBody(f.delivery)
+	const wantTitle = "Deliver work for issue #3"
+	if f.delivery.Status != "succeeded" || f.pullRequestTitle != f.delivery.Title ||
+		f.preparedMessage != wantTitle+"\n\n"+body || f.squashTitle != wantTitle || f.squashMessage != body ||
+		!strings.Contains(body, "Refs #3") || strings.Contains(body, "#99") {
+		t.Fatalf("unexpected delivery metadata: PR %q, commit %q, squash %q and %q", f.pullRequestTitle, f.preparedMessage, f.squashTitle, f.squashMessage)
+	}
+}
+
 func TestUnknownBranchAbsenceNeverPermitsAnAutomaticResend(t *testing.T) {
 	f := newProtocol(t)
 	f.step(t)

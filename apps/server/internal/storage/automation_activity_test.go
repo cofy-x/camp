@@ -108,6 +108,80 @@ func TestAutomationActivityProjectsBoundedLiveAssessmentWithoutChangingDecision(
 	assertScalar(t, s, "SELECT sum(evaluations) FROM automation_usage", 1)
 }
 
+func TestAutomationActivityLinksAppliedGitHubDecisionsToTheirWork(t *testing.T) {
+	for _, scenario := range []struct {
+		mode, outcome, status string
+		linked                bool
+	}{
+		{"auto", "accept", "accepted", true},
+		{"auto", "request_judgment", "request_judgment", true},
+		{"observe", "complete", "observed", false},
+		{"auto", "complete", "needs_attention", false},
+	} {
+		t.Run(scenario.mode+"/"+scenario.outcome, func(t *testing.T) {
+			s, actor, _, room, writer, _ := taskFixture(t)
+			source := testGitHubSource(t, s, actor, room)
+			_, err := s.SaveAutomationPolicy(actor, room.ID, source.ID, orchestration.PolicyInput{
+				RequestID: newID(), Enabled: true, Mode: scenario.mode, Rules: "Process approved issues.",
+				AllowedActorIDs: []string{"7"}, ParticipantAgentIDs: []string{writer.ID}, FirstAgentID: writer.ID,
+				DailyEvaluations: 2, DailyTasks: 1,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			delivery := receiveTestGitHub(t, s, source, testGitHubPayload("Improve note search", "Make the first result open with Enter."))
+			eventID := "github:" + delivery.ID
+			before, err := s.AutomationActivity(actor, room.ID, AutomationEventQuery{Direction: "desc", SourceID: source.ID})
+			if err != nil || len(before.Items) != 1 || before.Items[0].RelatedWorkItemID != "" {
+				t.Fatal(before, err)
+			}
+			candidate := claimAutomation(t, s)
+			assessment := orchestration.Assessment{
+				Outcome: scenario.outcome, Goal: "Improve note search",
+				Reason: "The issue describes a small change.",
+			}
+			switch scenario.outcome {
+			case "request_judgment":
+				assessment.Question = "Which keyboard shortcut should open the result?"
+			case "complete":
+				assessment.WorkItemID = "unapplied-proposal"
+			}
+			if err := s.CompleteAutomationEvaluation(ctx, candidate.ID, assessment); err != nil {
+				t.Fatal(err)
+			}
+
+			// The existing frozen page observes the decision in every traversal.
+			for _, query := range []AutomationEventQuery{
+				{Through: &before.Through},
+				{Direction: "desc", Through: &before.Through},
+				{SourceID: source.ID, Through: &before.Through},
+				{Direction: "desc", SourceID: source.ID, Through: &before.Through},
+			} {
+				page, err := s.AutomationActivity(actor, room.ID, query)
+				if err != nil || len(page.Items) != 1 {
+					t.Fatal(page, err)
+				}
+				item := page.Items[0]
+				if item.ID != eventID || item.Status != scenario.status || item.WorkItemID != "" ||
+					(item.RelatedWorkItemID != "") != scenario.linked {
+					t.Fatal("activity changed the source target or linked an unapplied decision", item)
+				}
+				if scenario.linked {
+					work, err := s.GetWorkItem(actor, item.RelatedWorkItemID)
+					if err != nil || len(work.Evidence) != 1 ||
+						work.Evidence[0].EventID != eventID || work.ActiveTaskID != item.TaskID {
+						t.Fatal("activity must link the work committed for this issue", work, err)
+					}
+				}
+			}
+			original, err := s.GetAutomationEvent(actor, eventID)
+			if err != nil || original.WorkItemID != "" {
+				t.Fatal("navigation was persisted as event routing", original, err)
+			}
+		})
+	}
+}
+
 func TestAutomationActivityEncodedByteLimitAndCursorValidation(t *testing.T) {
 	s, actor, _, room, writer, _ := taskFixture(t)
 	testRoomAutomationPolicy(t, s, actor, room, writer, "observe")

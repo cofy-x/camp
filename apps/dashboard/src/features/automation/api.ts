@@ -90,11 +90,15 @@ export type AssessmentOutcome =
   | 'unavailable';
 
 export interface SourceEventPage {
-  items: SourceEvent[];
+  items: AutomationActivityItem[];
   through: number;
   nextAfter: number | null;
   nextBefore?: number | null;
   hasMore: boolean;
+}
+
+export interface AutomationActivityItem extends SourceEvent {
+  relatedWorkItemId?: string;
 }
 
 export interface Evaluation {
