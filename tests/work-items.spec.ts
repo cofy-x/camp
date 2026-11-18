@@ -226,6 +226,9 @@ async function presentation(
       },
     }),
   );
+  await page.route(`**/api/rooms/${room.id}/work-execution?*`, (route) =>
+    route.fulfill({ json: {} }),
+  );
   await page.route(`**/api/rooms/${room.id}/work-items?*`, (route) =>
     route.request().method() === 'GET'
       ? route.fulfill({ json: { items: [item], nextAfter: 1, hasMore: false } })
@@ -270,6 +273,91 @@ async function presentation(
     },
   };
 }
+
+test('starting Work waits for the selected Runner check while recording stays available', async ({
+  page,
+}, info) => {
+  const value = await presentation(page, async () => {
+    await page.reload();
+  });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let attempts = 0;
+  let checked = 0;
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      new URL(request.url()).pathname ===
+        `/api/rooms/${value.room.id}/work-items`
+    )
+      attempts++;
+  });
+  await page.route(
+    `**/api/rooms/${value.room.id}/work-execution?*`,
+    async (route) => {
+      const query = new URL(route.request().url()).searchParams;
+      expect(query.getAll('agentId')).toEqual([value.agent.id]);
+      checked++;
+      if (query.get('completion') === 'human')
+        return route.fulfill({ json: {} });
+      await held;
+      return route.fulfill({
+        json: {
+          issue: {
+            code: 'runner_unavailable',
+            message:
+              'Writer — Update the selected Runner to support automatic Work completion, or choose human confirmation.',
+          },
+        },
+      });
+    },
+  );
+  try {
+    await openItems(page);
+    const win = work(page);
+    await win.getByRole('button', { name: 'New work…', exact: true }).click();
+    const form = win.getByRole('form', { name: 'New work', exact: true });
+    const start = form.getByRole('button', { name: 'Start work', exact: true });
+    const record = form.getByRole('button', {
+      name: 'Keep track',
+      exact: true,
+    });
+    const goal = form.getByLabel('What needs to happen?', { exact: true });
+    await expect(
+      form.getByText('Checking Runner access…', { exact: true }),
+    ).toBeVisible();
+    await goal.fill('Draft a handoff');
+    await expect(start).toBeDisabled();
+    await expect(record).toBeEnabled();
+    await goal.fill('Draft a handoff for the next shift');
+    expect(checked).toBe(1);
+    await form.dispatchEvent('submit');
+    expect(attempts).toBe(0);
+    release();
+    await expect(form.getByText(/Update the selected Runner/)).toBeVisible();
+    await expect(start).toBeDisabled();
+    await expect(record).toBeEnabled();
+    await form
+      .getByRole('button', { name: 'Open Runners', exact: true })
+      .click();
+    await expect(page.locator('[data-window-id="runners:main"]')).toHaveClass(
+      /is-active/,
+    );
+    await openApp(page, 'Work');
+    await expect(goal).toHaveValue('Draft a handoff for the next shift');
+    await win.screenshot({ path: info.outputPath('work-runner-access.png') });
+    await form.locator('.work-item-options > summary').click();
+    await form.getByLabel('Completion', { exact: true }).selectOption('human');
+    await expect(start).toBeEnabled();
+    await expect(form.getByText(/Update the selected Runner/)).toHaveCount(0);
+    expect(attempts).toBe(0);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
+});
 
 test('a recorded matter recovers uncertain writes, answers judgment and closes with human confirmation', async ({
   page,

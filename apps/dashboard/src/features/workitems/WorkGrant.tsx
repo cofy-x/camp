@@ -1,7 +1,9 @@
 import { useId } from 'react';
-import { Checkbox, Select } from '@cofy-x/camp-platinum';
+import { Button, Checkbox, Select } from '@cofy-x/camp-platinum';
+import { useTeam } from '../../team/TeamContext';
 import type { Agent } from '../workspace/api';
 import type { WorkItemDefaults } from './api';
+import type { useWorkExecution } from './useWorkExecution';
 
 export function suggestedParticipants(
   members: Agent[],
@@ -33,6 +35,7 @@ export function WorkGrant({
   onChange,
   onFirstChange,
   disabled = false,
+  execution,
 }: {
   members: Agent[];
   selected: string[];
@@ -42,6 +45,7 @@ export function WorkGrant({
   onChange: (ids: string[]) => void;
   onFirstChange: (id: string) => void;
   disabled?: boolean;
+  execution?: ReturnType<typeof useWorkExecution>;
 }) {
   const summaryId = useId();
   const agents = selected.flatMap((id) => {
@@ -129,6 +133,51 @@ export function WorkGrant({
         )}
         <span>Team-visible draft</span>
       </p>
+      {execution && <ExecutionNotice execution={execution} />}
+      {selected.length > 8 && (
+        <p className="app-error" role="alert">
+          Choose at most eight Agents.
+        </p>
+      )}
     </div>
   );
+}
+
+function ExecutionNotice({
+  execution,
+}: {
+  execution: ReturnType<typeof useWorkExecution>;
+}) {
+  const { navigate } = useTeam();
+  if (execution.error)
+    return (
+      <p className="work-execution-notice app-error" role="alert">
+        <span>{execution.error}</span>
+        <Button onClick={() => void execution.retry()}>
+          Retry Runner check
+        </Button>
+      </p>
+    );
+  if (execution.issue) {
+    const agents =
+      execution.issue.code === 'runner_required' ||
+      execution.issue.code === 'agent_unavailable';
+    return (
+      <p className="work-execution-notice app-error" role="status">
+        <span>{execution.issue.message}</span>
+        <Button
+          onClick={() => void navigate({ app: agents ? 'agents' : 'runners' })}
+        >
+          {agents ? 'Open Agents' : 'Open Runners'}
+        </Button>
+      </p>
+    );
+  }
+  if (execution.checking)
+    return (
+      <p className="work-execution-notice" role="status">
+        Checking Runner access…
+      </p>
+    );
+  return null;
 }

@@ -59,7 +59,7 @@ export function WorkItemActions({
     first,
     newExecution,
     contextDependent,
-    invalidParticipants,
+    execution,
     remaining,
     expired,
     exhausted,
@@ -449,6 +449,7 @@ export function WorkItemActions({
                 selected={participants}
                 defaults={settings.defaults}
                 maxRequests={remaining}
+                execution={execution}
                 firstAgentId={first}
                 onChange={(participantAgentIds) =>
                   edit({ participantAgentIds })
@@ -492,10 +493,7 @@ export function WorkItemActions({
                 disabled ||
                 stale ||
                 (contextDependent && !contextReady) ||
-                (newExecution &&
-                  (executionUnavailable ||
-                    invalidParticipants ||
-                    !settings.defaults)) ||
+                (newExecution && executionUnavailable) ||
                 ((intent === 'answer' || intent === 'answer_continue') &&
                   !content.trim()) ||
                 (intent === 'wait' && !futureReminder) ||

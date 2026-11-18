@@ -6,6 +6,7 @@ import type { Agent, WorkspaceStatus } from '../workspace/api';
 import { suggestedParticipants } from './WorkGrant';
 import { utcDateTime } from './workSettings';
 import { useWorkDefaults } from './useWorkDefaults';
+import { useWorkExecution } from './useWorkExecution';
 import type { WorkOperation } from './useWorkItemOperation';
 import type { WorkActionInput, WorkActionName, WorkItem } from './api';
 import { workItemQuestion } from './presentation';
@@ -124,8 +125,26 @@ export function useWorkAction({
   );
   const chosenPolicyId = values.policyId ?? item.policyId ?? '';
   const policy = policies.find((policy) => policy.id === chosenPolicyId);
+  const execution = useWorkExecution(
+    item.roomId,
+    participants,
+    item.completionMode,
+    readsActive &&
+      !readOnly &&
+      contextReady &&
+      newExecution &&
+      Boolean(settings.defaults) &&
+      !invalidParticipants &&
+      !active &&
+      availability?.available !== false,
+  );
   const executionUnavailable =
-    availability?.available === false || active || expired || exhausted;
+    availability?.available === false ||
+    active ||
+    expired ||
+    exhausted ||
+    !settings.defaults ||
+    !execution.ready;
   const futureReminder = Date.parse(values.resumeAt ?? '') > Date.now();
 
   const clearDraft = draft.setValue;
@@ -159,7 +178,13 @@ export function useWorkAction({
   }
 
   function submit() {
-    if (!intent || disabled || stale || (contextDependent && !contextReady))
+    if (
+      !intent ||
+      disabled ||
+      stale ||
+      (contextDependent && !contextReady) ||
+      (newExecution && executionUnavailable)
+    )
       return;
     if (
       intent === 'wait' &&
@@ -241,7 +266,7 @@ export function useWorkAction({
     first,
     newExecution,
     contextDependent,
-    invalidParticipants,
+    execution,
     remaining,
     expired,
     exhausted,

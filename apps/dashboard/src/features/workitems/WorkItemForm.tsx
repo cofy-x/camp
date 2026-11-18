@@ -11,6 +11,7 @@ import { useWorkItemOperation } from './useWorkItemOperation';
 import { EvidenceChooser } from './WorkItemEvidence';
 import { WorkGrant, suggestedParticipants } from './WorkGrant';
 import { useWorkDefaults } from './useWorkDefaults';
+import { useWorkExecution } from './useWorkExecution';
 import { matchesCreationDraft } from './creationDraft';
 import type { WorkItem, WorkItemInput } from './api';
 import { WorkBudgetEditor } from './WorkBudgetEditor';
@@ -144,6 +145,25 @@ export function WorkItemForm({
     participants.some(
       (id) => !members.some((agent) => agent.id === id && agent.enabled),
     );
+  const execution = useWorkExecution(
+    roomId,
+    participants,
+    values.completionMode,
+    contextReady &&
+      Boolean(defaults) &&
+      !invalidParticipants &&
+      availability?.available !== false,
+  );
+  const canRecord = Boolean(
+    !disabled &&
+    roomId &&
+    contextReady &&
+    defaults &&
+    values.goal.trim() &&
+    !invalidDelivery,
+  );
+  const canStart =
+    canRecord && execution.ready && availability?.available !== false;
   const followLabel = sourceMessage
     ? 'Follow replies'
     : sourceEvent?.sourceId === 'room' &&
@@ -171,18 +191,7 @@ export function WorkItemForm({
   }
 
   function create(start: boolean) {
-    if (
-      disabled ||
-      !roomId ||
-      !contextReady ||
-      !defaults ||
-      !values.goal.trim() ||
-      invalidDelivery ||
-      (Boolean(values.policyId) && !defaults) ||
-      (start &&
-        (!defaults || invalidParticipants || availability?.available === false))
-    )
-      return;
+    if (!(start ? canStart : canRecord)) return;
     const {
       expiryEdited,
       deadline,
@@ -276,6 +285,7 @@ export function WorkItemForm({
               selected={participants}
               defaults={defaults}
               maxRequests={values.budget?.maxModelRequests}
+              execution={execution}
               firstAgentId={first}
               onChange={(participantAgentIds) => edit({ participantAgentIds })}
               onFirstChange={(firstAgentId) => edit({ firstAgentId })}
@@ -490,35 +500,10 @@ export function WorkItemForm({
       )}
       {operation.feedback}
       <div className="app-actions">
-        <Button
-          type="submit"
-          primary
-          disabled={
-            disabled ||
-            invalidDelivery ||
-            !roomId ||
-            !contextReady ||
-            !defaults ||
-            !values.goal.trim() ||
-            !defaults ||
-            invalidParticipants ||
-            availability?.available === false
-          }
-        >
+        <Button type="submit" primary disabled={!canStart}>
           {operation.busy ? 'Saving…' : 'Start work'}
         </Button>
-        <Button
-          disabled={
-            disabled ||
-            invalidDelivery ||
-            !roomId ||
-            !contextReady ||
-            !defaults ||
-            !values.goal.trim() ||
-            (Boolean(values.policyId) && !defaults)
-          }
-          onClick={() => create(false)}
-        >
+        <Button disabled={!canRecord} onClick={() => create(false)}>
           Keep track
         </Button>
       </div>

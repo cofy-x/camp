@@ -2,11 +2,97 @@ import { expect, test } from '@playwright/test';
 import {
   createRoom,
   library,
+  mutate,
   newDocument,
   owner,
   signIn,
   workspace,
 } from './team-helpers';
+
+test('a publication receipt preserves a newer private draft saved elsewhere', async ({
+  page,
+}, info) => {
+  await signIn(page);
+  const room = await createRoom(
+    page,
+    `publish-draft-race-${info.project.name}`,
+  );
+  await workspace(page)
+    .getByRole('button', { name: 'Files', exact: true })
+    .click();
+  await newDocument(page, 'handoff.md', 'Text submitted for publication.');
+  const key = `${room.resourceId}:handoff.md`;
+  const readDraft = async () =>
+    (
+      await (
+        await page.request.get(
+          `/api/me/drafts/document?key=${encodeURIComponent(key)}`,
+        )
+      ).json()
+    ).draft;
+  await expect
+    .poll(async () => (await readDraft()).value?.content)
+    .toBe('Text submitted for publication.');
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let acceptedCommit = '';
+  await page.route(
+    `**/api/resources/${room.resourceId}/files`,
+    async (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback();
+      const response = await route.fetch();
+      expect(response.ok()).toBe(true);
+      acceptedCommit = (await response.json()).publication.commit;
+      await held;
+      return route.fulfill({ response });
+    },
+  );
+  try {
+    const win = library(page);
+    await win
+      .getByRole('button', { name: 'Publish Changes', exact: true })
+      .click();
+    await expect.poll(() => acceptedCommit).not.toBe('');
+    const original = await readDraft();
+    const other = {
+      ...original.value,
+      baseCommit: acceptedCommit,
+      content: 'New work from another session.',
+    };
+    const update = await mutate(
+      page,
+      '/me/drafts/document',
+      { key, value: other, revision: original.revision },
+      'PUT',
+    );
+    expect(update.ok()).toBe(true);
+    release();
+    await expect(win.getByRole('alert')).toContainText('saved draft changed');
+    expect((await readDraft()).value).toEqual(other);
+    await win
+      .getByRole('button', { name: 'Compare Private Drafts', exact: true })
+      .click();
+    await expect(win.getByText(other.content, { exact: true })).toBeVisible();
+    await expect(
+      win.getByRole('button', { name: 'Save My Draft', exact: true }),
+    ).toHaveCount(0);
+    await win
+      .getByRole('button', { name: 'Use Other Draft', exact: true })
+      .click();
+    await expect(
+      win.getByLabel('Document content', { exact: true }),
+    ).toHaveValue(other.content);
+    const shared = await page.request.get(
+      `/api/resources/${room.resourceId}/file?path=handoff.md&commit=${acceptedCommit}`,
+    );
+    expect(await shared.text()).toBe('Text submitted for publication.');
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
+});
 
 test('two sessions compare a private draft conflict before explicitly replacing it', async ({
   page,
@@ -33,14 +119,12 @@ test('two sessions compare a private draft conflict before explicitly replacing 
   const readDraft = async () =>
     (await (await page.request.get(draftURL)).json()).draft as {
       revision: number;
-      value: { content: string; baseCommit: string };
+      value: { content: string; baseCommit: string } | null;
     };
   const listing = (await (
     await page.request.get(`/api/resources/${room.resourceId}/files`)
   ).json()) as { commit: string };
-  await expect
-    .poll(async () => (await readDraft()).value?.baseCommit)
-    .toBe(listing.commit);
+  await expect.poll(async () => (await readDraft()).value).toBeNull();
   const initial = await readDraft();
 
   // Sign in again so both browser contexts have independent authenticated sessions
@@ -90,7 +174,7 @@ test('two sessions compare a private draft conflict before explicitly replacing 
       .getByLabel('Document content', { exact: true })
       .fill(firstText);
     await expect
-      .poll(async () => (await readDraft()).value.content)
+      .poll(async () => (await readDraft()).value?.content)
       .toBe(firstText);
     const firstSaved = await readDraft();
     expect(firstSaved.revision).toBeGreaterThan(initial.revision);
@@ -101,7 +185,7 @@ test('two sessions compare a private draft conflict before explicitly replacing 
     await expect(
       library(second).getByLabel('Document content', { exact: true }),
     ).toHaveValue(secondText);
-    expect((await readDraft()).value.content).toBe(firstText);
+    expect((await readDraft()).value?.content).toBe(firstText);
 
     await library(second)
       .getByRole('button', { name: 'Compare Private Drafts', exact: true })
@@ -113,16 +197,16 @@ test('two sessions compare a private draft conflict before explicitly replacing 
     await expect(
       library(second).getByLabel('Document content', { exact: true }),
     ).toHaveValue(secondText);
-    expect((await readDraft()).value.content).toBe(firstText);
+    expect((await readDraft()).value?.content).toBe(firstText);
     await comparison
       .getByRole('button', { name: 'Save My Draft', exact: true })
       .click();
     await expect
-      .poll(async () => (await readDraft()).value.content)
+      .poll(async () => (await readDraft()).value?.content)
       .toBe(secondText);
     const resolved = await readDraft();
     expect(resolved.revision).toBeGreaterThan(firstSaved.revision);
-    expect(resolved.value.baseCommit).toBe(listing.commit);
+    expect(resolved.value?.baseCommit).toBe(listing.commit);
     await expect(library(second).getByRole('alert')).toHaveCount(0);
     await expect(
       library(second).getByLabel('Document content', { exact: true }),

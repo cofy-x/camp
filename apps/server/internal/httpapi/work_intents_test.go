@@ -3,10 +3,64 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/cofy-x/camp/apps/server/internal/orchestration"
+	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
+
+func TestWorkExecutionReadUsesCurrentRouteAndGrant(t *testing.T) {
+	f, runner := remoteTeamFixture(t)
+	room := "/api/rooms/" + f.room.ID
+	agent := f.room.DefaultAgentID
+	check := room + "/work-execution?agentId=" + agent + "&completion="
+	requireHTTP(t, teamRequest(t, f, nil, "GET", check+"human", nil), 401)
+	requireHTTP(t, teamRequest(t, f, f.memberCookie, "GET", check+"typo", nil), 400)
+	requireHTTP(t, teamRequest(t, f, f.memberCookie, "GET", room+"/work-execution?completion=human", nil), 400)
+	requireIssue := func(mode, want string) {
+		t.Helper()
+		response := teamRequest(t, f, f.memberCookie, "GET", check+mode, nil)
+		requireHTTP(t, response, 200)
+		var result struct{ Issue *storage.WorkExecutionIssue }
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if want == "" && result.Issue == nil {
+			return
+		}
+		if result.Issue == nil || result.Issue.Code != want || !strings.HasPrefix(result.Issue.Message, "Assistant — ") {
+			t.Fatalf("check %s: want %q, got %s", mode, want, response.Body)
+		}
+	}
+	requireIssue("human", "runner_required")
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "PUT", room+"/runner", map[string]any{"runnerId": runner.ID, "revision": 0}), 200)
+	requireIssue("human", "runner_forbidden")
+	grant := "/api/runners/" + runner.ID + "/agents/" + agent
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "PUT", grant, map[string]any{}), 200)
+	requireIssue("human", "")
+	requireIssue("automatic", "runner_unavailable")
+
+	// A successful observation does not authorize the later write.
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "DELETE", grant, map[string]any{}), 200)
+	requireIssue("human", "runner_forbidden")
+	create := map[string]any{"requestId": "start-after-revocation", "goal": "Summarize the plan.", "start": true, "participantAgentIds": []string{agent}, "firstAgentId": agent, "completionMode": "human"}
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "POST", room+"/work-items", create), 403)
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "GET", "/api/work-item-requests/start-after-revocation", nil), 404)
+	for _, path := range []string{room + "/work-items", room + "/tasks", room + "/runs"} {
+		response := teamRequest(t, f, f.adminCookie, "GET", path, nil)
+		requireHTTP(t, response, 200)
+		var lists map[string]json.RawMessage
+		if err := json.Unmarshal(response.Body.Bytes(), &lists); err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{"items", "tasks", "runs"} {
+			if raw := lists[key]; raw != nil && string(raw) != "[]" {
+				t.Fatalf("preflight created work: %s", response.Body)
+			}
+		}
+	}
+}
 
 func TestWorkIntentHTTPDefaultsAndTypedRecordCompletion(t *testing.T) {
 	f := newTeamFixture(t)

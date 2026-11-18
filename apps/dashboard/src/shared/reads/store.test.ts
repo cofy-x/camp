@@ -22,6 +22,25 @@ function pending() {
 }
 
 describe('shared read ownership', () => {
+  it('revalidates Work Runner access only for changes to its proposal', () => {
+    const path = '/rooms/one/work-execution?completion=human&agentId=writer';
+    for (const change of [
+      event('agent.updated', '', 'writer'),
+      event('room.updated'),
+      event('membership.updated'),
+      event('execution_defaults.updated', ''),
+      event('runner.updated', ''),
+    ])
+      expect(affectedRead(path, change), change.type).toBe(true);
+    for (const change of [
+      event('agent.updated', '', 'other'),
+      event('membership.updated', 'two'),
+      event('work_item.updated'),
+      event('run.activity'),
+    ])
+      expect(affectedRead(path, change), change.type).toBe(false);
+  });
+
   it('does not allocate snapshots or start reads for a large set of disabled historical rows', () => {
     let calls = 0;
     const store = new ReadStore(async () => {

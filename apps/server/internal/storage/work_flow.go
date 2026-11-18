@@ -21,16 +21,8 @@ func attachWorkTask(ctx context.Context, q *sqlgen.Queries, w *orchestration.Wor
 	t.WorkItemID = w.ID
 	t.WorkItemCompletionCriteria = w.CompletionCriteria
 	t.WorkItemCompletionAuthorized = w.CompletionMode == "automatic"
-	if t.WorkItemCompletionAuthorized {
-		for _, participant := range t.Participants {
-			runner, err := q.GetRunner(ctx, participant.RunnerID)
-			if err != nil {
-				return err
-			}
-			if err := workCompletionRunnerCompatible(runner.Capabilities, true); err != nil {
-				return err
-			}
-		}
+	if e := workCompletionRunnersCompatible(ctx, q, t.Participants, t.WorkItemCompletionAuthorized); e != nil {
+		return e
 	}
 	evs, e := q.WorkExecutionEvidence(ctx, w.ID)
 	if e != nil {
