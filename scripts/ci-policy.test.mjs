@@ -200,7 +200,8 @@ test('long source and fixture jobs are cancelable while protected gates remain s
   assert.ok(source.includes("needs.changes.outputs.docs == 'true'"));
   assert.ok(source.includes('["static", "sql", "javascript", "production"]'));
   const go = workflowJob(workflow, 'source_go');
-  assert.ok(go.includes('shard: [1, 2]'));
+  assert.ok(go.includes("shard: ['1/3', '2/3', '3/3']"));
+  assert.ok(go.includes('GO_TEST_SHARD: ${{ matrix.shard }}'));
   assert.ok(go.includes('make test-go-shard GO_TEST_SHARD="$GO_TEST_SHARD"'));
   assert.ok(
     workflowJob(workflow, 'source').includes(
