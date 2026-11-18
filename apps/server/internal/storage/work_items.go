@@ -736,8 +736,7 @@ func (s *Store) OperateWorkItem(ctx context.Context, id string, in orchestration
 			}
 		}
 		if in.Kind == "complete" && w.Status == "waiting" {
-			w.PendingCompletion = &orchestration.PendingWorkCompletion{Reason: in.Reason}
-			if e = advanceWorkCompletionFrontier(ctx, q, &w); e != nil {
+			if e = retainWorkCompletion(ctx, q, &w, "", in.Reason); e != nil {
 				return e
 			}
 		}

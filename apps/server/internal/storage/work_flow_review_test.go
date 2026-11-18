@@ -510,11 +510,12 @@ func TestWorkFlowReviewDispatchChargeBeforeReceiptPreservesBoundedCompletion(t *
 		t.Fatal("dispatch did not reserve its finite action allowance", afterClaim, err)
 	}
 	assertScalar(t, s, "SELECT count(*) FROM work_action_receipts", 0)
-	if err := s.CompleteAutomationEvaluation(ctx, old.ID, orchestration.Assessment{Outcome: "complete", WorkItemID: w.ID, Reason: "The published task output satisfies its criteria; wait for the configured external receipts."}); err != nil {
+	const reason = "The published task output satisfies its criteria; wait for the configured external receipts."
+	if err := s.CompleteAutomationEvaluation(ctx, old.ID, orchestration.Assessment{Outcome: "complete", WorkItemID: w.ID, Reason: reason}); err != nil {
 		t.Fatal(err)
 	}
 	waiting, err := s.GetWorkItem(actor, w.ID)
-	if err != nil || waiting.Status != "waiting" || !strings.Contains(waiting.WaitCondition, "action") || waiting.Question != "" || waiting.Usage.Actions != 1 || waiting.Usage.Evaluations != 1 {
+	if err != nil || waiting.Status != "waiting" || waiting.PendingCompletion == nil || waiting.PendingCompletion.Reason != reason || !strings.Contains(waiting.WaitCondition, "action") || waiting.Question != "" || waiting.Usage.Actions != 1 || waiting.Usage.Evaluations != 1 {
 		t.Fatal("ordinary dispatch bookkeeping stranded the matter or replaced current usage with frozen usage", waiting, err)
 	}
 	for _, decision := range waiting.Decisions {
@@ -523,27 +524,21 @@ func TestWorkFlowReviewDispatchChargeBeforeReceiptPreservesBoundedCompletion(t *
 		}
 	}
 	completeTestWorkAction(t, s, first, "sent", 501)
+	partial, err := s.GetWorkItem(actor, w.ID)
+	if err != nil || partial.Status != "waiting" || partial.PendingCompletion == nil {
+		t.Fatal("completion did not wait for every receipt", partial, err)
+	}
 	second, err := s.ClaimAutomationDelivery(ctx)
 	if err != nil || second == nil || second.ID == first.ID {
 		t.Fatal(second, err)
 	}
 	completeTestWorkAction(t, s, second, "sent", 502)
-	next := claimAutomation(t, s)
-	if next.ID == old.ID || len(next.Events) != 2 {
-		t.Fatal("confirmed effects did not create a distinct bounded candidate", old, next)
-	}
-	for _, event := range next.Events {
-		if event.Kind != "action.result" || event.WorkItemID != w.ID {
-			t.Fatal("receipt candidate lost durable effect provenance", event)
-		}
-	}
-	if err := s.CompleteAutomationEvaluation(ctx, next.ID, orchestration.Assessment{Outcome: "complete", WorkItemID: w.ID, Reason: "Both external destinations now have confirmed receipts."}); err != nil {
-		t.Fatal(err)
-	}
+	completeTestWorkAction(t, s, second, "sent", 502)
 	finished, err := s.GetWorkItem(actor, w.ID)
-	if err != nil || finished.Status != "completed" || finished.Usage.Actions != 2 || finished.Usage.Evaluations != 2 {
-		t.Fatal("confirmed effects failed to close the matter within its cumulative budget", finished, err)
+	if err != nil || finished.Status != "completed" || finished.PendingCompletion != nil || finished.Usage.Actions != 2 || finished.Usage.Evaluations != 1 {
+		t.Fatal("confirming the remaining effects required another decision or allowance", finished, err)
 	}
 	assertScalar(t, s, "SELECT count(*) FROM work_action_receipts", 2)
-	assertScalar(t, s, "SELECT count(*) FROM automation_evaluations", 2)
+	assertScalar(t, s, "SELECT count(*) FROM automation_events WHERE kind='action.result' AND status='context'", 2)
+	assertScalar(t, s, "SELECT count(*) FROM automation_evaluations", 1)
 }

@@ -154,7 +154,7 @@ export function Work(props: AppWindowProps) {
                     >
                       <span className="work-item-row-title">{item.goal}</span>
                       <span>
-                        {workItemQuestion(item) || workItemStatus(item)}
+                        {workItemQuestion(item)?.text || workItemStatus(item)}
                       </span>
                       {(!work.roomFilter || item.dueAt) && (
                         <small className="work-item-row-context">

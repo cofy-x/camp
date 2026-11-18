@@ -77,6 +77,25 @@ func TestGitHubRepairRetainsOneMatterPRSourceLedgerAndFiniteAllowance(t *testing
 	}
 }
 
+func TestGitHubRepairRecoversRetainedReviewStageFailure(t *testing.T) {
+	s, actor, w, _ := deliveryFixture(t)
+	completeDeliveryStage(t, s, claimDelivery(t, s), "review", "queued")
+	d := claimDelivery(t, s).Delivery
+	d.Status, d.FailureCode, d.Reason = "blocked", "review_changes", "An approved reviewer requested changes."
+	d.HeadSHA, d.PullRequest = strings.Repeat("e", 40), 12
+	if err := s.CompleteGitHubDelivery(ctx, d.ID, d.Revision, orchestration.GitHubDeliveryResult{Delivery: d}); err != nil {
+		t.Fatal(err)
+	}
+	w, err := s.GetWorkItem(actor, w.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	continued, err := s.OperateWorkItem(actor, w.ID, orchestration.WorkItemOperation{RequestID: newID(), Revision: w.Revision, Kind: "repair_delivery", DeliveryRevision: w.GitHubDelivery.Revision}, roomBudget)
+	if err != nil || continued.ActiveTaskID == "" || continued.GitHubDelivery.Repairs != 1 || continued.GitHubDelivery.PullRequest != d.PullRequest {
+		t.Fatal("expected a finite repair of the retained PR", continued, err)
+	}
+}
+
 func TestGitHubRepairRechecksSourceScopeBudgetAndUnknownEffects(t *testing.T) {
 	for _, change := range []string{"source", "agent", "budget", "unknown"} {
 		t.Run(change, func(t *testing.T) {

@@ -158,7 +158,7 @@ describe('work result status', () => {
       expected: 'Open',
     },
     {
-      name: 'unanswered task question takes precedence over a ready result',
+      name: 'a historical unanswered question does not hide the accepted result',
       changes: {
         execution: {
           ...ready.execution!,
@@ -170,7 +170,7 @@ describe('work result status', () => {
           },
         },
       },
-      expected: 'Open',
+      expected: 'Result ready',
     },
     {
       name: 'answered task question does not hide the completed result',
@@ -235,13 +235,20 @@ describe('current work question', () => {
   };
 
   it('shows the unanswered question from the matching current task', () => {
-    expect(workItemQuestion(waiting)).toBe('Which date?');
+    expect(workItemQuestion(waiting)).toEqual({
+      kind: 'task',
+      id: 'q',
+      text: 'Which date?',
+      options: [],
+      taskId: 'latest-task',
+      taskRevision: ready.execution!.revision,
+    });
   });
 
   it('retains the current task question ahead of a matter judgment', () => {
-    expect(workItemQuestion({ ...waiting, question: 'Which customer?' })).toBe(
-      'Which date?',
-    );
+    expect(
+      workItemQuestion({ ...waiting, question: 'Which customer?' })?.text,
+    ).toBe('Which date?');
   });
 
   it('shows a matter judgment when no current task question applies', () => {
@@ -251,13 +258,14 @@ describe('current work question', () => {
         activeTaskId: undefined,
         question: 'Which customer?',
       }),
-    ).toBe('Which customer?');
+    ).toEqual({ kind: 'judgment', text: 'Which customer?' });
   });
 
   it.each<Partial<PresentedWork>>([
     { activeTaskId: undefined },
     { activeTaskId: 'different-task' },
     { execution: { ...waiting.execution!, status: 'running' } },
+    { execution: { ...waiting.execution!, activeRunId: 'finishing-round' } },
     {
       execution: {
         ...waiting.execution!,
@@ -354,15 +362,18 @@ describe('empty work overview', () => {
     ).toBe('Marked complete');
   });
 
+  it('shows the recorded closure when only a former question remains', () => {
+    const execution = {
+      ...ready.execution!,
+      summary: '',
+      question: { id: 'q', text: 'Which customer?', options: [], answer: '' },
+    };
+    expect(
+      workItemOverviewFallback({ ...closed, execution }, true)?.label,
+    ).toBe('Marked complete');
+  });
+
   it.each<Partial<typeof closed>>([
-    { question: 'Which customer?' },
-    {
-      execution: {
-        ...ready.execution!,
-        summary: '',
-        question: { id: 'q', text: 'Which customer?', options: [], answer: '' },
-      },
-    },
     {
       execution: {
         ...ready.execution!,

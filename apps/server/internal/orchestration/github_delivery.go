@@ -99,6 +99,17 @@ type GitHubDeliveryResult struct {
 	Outcome string
 }
 
+// VisibleWriteStage identifies steps whose interrupted claims need a receipt
+// check before any further write. Preparation creates only immutable objects.
+func (d GitHubDelivery) VisibleWriteStage() bool {
+	switch d.Stage {
+	case "branch", "update_branch", "pull_request", "merge", "release":
+		return true
+	default:
+		return false
+	}
+}
+
 // PullRequestBody is the frozen protocol envelope shared by outbound delivery
 // and authenticated ingress echo detection, never an execution authorization.
 func (d GitHubDelivery) PullRequestBody() string {
