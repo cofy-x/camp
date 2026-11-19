@@ -58,6 +58,16 @@ export function workItemQuestion(
     };
 }
 
+export function workDeliveryActive(item: Pick<WorkItem, 'githubDelivery'>) {
+  const delivery = item.githubDelivery;
+  return Boolean(
+    delivery &&
+    delivery.stage !== 'result' &&
+    delivery.status !== 'stopped' &&
+    delivery.status !== 'succeeded',
+  );
+}
+
 export function workItemStatus(item: PresentedWork, delivery = true) {
   if (delivery && item.githubDelivery?.reconcile)
     return 'Delivery not confirmed';

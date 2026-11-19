@@ -179,8 +179,11 @@ func repairGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestrati
 	if d.Status != "blocked" || d.Reconcile || (d.Stage != "checks" && d.Stage != "review") || d.Repairs >= 3 {
 		return problem("invalid_delivery", "Review a known CI or review failure before authorizing one finite repair.")
 	}
+	if !d.HasRepairEvidence() {
+		return problem("invalid_delivery", "Check the current pull request for actionable repair evidence.")
+	}
 	switch d.FailureCode {
-	case "ci_failed", "review_changes", "repair_limit", "work_budget_exhausted", "daily_task_limit", "execution_unavailable":
+	case "ci_source_failed", "review_changes", "repair_limit", "work_budget_exhausted", "daily_task_limit", "execution_unavailable":
 	default:
 		return problem("invalid_delivery", "Review changed scope or unconfirmed receipts before authorizing further work.")
 	}

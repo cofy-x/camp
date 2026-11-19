@@ -217,6 +217,7 @@ func prepareGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestrat
 	}
 	d.Stage, d.Status = "prepare", "queued"
 	d.FailureCode, d.Diagnostics, d.Reason = "", "", ""
+	d.CheckURL, d.RepairCause = "", ""
 	d.NextCheckAt = now()
 	deadline := time.Now().Add(time.Hour)
 	expiry, _ := time.Parse(time.RFC3339Nano, w.ExpiresAt)
@@ -301,7 +302,7 @@ func (s *Store) ClaimGitHubDelivery(ctx context.Context) (out *GitHubDeliveryCla
 			}
 			if !receiptOnly {
 				deadline, _ := time.Parse(time.RFC3339Nano, d.Deadline)
-				if !deadline.IsZero() && time.Now().After(deadline) {
+				if !deadline.IsZero() && !time.Now().Before(deadline) {
 					d.Status = "blocked"
 					d.Reason = "The finite delivery deadline ended. Review the recorded result."
 					if e = githubDeliveryAttention(ctx, q, &w, &d); e != nil {
@@ -394,7 +395,7 @@ func (s *Store) CompleteGitHubDelivery(ctx context.Context, id string, revision 
 			d.Reason = "The receipt was retained; further delivery is withdrawn because its matter changed."
 		}
 		if d.Status == "blocked" || d.Status == "unknown" {
-			if current && d.Status == "blocked" && (d.FailureCode == "ci_failed" || d.FailureCode == "review_changes") && d.Spec.MaxRepairs > d.Repairs && !d.Reconcile {
+			if current && d.Status == "blocked" && d.HasRepairEvidence() && (d.FailureCode == "ci_source_failed" || d.FailureCode == "review_changes") && d.Spec.MaxRepairs > d.Repairs && !d.Reconcile {
 				var budget Budget
 				if len(budgets) > 0 {
 					budget = budgets[0]
@@ -424,7 +425,7 @@ func (s *Store) CompleteGitHubDelivery(ctx context.Context, id string, revision 
 				d = result.Delivery
 				d.FailureCode, d.Reason = domain.Code, domain.Message
 			}
-			if d.Spec.MaxRepairs > 0 && d.Repairs >= d.Spec.MaxRepairs && (d.FailureCode == "ci_failed" || d.FailureCode == "review_changes") {
+			if d.Spec.MaxRepairs > 0 && d.Repairs >= d.Spec.MaxRepairs && d.HasRepairEvidence() && (d.FailureCode == "ci_source_failed" || d.FailureCode == "review_changes") {
 				d.FailureCode, d.Reason = "repair_limit", d.Reason+" The automatic repair allowance ended. Review the result before authorizing new work."
 			}
 			return githubDeliveryAttention(ctx, q, &w, &d)
@@ -574,7 +575,8 @@ func retryGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestratio
 		w.Usage.Actions++
 	}
 	d.Status, d.Reason = "queued", ""
-	d.Checks = 0
+	d.Checks, d.ReadFailures = 0, 0
+	d.FailureCode, d.CheckURL, d.Diagnostics, d.RepairCause = "", "", "", ""
 	d.NextCheckAt = now()
 	deadline := time.Now().Add(time.Hour)
 	expiry, _ := time.Parse(time.RFC3339Nano, w.ExpiresAt)

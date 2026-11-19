@@ -9,11 +9,11 @@ permissions:
 
 jobs:
   release-note:
-    name: Verify release note
+    name: Camp source check
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Check release note and deployment marker
+      - name: Camp source check
         env:
           CAMP_CI_REPAIR_CASE: ${{ vars.CAMP_CI_REPAIR_CASE }}
         run: |
@@ -31,13 +31,12 @@ jobs:
             content = readFileSync(path, 'utf8');
           } catch (error) {
             if (error.code !== 'ENOENT') throw error;
-            console.error('Release note is missing at ' + path + '.');
+            console.error('CAMP_SOURCE_REPAIR: Release note is missing at ' + path + '.');
             process.exit(1);
           }
 
           if (content !== 'Search is ready.\n' + marker + '\n') {
-            console.error('Keep the first line "Search is ready." in ' + path + '.');
-            console.error('Append this exact line to ' + path + ': ' + marker);
+            console.error('CAMP_SOURCE_REPAIR: Keep the first line "Search is ready." in ' + path + '. Append this exact line: ' + marker);
             process.exit(1);
           }
           JS

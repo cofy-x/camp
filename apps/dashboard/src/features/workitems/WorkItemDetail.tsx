@@ -117,6 +117,17 @@ export function WorkItemDetail({
   const question = item && workItemQuestion(item);
   const summary = item?.execution?.summary;
   const displayStatus = item ? workItemStatus(item, false) : '';
+  const inspectDelivery =
+    selectedView === 'overview' &&
+    item?.status === 'needs_attention' &&
+    !item.activeTaskId &&
+    item.githubDelivery?.status === 'blocked' &&
+    Boolean(item.githubDelivery.reason) &&
+    ['checks', 'review', 'deployment'].includes(item.githubDelivery.stage);
+  const showStatus = !question && !inspectDelivery;
+  const due = item?.dueAt
+    ? `Due ${item.dueAt.length === 10 ? item.dueAt : new Date(item.dueAt).toLocaleDateString()}`
+    : '';
   const execution = item?.execution;
   const pausedTaskId =
     !closing &&
@@ -285,25 +296,16 @@ export function WorkItemDetail({
         <>
           <header className="work-item-heading">
             <GoalHeading goal={item.goal} />
-            {(!question || item.dueAt || (progress && onViewProgress)) && (
+            {(showStatus || due || (progress && onViewProgress)) && (
               <div className="work-item-state">
-                {!question && (
+                {(showStatus || due) && (
                   <p>
-                    {displayStatus}
-                    {item.execution?.currentAgentName && item.activeTaskId
-                      ? ` · ${item.execution.currentAgentName}`
-                      : ''}
-                    {item.dueAt
-                      ? ` · Due ${item.dueAt.length === 10 ? item.dueAt : new Date(item.dueAt).toLocaleDateString()}`
-                      : ''}
-                  </p>
-                )}
-                {question && item.dueAt && (
-                  <p>
-                    Due{' '}
-                    {item.dueAt.length === 10
-                      ? item.dueAt
-                      : new Date(item.dueAt).toLocaleDateString()}
+                    {showStatus && displayStatus}
+                    {showStatus &&
+                      item.execution?.currentAgentName &&
+                      item.activeTaskId &&
+                      ` · ${item.execution.currentAgentName}`}
+                    {due && (showStatus ? ` · ${due}` : due)}
                   </p>
                 )}
                 {progress && onViewProgress && (

@@ -43,36 +43,58 @@ export function GitHubDeliveryStatus({
   const reads = useReadStore();
   const checking =
     delivery.reconcile && ['queued', 'working'].includes(delivery.status);
+  const blocked = delivery.status === 'blocked';
+  const inspectRun = blocked && delivery.checkUrl;
   const url =
-    delivery.deploymentUrl || delivery.releaseUrl || delivery.pullRequestUrl;
-  const label = delivery.deploymentUrl
-    ? 'Open app'
-    : delivery.releaseUrl
-      ? 'Open release'
-      : 'Open pull request';
+    inspectRun ||
+    delivery.deploymentUrl ||
+    delivery.releaseUrl ||
+    delivery.pullRequestUrl;
+  const label = inspectRun
+    ? 'Open workflow run'
+    : delivery.deploymentUrl
+      ? 'Open app'
+      : delivery.releaseUrl
+        ? 'Open release'
+        : 'Open pull request';
   const safeURL = url?.startsWith('https://') ? url : undefined;
   const code = delivery.failureCode;
   const execution = code === 'execution_unavailable';
   const reconnect = code === 'credential' || code === 'connection' || execution;
   const scopeChanged = ['project_changed', 'rule_changed'].includes(code ?? '');
-  const allowance = [
-    'work_budget_exhausted',
-    'daily_task_limit',
-    'agent_changed',
-    'repair_limit',
-    'execution_unavailable',
-  ].includes(code ?? '');
+  const hasRepairEvidence =
+    Boolean(delivery.repairCause) || code === 'review_changes';
+  const allowance =
+    [
+      'work_budget_exhausted',
+      'daily_task_limit',
+      'agent_changed',
+      'execution_unavailable',
+    ].includes(code ?? '') ||
+    (hasRepairEvidence && code === 'repair_limit');
   const canResume =
     !code || ['action_failed', 'connection', 'credential'].includes(code);
 
-  const repairFailure = [
-    'ci_failed',
-    'execution_unavailable',
-    'review_changes',
-    'repair_limit',
-    'work_budget_exhausted',
-    'daily_task_limit',
-  ].includes(code ?? '');
+  const repairFailure =
+    hasRepairEvidence &&
+    [
+      'ci_source_failed',
+      'execution_unavailable',
+      'review_changes',
+      'repair_limit',
+      'work_budget_exhausted',
+      'daily_task_limit',
+    ].includes(code ?? '');
+  const canRecheck =
+    ['checks', 'review', 'deployment'].includes(delivery.stage) &&
+    ([
+      'ci_failed',
+      'ci_inspection',
+      'deployment_inspection',
+      'read_unavailable',
+      'check_ended',
+    ].includes(code ?? '') ||
+      (!hasRepairEvidence && code === 'repair_limit'));
 
   async function check() {
     setPending(true);
@@ -106,7 +128,11 @@ export function GitHubDeliveryStatus({
                   : delivery.status === 'unknown'
                     ? 'Delivery not confirmed'
                     : delivery.status === 'blocked'
-                      ? 'Delivery needs attention'
+                      ? inspectRun
+                        ? delivery.stage === 'deployment'
+                          ? 'GitHub deployment'
+                          : 'GitHub CI'
+                        : 'Delivery needs attention'
                       : (labels[delivery.stage] ?? 'Delivering')}{' '}
           · {delivery.repository}
         </span>
@@ -174,7 +200,7 @@ export function GitHubDeliveryStatus({
       {editable &&
         delivery.status === 'blocked' &&
         !delivery.reconcile &&
-        canResume &&
+        (canResume || canRecheck) &&
         delivery.stage !== 'result' && (
           <Button
             disabled={pending || operation.blocked}
@@ -185,7 +211,7 @@ export function GitHubDeliveryStatus({
               })
             }
           >
-            Resume delivery
+            {canRecheck ? 'Check again' : 'Resume delivery'}
           </Button>
         )}
       {error && (
