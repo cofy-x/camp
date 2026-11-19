@@ -342,6 +342,7 @@ async function main(args) {
       'POST',
       {
         requestId: randomUUID(),
+        roomId,
         revision: 0,
         enabled: true,
         participantAgentIds: [agentId],
