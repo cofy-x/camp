@@ -28,8 +28,8 @@ test('checks Camp receipts and latest attempts for each GUID', () => {
   assert.deepEqual(
     report.map((row) => [row.id, row.status, row.eventId]),
     [
-      [3, 'receipt_missing_after_success', undefined],
-      [2, 'recorded', 'committed'],
+      ['3', 'receipt_missing_after_success', undefined],
+      ['2', 'recorded', 'committed'],
     ],
   );
 });
@@ -46,13 +46,13 @@ test('an earlier provider success makes the missing receipt a discrepancy', () =
   assert.deepEqual(
     report.map((row) => [row.id, row.status]),
     [
-      [3, 'failed_without_receipt'],
-      [2, 'receipt_missing_after_success'],
+      ['3', 'failed_without_receipt'],
+      ['2', 'receipt_missing_after_success'],
     ],
   );
 });
 
-function fixture() {
+function fixture(older = 1, newer = 2) {
   const writes = [];
   let prepared = false;
   let received = false;
@@ -65,8 +65,14 @@ function fixture() {
         config: { url: settings.publicOrigin + '/api/hooks/github/source' },
       };
     if (route === 'repos/acme/project/hooks/31/deliveries?per_page=100')
-      return [attempt(2, guid, 503), attempt(1, guid, 500)];
-    assert.equal(route, 'repos/acme/project/hooks/31/deliveries/2/attempts');
+      return [
+        { ...attempt(2, guid, 503), id: newer },
+        { ...attempt(2, guid, 500), id: older },
+      ];
+    assert.equal(
+      route,
+      'repos/acme/project/hooks/31/deliveries/' + newer + '/attempts',
+    );
     assert.equal(method, 'POST');
     assert.ok(prepared);
     writes.push('redeliver');
@@ -149,5 +155,19 @@ test('uncertain dispatch can be resolved by the exact Camp receipt', async () =>
     },
   );
   assert.equal(result.recovery.status, 'recorded');
+  assert.deepEqual(f.writes, ['prepare', 'redeliver']);
+});
+
+test('source recovery distinguishes adjacent 64-bit attempt IDs', async () => {
+  const older = '7125162560049000001';
+  const newer = '7125162560049000002';
+  const f = fixture(older, newer);
+  const scan = await reconcileSource(settings, f.deps);
+  assert.equal(scan.deliveries[0].id, newer);
+  await assert.rejects(
+    reconcileSource({ ...settings, recoveryId: older }, f.deps),
+    /latest attempt/u,
+  );
+  await reconcileSource({ ...settings, recoveryId: newer }, f.deps);
   assert.deepEqual(f.writes, ['prepare', 'redeliver']);
 });

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { setTimeout as pause } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
-import { parseGitHubJSON } from './automation-public-webhook.mjs';
+import {
+  deliveryIdentifier,
+  parseGitHubJSON,
+} from './automation-public-webhook.mjs';
 import { ghCommand } from './verify-automation-real.mjs';
 import { client, normalizeOrigin, readAccess } from './verify-remote-real.mjs';
 
@@ -17,7 +20,9 @@ function latestAttempts(attempts) {
   assert.ok(Array.isArray(attempts) && attempts.length <= pageSize);
   const latest = new Map();
   for (const row of attempts) {
-    assert.ok(positiveID(row.id) && guidPattern.test(row.guid));
+    assert.ok(guidPattern.test(row.guid));
+    const id = deliveryIdentifier(row.id);
+    const order = BigInt(id);
     const time = Date.parse(row.delivered_at);
     assert.ok(
       Number.isFinite(time) &&
@@ -30,7 +35,7 @@ function latestAttempts(attempts) {
     if (
       previous &&
       (time < previous.time ||
-        (time === previous.time && row.id <= previous.id))
+        (time === previous.time && order <= previous.order))
     ) {
       previous.reportedSuccess ||= succeeded;
       continue;
@@ -40,7 +45,8 @@ function latestAttempts(attempts) {
       ((code === 0 || code === null) &&
         /^(?:timed out|failed to connect(?: to host)?)$/iu.test(row.status));
     latest.set(guid, {
-      id: row.id,
+      id,
+      order,
       guid,
       time,
       deliveredAt: row.delivered_at,
@@ -49,9 +55,11 @@ function latestAttempts(attempts) {
       failed,
     });
   }
-  return [...latest.values()].sort(
-    (left, right) => right.time - left.time || right.id - left.id,
-  );
+  return [...latest.values()].sort((left, right) => {
+    if (left.time !== right.time) return right.time - left.time;
+    if (left.order === right.order) return 0;
+    return left.order > right.order ? -1 : 1;
+  });
 }
 
 function applyReceipts(deliveries, receipts) {
@@ -159,7 +167,8 @@ export async function reconcileSource(
   };
   if (recoveryId === undefined) return report;
 
-  const target = deliveries.find((row) => row.id === recoveryId);
+  const exactID = deliveryIdentifier(recoveryId);
+  const target = deliveries.find((row) => row.id === exactID);
   assert.ok(
     target,
     'Choose the latest attempt for a GUID from this bounded report.',
@@ -210,14 +219,15 @@ async function main(args) {
   const [address, accessFile, roomId, sourceId, hook, ingress, flag, delivery] =
     args;
   const hookId = Number(hook);
-  const recoveryId = flag === '--recover' ? Number(delivery) : undefined;
   assert.ok(
-    (args.length === 6 || (args.length === 8 && positiveID(recoveryId))) &&
+    (args.length === 6 || (args.length === 8 && flag === '--recover')) &&
       identifier.test(roomId) &&
       identifier.test(sourceId) &&
       positiveID(hookId),
     usage,
   );
+  const recoveryId =
+    delivery === undefined ? undefined : deliveryIdentifier(delivery);
   const origin = normalizeOrigin(address);
   const publicOrigin = normalizeOrigin(ingress);
   assert.equal(
