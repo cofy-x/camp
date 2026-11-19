@@ -111,7 +111,10 @@ UPDATE agent_conversations SET context_seq=?,resumable=? WHERE agent_id=? AND ro
 -- name: CreateWorkspaceEvent :one
 INSERT INTO workspace_events(type,room_id,entity_id,created_at) VALUES(?,?,?,?) RETURNING id;
 -- name: ListWorkspaceEvents :many
-SELECT * FROM workspace_events WHERE id>? ORDER BY id LIMIT 500;
+SELECT e.*, CAST(CASE WHEN e.type='task.updated' THEN COALESCE((
+ SELECT t.work_item_id FROM work_item_tasks t WHERE t.task_id=e.entity_id
+),'') ELSE '' END AS TEXT) AS work_item_id
+FROM workspace_events e WHERE e.id>? ORDER BY e.id LIMIT 500;
 -- name: WorkspaceEventCursor :one
 SELECT CAST(COALESCE(MAX(id),0) AS INTEGER) FROM workspace_events;
 

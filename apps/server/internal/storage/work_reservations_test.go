@@ -147,6 +147,10 @@ func TestWorkReservationRetainsAnUnknownModelRequestAfterCancellation(t *testing
 	if err = s.BeginAttemptModel(actor, attempt.ID, run.RunnerID); err != nil {
 		t.Fatal(err)
 	}
+	afterCharge, err := s.queries().WorkspaceEventCursor(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err = s.InterruptAttempt(actor, attempt.ID, "The model response was not confirmed."); err != nil {
 		t.Fatal(err)
 	}
@@ -154,6 +158,24 @@ func TestWorkReservationRetainsAnUnknownModelRequestAfterCancellation(t *testing
 	w, _ = s.GetWorkItem(actor, w.ID)
 	if task.Status != "needs_attention" || w.Usage.ModelRequests != 1 || w.Usage.ReservedModelRequests != 96 {
 		t.Fatal("recoverable execution lost its grant or unknown request", task.Status, w.Usage)
+	}
+	events, err := s.ListWorkspaceEvents(actor, afterCharge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, event := range events {
+		if event.Type == "task.updated" && event.EntityID == task.ID {
+			found = true
+			if event.WorkItemID != w.ID || event.RoomID != room.ID {
+				t.Fatalf("paused collaboration event lacks its Work identity: %+v", event)
+			}
+		} else if event.WorkItemID != "" {
+			t.Fatalf("unrelated update carries a Work identity: %+v", event)
+		}
+	}
+	if !found || w.Execution == nil || w.Execution.Status != "needs_attention" {
+		t.Fatal("the Work projection and its pause notification must be available together", w.Execution, events)
 	}
 	if _, err = s.OperateTask(actor, task.ID, "cancel", TaskOperation{RequestID: newID(), Revision: task.Revision}); err != nil {
 		t.Fatal(err)

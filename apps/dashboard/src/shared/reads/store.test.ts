@@ -22,6 +22,24 @@ function pending() {
 }
 
 describe('shared read ownership', () => {
+  it('revalidates only the Work detail that projects an updated collaboration', () => {
+    const change = {
+      ...event('task.updated', 'one', 'task-one'),
+      workItemId: 'work-one',
+    };
+    expect(affectedRead('/work-items/work-one', change)).toBe(true);
+    expect(affectedRead('/work-items/work-two', change)).toBe(false);
+    expect(
+      affectedRead('/work-items/work-one/history/tasks?limit=20', change),
+    ).toBe(false);
+    expect(affectedRead('/work-items/work-one', event('task.updated'))).toBe(
+      false,
+    );
+    expect(
+      affectedRead('/work-items/work-one', { ...change, type: 'run.activity' }),
+    ).toBe(false);
+  });
+
   it('revalidates Work Runner access only for changes to its proposal', () => {
     const path = '/rooms/one/work-execution?completion=human&agentId=writer';
     for (const change of [

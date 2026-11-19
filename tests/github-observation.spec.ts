@@ -91,7 +91,7 @@ async function fixture(page: Page, name: string) {
   return { room, source };
 }
 
-test('signed observations stay pending, retain originals and require an explicit decision', async ({
+test('signed observations keep one pending original @work-loop', async ({
   page,
   browserName,
 }) => {
@@ -206,7 +206,7 @@ test('signed observations stay pending, retain originals and require an explicit
   expect(errors.errors).toEqual([]);
 });
 
-test('source setup recovers a lost response after reload without persisting its secret', async ({
+test('GitHub source recovers a lost response without saving the secret @work-loop', async ({
   page,
   browserName,
 }) => {

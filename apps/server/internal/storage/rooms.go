@@ -458,7 +458,7 @@ func (s *Store) ListWorkspaceEvents(ctx context.Context, after int64) ([]Workspa
 	rows, e := s.queries().ListWorkspaceEvents(ctx, after)
 	out := make([]WorkspaceEvent, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, WorkspaceEvent{ID: r.ID, Type: r.Type, RoomID: r.RoomID, EntityID: r.EntityID, CreatedAt: r.CreatedAt})
+		out = append(out, WorkspaceEvent{ID: r.ID, Type: r.Type, RoomID: r.RoomID, EntityID: r.EntityID, WorkItemID: r.WorkItemID, CreatedAt: r.CreatedAt})
 	}
 	return out, e
 }

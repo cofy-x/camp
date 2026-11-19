@@ -15,6 +15,7 @@ import {
   workspace,
 } from './team-helpers';
 import { watchPageErrors } from './page-errors';
+import { fixtureNotifications } from './fixture-notifications';
 import { timelineFixture } from './run-timeline-fixture';
 import type {
   WorkItem,
@@ -1777,68 +1778,172 @@ test('completion confirmation is explicit and waits for unresolved external acti
   expect(errors.errors).toEqual([]);
 });
 
-test('blocked work opens its saved execution for an explicit continuation grant', async ({
+test('open Work offers live allowance recovery @work-loop', async ({
   page,
   browserName,
 }) => {
   const errors = watchPageErrors(page, browserName);
+  const notify = await fixtureNotifications(page);
+  const pauseReason = 'The work session reached its model request limit.';
+  const execution = {
+    taskId: 'blocked-task',
+    status: 'running',
+    revision: 3,
+    summary: '',
+    error: '',
+    currentAgentName: 'Writer',
+    activeRunId: 'active-round',
+    updatedAt: new Date().toISOString(),
+  };
   const value = await presentation(page, errors.reload, {
     status: 'running',
     activeTaskId: 'blocked-task',
-    execution: {
-      taskId: 'blocked-task',
-      status: 'needs_attention',
-      revision: 4,
-      summary: 'The first draft is saved.',
-      error: 'The work session reached its model request limit.',
-      currentAgentName: 'Writer',
-      activeRunId: '',
-      updatedAt: new Date().toISOString(),
+    execution,
+    budget: {
+      maxEvaluations: 12,
+      maxTasks: 4,
+      maxModelRequests: 24,
+      maxActions: 16,
+      maxFollowUps: 8,
+    },
+    usage: {
+      evaluations: 0,
+      tasks: 1,
+      modelRequests: 24,
+      reservedModelRequests: 24,
+      actions: 0,
+      followUps: 0,
     },
   });
   const { user } = await (await page.request.get('/api/auth/status')).json();
-  await page.route('**/api/tasks/blocked-task?*', (route) =>
-    route.fulfill({
-      json: {
-        task: {
-          id: 'blocked-task',
-          workItemId: value.item.id,
-          roomId: value.room.id,
-          resourceId: value.room.resourceId,
-          threadRootId: '',
-          originMessageId: '',
-          requestedByUserId: user.id,
-          goal: value.item.goal,
-          status: 'needs_attention',
-          revision: 4,
-          participants: [
-            {
-              agent: value.agent,
-              runnerId: 'fixture-runner',
-              runnerName: 'Fixture Runner',
-            },
-          ],
-          currentAgentId: value.agent.id,
-          activeRunId: '',
-          baseSharedCommit: 'a'.repeat(40),
-          checkpointCommit: 'b'.repeat(40),
-          publishedCommit: '',
-          error: 'The work session reached its model request limit.',
-          summary: 'The first draft is saved.',
-          turnsUsed: 6,
-          maxTurns: 6,
-          modelRequestsUsed: 24,
-          maxModelRequests: 24,
-          inputRevision: 0,
-          inputBytes: 0,
-          coveredInputRevision: 0,
-          createdAt: value.item.createdAt,
-          updatedAt: value.item.updatedAt,
-        },
+  let pausedTask: Task = {
+    id: 'blocked-task',
+    workItemId: value.item.id,
+    roomId: value.room.id,
+    resourceId: value.room.resourceId,
+    threadRootId: '',
+    originMessageId: '',
+    requestedByUserId: user.id,
+    goal: value.item.goal,
+    status: 'needs_attention',
+    revision: 4,
+    participants: [
+      {
+        agent: value.agent,
+        runnerId: 'fixture-runner',
+        runnerName: 'Fixture Runner',
       },
-    }),
+    ],
+    currentAgentId: value.agent.id,
+    activeRunId: '',
+    baseSharedCommit: 'a'.repeat(40),
+    checkpointCommit: 'b'.repeat(40),
+    publishedCommit: '',
+    error: pauseReason,
+    summary: 'The first draft is saved.',
+    turnsUsed: 6,
+    maxTurns: 6,
+    modelRequestsUsed: 24,
+    maxModelRequests: 24,
+    inputRevision: 0,
+    inputBytes: 0,
+    coveredInputRevision: 0,
+    createdAt: value.item.createdAt,
+    updatedAt: value.item.updatedAt,
+  };
+  let continuations = 0;
+  await page.route('**/api/tasks/blocked-task?*', (route) =>
+    route.fulfill({ json: { task: pausedTask } }),
   );
-  await openItems(page);
+  await page.route('**/api/tasks/blocked-task/continue?*', (route) => {
+    continuations++;
+    expect(route.request().postDataJSON()).toMatchObject({
+      revision: pausedTask.revision,
+      agentId: value.agent.id,
+      addTurns: 1,
+      addModelRequests: 24,
+      fromLatest: false,
+      content: 'Finish the saved draft.',
+    });
+    pausedTask = {
+      ...pausedTask,
+      revision: 5,
+      status: 'queued',
+      activeRunId: 'resumed-round',
+      maxTurns: 7,
+      maxModelRequests: 48,
+      error: '',
+    };
+    return route.fulfill({ json: { task: pausedTask } });
+  });
+  await value.open();
+  await expect(
+    detail(page).getByText('Working · Writer', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    detail(page).getByRole('button', { name: 'View progress', exact: true }),
+  ).toBeVisible();
+  value.setItem({
+    execution: {
+      ...execution,
+      status: 'needs_attention',
+      revision: 4,
+      summary: 'The first draft is saved.',
+      error: pauseReason,
+      activeRunId: '',
+    },
+  });
+  await notify('task.updated', value.room.id, execution.taskId, value.item.id);
+  const increase = detail(page).getByRole('button', {
+    name: 'Increase allowance…',
+    exact: true,
+  });
+  await expect(increase).toBeVisible();
+  await expect(
+    detail(page).getByText('Needs attention · Writer', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    detail(page).getByRole('button', { name: 'View progress', exact: true }),
+  ).toHaveCount(0);
+  await capture(page, 'allowance-paused');
+  await increase.press('Enter');
+  const allowance = detail(page).getByRole('form', {
+    name: 'Work allowance',
+    exact: true,
+  });
+  await expect(allowance).toBeVisible();
+  const modelRequests = allowance.getByRole('spinbutton', {
+    name: 'Model requests',
+    exact: true,
+  });
+  await expect(modelRequests).toHaveValue('24');
+  await expect(modelRequests).toHaveAccessibleDescription('24 used');
+  await capture(page, 'allowance-editor');
+  const authorize = `**/api/work-items/${value.item.id}/actions/authorize`;
+  await page.route(authorize, (route) => {
+    const { budget } = route.request().postDataJSON() as WorkActionInput;
+    expect(budget).toEqual({ ...value.item.budget, maxModelRequests: 48 });
+    value.setItem({ budget, revision: 2 });
+    return route.fulfill({ json: { item: value.item } });
+  });
+  await modelRequests.fill('48');
+  await expect(modelRequests).toHaveAccessibleDescription(
+    '24 used · 24 currently authorized',
+  );
+  await allowance
+    .getByRole('button', { name: 'Save allowance', exact: true })
+    .click();
+  await expect(allowance).toBeHidden();
+  expect(continuations).toBe(0);
+  await expect(
+    detail(page).getByRole('button', {
+      name: 'Review and continue…',
+      exact: true,
+    }),
+  ).toBeVisible();
+  await detail(page)
+    .getByRole('button', { name: 'Back to Work', exact: true })
+    .click();
   const pausedRow = work(page)
     .getByRole('button')
     .filter({ hasText: value.item.goal });
@@ -1906,19 +2011,32 @@ test('blocked work opens its saved execution for an explicit continuation grant'
   await detail(page)
     .getByRole('button', { name: 'Review and continue…', exact: true })
     .click();
-  const execution = work(page).getByRole('region', {
+  const collaboration = work(page).getByRole('region', {
     name: 'Collaboration details',
     exact: true,
   });
-  await expect(execution).toBeVisible();
+  await expect(collaboration).toBeVisible();
   await expect(work(page)).toHaveClass(/is-active/);
-  await execution
+  await collaboration
     .getByRole('button', { name: 'Continue…', exact: true })
     .click();
+  await collaboration
+    .getByRole('spinbutton', { name: 'Additional turns', exact: true })
+    .fill('1');
+  await collaboration
+    .getByRole('spinbutton', { name: 'Additional model requests', exact: true })
+    .fill('24');
+  await collaboration
+    .getByRole('textbox', { name: 'What should happen next?', exact: true })
+    .fill('Finish the saved draft.');
+  await collaboration
+    .getByRole('button', { name: 'Continue collaboration', exact: true })
+    .click();
   await expect(
-    execution.getByLabel('Additional model requests', { exact: true }),
+    collaboration.getByText('Waiting for Runner', { exact: true }),
   ).toBeVisible();
-  await execution
+  expect(continuations).toBe(1);
+  await collaboration
     .getByRole('button', { name: 'Back to Work Item', exact: true })
     .click();
   await expect(

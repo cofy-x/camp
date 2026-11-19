@@ -30,6 +30,8 @@ Keep browser queries/commands on HTTP and observations on the shared reconnectab
 
 Batch affected identities and invalidate matching reads. A new event or view must update the shared invalidation map and its focused coverage. Pure output activity must not refetch Room conversations, task grants or current business-state summaries. Broad team changes and reconnect/foreground recovery can revalidate more widely; a healthy idle desktop must not periodically reload every open app. Health checks and stream heartbeats are separate from business-list refreshes.
 
+When a detail composes a linked object's current state, include the owning detail identity in the durable notification path. A collaboration update carries its linked Work identity so an open Work detail can reflect a pause without interrupting navigation. Verify the change while the detail is already open, including the case where only the linked object's revision changes.
+
 Writes, private-draft CAS, uncertain-request receipts and explicit verification reads remain outside the shared response cache. Cached presentation is never a new permission or decision baseline. Preserve the current review, publication and execution preconditions in their owning controllers and Server transactions.
 
 ## Streamed writes and storage
