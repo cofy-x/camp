@@ -62,13 +62,18 @@ export function normalizeOrigin(value) {
   return url.origin;
 }
 
-export function validatePreflight(settings, runner, expectedRevision) {
+export function validatePreflight(
+  settings,
+  runner,
+  expectedRevision,
+  allowedCeilings = ceilings,
+) {
   requireValue(
     settings?.apiKeyConfigured === true,
     'Configure the provider on Server first.',
   );
   const budget = {};
-  for (const [key, limit] of Object.entries(ceilings)) {
+  for (const [key, limit] of Object.entries(allowedCeilings)) {
     requireValue(
       Number.isSafeInteger(settings[key]) &&
         settings[key] >= 1 &&

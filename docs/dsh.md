@@ -121,6 +121,20 @@ node scripts/verify-collaboration-real.mjs --allow-one-real-task \
 
 The first submits two Runs (create/revise), checks native resume and human review/resubmission/delivery through HTTP. The second submits the current bounded input protocol with summary responses, checks that every admitted Run retains protocol 1, and authorizes one bounded Writer → read-only Reviewer → Writer collaboration across distinct native Runners, then verifies exact publication and human delivery. Neither is browser acceptance.
 
+### GitHub CI repair
+
+Install [the fixture workflow](../scripts/fixtures/camp-ci-repair.yml) as `.github/workflows/camp-ci-repair.yml` on `main` in a dedicated private repository. Enable issues, Actions and squash merging. In Camp's GitHub Settings, connect the fixture repository and select `camp-ci-repair.yml` for required CI. Use a repository-restricted credential. The `gh` account owns the fixture and can administer its hooks and Actions variables. Start an HTTPS ingress for [the exact webhook route](#real-provider-verification) and select an enabled writing Agent routed to the ready native Runner.
+
+```sh
+node scripts/verify-github-repair-real.mjs --allow-real-ci-repair \
+  http://127.0.0.1:3001 /private/access.json RUNNER_ID AGENT_ID \
+  owner/private-ci-fixture https://temporary-callback.example.com /private/new-repair-report
+```
+
+Each run authorizes one issue, one assessment, two collaborations with at most three turns and twelve model requests each, and four external effects through one squash merge. The test uses the existing Server model settings within ceilings of 8192 tokens, 32 steps and 600 seconds per Run. It sets a synthetic deployment marker in the fixture repository's Actions variable. GitHub supplies that marker in the initial failed job's diagnostics. The exact-workflow check verifies a later head passes on the same PR and the merged note preserves the original summary and adds the marker.
+
+The private report records real callback receipts, the failed and successful workflow runs, the final merge commit, actual request usage and sampled Needs me outcomes. One redelivery checks the original event receipt after completion. The temporary rule and hook are disabled and read back. Each new run claims a fresh report directory and creates a fresh note path in the same fixture. Investigate a stopped run from its ledger and retained identities before granting another. The fixture repository retains the issue, PR and workflow history.
+
 Event orchestration has a separate explicit allowance. With `gh` authenticated to an account that can read and comment in a fresh private example repository, run:
 
 ```sh
