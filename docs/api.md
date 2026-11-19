@@ -98,9 +98,12 @@ Enabled team members can read Room sources and events, dismiss a pending event, 
 | Method | Route | Body or result |
 | --- | --- | --- |
 | GET | `/api/rooms/:id/github-sources` | `{sources}` with safe configuration, revision and observed repository ID |
+| GET | `/api/rooms/:id/github-sources/:source/verification` | Administrator verification snapshot with current source and rule revisions, latest signed receipt time, Runner access, bounded intake sample and owner-scoped delivery settings |
 | POST | `/api/rooms/:id/github-sources` | `{requestId,repository,secret}` → `{source}` |
 | PATCH | `/api/github-sources/:id` | `{requestId,revision,enabled?,secret?}` → `{source}` |
 | GET | `/api/github-requests/:requestId` | Original safe configuration/dismissal receipt, scoped to the signed-in actor |
+| GET | `/api/github-sources/:id/recovery?delivery=guid` | Administrator receipt lookup for up to 100 GUIDs, returning `{receipts}` with `deliveryId`, optional `eventId` and optional `preparedAt` |
+| POST | `/api/github-sources/:id/recovery` | Administrator preparation `{revision,deliveryId}` → `{prepared}` |
 | GET | `/api/rooms/:id/github-events?state=pending&after=0&through=seq&limit=20` | `{items,through,nextAfter,hasMore}`; no event bodies in list items |
 | GET | `/api/github-events/:id` | `{event}` with original normalized body and current decision |
 | GET | `/api/github-events/:id/payload` | Exact original JSON as an attachment |
@@ -111,9 +114,13 @@ Source writes and dismissal require a stable actor-scoped request ID. Reusing it
 
 Only one source per Room and case-insensitive repository address can be enabled. Disable it before creating or enabling a replacement; competing activation returns 409 `source_conflict`. Replacement preserves all earlier source IDs, pinned repository identities, originals, decisions and receipts. A Room retains at most 32 sources, including disabled sources.
 
+Verification uses an indexed latest window of at most 20 current-revision signed originals. It reads the current saved rule, local Runner authorization and, for its owner, any matching personal project delivery grant. A historical sample retains its recorded frontier. This uncached read consumes no assessment allowance and performs no provider requests or writes.
+
 Event `state` is `pending` (default), `all`, `accepted`, `dismissed` or `ignored`. Pagination uses exclusive `after`, a captured `through` frontier, at most 20 whole items and 64 KiB of encoded JSON including its newline. The event frontier is stable; human decision states are current. Detail bodies are independently bounded at 64 KiB before JSON encoding. Repository names are case-insensitive; the first valid delivery additionally pins the numeric repository identity.
 
 The webhook endpoint is a separate route tree, with the same HTTPS/localhost transport rule and outer Host policy. It requires exactly one each of `X-Hub-Signature-256`, `X-GitHub-Delivery`, `X-GitHub-Event` and JSON Content-Type. Cookie, Origin and Authorization are refused. Signature verification covers exact body bytes before parsing. The source and verified private credential revision are rechecked transactionally. Invalid signatures return 401; invalid/oversized payloads return 400/413. A delivery GUID or fingerprint replay creates no new event, decision or work. Changed content under an existing GUID conflicts.
+
+Recovery preparation uses the current enabled, identity-pinned source revision. Its stable key is the source and canonical delivery GUID. `prepared:true` means the intent was newly committed. An existing intent or receipt returns `prepared:false`. Camp stores the preparing actor and intent timestamp. The signed webhook remains the only way to record the original. A recorded intent makes its newly accepted original observation-only, including when a source credential has rotated. The operator owns any external redelivery. See [source recovery](github.md#reconcile-missed-deliveries).
 
 Task POST `/api/rooms/:id/tasks?view=summary` additionally accepts optional `sourceEventId` with `inputProtocol:1`. The ID must select a pending event in this Room from a currently enabled source. Normal task permission, participant, route and model checks still apply. The human-authored `goal` stays separate from the complete source context copied into the input log. The response task and admission trigger retain `sourceEventId`. Confirmation, inputs, work admission and receipts commit atomically; failure leaves the event pending. This adds no authority to external sender identities and leaves old task request hashes unchanged.
 

@@ -42,6 +42,13 @@ type GitHubDeliverySpec struct {
 	VersionLine        string `json:"versionLine,omitempty"`
 }
 
+type GitHubRepairCause string
+
+const (
+	GitHubRepairSourceCI       GitHubRepairCause = "source_ci"
+	GitHubRepairApprovedReview GitHubRepairCause = "approved_review"
+)
+
 // GitHubDelivery is bounded current state; full originals stay in immutable
 // resource versions and append-only delivery receipts.
 type GitHubDelivery struct {
@@ -79,6 +86,8 @@ type GitHubDelivery struct {
 	Checks               int                `json:"checks"`
 	Reconcile            bool               `json:"reconcile,omitempty"`
 	FailureCode          string             `json:"failureCode,omitempty"`
+	CheckURL             string             `json:"checkUrl,omitempty"`
+	RepairCause          GitHubRepairCause  `json:"repairCause,omitempty"`
 	Diagnostics          string             `json:"diagnostics,omitempty"`
 	ReadFailures         int                `json:"readFailures,omitempty"`
 	Repairs              int                `json:"repairs"`
@@ -102,11 +111,26 @@ type GitHubDeliveryResult struct {
 	Outcome string
 }
 
+// HasRepairEvidence also accepts previously recorded approved reviews. Older
+// generic CI failures need a fresh observation under the current classifier.
+func (d GitHubDelivery) HasRepairEvidence() bool {
+	return d.Diagnostics != "" && (d.RepairCause == GitHubRepairSourceCI || d.RepairCause == GitHubRepairApprovedReview || d.FailureCode == "review_changes")
+}
+
 // VisibleWriteStage identifies steps whose interrupted claims need a receipt
 // check before any further write. Preparation creates only immutable objects.
 func (d GitHubDelivery) VisibleWriteStage() bool {
 	switch d.Stage {
 	case "branch", "update_branch", "pull_request", "merge", "release":
+		return true
+	default:
+		return false
+	}
+}
+
+func (d GitHubDelivery) WorkflowObservationStage() bool {
+	switch d.Stage {
+	case "checks", "review", "deployment":
 		return true
 	default:
 		return false

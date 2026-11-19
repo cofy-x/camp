@@ -108,6 +108,12 @@
 .automation-facts dd {
   margin: 0;
 }
+.automation-verification .app-actions {
+  margin: 0;
+}
+.automation-verification .automation-facts {
+  max-width: 720px;
+}
 .automation-events {
   margin-top: 24px;
 }

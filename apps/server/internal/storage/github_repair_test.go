@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -10,7 +11,8 @@ import (
 func failDeliveryCI(t *testing.T, s *Store, claim *GitHubDeliveryClaim, budgets ...Budget) orchestration.GitHubDeliveryResult {
 	t.Helper()
 	d := claim.Delivery
-	d.Stage, d.Status, d.FailureCode, d.Reason, d.Diagnostics = "checks", "blocked", "ci_failed", "CI failed for this head.", "Expected a nonempty title."
+	d.Stage, d.Status, d.FailureCode, d.Reason, d.Diagnostics = "checks", "blocked", "ci_source_failed", "CI failed for this head.", "Expected a nonempty title."
+	d.RepairCause = orchestration.GitHubRepairSourceCI
 	d.HeadSHA, d.PullRequest = strings.Repeat("e", 40), 12
 	r := orchestration.GitHubDeliveryResult{Delivery: d}
 	budget := roomBudget
@@ -82,6 +84,7 @@ func TestGitHubRepairRecoversRetainedReviewStageFailure(t *testing.T) {
 	completeDeliveryStage(t, s, claimDelivery(t, s), "review", "queued")
 	d := claimDelivery(t, s).Delivery
 	d.Status, d.FailureCode, d.Reason = "blocked", "review_changes", "An approved reviewer requested changes."
+	d.Diagnostics = "Update the release brief title."
 	d.HeadSHA, d.PullRequest = strings.Repeat("e", 40), 12
 	if err := s.CompleteGitHubDelivery(ctx, d.ID, d.Revision, orchestration.GitHubDeliveryResult{Delivery: d}); err != nil {
 		t.Fatal(err)
@@ -148,4 +151,52 @@ func TestGitHubRepairDoesNotTreatCosmeticAgentChangesAsNewAuthority(t *testing.T
 	if err != nil || task.Budget.MaxTokens > roomBudget.MaxTokens || task.Budget.MaxSteps > roomBudget.MaxSteps || task.Budget.TimeoutSeconds > roomBudget.TimeoutSeconds {
 		t.Fatal("repair enlarged the frozen per-request allowance", task.Budget, err)
 	}
+}
+
+func TestGitHubRepairDoesNotSpendAllowanceOnWorkflowInspection(t *testing.T) {
+	for _, failure := range []string{"ci_inspection", "ci_failed", "ci_source_failed"} {
+		t.Run(failure, func(t *testing.T) {
+			s, actor, w, _ := deliveryFixture(t, 1)
+			claim := claimDelivery(t, s)
+			d := claim.Delivery
+			d.Stage, d.Status, d.FailureCode = "checks", "blocked", failure
+			d.Reason, d.Diagnostics = "Review this workflow run.", "No qualifying source diagnostic."
+			d.HeadSHA, d.PullRequest = strings.Repeat("e", 40), 12
+			if err := s.CompleteGitHubDelivery(ctx, d.ID, d.Revision, orchestration.GitHubDeliveryResult{Delivery: d}, roomBudget); err != nil {
+				t.Fatal(err)
+			}
+			got, err := s.GetWorkItem(actor, w.ID)
+			if err != nil || got.Status != "needs_attention" || got.ActiveTaskID != "" || got.Usage != w.Usage || got.GitHubDelivery.Repairs != 0 {
+				t.Fatal(got, err)
+			}
+			r := orchestration.WorkItemOperation{RequestID: newID(), Revision: got.Revision, Kind: "repair_delivery", DeliveryRevision: got.GitHubDelivery.Revision}
+			var problem *Error
+			if _, err = s.OperateWorkItem(actor, w.ID, r, roomBudget); !errors.As(err, &problem) || problem.Code != "invalid_delivery" {
+				t.Fatal("manual repair also requires actionable evidence", err)
+			}
+			r.RequestID, r.Kind = newID(), "retry_delivery"
+			checked, err := s.OperateWorkItem(actor, w.ID, r, roomBudget)
+			if err != nil || checked.Status != "waiting" || checked.Usage != w.Usage || checked.GitHubDelivery.PullRequest != 12 || checked.GitHubDelivery.HeadSHA != d.HeadSHA || checked.GitHubDelivery.Status != "queued" {
+				t.Fatal("checking again must be read only on the same delivery scope", checked, err)
+			}
+		})
+	}
+}
+
+func TestGitHubRepairAndResumeRequireCurrentRepositoryConnection(t *testing.T) {
+	s, actor, original, repo := deliveryFixture(t, 1)
+	completeDeliveryStage(t, s, claimDelivery(t, s), "checks", "queued")
+	claim := claimDelivery(t, s)
+	input := orchestration.GitHubRepositoryInput{ID: repo.ID, Revision: repo.Revision, RequestID: newID(), Repository: repo.Repository, CIWorkflow: repo.CIWorkflow}
+	if _, err := s.SaveGitHubRepository(actor, input, repo, strings.Repeat("a", 48)); err != nil {
+		t.Fatal(err)
+	}
+	failDeliveryCI(t, s, claim)
+	blocked, err := s.GetWorkItem(actor, original.ID)
+	if err != nil || blocked.Status != "needs_attention" || blocked.ActiveTaskID != "" || blocked.Usage != original.Usage || blocked.GitHubDelivery.FailureCode != "connection" {
+		t.Fatal("a disabled connection admitted repair", blocked, err)
+	}
+	retry := orchestration.WorkItemOperation{RequestID: newID(), Revision: blocked.Revision, Kind: "retry_delivery", DeliveryRevision: blocked.GitHubDelivery.Revision}
+	_, err = s.OperateWorkItem(actor, original.ID, retry, roomBudget)
+	requireCode(t, err, "connection")
 }

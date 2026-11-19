@@ -39,18 +39,18 @@ func NewClient(credentials Credentials, files Files) *Client {
 	transport.ResponseHeaderTimeout = 15 * time.Second
 	return &Client{credentials: credentials, files: files, http: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, origin: "https://api.github.com"}
 }
-func (c *Client) request(ctx context.Context, token, method, path string, body, out any) (int, error) {
+func (c *Client) request(ctx context.Context, token, method, path string, body, out any) (int, http.Header, error) {
 	var input io.Reader
 	if body != nil {
 		raw, e := json.Marshal(body)
 		if e != nil {
-			return 0, e
+			return 0, nil, e
 		}
 		input = bytes.NewReader(raw)
 	}
 	req, e := http.NewRequestWithContext(ctx, method, c.origin+path, input)
 	if e != nil {
-		return 0, e
+		return 0, nil, e
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -59,20 +59,23 @@ func (c *Client) request(ctx context.Context, token, method, path string, body, 
 	req.Header.Set("User-Agent", "Camp")
 	response, e := c.http.Do(req)
 	if e != nil {
-		return 0, errors.New("GitHub did not confirm the response")
+		return 0, nil, errors.New("GitHub did not confirm the response")
 	}
 	defer response.Body.Close()
 	raw, e := io.ReadAll(io.LimitReader(response.Body, 8<<20+1))
-	if e != nil || len(raw) > 8<<20 {
-		return response.StatusCode, errors.New("The GitHub response could not be read within its limit")
+	if e != nil && response.StatusCode >= 200 && response.StatusCode < 300 {
+		return 0, response.Header, errors.New("GitHub did not confirm the response")
+	}
+	if len(raw) > 8<<20 {
+		return response.StatusCode, response.Header, errors.New("The GitHub response could not be read within its limit")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return response.StatusCode, nil
+		return response.StatusCode, response.Header, nil
 	}
 	if out != nil && json.Unmarshal(raw, out) != nil {
-		return response.StatusCode, errors.New("GitHub returned an invalid response")
+		return response.StatusCode, response.Header, errors.New("GitHub returned an invalid response")
 	}
-	return response.StatusCode, nil
+	return response.StatusCode, response.Header, nil
 }
 
 type repository struct {
@@ -94,12 +97,12 @@ func (c *Client) Verify(ctx context.Context, token string, input orchestration.G
 	var actor struct {
 		ID int64 `json:"id"`
 	}
-	status, e := c.request(ctx, token, "GET", "/user", nil, &actor)
+	status, _, e := c.request(ctx, token, "GET", "/user", nil, &actor)
 	if e != nil || status != 200 || actor.ID < 1 {
 		return out, errors.New("The GitHub credential could not be verified")
 	}
 	var repo repository
-	status, e = c.request(ctx, token, "GET", "/repos/"+input.Repository, nil, &repo)
+	status, _, e = c.request(ctx, token, "GET", "/repos/"+input.Repository, nil, &repo)
 	if e != nil || status != 200 || repo.ID < 1 || !strings.EqualFold(repo.FullName, input.Repository) || !repo.Permissions.Push {
 		return out, errors.New("The credential needs write access to this exact GitHub repository")
 	}
@@ -115,7 +118,7 @@ func (c *Client) Verify(ctx context.Context, token string, input orchestration.G
 			ID    int64  `json:"id"`
 			State string `json:"state"`
 		}
-		status, e := c.request(ctx, token, "GET", "/repos/"+out.Repository+"/actions/workflows/"+url.PathEscape(name), nil, &w)
+		status, _, e := c.request(ctx, token, "GET", "/repos/"+out.Repository+"/actions/workflows/"+url.PathEscape(name), nil, &w)
 		if e != nil || status != 200 || w.ID < 1 || w.State != "active" {
 			return 0, errors.New("The selected GitHub workflow is unavailable or disabled")
 		}
@@ -134,16 +137,17 @@ func (c *Client) Verify(ctx context.Context, token string, input orchestration.G
 type protocolError struct {
 	status    int
 	uncertain bool
+	headers   http.Header
 }
 
 func (e protocolError) Error() string { return "The GitHub operation was not confirmed" }
 func (c *Client) call(ctx context.Context, token, method, path string, body, out any) error {
-	status, e := c.request(ctx, token, method, path, body, out)
+	status, headers, e := c.request(ctx, token, method, path, body, out)
 	if e != nil || status >= 500 || status == 0 {
-		return protocolError{status: status, uncertain: method != "GET"}
+		return protocolError{status: status, uncertain: method != "GET", headers: headers}
 	}
 	if status < 200 || status >= 300 {
-		return protocolError{status: status}
+		return protocolError{status: status, headers: headers}
 	}
 	return nil
 }
@@ -174,16 +178,31 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 		result.Delivery.FailureCode = code
 		return fail(reason)
 	}
+	scheduleCheck := func(at time.Time) {
+		if deadline, err := time.Parse(time.RFC3339Nano, d.Deadline); err == nil && at.After(deadline) {
+			at = deadline
+		}
+		result.Delivery.NextCheckAt = at.UTC().Format(time.RFC3339Nano)
+	}
 	readFailure := func(err error, reason string) orchestration.GitHubDeliveryResult {
+		if result.Delivery.Stage == "merge" && !reconcile {
+			result.Delivery.Stage = "checks"
+		}
 		var scope evidenceError
 		if errors.As(err, &scope) {
 			return failWith("check_scope", scope.Error())
 		}
-		var protocol protocolError
-		if errors.As(err, &protocol) && (protocol.status == 0 || protocol.status == 429 || protocol.status >= 500) && !d.Reconcile && d.ReadFailures < 3 {
+		now := time.Now()
+		if retry, ok := githubReadRetry(err, now); ok && !d.Reconcile {
+			if d.ReadFailures >= 3 {
+				if result.Delivery.WorkflowObservationStage() {
+					return failWith("read_unavailable", "GitHub is still unavailable. Check the recorded delivery again.")
+				}
+				return failWith("connection", reason)
+			}
 			result.Delivery.ReadFailures++
 			result.Delivery.Status, result.Delivery.Reason = "waiting", "Waiting for GitHub to respond."
-			result.Delivery.NextCheckAt = time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano)
+			scheduleCheck(retry)
 			return result
 		}
 		return failWith("connection", reason)
@@ -217,22 +236,70 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 		result.Delivery.Reason = ""
 		result.Delivery.Reconcile = false
 		result.Delivery.FailureCode, result.Delivery.ReadFailures = "", 0
+		result.Delivery.CheckURL, result.Delivery.RepairCause, result.Delivery.Diagnostics = "", "", ""
 	}
 	done := func() {
 		result.Delivery.Status = "succeeded"
 		result.Delivery.Reason = ""
 		result.Delivery.Reconcile = false
+		result.Delivery.CheckURL, result.Delivery.RepairCause, result.Delivery.Diagnostics = "", "", ""
 	}
 	wait := func(reason string) orchestration.GitHubDeliveryResult {
 		result.Delivery.Checks++
 		if result.Delivery.Checks >= 120 {
-			return fail("The finite GitHub check allowance ended.")
+			return failWith("check_ended", "The finite GitHub check allowance ended. Check again after reviewing the recorded delivery.")
 		}
+		result.Delivery.FailureCode, result.Delivery.ReadFailures = "", 0
 		result.Delivery.Status = "waiting"
 		result.Delivery.Reason = reason
-		result.Delivery.NextCheckAt = time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano)
+		scheduleCheck(time.Now().Add(30 * time.Second))
 		return result
 	}
+	confirmRepairPR := func() error {
+		var pr pullRequest
+		path := base + "/pulls/" + strconv.FormatInt(d.PullRequest, 10)
+		if err := c.call(ctx, token, "GET", path, nil, &pr); err != nil {
+			return err
+		}
+		if !validPR(pr, d) || pr.State != "open" {
+			return evidenceError{"The pull request changed while its repair evidence was read. Review its current source."}
+		}
+		return nil
+	}
+	readPRChecks := func() (workflowCheck, error) {
+		check, err := c.checks(ctx, token, base, d.HeadSHA, d.CIWorkflowID, "pull_request")
+		if err != nil || check.state != workflowSourceFailure {
+			return check, err
+		}
+		if err = confirmRepairPR(); err != nil {
+			return workflowCheck{}, err
+		}
+		return check, nil
+	}
+	applyPRCheck := func(check workflowCheck) orchestration.GitHubDeliveryResult {
+		result.Delivery.Stage = "checks"
+		result.Delivery.CheckURL = check.url(d.Repository)
+		result.Delivery.Diagnostics = check.diagnostics
+		switch check.state {
+		case workflowSourceFailure:
+			result.Delivery.RepairCause = orchestration.GitHubRepairSourceCI
+			return failWith("ci_source_failed", "An authorized source check failed on this pull request.")
+		case workflowNeedsInspection:
+			return failWith("ci_inspection", check.reason)
+		default:
+			return wait("Waiting for CI.")
+		}
+	}
+	applyReviewFeedback := func(feedback string) orchestration.GitHubDeliveryResult {
+		result.Delivery.Stage = "checks"
+		if err := confirmRepairPR(); err != nil {
+			return readFailure(err, "The current pull request could not be confirmed after reading its reviews.")
+		}
+		result.Delivery.Diagnostics = feedback
+		result.Delivery.RepairCause = orchestration.GitHubRepairApprovedReview
+		return failWith("review_changes", "An approved reviewer requested changes on this exact source version.")
+	}
+
 	var effectErr error
 	switch d.Stage {
 	case "prepare":
@@ -349,27 +416,19 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 		if !validPR(pr, d) || pr.State != "open" {
 			return failWith("source_changed", "The pull request changed or closed before its checks were accepted.")
 		}
-		ready, failed, e := c.checks(ctx, token, base, d.HeadSHA, d.CIWorkflowID, "pull_request")
+		check, e := readPRChecks()
 		if e != nil {
 			return readFailure(e, "The exact-source CI results could not be read.")
 		}
-		if failed {
-			result.Delivery.Stage = "checks"
-			result.Delivery.Diagnostics = c.ciDiagnostics(ctx, token, base, d)
-			return failWith("ci_failed", "CI did not pass for the authorized pull request head.")
-		}
-		if !ready {
-			result.Delivery.Stage = "checks"
-			return wait("Waiting for CI.")
+		if check.state != workflowPassed {
+			return applyPRCheck(check)
 		}
 		feedback, e := c.reviewFeedback(ctx, token, base, d)
 		if e != nil {
 			return readFailure(e, "Approved review feedback could not be checked.")
 		}
 		if feedback != "" {
-			result.Delivery.Stage = "checks"
-			result.Delivery.Diagnostics = feedback
-			return failWith("review_changes", "An approved reviewer requested changes on this exact source version.")
+			return applyReviewFeedback(feedback)
 		}
 		if pr.MergeableState == "blocked" || pr.MergeableState == "unknown" || pr.MergeableState == "unstable" {
 			result.Delivery.Stage = "review"
@@ -382,8 +441,11 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 	case "merge":
 		path := base + "/pulls/" + strconv.FormatInt(d.PullRequest, 10)
 		var pr pullRequest
-		if e = c.call(ctx, token, "GET", path, nil, &pr); e != nil || !validPR(pr, d) {
-			return fail("The pull request head or target changed. No merge was authorized.")
+		if e = c.call(ctx, token, "GET", path, nil, &pr); e != nil {
+			return readFailure(e, "The pull request could not be checked before merging.")
+		}
+		if !validPR(pr, d) {
+			return failWith("source_changed", "The pull request head or target changed. Review the authorized merge source.")
 		}
 		if !reconcile && (pr.MergeableState == "blocked" || pr.MergeableState == "unknown" || pr.MergeableState == "unstable") {
 			result.Delivery.Stage = "review"
@@ -398,27 +460,21 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 		} else {
 			// Re-read exact-head checks immediately before the CAS merge. GitHub's own
 			// branch protection remains authoritative; no admin bypass is requested.
-			ready, failed, e := c.checks(ctx, token, base, d.HeadSHA, d.CIWorkflowID, "pull_request")
+			check, e := readPRChecks()
 			if e != nil {
+				result.Delivery.Stage = "checks"
 				return readFailure(e, "Current exact-source CI could not be verified before merging.")
 			}
-			if failed {
-				result.Delivery.Stage = "checks"
-				result.Delivery.Diagnostics = c.ciDiagnostics(ctx, token, base, d)
-				return failWith("ci_failed", "Current exact-source CI no longer permits merging.")
-			}
-			if !ready {
-				next("checks")
-				return result
+			if check.state != workflowPassed {
+				return applyPRCheck(check)
 			}
 			feedback, err := c.reviewFeedback(ctx, token, base, d)
 			if err != nil {
+				result.Delivery.Stage = "checks"
 				return readFailure(err, "Approved review feedback could not be checked.")
 			}
 			if feedback != "" {
-				result.Delivery.Stage = "checks"
-				result.Delivery.Diagnostics = feedback
-				return failWith("review_changes", "An approved reviewer requested changes on this exact source version.")
+				return applyReviewFeedback(feedback)
 			}
 			var merged struct {
 				Merged bool   `json:"merged"`
@@ -503,15 +559,16 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 			}
 		}
 	case "deployment":
-		ready, failed, e := c.checks(ctx, token, base, d.MergeSHA, d.DeploymentWorkflowID, "push")
+		check, e := c.checks(ctx, token, base, d.MergeSHA, d.DeploymentWorkflowID, "push")
 		if e != nil {
-			return fail("The exact merged-version deployment could not be read.")
+			return readFailure(e, "The exact merged-version deployment could not be read.")
 		}
-		if failed {
-			return fail("Deployment failed for the merged version.")
-		}
-		if !ready {
+		result.Delivery.CheckURL = check.url(d.Repository)
+		switch check.state {
+		case workflowPending:
 			return wait("Waiting for deployment.")
+		case workflowNeedsInspection:
+			return failWith("deployment_inspection", "Deployment did not pass for the merged version. Review the workflow before checking again.")
 		}
 		var pages struct {
 			URL string `json:"html_url"`
@@ -577,7 +634,7 @@ type pullRequest struct {
 }
 
 func validPR(pr pullRequest, d orchestration.GitHubDelivery) bool {
-	return pr.Number > 0 && pr.User.ID == d.ActorID && pr.Head.SHA == d.HeadSHA && pr.Head.Ref == d.Branch && pr.Head.Repo.ID == d.RepositoryID && pr.Base.Repo.ID == d.RepositoryID && pr.Base.Ref == d.Spec.BaseBranch && strings.Contains(pr.Body, marker(d))
+	return pr.Number > 0 && (d.PullRequest == 0 || pr.Number == d.PullRequest) && pr.User.ID == d.ActorID && pr.Head.SHA == d.HeadSHA && pr.Head.Ref == d.Branch && pr.Head.Repo.ID == d.RepositoryID && pr.Base.Repo.ID == d.RepositoryID && pr.Base.Ref == d.Spec.BaseBranch && strings.Contains(pr.Body, marker(d))
 }
 func (c *Client) findPullRequest(ctx context.Context, token, base string, d orchestration.GitHubDelivery, out *pullRequest) error {
 	var pulls []pullRequest
@@ -624,56 +681,4 @@ func (c *Client) releaseReceipt(ctx context.Context, token, base string, d orche
 	}
 	*out = release.URL
 	return nil
-}
-
-func (c *Client) checks(ctx context.Context, token, base, sha string, workflowID int64, event string) (ready, failed bool, err error) {
-	if !validSHA(sha) || workflowID < 1 {
-		return false, false, evidenceError{"Review the authorized source head and required workflow before accepting CI."}
-	}
-	var runs struct {
-		Total int `json:"total_count"`
-		Runs  []struct {
-			ID         int64  `json:"id"`
-			Workflow   int64  `json:"workflow_id"`
-			SHA        string `json:"head_sha"`
-			Event      string `json:"event"`
-			Status     string `json:"status"`
-			Conclusion string `json:"conclusion"`
-		} `json:"workflow_runs"`
-	}
-	path := base + "/actions/runs?per_page=100&head_sha=" + sha + "&event=" + url.QueryEscape(event)
-	if err = c.call(ctx, token, "GET", path, nil, &runs); err != nil {
-		return
-	}
-	if runs.Total > 100 {
-		return false, false, evidenceError{"The exact-source workflow history exceeds the bounded check reader. Review the CI results."}
-	}
-	found := false
-	ready = true
-	latest := map[int64]int64{}
-	for _, run := range runs.Runs {
-		if run.ID > latest[run.Workflow] {
-			latest[run.Workflow] = run.ID
-		}
-	}
-	for _, run := range runs.Runs {
-		if run.ID != latest[run.Workflow] {
-			continue
-		}
-		if run.SHA != sha || run.Event != event {
-			return false, false, evidenceError{"The CI evidence does not match the authorized source and event."}
-		}
-		if run.Workflow == workflowID {
-			found = true
-		}
-		if run.Status != "completed" {
-			ready = false
-		} else if run.Conclusion != "success" {
-			failed = true
-		}
-	}
-	if !found {
-		ready = false
-	}
-	return
 }

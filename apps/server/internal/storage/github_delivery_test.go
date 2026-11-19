@@ -249,3 +249,32 @@ func TestGitHubWaitingPollsDoNotRefreshBusinessHistory(t *testing.T) {
 		t.Fatal("unchanged CI observations refreshed the matter", before.Revision, after.Revision)
 	}
 }
+
+func TestGitHubDeliveryDeadlineOffersSameScopeRecheck(t *testing.T) {
+	s, actor, original, _ := deliveryFixture(t)
+	claim := claimDelivery(t, s)
+	d := claim.Delivery
+	d.Stage, d.Status = "checks", "waiting"
+	d.PullRequest, d.HeadSHA = 12, strings.Repeat("e", 40)
+	d.Deadline = time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
+	d.NextCheckAt = d.Deadline
+	if err := s.CompleteGitHubDelivery(ctx, d.ID, d.Revision, orchestration.GitHubDeliveryResult{Delivery: d}); err != nil {
+		t.Fatal(err)
+	}
+	if next, err := s.ClaimGitHubDelivery(ctx); err != nil || next != nil {
+		t.Fatal("an ended check window admitted another claim", next, err)
+	}
+	blocked, err := s.GetWorkItem(actor, original.ID)
+	if err != nil || blocked.Status != "needs_attention" || blocked.GitHubDelivery.FailureCode != "check_ended" {
+		t.Fatal(blocked, err)
+	}
+	input := orchestration.WorkItemOperation{RequestID: newID(), Revision: blocked.Revision, Kind: "retry_delivery", DeliveryRevision: blocked.GitHubDelivery.Revision}
+	resumed, err := s.OperateWorkItem(actor, original.ID, input, roomBudget)
+	if err != nil || resumed.Status != "waiting" || resumed.Usage != original.Usage {
+		t.Fatal("rechecking spent write or model allowance", resumed, err)
+	}
+	check := claimDelivery(t, s).Delivery
+	if check.Stage != d.Stage || check.Spec != d.Spec || check.PullRequest != d.PullRequest || check.HeadSHA != d.HeadSHA || check.Reconcile {
+		t.Fatal("rechecking changed the authorized scope", check)
+	}
+}

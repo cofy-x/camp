@@ -40,7 +40,7 @@ function positive(value) {
   return Number.isSafeInteger(value) && value > 0;
 }
 
-function deliveryIdentifier(value) {
+export function deliveryIdentifier(value) {
   if (positive(value)) return String(value);
   check(
     typeof value === 'string' && /^[1-9]\d{0,127}$/u.test(value),

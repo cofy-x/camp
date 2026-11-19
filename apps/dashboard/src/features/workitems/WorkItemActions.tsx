@@ -8,6 +8,7 @@ import { EvidenceChooser } from './WorkItemEvidence';
 import { WorkItemAllowance } from './WorkItemAllowance';
 import type { WorkOperation } from './useWorkItemOperation';
 import type { WorkItem } from './api';
+import { workDeliveryActive } from './presentation';
 import { useWorkAction } from './useWorkAction';
 import { legacyWorkIntent } from './workActionDraft';
 
@@ -163,15 +164,18 @@ export function WorkItemActions({
                   Request changes…
                 </Button>
               )}
-            {!active && !hasQuestion && !item.result && (
-              <Button
-                primary
-                disabled={disabled}
-                onClick={() => choose('start')}
-              >
-                {item.result ? 'Request changes…' : 'Start work…'}
-              </Button>
-            )}
+            {!active &&
+              !hasQuestion &&
+              !item.result &&
+              !workDeliveryActive(item) && (
+                <Button
+                  primary
+                  disabled={disabled}
+                  onClick={() => choose('start')}
+                >
+                  Start work…
+                </Button>
+              )}
             {!active &&
               !hasQuestion &&
               item.result &&

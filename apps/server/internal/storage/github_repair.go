@@ -39,10 +39,20 @@ func startGitHubRepair(ctx context.Context, q *sqlgen.Queries, w *orchestration.
 	if d.PullRequestEnvelope == "" {
 		d.PullRequestEnvelope = d.PullRequestBody()
 	}
-	if w.ActiveTaskID != "" || workTerminal(*w) || workExpired(*w) || w.CompletionMode != "automatic" || d.MergeSHA != "" || d.Spec.MaxRepairs <= d.Repairs || d.Reconcile {
+	if workExpired(*w) {
+		return problem("work_expired", "The Work allowance expired. Review its allowance before continuing.")
+	}
+	if w.ActiveTaskID != "" || workTerminal(*w) || w.CompletionMode != "automatic" || d.MergeSHA != "" || d.Spec.MaxRepairs <= d.Repairs || d.Reconcile {
 		return problem("repair_unavailable", "Review this work before authorizing another repair.")
 	}
 	if err := githubProjectAuthority(ctx, q, *w, *d); err != nil {
+		return err
+	}
+	repo, err := q.GitHubRepository(ctx, d.Spec.ConnectionID)
+	if err != nil {
+		return err
+	}
+	if err = githubDeliveryConnection(repo, *w, *d); err != nil {
 		return err
 	}
 	if budget.MaxTokens < 1 || budget.MaxSteps < 1 || budget.TimeoutSeconds < 1 {
@@ -179,8 +189,11 @@ func repairGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestrati
 	if d.Status != "blocked" || d.Reconcile || (d.Stage != "checks" && d.Stage != "review") || d.Repairs >= 3 {
 		return problem("invalid_delivery", "Review a known CI or review failure before authorizing one finite repair.")
 	}
+	if !d.HasRepairEvidence() {
+		return problem("invalid_delivery", "Check the current pull request for actionable repair evidence.")
+	}
 	switch d.FailureCode {
-	case "ci_failed", "review_changes", "repair_limit", "work_budget_exhausted", "daily_task_limit", "execution_unavailable":
+	case "ci_source_failed", "review_changes", "repair_limit", "work_budget_exhausted", "daily_task_limit", "execution_unavailable":
 	default:
 		return problem("invalid_delivery", "Review changed scope or unconfirmed receipts before authorizing further work.")
 	}

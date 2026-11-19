@@ -402,8 +402,11 @@ button.work-activity-heading:hover {
 .work-item-delivery span {
   overflow-wrap: anywhere;
 }
-.work-item-delivery > .p9-button {
-  justify-self: start;
+.work-item-delivery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
 }
 
 .work-item-form .work-proposal {

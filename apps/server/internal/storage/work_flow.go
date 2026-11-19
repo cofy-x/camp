@@ -384,6 +384,19 @@ func workEventEligible(ctx context.Context, q *sqlgen.Queries, ev orchestration.
 // Timer expiry commits a unique firing fact and receipt in the same transaction.
 // Restart can rescan safely; changing the wait cancels its prior timer first.
 func (s *Store) FireWorkItemTimers(ctx context.Context) error {
+	// Check due work without a writer transaction or waking live readers during
+	// idle scans. The transaction below rechecks both deadlines and timers.
+	at := now()
+	due, err := s.queries().DueWorkTimers(ctx, at)
+	if err != nil {
+		return err
+	}
+	if len(due) == 0 {
+		expired, err := s.queries().ExpiredWorkItems(ctx, at)
+		if err != nil || len(expired) == 0 {
+			return err
+		}
+	}
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
 		if e := expireWorkItems(ctx, q); e != nil {

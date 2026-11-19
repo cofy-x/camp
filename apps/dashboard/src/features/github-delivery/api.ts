@@ -42,6 +42,8 @@ export interface GitHubDelivery {
   mergeSha?: string;
   reconcile?: boolean;
   failureCode?: string;
+  checkUrl?: string;
+  repairCause?: 'source_ci' | 'approved_review';
   repairs?: number;
 }
 

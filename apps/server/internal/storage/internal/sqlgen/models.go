@@ -226,6 +226,13 @@ type GithubPublication struct {
 	Value        string
 }
 
+type GithubRecoveryDelivery struct {
+	SourceID   string
+	DeliveryID string
+	PreparedBy string
+	PreparedAt string
+}
+
 type GithubRepository struct {
 	ID            string
 	OwnerUserID   string

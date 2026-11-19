@@ -105,70 +105,6 @@ func excerpt(s string, limit int) string {
 	return strings.ToValidUTF8(s, "�")
 }
 
-// Failed job evidence is bounded, quoted and exact-head. Logs never receive
-// credentials after GitHub's one-hop download redirect.
-func (c *Client) ciDiagnostics(ctx context.Context, token, base string, d orchestration.GitHubDelivery) string {
-	var response struct {
-		Runs []struct {
-			ID         int64  `json:"id"`
-			Workflow   int64  `json:"workflow_id"`
-			SHA        string `json:"head_sha"`
-			Event      string `json:"event"`
-			Status     string `json:"status"`
-			Conclusion string `json:"conclusion"`
-		} `json:"workflow_runs"`
-	}
-	if err := c.call(ctx, token, "GET", base+"/actions/runs?per_page=100&head_sha="+d.HeadSHA+"&event=pull_request", nil, &response); err != nil {
-		return "CI failed; diagnostic evidence is unavailable. Inspect the exact-head workflow run."
-	}
-	latest := map[int64]int64{}
-	for _, r := range response.Runs {
-		latest[r.Workflow] = max(latest[r.Workflow], r.ID)
-	}
-	var out strings.Builder
-	remaining := 2
-	for _, r := range response.Runs {
-		if remaining == 0 || r.ID != latest[r.Workflow] || r.SHA != d.HeadSHA || r.Event != "pull_request" || r.Status != "completed" || r.Conclusion == "success" {
-			continue
-		}
-		var jobs struct {
-			Jobs []struct {
-				ID         int64  `json:"id"`
-				Name       string `json:"name"`
-				SHA        string `json:"head_sha"`
-				Conclusion string `json:"conclusion"`
-				Steps      []struct {
-					Name       string `json:"name"`
-					Conclusion string `json:"conclusion"`
-				} `json:"steps"`
-			} `json:"jobs"`
-		}
-		if err := c.call(ctx, token, "GET", base+"/actions/runs/"+strconv.FormatInt(r.ID, 10)+"/jobs?per_page=100", nil, &jobs); err != nil {
-			continue
-		}
-		for _, job := range jobs.Jobs {
-			if remaining == 0 || job.SHA != d.HeadSHA || job.Conclusion == "success" || job.Conclusion == "skipped" {
-				continue
-			}
-			remaining--
-			fmt.Fprintf(&out, "Workflow run %d, job %d (%s), source %s: %s\n", r.ID, job.ID, job.Name, job.SHA, job.Conclusion)
-			for _, step := range job.Steps {
-				if step.Conclusion != "success" && step.Conclusion != "skipped" {
-					fmt.Fprintf(&out, "Step: %s (%s)\n", step.Name, step.Conclusion)
-				}
-			}
-			if logs, err := c.jobLog(ctx, token, base, job.ID); err == nil {
-				out.WriteString(logs)
-				out.WriteByte('\n')
-			}
-		}
-	}
-	if out.Len() == 0 {
-		return "CI failed for source " + d.HeadSHA + ". No job log was available within the diagnostic allowance."
-	}
-	return excerpt(out.String(), 12<<10)
-}
-
 func (c *Client) jobLog(ctx context.Context, token, base string, id int64) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.origin+base+"/actions/jobs/"+strconv.FormatInt(id, 10)+"/logs", nil)
 	if err != nil {
@@ -178,11 +114,11 @@ func (c *Client) jobLog(ctx context.Context, token, base string, id int64) (stri
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	response, err := c.http.Do(req)
 	if err != nil {
-		return "", err
+		return "", protocolError{}
 	}
 	response.Body.Close()
 	if response.StatusCode != http.StatusFound {
-		return "", errors.New("Job logs are unavailable")
+		return "", protocolError{status: response.StatusCode, headers: response.Header}
 	}
 	target, err := url.Parse(response.Header.Get("Location"))
 	if err != nil || target.Scheme != "https" || target.User != nil || target.Hostname() == "" {
@@ -196,15 +132,18 @@ func (c *Client) jobLog(ctx context.Context, token, base string, id int64) (stri
 	req.Header.Set("Range", "bytes=-8192")
 	response, err = c.http.Do(req)
 	if err != nil {
-		return "", err
+		return "", protocolError{}
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 && response.StatusCode != 206 {
-		return "", errors.New("Job logs could not be downloaded")
+		return "", protocolError{status: response.StatusCode, headers: response.Header}
 	}
-	raw, err := io.ReadAll(io.LimitReader(response.Body, 8<<20))
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 8<<20+1))
 	if err != nil {
-		return "", err
+		return "", protocolError{}
+	}
+	if len(raw) > 8<<20 {
+		return "", errors.New("Job logs could not be read within their limit")
 	}
 	if len(raw) > 8192 {
 		raw = raw[len(raw)-8192:]

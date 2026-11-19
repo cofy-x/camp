@@ -13,6 +13,32 @@ export interface GitHubSource {
   updatedAt: string;
 }
 
+export interface GitHubSourceVerification {
+  sourceRevision: number;
+  sourceEnabled: boolean;
+  lastReceivedAt?: string;
+  ruleRevision: number;
+  mode: 'off' | 'observe' | 'auto';
+  runnerIssue?: { code: string; message: string };
+  sample?: {
+    kind: string;
+    actorId: string;
+    outcome:
+      | 'recorded_only'
+      | 'off'
+      | 'before_rule'
+      | 'sender_not_allowed'
+      | 'eligible';
+  };
+  delivery?: {
+    state: 'private' | 'room_files' | 'saved' | 'blocked' | 'stale';
+    repository?: string;
+    branch?: string;
+    ciWorkflow?: string;
+    issue?: { code: string; message: string };
+  };
+}
+
 export interface GitHubEvent {
   id: string;
   seq: number;
@@ -63,6 +89,11 @@ export const githubApi = {
     request<{ sources: GitHubSource[] }>(`/rooms/${id(room)}/github-sources`, {
       signal,
     }),
+  verify: (room: string, source: string, signal: AbortSignal) =>
+    request<GitHubSourceVerification>(
+      `/rooms/${id(room)}/github-sources/${id(source)}/verification`,
+      { signal, cache: 'no-store' },
+    ),
   createSource: (
     room: string,
     value: { requestId: string; repository: string; secret: string },

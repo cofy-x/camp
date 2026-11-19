@@ -1,4 +1,4 @@
-// Package eventflow owns bounded assessment and external-delivery workers.
+// Package eventflow owns scheduled follow-up, bounded assessment and delivery workers.
 // Storage alone applies policies, authorizes tasks and commits their effects.
 package eventflow
 
@@ -76,7 +76,8 @@ func New(ctx context.Context, store Store, models Models, credentials *configura
 	}
 	worker, cancel := context.WithCancel(context.Background())
 	m := &Manager{store: store, models: models, channel: config.Channel, logger: logger, ctx: worker, cancel: cancel, done: make(chan struct{}), period: config.PollInterval}
-	m.workers.Add(2)
+	m.workers.Add(3)
+	go func() { defer m.workers.Done(); m.fireTimers() }()
 	go func() { defer m.workers.Done(); m.evaluate() }()
 	go func() { defer m.workers.Done(); m.deliver() }()
 	go func() { m.workers.Wait(); close(m.done) }()
@@ -104,14 +105,24 @@ func (m *Manager) pause() bool {
 	}
 }
 
+// Timer receipts and authorization expiry must progress while an assessment
+// waits on its provider or retries committing a completed response.
+func (m *Manager) fireTimers() {
+	for m.ctx.Err() == nil {
+		if err := m.store.FireWorkItemTimers(m.ctx); err != nil {
+			m.report("fire_timers", "")
+		}
+		if !m.pause() {
+			return
+		}
+	}
+}
+
 func (m *Manager) evaluate() {
 	var pending *orchestration.Candidate
 	var result orchestration.Assessment
 	for m.ctx.Err() == nil {
 		if pending == nil {
-			if err := m.store.FireWorkItemTimers(m.ctx); err != nil {
-				m.report("fire_timers", "")
-			}
 			revision, model := m.models.Snapshot()
 			budget := storage.Budget{RequireRunner: true, RuntimeKey: revision, Model: model.Model, MaxTokens: model.MaxTokens, MaxSteps: model.MaxSteps, TimeoutSeconds: model.TimeoutSeconds}
 			var err error

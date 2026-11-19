@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import {
   createRoom,
   inboxToggle,
@@ -358,4 +358,203 @@ test('Needs me opens uncertain GitHub delivery for receipt recovery @work-loop',
       .locator('.work-app-body')
       .evaluate((element) => element.scrollWidth > element.clientWidth + 1),
   ).toBe(false);
+});
+
+async function deliveryInterruption(page: Page, roomName: string) {
+  await signIn(page);
+  const room = await createRoom(page, roomName);
+  const response = await mutate(page, `/rooms/${room.id}/work-items`, {
+    requestId: randomUUID(),
+    goal: 'Prepare a release brief',
+  });
+  const item = (await response.json()).item as WorkItem;
+  item.status = 'needs_attention';
+  item.completionMode = 'automatic';
+  item.dueAt = '2026-11-26';
+  item.result = {
+    taskId: 'release-brief-task',
+    resourceId: room.resourceId,
+    commit: 'd'.repeat(40),
+    published: true,
+    files: [{ path: 'release-brief.md', status: 'added' }],
+    summary: 'The release brief is ready.',
+  };
+  item.budget = {
+    ...item.budget,
+    maxTasks: 3,
+    maxModelRequests: 8,
+    maxActions: 5,
+  };
+  await page.route('**/api/workspace/status', (route) =>
+    route.fulfill({ json: { available: true, reason: '' } }),
+  );
+  item.githubDelivery = {
+    id: 'delivery-one',
+    revision: 5,
+    repository: repository.repository,
+    spec: {
+      connectionId: repository.id,
+      connectionRevision: repository.revision,
+      baseBranch: 'main',
+      mode: 'merge',
+      maxRepairs: 1,
+    },
+    stage: 'checks',
+    status: 'blocked',
+    failureCode: 'ci_inspection',
+    reason:
+      'A CI workflow was cancelled. Rerun it on the current pull request, then check again.',
+    pullRequestUrl: 'https://github.com/example/notes/pull/12',
+    checkUrl: 'https://github.com/example/notes/actions/runs/19/attempts/2',
+  };
+  await page.route(`**/api/work-items/${item.id}`, (route) =>
+    route.fulfill({ json: { item } }),
+  );
+
+  async function open() {
+    await openApp(page, 'Work');
+    await work(page)
+      .getByRole('button', {
+        name: new RegExp(`Prepare a release brief.*${room.name}`),
+      })
+      .click();
+    return work(page).getByRole('region', { name: 'GitHub delivery' });
+  }
+
+  return { item, open };
+}
+
+async function checkCancelledWorkflow(
+  page: Page,
+  info: TestInfo,
+  stayInActivity = false,
+) {
+  const { item, open } = await deliveryInterruption(
+    page,
+    `Release planning ${info.project.name}${stayInActivity ? ' activity' : ''}`,
+  );
+  let finishCheck!: () => void;
+  const checkResponse = new Promise<void>((resolve) => {
+    finishCheck = resolve;
+  });
+  let checks = 0;
+  await page.route(`**/api/work-items/${item.id}/actions/*`, async (route) => {
+    expect(route.request().url()).toMatch(/\/actions\/retry_delivery$/);
+    expect(route.request().postDataJSON()).toMatchObject({
+      revision: item.revision,
+      deliveryRevision: 5,
+    });
+    checks++;
+    await checkResponse;
+    item.status = 'waiting';
+    item.githubDelivery = {
+      ...item.githubDelivery!,
+      revision: 7,
+      status: 'waiting',
+      checkUrl: undefined,
+      failureCode: undefined,
+      reason: 'Waiting for CI.',
+    };
+    return route.fulfill({ json: { item } });
+  });
+  const status = await open();
+  await expect(
+    status.getByRole('link', { name: 'Open workflow run' }),
+  ).toHaveAttribute(
+    'href',
+    'https://github.com/example/notes/actions/runs/19/attempts/2',
+  );
+  await expect(status.getByRole('button')).toHaveCount(1);
+  await expect(
+    status.getByRole('button', { name: 'Check again' }),
+  ).toBeVisible();
+  await expect(
+    work(page).getByText('Needs attention', { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    work(page).getByText('Due 2026-11-26', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    work(page).getByRole('button', { name: 'Start work…', exact: true }),
+  ).toHaveCount(0);
+  expect(checks).toBe(0);
+  if (!stayInActivity)
+    await work(page).screenshot({ path: info.outputPath('ci-inspection.png') });
+  const backToItem = work(page).getByRole('button', { name: 'Back to item' });
+  await status.getByRole('button', { name: 'Check again' }).focus();
+  await page.keyboard.press('Enter');
+  try {
+    const checking = status.getByRole('button', { name: 'Checking…' });
+    await expect(checking).toBeFocused();
+    await expect(checking).toBeDisabled();
+    await expect.poll(() => checks).toBe(1);
+    await page.keyboard.press('Enter');
+    if (stayInActivity) {
+      await work(page)
+        .getByRole('button', { name: 'Activity', exact: true })
+        .click();
+      await backToItem.focus();
+    }
+  } finally {
+    finishCheck();
+  }
+  if (stayInActivity) {
+    await expect(work(page).locator('.work-item-delivery')).toContainText(
+      'Waiting for CI · example/notes',
+    );
+    await expect(backToItem).toBeFocused();
+    expect(checks).toBe(1);
+    return;
+  }
+  await expect(
+    status.getByText('Waiting for CI · example/notes'),
+  ).toBeVisible();
+  const pullRequest = status.getByRole('link', { name: 'Open pull request' });
+  await expect(pullRequest).toHaveAttribute(
+    'href',
+    'https://github.com/example/notes/pull/12',
+  );
+  await expect(pullRequest).toBeFocused();
+  await expect(status.getByRole('button')).toHaveCount(0);
+  expect(checks).toBe(1);
+}
+
+test('a cancelled workflow opens the exact run and checks the same PR again @work-loop', async ({
+  page,
+}, info) => {
+  await checkCancelledWorkflow(page, info);
+});
+
+test('CI recovery preserves newer Work navigation @work-loop', async ({
+  page,
+}, info) => {
+  await checkCancelledWorkflow(page, info, true);
+});
+
+test('a changed repository identity opens project settings @work-loop', async ({
+  page,
+}, info) => {
+  const { item, open } = await deliveryInterruption(
+    page,
+    `Release repository changed ${info.project.name}`,
+  );
+  item.githubDelivery = {
+    ...item.githubDelivery!,
+    failureCode: 'repository_changed',
+    reason: 'The repository identity changed. Authorize fresh Work.',
+    checkUrl: undefined,
+  };
+  const status = await open();
+  await expect(status.getByRole('button')).toHaveCount(1);
+  await status
+    .getByRole('button', { name: 'Review project settings…' })
+    .click();
+  await expect(
+    work(page).getByRole('form', { name: 'Project settings' }),
+  ).toBeVisible();
+  await expect(
+    work(page)
+      .getByRole('combobox', { name: 'Room' })
+      .locator('option:checked'),
+  ).toHaveText(`Release repository changed ${info.project.name}`);
 });

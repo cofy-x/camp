@@ -18,6 +18,7 @@ import (
 )
 
 type queueStore struct {
+	timerScans       atomic.Int64
 	mu               sync.Mutex
 	recovered        bool
 	candidate        *orchestration.Candidate
@@ -29,7 +30,10 @@ type queueStore struct {
 	failFirst        bool
 }
 
-func (s *queueStore) FireWorkItemTimers(context.Context) error { return nil }
+func (s *queueStore) FireWorkItemTimers(context.Context) error {
+	s.timerScans.Add(1)
+	return nil
+}
 
 func (s *queueStore) RecoverAutomationWork(context.Context) error {
 	s.mu.Lock()
@@ -129,7 +133,7 @@ func TestWorkersRetryOnlyCompletedTransactionsAndDrainOnShutdown(t *testing.T) {
 	}
 }
 
-func TestDeliveryContinuesWhileAssessmentWaitsForProvider(t *testing.T) {
+func TestTimersAndDeliveryContinueWhileAssessmentWaitsForProvider(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -155,10 +159,11 @@ func TestDeliveryContinuesWhileAssessmentWaitsForProvider(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("assessment did not start")
 	}
+	scansAtAssessment := store.timerScans.Load()
 	deadline := time.Now().Add(time.Second)
-	for channel.calls.Load() == 0 {
+	for channel.calls.Load() == 0 || store.timerScans.Load() == scansAtAssessment {
 		if time.Now().After(deadline) {
-			t.Fatal("delivery was blocked by assessment")
+			t.Fatalf("provider blocked timers or delivery: timer scans=%d, deliveries=%d", store.timerScans.Load(), channel.calls.Load())
 		}
 		time.Sleep(time.Millisecond)
 	}

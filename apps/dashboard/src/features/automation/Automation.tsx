@@ -7,6 +7,7 @@ import { type Agent, type Room, type WorkspaceStatus } from '../workspace/api';
 import { githubApi, type GitHubSource } from '../github/api';
 import { GitHubEvents } from '../github/GitHubEvents';
 import { GitHubSources } from '../github/GitHubSources';
+import { GitHubVerification } from '../github/GitHubSourceVerification';
 import type {
   AutomationActivityItem,
   AutomationPolicy,
@@ -84,6 +85,7 @@ function eventStatus(event: AutomationActivityItem) {
   if (event.sourceId === 'task') return eventLabels[event.kind] ?? event.kind;
   if (event.reason === 'explicit_run') return 'Agent run started';
   if (event.reason === 'post_only') return 'Discussion only';
+  if (event.reason === 'recovered_delivery') return 'Recovered event';
   if (event.reason === 'own_output')
     return event.kind.startsWith('pull_request.')
       ? 'Camp pull request'
@@ -528,6 +530,7 @@ export function Automation({
   }
 
   const policy = policies.find((item) => item.sourceId === sourceId);
+  const githubSource = sources.find((source) => source.id === sourceId);
   const sourceChoices = [
     ...sources.map((source) => ({
       id: source.id,
@@ -535,6 +538,24 @@ export function Automation({
       enabled: source.enabled,
     })),
   ];
+  const sourceSelect = (
+    <Select
+      label="Event source"
+      value={sourceId}
+      onChange={(event) => {
+        const next = event.target.value;
+        navigate(() => setSourceId(next));
+      }}
+    >
+      <option value="room">Room discussion</option>
+      {sourceChoices.map((source) => (
+        <option value={source.id} key={source.id}>
+          {source.label}
+          {!source.enabled ? ' (disabled)' : ''}
+        </option>
+      ))}
+    </Select>
+  );
 
   function saved(policy: AutomationPolicy) {
     setPolicies((current) => {
@@ -618,25 +639,14 @@ export function Automation({
             {ready && (
               <>
                 <GitHubSources roomId={room.id} sources={sources} />
-                <div className="automation-view-controls">
-                  <Select
-                    label="Event source"
-                    value={sourceId}
-                    onChange={(event) => {
-                      const next = event.target.value;
-                      navigate(() => setSourceId(next));
-                    }}
-                  >
-                    <option value="room">Room discussion</option>
-                    {sourceChoices.map((source) => (
-                      <option value={source.id} key={source.id}>
-                        {source.label}
-                        {!source.enabled ? ' (disabled)' : ''}
-                      </option>
-                    ))}
-                  </Select>
-                  <Button onClick={refreshPolicies}>Refresh Policies</Button>
-                </div>
+                <GitHubVerification
+                  source={user.role === 'admin' ? githubSource : undefined}
+                  ruleRevision={policy?.revision ?? 0}
+                  eventLabel={(kind) => eventLabels[kind] ?? kind}
+                  refreshPolicies={refreshPolicies}
+                >
+                  {sourceSelect}
+                </GitHubVerification>
                 {user.role === 'admin' ? (
                   <PolicyEditor
                     key={sourceId}
