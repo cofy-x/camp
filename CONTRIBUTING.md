@@ -98,6 +98,17 @@ For explicitly authorized live acceptance, use a separate test Room or repositor
 
 Use the [GitHub CI repair verifier](docs/dsh.md#github-ci-repair) to exercise one real issue through a failed check, one bounded repair on the same PR and the exact-head merge. Its private ledger retains the GitHub and Camp identities for readback.
 
+### Scheduled Work verification
+
+Use the local [weekly feedback fixture](apps/server/internal/remoteruns/scheduled_digest_test.go) to check two authorized periods in one Room through a deterministic provider and fixture Runner. The test stops the event worker across each due time. It exercises restart, duplicate scans, Work request replay, exact feedback evidence and distinct Library versions.
+
+```sh
+go test ./apps/server/internal/remoteruns -run '^TestScheduledRoomFeedbackDigestPublishesOncePerPeriod$' -count=1
+go test ./apps/server/internal/eventflow -run '^TestTimersAndDeliveryContinueWhileAssessmentWaitsForProvider$' -count=1
+```
+
+Each period is a separate Work item with a scheduled one-shot follow-up. An overdue stored timer proceeds under its current authorization. Expired authority routes to the existing judgment path.
+
 ## Documentation
 
 Keep each rule or procedure in its owning contract/tool README and link to it elsewhere. README owns quick start; the [documentation map](docs/README.md) routes readers by task. Update incoming links when moving a section. Prefer links to authoritative manifests and code over copying constants or job matrices.

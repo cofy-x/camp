@@ -146,6 +146,24 @@ func TestWorkItemTaskResultIsEvidenceAndNewExecutionHasNewFiniteGrant(t *testing
 	}
 }
 
+func TestIdleWorkTimerScanDoesNotWakeWorkspaceReaders(t *testing.T) {
+	s, actor, _, room, _, _ := taskFixture(t)
+	w := createTestWork(t, s, actor, room)
+	decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{
+		Kind: "wait", WaitCondition: "Wait for the next business day.",
+		ResumeAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano),
+	})
+	changed := s.WorkspaceEventsChanged()
+	if err := s.FireWorkItemTimers(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-changed:
+		t.Fatal("an idle timer scan woke live readers")
+	default:
+	}
+}
+
 func TestWorkItemTimerFiresOnceAndCancellationFencesOldWait(t *testing.T) {
 	s, admin, _, room, _, _ := taskFixture(t)
 	w := createTestWork(t, s, admin, room)
