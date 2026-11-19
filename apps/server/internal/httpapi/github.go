@@ -25,6 +25,11 @@ func (a *API) githubRoutes(mux *http.ServeMux) {
 		sources, err := a.store.ListGitHubSources(r.Context(), r.PathValue("id"))
 		a.respond(w, r, map[string]any{"sources": sources}, err)
 	})
+	register("GET /api/rooms/{id}/github-sources/{source}/verification", a.admin(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		check, err := a.store.VerifyGitHubSource(r.Context(), r.PathValue("id"), r.PathValue("source"))
+		a.respond(w, r, check, err)
+	}))
 	register("POST /api/rooms/{id}/github-sources", a.admin(func(w http.ResponseWriter, r *http.Request) {
 		var in storage.CreateGitHubSourceInput
 		if !decode(w, r, &in, 4096) {

@@ -87,6 +87,59 @@ func githubTestRequest(sourceID, kind, delivery, body, secret string) *http.Requ
 	return r
 }
 
+func TestGitHubSourceVerificationUsesCurrentSignedReceipt(t *testing.T) {
+	f := newTeamFixture(t)
+	source := enableTestGitHub(t, f)
+	path := "/api/rooms/" + f.room.ID + "/github-sources/" + source.ID + "/verification"
+	requireHTTP(t, teamRequest(t, f, f.memberCookie, "GET", path, nil), 403)
+	wrongRoom := "/api/rooms/other/github-sources/" + source.ID + "/verification"
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "GET", wrongRoom, nil), 404)
+	check := func() storage.GitHubSourceVerification {
+		t.Helper()
+		r := teamRequest(t, f, f.adminCookie, "GET", path, nil)
+		requireHTTP(t, r, 200)
+		if r.Header().Get("Cache-Control") != "no-store" ||
+			strings.Contains(r.Body.String(), githubTestSecret) || strings.Contains(r.Body.String(), "secretRef") {
+			t.Fatal("verification must use a private uncached read")
+		}
+		var out storage.GitHubSourceVerification
+		if err := json.Unmarshal(r.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if got := check(); got.SourceRevision != source.Revision || !got.SourceEnabled || got.Mode != "off" || got.LastReceivedAt != "" {
+		t.Fatal(got)
+	}
+	deliver := func(zen, id, secret string, status int) {
+		t.Helper()
+		body := `{"zen":"` + zen + `","repository":{"id":123,"full_name":"acme/project"}}`
+		r := httptest.NewRecorder()
+		f.api.ServeHTTP(r, githubTestRequest(source.ID, "ping", id, body, secret))
+		requireHTTP(t, r, status)
+	}
+	newSecret := githubTestSecret + "-replacement"
+	firstID, secondID := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "aaaaaaaa-bbbb-cccc-dddd-ffffffffffff"
+	deliver("Initial", firstID, newSecret, 401)
+	if got := check(); got.LastReceivedAt != "" {
+		t.Fatal(got)
+	}
+	deliver("Initial", firstID, githubTestSecret, 200)
+	if got := check(); got.LastReceivedAt == "" || got.Sample != nil {
+		t.Fatal(got)
+	}
+	update := storage.UpdateGitHubSourceInput{RequestID: "rotate-for-proof", Revision: source.Revision, Secret: newSecret}
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "PATCH", "/api/github-sources/"+source.ID, update), 200)
+	deliver("Initial", firstID, newSecret, 200)
+	if got := check(); got.SourceRevision != source.Revision+1 || got.LastReceivedAt != "" {
+		t.Fatal("a replay replaced the saved original", got)
+	}
+	deliver("After rotation", secondID, newSecret, 200)
+	if got := check(); got.LastReceivedAt == "" {
+		t.Fatal(got)
+	}
+}
+
 func TestGitHubIngressAuthenticationBodyBoundsAndNoExecution(t *testing.T) {
 	f := newTeamFixture(t)
 	source := enableTestGitHub(t, f)

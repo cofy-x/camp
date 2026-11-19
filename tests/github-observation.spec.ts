@@ -91,6 +91,62 @@ async function fixture(page: Page, name: string) {
   return { room, source };
 }
 
+test('explicit source verification checks a signed receipt and the saved rule @work-loop', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  const { room, source } = await fixture(page, 'Verify GitHub setup');
+  const verificationPath = `/api/rooms/${room.id}/github-sources/${source.id}/verification`;
+  const verificationMethods: string[] = [];
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === verificationPath)
+      verificationMethods.push(request.method());
+  });
+  await openSources(page);
+  await settings(page)
+    .getByLabel('Event source', { exact: true })
+    .selectOption(source.id);
+  const setup = settings(page).getByRole('region', {
+    name: 'Saved GitHub setup',
+  });
+  const verify = setup.getByRole('button', { name: 'Verify saved setup' });
+  await expect(verify).toBeVisible();
+  expect(verificationMethods).toEqual([]);
+  await verify.click();
+  await expect(setup).toContainText('Awaiting first delivery');
+  await expect(setup).toContainText('Saved ruleOff');
+
+  const response = await deliver(
+    page,
+    source,
+    payload('Verify the current signed source.'),
+  );
+  expect(response.ok).toBe(true);
+  await verify.click();
+  await expect(setup).toContainText('Signed delivery received');
+  await expect(
+    setup.locator('dd').getByText('Off', { exact: true }),
+  ).toBeVisible();
+  await expect(setup.getByText('Latest sample', { exact: true })).toHaveCount(
+    0,
+  );
+  const selector = settings(page).getByLabel('Event source', { exact: true });
+  await selector.focus();
+  await selector.selectOption('room');
+  await expect(setup).toHaveCount(0);
+  await expect(selector).toBeFocused();
+  await selector.selectOption(source.id);
+  await expect(verify).toBeEnabled();
+  await expect(setup.getByText('Signed delivery received')).toHaveCount(0);
+  expect(verificationMethods).toEqual(['GET', 'GET']);
+  const tasks = await (
+    await page.request.get(`/api/rooms/${room.id}/tasks?view=summary`)
+  ).json();
+  expect(tasks.tasks).toEqual([]);
+  expect(errors.errors).toEqual([]);
+});
+
 test('signed observations keep one pending original @work-loop', async ({
   page,
   browserName,

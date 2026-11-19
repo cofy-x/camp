@@ -98,6 +98,7 @@ Enabled team members can read Room sources and events, dismiss a pending event, 
 | Method | Route | Body or result |
 | --- | --- | --- |
 | GET | `/api/rooms/:id/github-sources` | `{sources}` with safe configuration, revision and observed repository ID |
+| GET | `/api/rooms/:id/github-sources/:source/verification` | Administrator verification snapshot with current source and rule revisions, latest signed receipt time, Runner access, bounded intake sample and owner-scoped delivery settings |
 | POST | `/api/rooms/:id/github-sources` | `{requestId,repository,secret}` → `{source}` |
 | PATCH | `/api/github-sources/:id` | `{requestId,revision,enabled?,secret?}` → `{source}` |
 | GET | `/api/github-requests/:requestId` | Original safe configuration/dismissal receipt, scoped to the signed-in actor |
@@ -110,6 +111,8 @@ Enabled team members can read Room sources and events, dismiss a pending event, 
 Source writes and dismissal require a stable actor-scoped request ID. Reusing it with changed intent returns `request_conflict`. Safe receipts omit credential text and opaque private references. Source settings use expected-revision CAS; pending decisions use the immutable event ID and one final decision. A decided event returns 409 `event_decided` for another confirmation/dismissal. Disabled sources return 409 `source_unavailable` at ingress and confirmation. Re-enabling does not replay old deliveries or start pending events.
 
 Only one source per Room and case-insensitive repository address can be enabled. Disable it before creating or enabling a replacement; competing activation returns 409 `source_conflict`. Replacement preserves all earlier source IDs, pinned repository identities, originals, decisions and receipts. A Room retains at most 32 sources, including disabled sources.
+
+Verification uses an indexed latest window of at most 20 current-revision signed originals. It reads the current saved rule, local Runner authorization and, for its owner, any matching personal project delivery grant. A historical sample retains its recorded frontier. This uncached read consumes no assessment allowance and performs no provider requests or writes.
 
 Event `state` is `pending` (default), `all`, `accepted`, `dismissed` or `ignored`. Pagination uses exclusive `after`, a captured `through` frontier, at most 20 whole items and 64 KiB of encoded JSON including its newline. The event frontier is stable; human decision states are current. Detail bodies are independently bounded at 64 KiB before JSON encoding. Repository names are case-insensitive; the first valid delivery additionally pins the numeric repository identity.
 

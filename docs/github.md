@@ -15,6 +15,8 @@ Sources are fixed to a Room and repository name. The first valid delivery pins t
 
 Clearing **Enabled** stops new deliveries and confirmations, including pending events. It preserves observations, receipts and already authorized tasks; use a task's own cancellation controls to stop that work. Rotating a secret immediately rejects deliveries verified with the old credential, including an ingress request that raced the rotation. Update the repository's webhook secret separately.
 
+Select the repository in **Sources & rules** and choose **Verify saved setup**. The check reads the newest signed original for the current source revision, the saved rule and its Runner access. If the receipt is missing, send a fresh ping or supported event from GitHub and check again. Redelivering an original from an earlier revision keeps that original's receipt. The check previews intake of a recent supported event using the saved rule's sender and revision gates. A passing sample is eligible for assessment. The Agent applies the rule instructions during assessment. The rule owner also sees the effective delivery scope and saved CI workflow. These are local configuration and receipt checks. Current GitHub access, Runner connectivity and CI success are confirmed separately during execution and delivery.
+
 ## Decide an event
 
 Open **Automation → Activity → GitHub inbox** for events awaiting manual confirmation. **All events** includes accepted, dismissed and ignored observations. Opening an event shows its subject, external actor, original text and next action. **Event details** holds transport metadata and the original JSON download. GitHub identities are never mapped to Camp members. Bot, unresolved/ghost and unsupported events remain recorded as ignored observations.

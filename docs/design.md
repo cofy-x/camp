@@ -187,6 +187,8 @@ Source management owns policies, setup and private comment credentials. Put the 
 
 Policy controls present Off, Observe and Auto as one choice with explicit saving. Selected people and Agents and the finite allowance stay visible; expand their editing controls when needed. Switching management views keeps drafts, pending request identities and the current activity range. A blocked background draft cannot prevent returning to its recovery view; changing source or leaving still flushes drafts before unmounting. Unsent credential edits require saving or explicitly clearing before leaving; tokens never enter browser storage. Late source lookups and draft flushes cannot override a newer navigation choice. While a transition saves drafts, a newer Workspace action cancels that transition and preserves the mounted draft. Feishu setup is deferred from the ordinary interface.
 
+Place the explicit saved-setup check beside the selected GitHub rule, with one compact report. Separate the last recorded signed delivery, local rule and Runner checks, and the rule owner's saved delivery scope. A source or saved-rule revision change invalidates its report. Project delivery names the exact source repository independently of the target repository.
+
 GitHub comments show recorded delivery state separately from permission to send again. Withdrawn comments offer no retry or resend. An unknown earlier send remains visible after withdrawal and can still be checked without sending another comment. Sending attempts and confirmed comment links belong in Delivery details, with explicit scan limits and missing legacy timestamps; an attempt alone does not establish delivery.
 
 ## Review checklist

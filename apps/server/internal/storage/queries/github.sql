@@ -21,6 +21,20 @@ SELECT e.seq,e.id,e.source_id,e.room_id,e.source_revision,e.fingerprint,e.dispos
 FROM github_events e LEFT JOIN github_event_decisions d ON d.event_id=e.id WHERE e.id=?;
 -- name: GetGitHubPayload :one
 SELECT payload FROM github_events WHERE id=?;
+-- name: RecentGitHubSourceProof :many
+WITH recent AS (
+ SELECT g.id, g.received_at, g.disposition, g.seq FROM github_events g
+ WHERE g.source_id=sqlc.arg(source_id) AND g.source_revision=sqlc.arg(source_revision)
+ ORDER BY g.seq DESC LIMIT 20
+)
+SELECT recent.received_at, recent.disposition,
+ CAST(coalesce(a.seq,0) AS INTEGER) AS event_seq,
+ CAST(coalesce(a.kind,'') AS TEXT) AS kind,
+ CAST(coalesce(a.actor_kind,'') AS TEXT) AS actor_kind,
+ CAST(coalesce(a.actor_id,'') AS TEXT) AS actor_id,
+ CAST(coalesce(a.status,'') AS TEXT) AS status
+FROM recent LEFT JOIN automation_events a ON a.id='github:'||recent.id
+ORDER BY recent.seq DESC;
 -- name: GitHubEventFrontier :one
 SELECT CAST(coalesce(max(seq),0) AS INTEGER) FROM github_events WHERE room_id=?;
 -- name: GitHubEventsPage :many

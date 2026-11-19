@@ -356,6 +356,68 @@ func (q *Queries) PinGitHubRepository(ctx context.Context, arg PinGitHubReposito
 	return err
 }
 
+const recentGitHubSourceProof = `-- name: RecentGitHubSourceProof :many
+WITH recent AS (
+ SELECT g.id, g.received_at, g.disposition, g.seq FROM github_events g
+ WHERE g.source_id=?1 AND g.source_revision=?2
+ ORDER BY g.seq DESC LIMIT 20
+)
+SELECT recent.received_at, recent.disposition,
+ CAST(coalesce(a.seq,0) AS INTEGER) AS event_seq,
+ CAST(coalesce(a.kind,'') AS TEXT) AS kind,
+ CAST(coalesce(a.actor_kind,'') AS TEXT) AS actor_kind,
+ CAST(coalesce(a.actor_id,'') AS TEXT) AS actor_id,
+ CAST(coalesce(a.status,'') AS TEXT) AS status
+FROM recent LEFT JOIN automation_events a ON a.id='github:'||recent.id
+ORDER BY recent.seq DESC
+`
+
+type RecentGitHubSourceProofParams struct {
+	SourceID       string
+	SourceRevision int64
+}
+
+type RecentGitHubSourceProofRow struct {
+	ReceivedAt  string
+	Disposition string
+	EventSeq    int64
+	Kind        string
+	ActorKind   string
+	ActorID     string
+	Status      string
+}
+
+func (q *Queries) RecentGitHubSourceProof(ctx context.Context, arg RecentGitHubSourceProofParams) ([]RecentGitHubSourceProofRow, error) {
+	rows, err := q.db.QueryContext(ctx, recentGitHubSourceProof, arg.SourceID, arg.SourceRevision)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RecentGitHubSourceProofRow{}
+	for rows.Next() {
+		var i RecentGitHubSourceProofRow
+		if err := rows.Scan(
+			&i.ReceivedAt,
+			&i.Disposition,
+			&i.EventSeq,
+			&i.Kind,
+			&i.ActorKind,
+			&i.ActorID,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const saveGitHubRequest = `-- name: SaveGitHubRequest :exec
 INSERT INTO github_requests(user_id,request_id,request_hash,result) VALUES(?,?,?,?)
 `

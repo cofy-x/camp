@@ -4,9 +4,11 @@ import { usePrivateDraft } from '../../team/usePrivateDraft';
 import { useAccount } from '../../team/AuthContext';
 import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
 import { request } from '../../shared/api/http';
+import { useRead } from '../../shared/reads/useRead';
 import { useRecordedOperation } from '../../shared/useRecordedOperation';
 import type { Agent } from '../workspace/api';
 import type { AutomationPolicy } from '../automation/api';
+import type { GitHubSource } from '../github/api';
 import { GitHubDeliveryChooser } from '../github-delivery/GitHubDeliveryChooser';
 import { GitHubDeliverySummary } from '../github-delivery/GitHubDeliverySummary';
 import { WorkGrant } from './WorkGrant';
@@ -77,6 +79,11 @@ export function ProjectSettings({
   };
   const rules = policies.filter(
     (p) => p.ownerUserId === user.id && p.enabled && p.mode === 'auto',
+  );
+  const sources = useRead<{ sources: GitHubSource[] }>(
+    value?.githubDelivery && rules.some((rule) => rule.sourceId !== 'room')
+      ? `/rooms/${encodeURIComponent(roomId)}/github-sources`
+      : null,
   );
   const selectedRule = rules.find((rule) => rule.id === value?.ruleId);
   if (!value || !draft.loaded)
@@ -193,14 +200,26 @@ export function ProjectSettings({
           >
             <option value="">Only work I start</option>
             {rules.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.sourceId === 'room' ? 'Room discussion' : 'GitHub events'}
+              <option
+                key={p.id}
+                value={p.id}
+                disabled={p.sourceId !== 'room' && !sources.data}
+              >
+                {ruleSourceLabel(p, sources.data?.sources)}
               </option>
             ))}
             {value.ruleId && !rules.some((p) => p.id === value.ruleId) && (
               <option value={value.ruleId}>Saved rule unavailable</option>
             )}
           </Select>
+        )}
+        {sources.error && (
+          <p className="app-error" role="alert">
+            {sources.error}{' '}
+            <Button onClick={() => void sources.refresh()}>
+              Retry source names
+            </Button>
+          </p>
         )}
         {value.ruleId && (
           <p>
@@ -256,3 +275,10 @@ export function ProjectSettings({
 }
 
 const ignoreReady = () => {};
+
+function ruleSourceLabel(rule: AutomationPolicy, sources: GitHubSource[] = []) {
+  if (rule.sourceId === 'room') return 'Room discussion';
+  const source = sources.find((item) => item.id === rule.sourceId);
+  if (!source) return 'External event source';
+  return source.enabled ? source.repository : `${source.repository} (disabled)`;
+}
