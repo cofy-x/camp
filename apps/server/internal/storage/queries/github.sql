@@ -12,6 +12,22 @@ UPDATE github_sources SET repository_id=? WHERE id=? AND repository_id=0;
 SELECT * FROM github_deliveries WHERE source_id=? AND delivery_id=?;
 -- name: InsertGitHubDelivery :exec
 INSERT INTO github_deliveries(source_id,delivery_id,fingerprint,event_id) VALUES(?,?,?,?);
+-- name: GitHubRecoveryDeliveries :many
+SELECT CAST(requested.value AS TEXT) AS delivery_id,
+    COALESCE(delivery.event_id,'') AS event_id,
+    COALESCE(intent.prepared_at,'') AS prepared_at
+FROM json_each(sqlc.arg(delivery_ids)) AS requested
+LEFT JOIN github_recovery_deliveries intent
+    ON intent.source_id=sqlc.arg(source_id) AND intent.delivery_id=requested.value
+LEFT JOIN github_deliveries delivery
+    ON delivery.source_id=sqlc.arg(source_id) AND delivery.delivery_id=requested.value;
+-- name: HasGitHubRecoveryIntent :one
+SELECT EXISTS(SELECT 1 FROM github_recovery_deliveries WHERE source_id=? AND delivery_id=?);
+-- name: PrepareGitHubRecovery :execrows
+INSERT INTO github_recovery_deliveries(source_id,delivery_id,prepared_by,prepared_at)
+SELECT sqlc.arg(source_id),sqlc.arg(delivery_id),sqlc.arg(prepared_by),sqlc.arg(prepared_at)
+WHERE NOT EXISTS(SELECT 1 FROM github_deliveries WHERE source_id=sqlc.arg(source_id) AND delivery_id=sqlc.arg(delivery_id))
+ON CONFLICT DO NOTHING;
 -- name: GetGitHubFingerprint :one
 SELECT id FROM github_events WHERE source_id=? AND fingerprint=?;
 -- name: InsertGitHubEvent :exec

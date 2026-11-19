@@ -111,7 +111,7 @@ func recordAutomationRoomEvent(ctx context.Context, tx *sql.Tx, m Message, in Se
 	}
 	return nil
 }
-func recordAutomationGitHubEvent(ctx context.Context, tx *sql.Tx, e GitHubEvent) error {
+func recordAutomationGitHubEvent(ctx context.Context, tx *sql.Tx, e GitHubEvent, recovered bool) error {
 	content := e.Observation.Context()
 	if e.Kind == "issue_comment" && automationAnswerCommand(e.Body) {
 		content = e.Body
@@ -119,6 +119,10 @@ func recordAutomationGitHubEvent(ctx context.Context, tx *sql.Tx, e GitHubEvent)
 	v := orchestration.SourceEvent{ID: "github:" + e.ID, RoomID: e.RoomID, SourceID: e.SourceID, ThreadKey: fmt.Sprintf("%d:%d", e.RepositoryID, e.Number), Kind: e.Kind + "." + e.Action, ActorID: strconv.FormatInt(e.ActorID, 10), ActorLogin: e.ActorLogin, ActorKind: "bot", ExternalEventID: e.ID, Repository: e.Repository, RepositoryID: e.RepositoryID, Number: e.Number, Content: content, OccurredAt: e.ReceivedAt}
 	if e.ActorKind == "User" {
 		v.ActorKind = "user"
+	}
+	if recovered {
+		v.Reason = "recovered_delivery"
+		return recordAutomationSourceEvent(ctx, tx, v, false)
 	}
 	if e.Kind == "pull_request" {
 		own, err := automationOwnGitHubPublication(ctx, sqlgen.New(tx), e)

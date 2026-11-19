@@ -85,6 +85,7 @@ function eventStatus(event: AutomationActivityItem) {
   if (event.sourceId === 'task') return eventLabels[event.kind] ?? event.kind;
   if (event.reason === 'explicit_run') return 'Agent run started';
   if (event.reason === 'post_only') return 'Discussion only';
+  if (event.reason === 'recovered_delivery') return 'Recovered event';
   if (event.reason === 'own_output')
     return event.kind.startsWith('pull_request.')
       ? 'Camp pull request'

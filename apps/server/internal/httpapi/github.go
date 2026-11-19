@@ -70,6 +70,18 @@ func (a *API) githubRoutes(mux *http.ServeMux) {
 		receipt, err := a.store.GitHubRequest(r.Context(), r.PathValue("id"))
 		a.respond(w, r, receipt, err)
 	})
+	register("GET /api/github-sources/{id}/recovery", a.admin(func(w http.ResponseWriter, r *http.Request) {
+		receipts, err := a.store.GitHubRecoveryReceipts(r.Context(), r.PathValue("id"), r.URL.Query()["delivery"])
+		a.respond(w, r, map[string]any{"receipts": receipts}, err)
+	}))
+	register("POST /api/github-sources/{id}/recovery", a.admin(func(w http.ResponseWriter, r *http.Request) {
+		var in storage.PrepareGitHubRecoveryInput
+		if !decode(w, r, &in, 512) {
+			return
+		}
+		prepared, err := a.store.PrepareGitHubRecovery(r.Context(), r.PathValue("id"), in)
+		a.respond(w, r, map[string]any{"prepared": prepared}, err)
+	}))
 	register("GET /api/rooms/{id}/github-events", func(w http.ResponseWriter, r *http.Request) {
 		after, _, ok := pageNumber(w, r, "after")
 		if !ok {

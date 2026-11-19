@@ -140,6 +140,81 @@ func TestGitHubSourceVerificationUsesCurrentSignedReceipt(t *testing.T) {
 	}
 }
 
+func TestGitHubRecoveryKeepsTheSignedOriginalWithoutAutomaticAdmission(t *testing.T) {
+	f := newTeamFixture(t)
+	source := enableTestGitHub(t, f)
+	path := "/api/github-sources/" + source.ID + "/recovery"
+	guid := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	readPath := path + "?delivery=" + guid
+	input := storage.PrepareGitHubRecoveryInput{Revision: source.Revision, DeliveryID: guid}
+	prepare := func() *httptest.ResponseRecorder {
+		return teamRequest(t, f, f.adminCookie, "POST", path, input)
+	}
+	receive := func(kind, id, body, secret string, status int) string {
+		t.Helper()
+		response := httptest.NewRecorder()
+		f.api.ServeHTTP(response, githubTestRequest(source.ID, kind, id, body, secret))
+		requireHTTP(t, response, status)
+		var receipt struct {
+			EventID string `json:"eventId"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &receipt); err != nil {
+			t.Fatal(err)
+		}
+		return receipt.EventID
+	}
+
+	requireHTTP(t, teamRequest(t, f, f.memberCookie, "GET", readPath, nil), 403)
+	requireHTTP(t, teamRequest(t, f, f.memberCookie, "POST", path, input), 403)
+	requireHTTP(t, prepare(), 409)
+	receive("ping", "11111111-bbbb-cccc-dddd-eeeeeeeeeeee", `{"repository":{"id":123,"full_name":"acme/project"}}`, githubTestSecret, 200)
+	for _, expected := range []string{`"prepared":true`, `"prepared":false`} {
+		response := prepare()
+		requireHTTP(t, response, 200)
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatal(response.Body.String())
+		}
+	}
+	prepared := teamRequest(t, f, f.adminCookie, "GET", readPath, nil)
+	requireHTTP(t, prepared, 200)
+	if !strings.Contains(prepared.Body.String(), "preparedAt") || strings.Contains(prepared.Body.String(), "eventId") {
+		t.Fatal(prepared.Body.String())
+	}
+	replacement := githubTestSecret + "-replacement"
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "PATCH", "/api/github-sources/"+source.ID, storage.UpdateGitHubSourceInput{RequestID: "rotate", Revision: source.Revision, Secret: replacement}), 200)
+	requireHTTP(t, prepare(), 409)
+	body := `{"action":"opened","repository":{"id":123,"full_name":"acme/project"},"sender":{"id":7,"login":"external","type":"User"},"issue":{"id":99,"number":3,"title":"A missed request","body":"Exact text"}}`
+	receive("issues", guid, body, githubTestSecret, 401)
+	id := receive("issues", guid, body, replacement, 200)
+	if id == "" || receive("issues", guid, body, replacement, 200) != id {
+		t.Fatal("redelivery changed the original receipt")
+	}
+	confirmed := teamRequest(t, f, f.adminCookie, "GET", readPath, nil)
+	requireHTTP(t, confirmed, 200)
+	if !strings.Contains(confirmed.Body.String(), id) {
+		t.Fatal(confirmed.Body.String())
+	}
+	projection, err := f.store.AutomationEvents(context.Background(), f.room.ID, 0, nil, 20)
+	if err != nil || len(projection.Items) != 2 || projection.Items[1].Status != "ignored" || projection.Items[1].Reason != "recovered_delivery" {
+		t.Fatal(projection, err)
+	}
+	pending, err := f.store.GitHubEventsPage(context.Background(), f.room.ID, "pending", 0, nil, 20)
+	if err != nil || len(pending.Items) != 1 || pending.Items[0].ID != id {
+		t.Fatal(pending, err)
+	}
+	verifyPath := "/api/rooms/" + f.room.ID + "/github-sources/" + source.ID + "/verification"
+	verification := teamRequest(t, f, f.adminCookie, "GET", verifyPath, nil)
+	requireHTTP(t, verification, 200)
+	if !strings.Contains(verification.Body.String(), "lastReceivedAt") ||
+		!strings.Contains(verification.Body.String(), "recorded_only") {
+		t.Fatal(verification.Body.String())
+	}
+	original, err := f.store.GitHubPayload(context.Background(), id)
+	if err != nil || string(original) != body {
+		t.Fatal("the original payload was not retained", err)
+	}
+}
+
 func TestGitHubIngressAuthenticationBodyBoundsAndNoExecution(t *testing.T) {
 	f := newTeamFixture(t)
 	source := enableTestGitHub(t, f)

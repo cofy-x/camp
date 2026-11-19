@@ -252,6 +252,67 @@ func (q *Queries) GitHubEventsPage(ctx context.Context, arg GitHubEventsPagePara
 	return items, nil
 }
 
+const gitHubRecoveryDeliveries = `-- name: GitHubRecoveryDeliveries :many
+SELECT CAST(requested.value AS TEXT) AS delivery_id,
+    COALESCE(delivery.event_id,'') AS event_id,
+    COALESCE(intent.prepared_at,'') AS prepared_at
+FROM json_each(?1) AS requested
+LEFT JOIN github_recovery_deliveries intent
+    ON intent.source_id=?2 AND intent.delivery_id=requested.value
+LEFT JOIN github_deliveries delivery
+    ON delivery.source_id=?2 AND delivery.delivery_id=requested.value
+`
+
+type GitHubRecoveryDeliveriesParams struct {
+	DeliveryIds interface{}
+	SourceID    string
+}
+
+type GitHubRecoveryDeliveriesRow struct {
+	DeliveryID string
+	EventID    string
+	PreparedAt string
+}
+
+func (q *Queries) GitHubRecoveryDeliveries(ctx context.Context, arg GitHubRecoveryDeliveriesParams) ([]GitHubRecoveryDeliveriesRow, error) {
+	rows, err := q.db.QueryContext(ctx, gitHubRecoveryDeliveries, arg.DeliveryIds, arg.SourceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GitHubRecoveryDeliveriesRow{}
+	for rows.Next() {
+		var i GitHubRecoveryDeliveriesRow
+		if err := rows.Scan(&i.DeliveryID, &i.EventID, &i.PreparedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const hasGitHubRecoveryIntent = `-- name: HasGitHubRecoveryIntent :one
+SELECT EXISTS(SELECT 1 FROM github_recovery_deliveries WHERE source_id=? AND delivery_id=?)
+`
+
+type HasGitHubRecoveryIntentParams struct {
+	SourceID   string
+	DeliveryID string
+}
+
+func (q *Queries) HasGitHubRecoveryIntent(ctx context.Context, arg HasGitHubRecoveryIntentParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasGitHubRecoveryIntent, arg.SourceID, arg.DeliveryID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const insertGitHubDelivery = `-- name: InsertGitHubDelivery :exec
 INSERT INTO github_deliveries(source_id,delivery_id,fingerprint,event_id) VALUES(?,?,?,?)
 `
@@ -354,6 +415,33 @@ type PinGitHubRepositoryParams struct {
 func (q *Queries) PinGitHubRepository(ctx context.Context, arg PinGitHubRepositoryParams) error {
 	_, err := q.db.ExecContext(ctx, pinGitHubRepository, arg.RepositoryID, arg.ID)
 	return err
+}
+
+const prepareGitHubRecovery = `-- name: PrepareGitHubRecovery :execrows
+INSERT INTO github_recovery_deliveries(source_id,delivery_id,prepared_by,prepared_at)
+SELECT ?1,?2,?3,?4
+WHERE NOT EXISTS(SELECT 1 FROM github_deliveries WHERE source_id=?1 AND delivery_id=?2)
+ON CONFLICT DO NOTHING
+`
+
+type PrepareGitHubRecoveryParams struct {
+	SourceID   string
+	DeliveryID string
+	PreparedBy string
+	PreparedAt string
+}
+
+func (q *Queries) PrepareGitHubRecovery(ctx context.Context, arg PrepareGitHubRecoveryParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, prepareGitHubRecovery,
+		arg.SourceID,
+		arg.DeliveryID,
+		arg.PreparedBy,
+		arg.PreparedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const recentGitHubSourceProof = `-- name: RecentGitHubSourceProof :many

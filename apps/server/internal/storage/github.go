@@ -315,7 +315,11 @@ func (s *Store) ReceiveGitHubDelivery(ctx context.Context, id, credential, deliv
 			if e != nil {
 				return e
 			}
-			if e = recordAutomationGitHubEvent(ctx, tx, observed); e != nil {
+			recovered, e := q.HasGitHubRecoveryIntent(ctx, sqlgen.HasGitHubRecoveryIntentParams{SourceID: id, DeliveryID: strings.ToLower(delivery)})
+			if e != nil {
+				return e
+			}
+			if e = recordAutomationGitHubEvent(ctx, tx, observed, recovered); e != nil {
 				return e
 			}
 		} else if e != nil {

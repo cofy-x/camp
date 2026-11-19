@@ -29,7 +29,7 @@ The supported candidate actions are:
 | `pull_request` | `opened`, `reopened`, `edited`, `synchronize`, `ready_for_review`, `closed` |
 | `issue_comment` | `created`, `edited`, including PR issue comments |
 
-Other event/action combinations and connection pings are recorded as ignored. This implementation does not poll GitHub history or automatically recover missed deliveries. Inspect GitHub's delivery history and explicitly redeliver a missed delivery, as described in [GitHub's delivery guidance](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks). Webhook setup itself grants no GitHub API credential, repository checkout or external reply permission.
+Other event/action combinations and connection pings are recorded as ignored. Use [source recovery](#reconcile-missed-deliveries) for a suspected delivery gap. Webhook setup itself grants no GitHub API credential, repository checkout or external reply permission.
 
 **Start collaboration…** prepares an editable goal. It starts nothing until the teammate selects participants and submits the existing finite task authorization. The complete normalized event is copied into the task's append-only input log in UTF-8 chunks, labelled as untrusted external context supplied by the confirming member. Chunk wrappers preserve the authored body's whitespace. The task freezes the accepted input frontier and records its source event ID. Source context uses input protocol 1 and summary responses so large originals remain page-readable. The original webhook bytes are retained independently, without backfilling older tasks or changing their request hashes.
 
@@ -42,6 +42,18 @@ The Server acknowledges a webhook only after its observation and delivery receip
 After an uncertain task start, retain its exact request body and ID and use **Retry Start**, or open the event's recorded collaboration. Configuration and dismissal retain a private per-user receipt. **Check Saved Operation** reads that receipt without sending another write. Browser recovery stores only the operation ID for source settings; it never stores a webhook secret. Clearing an unresolved configuration recovery does not cancel an in-flight write. Expected revisions, source uniqueness and immutable event decisions still protect subsequent writes.
 
 Raw deliveries are limited to 1 MiB, candidate titles to 1024 UTF-8 bytes and bodies to 64 KiB. Oversized/malformed deliveries fail explicitly; originals are never silently truncated. Credentials live in owner-only immutable files under `configuration/github-webhooks` in Server's data directory. SQLite stores opaque references and request hashes, never secret text. A file persisted before a failed database write can remain unreferenced; it cannot activate a source and is not automatically purged. Back up the complete stopped Server directory as described in [installation](install.md#data-upgrades-and-backup).
+
+### Reconcile missed deliveries
+
+An administrator can compare one active repository hook's latest 100 GitHub delivery attempts with Camp receipts. The command verifies the pinned repository ID and exact HTTPS callback. Use a Camp administrator access file in the [operator format](dsh.md#real-provider-verification) and a separately configured `gh` identity with repository Webhooks read access. The report includes the oldest observed attempt and whether the page limit was reached. An empty report describes only the sampled provider window. [GitHub delivery history](https://docs.github.com/en/webhooks/testing-and-troubleshooting-webhooks/viewing-webhook-deliveries)
+
+```sh
+node scripts/reconcile-github-source.mjs CAMP_ORIGIN ACCESS_JSON ROOM_ID SOURCE_ID HOOK_ID PUBLIC_ORIGIN
+```
+
+A Camp event ID confirms the signed original was committed. A sampled GitHub success for a GUID without a Camp receipt warrants checking the endpoint and data directory. For a failed attempt without a receipt, repeat the command with `--recover DELIVERY_ID` and separately authorized Webhooks write access. The command prepares one GUID in Camp, asks GitHub to redeliver it once, then checks the exact receipt. It reports an unconfirmed dispatch as awaiting the receipt. A repeated command can read an existing preparation or receipt. If a prepared attempt still needs a redelivery, inspect the hook's delivery history before explicitly redelivering it from GitHub.
+
+The original must pass normal signature, source and repository checks. Registered historical deliveries appear as **Recovered event** in Activity. They are evidence for explicit review, without automatic assessment, follow-up, answers or context fan-out. A prior committed receipt stays authoritative. Delivery scan coverage is limited to available GitHub history; general issue history and unattended recovery remain separate from this operator command. [GitHub redelivery](https://docs.github.com/en/webhooks/testing-and-troubleshooting-webhooks/redelivering-webhooks)
 
 ## Automated work and replies
 
