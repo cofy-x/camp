@@ -96,6 +96,8 @@ Use a signed fixture to check intake, deduplication and setup recovery before sp
 
 For explicitly authorized live acceptance, use a separate test Room or repository and the [real-provider tools](docs/dsh.md#real-provider-verification) for the relevant boundary. Record the revision, scenario, Work and collaboration identities, consumed requests and verified result. A real GitHub callback requires a GitHub delivery receipt and Camp's recorded event. A real recovery requires an observed pause, authorization and continuation from the same checkpoint, followed by reading the exact saved version. Keep credentials and real-data evidence private. Use synthetic data for comparisons that will be shared.
 
+Use the [GitHub CI repair verifier](docs/dsh.md#github-ci-repair) to exercise one real issue through a failed check, one bounded repair on the same PR and the exact-head merge. Its private ledger retains the GitHub and Camp identities for readback.
+
 ## Documentation
 
 Keep each rule or procedure in its owning contract/tool README and link to it elsewhere. README owns quick start; the [documentation map](docs/README.md) routes readers by task. Update incoming links when moving a section. Prefer links to authoritative manifests and code over copying constants or job matrices.

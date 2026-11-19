@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import {
   createRoom,
+  inboxToggle,
   mutate,
   openApp,
   openWorkAction,
@@ -204,7 +205,7 @@ test('optional delivery stays quiet until opened and keeps public merge and rele
   expect(input).not.toHaveProperty('token');
 });
 
-test('Work presents one delivery destination and checking an unknown receipt does not resend the operation', async ({
+test('Needs me opens uncertain GitHub delivery for receipt recovery @work-loop', async ({
   page,
 }) => {
   await signIn(page);
@@ -267,13 +268,55 @@ test('Work presents one delivery destination and checking an unknown receipt doe
       return route.fulfill({ json: { item: value } });
     },
   );
-  await openApp(page, 'Work');
-  await work(page)
-    .getByRole('combobox', { name: 'Room', exact: true })
-    .selectOption(room.id);
-  await work(page)
+  // Keep the attention row on the shared browser route used by the Inbox and
+  // Work. Delivery writes and the receipt check are separate operations.
+  await page.route(
+    (url) => url.pathname === '/api/attention',
+    (route) => {
+      const pending = value.status === 'needs_attention';
+      return route.fulfill({
+        json: {
+          items: pending
+            ? [
+                {
+                  id: value.id,
+                  kind: 'exception',
+                  source: 'work_item',
+                  roomId: room.id,
+                  roomName: room.name,
+                  title: value.goal,
+                  summary: value.githubDelivery?.reason,
+                  status: value.status,
+                  reason: 'github_delivery_unknown',
+                  priority: 1,
+                  createdAt: value.createdAt,
+                  updatedAt: value.updatedAt,
+                  target: {
+                    app: 'work',
+                    roomId: room.id,
+                    workItemId: value.id,
+                  },
+                },
+              ]
+            : [],
+          total: pending ? 1 : 0,
+          counts: { judgment: 0, review: 0, exception: pending ? 1 : 0 },
+          nextCursor: '',
+          hasMore: false,
+        },
+      });
+    },
+  );
+  await page.reload();
+  await inboxToggle(page).click();
+  await page
+    .getByRole('region', { name: 'Your inbox', exact: true })
     .getByRole('button', { name: /Improve the notes app/ })
     .click();
+  await expect(
+    work(page).getByRole('heading', { name: value.goal, exact: true }),
+  ).toBeVisible();
+  expect(checks).toBe(0);
   const status = work(page).getByRole('region', {
     name: 'GitHub delivery',
     exact: true,

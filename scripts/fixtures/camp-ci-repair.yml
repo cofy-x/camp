@@ -1,0 +1,43 @@
+name: Camp CI repair fixture
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  release-note:
+    name: Verify release note
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check release note and deployment marker
+        env:
+          CAMP_CI_REPAIR_CASE: ${{ vars.CAMP_CI_REPAIR_CASE }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+
+          const { path, marker } = JSON.parse(process.env.CAMP_CI_REPAIR_CASE);
+          if (!/^notes\/[a-f0-9]{12}\.txt$/u.test(path) ||
+              !/^Release marker: [a-f0-9]{24}$/u.test(marker)) {
+            throw new Error('Invalid Camp CI repair fixture configuration.');
+          }
+
+          let content;
+          try {
+            content = readFileSync(path, 'utf8');
+          } catch (error) {
+            if (error.code !== 'ENOENT') throw error;
+            console.error('Release note is missing at ' + path + '.');
+            process.exit(1);
+          }
+
+          if (content !== 'Search is ready.\n' + marker + '\n') {
+            console.error('Keep the first line "Search is ready." in ' + path + '.');
+            console.error('Append this exact line to ' + path + ': ' + marker);
+            process.exit(1);
+          }
+          JS
