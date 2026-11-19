@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import {
   createRoom,
   inboxToggle,
@@ -360,11 +360,9 @@ test('Needs me opens uncertain GitHub delivery for receipt recovery @work-loop',
   ).toBe(false);
 });
 
-test('a cancelled workflow opens the exact run and checks the same PR again @work-loop', async ({
-  page,
-}, info) => {
+async function deliveryInterruption(page: Page, roomName: string) {
   await signIn(page);
-  const room = await createRoom(page, `Release planning ${info.project.name}`);
+  const room = await createRoom(page, roomName);
   const response = await mutate(page, `/rooms/${room.id}/work-items`, {
     requestId: randomUUID(),
     goal: 'Prepare a release brief',
@@ -412,14 +410,42 @@ test('a cancelled workflow opens the exact run and checks the same PR again @wor
   await page.route(`**/api/work-items/${item.id}`, (route) =>
     route.fulfill({ json: { item } }),
   );
+
+  async function open() {
+    await openApp(page, 'Work');
+    await work(page)
+      .getByRole('button', {
+        name: new RegExp(`Prepare a release brief.*${room.name}`),
+      })
+      .click();
+    return work(page).getByRole('region', { name: 'GitHub delivery' });
+  }
+
+  return { item, open };
+}
+
+async function checkCancelledWorkflow(
+  page: Page,
+  info: TestInfo,
+  stayInActivity = false,
+) {
+  const { item, open } = await deliveryInterruption(
+    page,
+    `Release planning ${info.project.name}${stayInActivity ? ' activity' : ''}`,
+  );
+  let finishCheck!: () => void;
+  const checkResponse = new Promise<void>((resolve) => {
+    finishCheck = resolve;
+  });
   let checks = 0;
-  await page.route(`**/api/work-items/${item.id}/actions/*`, (route) => {
+  await page.route(`**/api/work-items/${item.id}/actions/*`, async (route) => {
     expect(route.request().url()).toMatch(/\/actions\/retry_delivery$/);
     expect(route.request().postDataJSON()).toMatchObject({
       revision: item.revision,
       deliveryRevision: 5,
     });
     checks++;
+    await checkResponse;
     item.status = 'waiting';
     item.githubDelivery = {
       ...item.githubDelivery!,
@@ -431,13 +457,7 @@ test('a cancelled workflow opens the exact run and checks the same PR again @wor
     };
     return route.fulfill({ json: { item } });
   });
-  await openApp(page, 'Work');
-  await work(page)
-    .getByRole('button', {
-      name: new RegExp(`Prepare a release brief.*${room.name}`),
-    })
-    .click();
-  const status = work(page).getByRole('region', { name: 'GitHub delivery' });
+  const status = await open();
   await expect(
     status.getByRole('link', { name: 'Open workflow run' }),
   ).toHaveAttribute(
@@ -458,14 +478,83 @@ test('a cancelled workflow opens the exact run and checks the same PR again @wor
     work(page).getByRole('button', { name: 'Start work…', exact: true }),
   ).toHaveCount(0);
   expect(checks).toBe(0);
-  await work(page).screenshot({ path: info.outputPath('ci-inspection.png') });
-  await status.getByRole('button', { name: 'Check again' }).click();
+  if (!stayInActivity)
+    await work(page).screenshot({ path: info.outputPath('ci-inspection.png') });
+  const backToItem = work(page).getByRole('button', { name: 'Back to item' });
+  await status.getByRole('button', { name: 'Check again' }).focus();
+  await page.keyboard.press('Enter');
+  try {
+    const checking = status.getByRole('button', { name: 'Checking…' });
+    await expect(checking).toBeFocused();
+    await expect(checking).toBeDisabled();
+    await expect.poll(() => checks).toBe(1);
+    await page.keyboard.press('Enter');
+    if (stayInActivity) {
+      await work(page)
+        .getByRole('button', { name: 'Activity', exact: true })
+        .click();
+      await backToItem.focus();
+    }
+  } finally {
+    finishCheck();
+  }
+  if (stayInActivity) {
+    await expect(work(page).locator('.work-item-delivery')).toContainText(
+      'Waiting for CI · example/notes',
+    );
+    await expect(backToItem).toBeFocused();
+    expect(checks).toBe(1);
+    return;
+  }
   await expect(
     status.getByText('Waiting for CI · example/notes'),
   ).toBeVisible();
-  await expect(
-    status.getByRole('link', { name: 'Open pull request' }),
-  ).toHaveAttribute('href', 'https://github.com/example/notes/pull/12');
+  const pullRequest = status.getByRole('link', { name: 'Open pull request' });
+  await expect(pullRequest).toHaveAttribute(
+    'href',
+    'https://github.com/example/notes/pull/12',
+  );
+  await expect(pullRequest).toBeFocused();
   await expect(status.getByRole('button')).toHaveCount(0);
   expect(checks).toBe(1);
+}
+
+test('a cancelled workflow opens the exact run and checks the same PR again @work-loop', async ({
+  page,
+}, info) => {
+  await checkCancelledWorkflow(page, info);
+});
+
+test('CI recovery preserves newer Work navigation @work-loop', async ({
+  page,
+}, info) => {
+  await checkCancelledWorkflow(page, info, true);
+});
+
+test('a changed repository identity opens project settings @work-loop', async ({
+  page,
+}, info) => {
+  const { item, open } = await deliveryInterruption(
+    page,
+    `Release repository changed ${info.project.name}`,
+  );
+  item.githubDelivery = {
+    ...item.githubDelivery!,
+    failureCode: 'repository_changed',
+    reason: 'The repository identity changed. Authorize fresh Work.',
+    checkUrl: undefined,
+  };
+  const status = await open();
+  await expect(status.getByRole('button')).toHaveCount(1);
+  await status
+    .getByRole('button', { name: 'Review project settings…' })
+    .click();
+  await expect(
+    work(page).getByRole('form', { name: 'Project settings' }),
+  ).toBeVisible();
+  await expect(
+    work(page)
+      .getByRole('combobox', { name: 'Room' })
+      .locator('option:checked'),
+  ).toHaveText(`Release repository changed ${info.project.name}`);
 });

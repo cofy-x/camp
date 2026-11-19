@@ -66,13 +66,15 @@ export function GitHubVerification({
   const active = useRef<{ scope: string; controller: AbortController }>(null);
   useEffect(
     () => () => {
-      if (active.current?.scope === scope) active.current.controller.abort();
+      if (active.current?.scope !== scope) return;
+      active.current.controller.abort();
+      active.current = null;
     },
     [scope],
   );
 
   async function verify() {
-    if (!source) return;
+    if (!source || active.current?.scope === scope) return;
     active.current?.controller.abort();
     const read = new AbortController();
     active.current = { scope, controller: read };
@@ -111,6 +113,8 @@ export function GitHubVerification({
                 : 'Cannot check the saved setup.',
           },
         });
+    } finally {
+      if (active.current?.controller === read) active.current = null;
     }
   }
 
@@ -124,7 +128,8 @@ export function GitHubVerification({
         <div className="app-actions">
           {source && (
             <Button
-              disabled={state?.status === 'checking'}
+              aria-disabled={state?.status === 'checking' || undefined}
+              aria-busy={state?.status === 'checking' || undefined}
               onClick={() => void verify()}
             >
               {state?.status === 'checking'

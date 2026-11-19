@@ -103,6 +103,23 @@ test('explicit source verification checks a signed receipt and the saved rule @w
     if (new URL(request.url()).pathname === verificationPath)
       verificationMethods.push(request.method());
   });
+  let finishVerification!: () => void;
+  const failedResponse = new Promise<void>((resolve) => {
+    finishVerification = resolve;
+  });
+  await page.route(
+    `**${verificationPath}`,
+    async (route) => {
+      await failedResponse;
+      await route.fulfill({
+        status: 503,
+        json: {
+          error: 'GitHub setup verification is temporarily unavailable.',
+        },
+      });
+    },
+    { times: 1 },
+  );
   await openSources(page);
   await settings(page)
     .getByLabel('Event source', { exact: true })
@@ -113,7 +130,22 @@ test('explicit source verification checks a signed receipt and the saved rule @w
   const verify = setup.getByRole('button', { name: 'Verify saved setup' });
   await expect(verify).toBeVisible();
   expect(verificationMethods).toEqual([]);
-  await verify.click();
+  await verify.focus();
+  await page.keyboard.press('Enter');
+  try {
+    const checking = setup.getByRole('button', { name: 'Checking…' });
+    await expect(checking).toBeFocused();
+    await expect(checking).toBeDisabled();
+    await expect.poll(() => verificationMethods).toEqual(['GET']);
+    await page.keyboard.press('Enter');
+  } finally {
+    finishVerification();
+  }
+  await expect(setup.getByRole('alert')).toContainText(
+    'GitHub setup verification is temporarily unavailable.',
+  );
+  await expect(verify).toBeFocused();
+  await page.keyboard.press('Enter');
   await expect(setup).toContainText('Awaiting first delivery');
   await expect(setup).toContainText('Saved ruleOff');
 
@@ -139,7 +171,7 @@ test('explicit source verification checks a signed receipt and the saved rule @w
   await selector.selectOption(source.id);
   await expect(verify).toBeEnabled();
   await expect(setup.getByText('Signed delivery received')).toHaveCount(0);
-  expect(verificationMethods).toEqual(['GET', 'GET']);
+  expect(verificationMethods).toEqual(['GET', 'GET', 'GET']);
   const tasks = await (
     await page.request.get(`/api/rooms/${room.id}/tasks?view=summary`)
   ).json();

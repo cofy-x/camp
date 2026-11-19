@@ -11,6 +11,14 @@ import { client, normalizeOrigin, readAccess } from './verify-remote-real.mjs';
 const pageSize = 100;
 const guidPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
 const identifier = /^[a-zA-Z0-9_-]{1,128}$/u;
+const transportFailures = new Set([
+  'timed out',
+  'failed to connect',
+  'failed to connect to host',
+  'failed to connect to network',
+  'peer certificate cannot be authenticated with given ca certificates',
+  'invalid http response',
+]);
 const usage =
   'Usage: node scripts/reconcile-github-source.mjs ORIGIN ACCESS_JSON ROOM_ID SOURCE_ID HOOK_ID PUBLIC_ORIGIN [--recover DELIVERY_ID]';
 
@@ -43,7 +51,7 @@ function latestAttempts(attempts) {
     const failed =
       (code >= 400 && code < 600) ||
       ((code === 0 || code === null) &&
-        /^(?:timed out|failed to connect(?: to host)?)$/iu.test(row.status));
+        transportFailures.has(row.status?.toLowerCase()));
     latest.set(guid, {
       id,
       order,
@@ -91,7 +99,18 @@ async function github(route, method = 'GET') {
     method,
     route,
   ]);
-  return body.trim() === '' ? null : parseGitHubJSON(body);
+  try {
+    return body.trim() === '' ? null : parseGitHubJSON(body);
+  } catch {
+    throw new Error('The GitHub response could not be read.');
+  }
+}
+
+function verifyHook(hook, id, callback) {
+  assert.ok(
+    hook?.id === id && hook.active === true && hook.config?.url === callback,
+    'The GitHub hook must be active and point to the exact Camp source.',
+  );
 }
 
 async function readReceipts(api, route, deliveries) {
@@ -125,10 +144,7 @@ export async function reconcileSource(
     source.repositoryId,
     'GitHub repository identity changed.',
   );
-  assert.ok(
-    hook.id === hookId && hook.active && hook.config?.url === callback,
-    'The GitHub hook must be active and point to the exact Camp source.',
-  );
+  verifyHook(hook, hookId, callback);
 
   const attempts = await provider(
     hookPath + '/deliveries?per_page=' + pageSize,
@@ -180,6 +196,25 @@ export async function reconcileSource(
     'failed_without_receipt',
     'Verify the provider outcome before attempting another delivery.',
   );
+  const deliveryPath = hookPath + '/deliveries/' + target.id;
+  const [currentHook, original] = await Promise.all([
+    provider(hookPath),
+    provider(deliveryPath),
+  ]);
+  verifyHook(currentHook, hookId, callback);
+  assert.ok(
+    currentHook.config.content_type === 'json' &&
+      ['0', 0].includes(currentHook.config.insecure_ssl),
+    'Configure the GitHub hook to send JSON and verify HTTPS before recovery.',
+  );
+  assert.ok(
+    original &&
+      deliveryIdentifier(original.id) === target.id &&
+      original.guid?.toLowerCase() === target.guid &&
+      original.repository_id === source.repositoryId &&
+      original.url === callback,
+    'The historical delivery must belong to this repository and exact Camp callback.',
+  );
   const { prepared } = await api(route, 'POST', {
     revision: source.revision,
     deliveryId: target.guid,
@@ -199,7 +234,7 @@ export async function reconcileSource(
   // Camp committed the observation-only reservation. An uncertain POST is
   // followed by receipt reads. Another invocation cannot repeat the POST.
   try {
-    await provider(hookPath + '/deliveries/' + target.id + '/attempts', 'POST');
+    await provider(deliveryPath + '/attempts', 'POST');
   } catch {
     // The remote request may already have been accepted.
   }
@@ -219,6 +254,11 @@ async function main(args) {
   const [address, accessFile, roomId, sourceId, hook, ingress, flag, delivery] =
     args;
   const hookId = Number(hook);
+  assert.notEqual(
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED,
+    '0',
+    'TLS certificate verification must remain enabled.',
+  );
   assert.ok(
     (args.length === 6 || (args.length === 8 && flag === '--recover')) &&
       identifier.test(roomId) &&

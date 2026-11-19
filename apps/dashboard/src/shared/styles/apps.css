@@ -49,6 +49,14 @@
   align-items: center;
   margin-top: 12px;
 }
+.p9-button[aria-disabled='true'] {
+  border-color: #888;
+  color: #888;
+  text-shadow: 1px 1px white;
+}
+.p9-button[aria-busy='true'] {
+  cursor: progress;
+}
 .settings-app,
 .gallery-app {
   display: flex;

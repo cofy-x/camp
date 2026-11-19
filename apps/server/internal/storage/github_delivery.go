@@ -269,15 +269,31 @@ func (s *Store) ClaimGitHubDelivery(ctx context.Context) (out *GitHubDeliveryCla
 					}
 					continue
 				}
+				if authority := githubDeliveryConnection(repo, w, d); authority != nil {
+					var domain *Error
+					if !errors.As(authority, &domain) {
+						return authority
+					}
+					d.Status, d.FailureCode, d.Reason = "blocked", domain.Code, domain.Message
+					if e = githubDeliveryAttention(ctx, q, &w, &d); e != nil {
+						return e
+					}
+					continue
+				}
 			}
 			stopped := w.StopRequested || workTerminal(w)
-			if !owner.Enabled || ((repo.Enabled == 0 || workExpired(w)) && !d.Reconcile) {
+			expired := workExpired(w)
+			if !owner.Enabled || ((repo.Enabled == 0 || expired) && !d.Reconcile) {
 				if receiptOnly {
 					d.Status, d.Reconcile = "unknown", true
+					d.Reason = "Current repository, owner, or unexpired Work authority is required. Earlier receipts are retained."
 				} else {
 					d.Status = "blocked"
+					d.FailureCode, d.Reason = "forbidden", "The Work owner is unavailable."
+					if expired {
+						d.FailureCode, d.Reason = "work_expired", "The Work allowance expired. Review its allowance before continuing."
+					}
 				}
-				d.Reason = "Current repository, owner, or unexpired Work authority is required. Earlier receipts are retained."
 				if e = githubDeliveryAttention(ctx, q, &w, &d); e != nil {
 					return e
 				}
@@ -305,6 +321,10 @@ func (s *Store) ClaimGitHubDelivery(ctx context.Context) (out *GitHubDeliveryCla
 				if !deadline.IsZero() && !time.Now().Before(deadline) {
 					d.Status = "blocked"
 					d.Reason = "The finite delivery deadline ended. Review the recorded result."
+					if d.WorkflowObservationStage() {
+						d.FailureCode = "check_ended"
+						d.Reason = "The finite GitHub check window ended. Review the current result, then check again."
+					}
 					if e = githubDeliveryAttention(ctx, q, &w, &d); e != nil {
 						return e
 					}
@@ -560,6 +580,19 @@ func retryGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestratio
 	if d.Status != "blocked" || d.Reconcile || d.Stage == "result" {
 		return problem("invalid_delivery", "Only a known failed action can be resumed. Check unconfirmed receipts without resending.")
 	}
+	if workExpired(*w) {
+		return problem("work_expired", "The Work allowance expired. Review its allowance before continuing.")
+	}
+	if e = githubProjectAuthority(ctx, q, *w, d); e != nil {
+		return e
+	}
+	repo, e := q.GitHubRepository(ctx, d.Spec.ConnectionID)
+	if e != nil {
+		return e
+	}
+	if e = githubDeliveryConnection(repo, *w, d); e != nil {
+		return e
+	}
 	w.Status = "waiting"
 	current, e := pendingWorkCompletionCurrent(ctx, q, w)
 	if e != nil {
@@ -586,6 +619,20 @@ func retryGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestratio
 	d.Deadline = deadline.UTC().Format(time.RFC3339Nano)
 	w.WaitCondition = "Waiting for confirmed GitHub delivery receipts."
 	return saveGitHubDelivery(ctx, q, &d)
+}
+
+func githubDeliveryConnection(row sqlgen.GithubRepository, w orchestration.WorkItem, d orchestration.GitHubDelivery) error {
+	if row.Enabled == 0 {
+		return problem("connection", "Reconnect the authorized GitHub repository before continuing.")
+	}
+	connection, err := repositoryValue(row)
+	if err != nil {
+		return err
+	}
+	if row.OwnerUserID != w.OwnerUserID || connection.RepositoryID != d.RepositoryID || connection.ActorID != d.ActorID || connection.Private != d.Private || !strings.EqualFold(connection.Repository, d.Repository) {
+		return problem("repository_changed", "The connected repository or GitHub account changed. Review the authorized delivery scope.")
+	}
+	return nil
 }
 
 var versionLinePattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)

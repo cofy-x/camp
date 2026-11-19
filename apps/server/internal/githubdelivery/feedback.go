@@ -114,7 +114,7 @@ func (c *Client) jobLog(ctx context.Context, token, base string, id int64) (stri
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	response, err := c.http.Do(req)
 	if err != nil {
-		return "", err
+		return "", protocolError{}
 	}
 	response.Body.Close()
 	if response.StatusCode != http.StatusFound {
@@ -132,14 +132,17 @@ func (c *Client) jobLog(ctx context.Context, token, base string, id int64) (stri
 	req.Header.Set("Range", "bytes=-8192")
 	response, err = c.http.Do(req)
 	if err != nil {
-		return "", err
+		return "", protocolError{}
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 && response.StatusCode != 206 {
-		return "", errors.New("Job logs could not be downloaded")
+		return "", protocolError{status: response.StatusCode, headers: response.Header}
 	}
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 8<<20+1))
-	if err != nil || len(raw) > 8<<20 {
+	if err != nil {
+		return "", protocolError{}
+	}
+	if len(raw) > 8<<20 {
 		return "", errors.New("Job logs could not be read within their limit")
 	}
 	if len(raw) > 8192 {

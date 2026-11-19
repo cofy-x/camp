@@ -17,6 +17,8 @@ func TestWorkflowOutcomesOnlyRepairAnExactMarkedSourceFailure(t *testing.T) {
 		job             string
 		step            string
 		log             string
+		logStatus       int
+		truncatedLog    bool
 		other           bool
 		rerun           bool
 		rerunDuringLogs bool
@@ -31,6 +33,9 @@ func TestWorkflowOutcomesOnlyRepairAnExactMarkedSourceFailure(t *testing.T) {
 		{name: "startup failed", conclusion: "startup_failure", want: "ci_inspection"},
 		{name: "required action", conclusion: "action_required", want: "ci_inspection"},
 		{name: "logs unavailable", conclusion: "failure", job: "failure", step: sourceCheckName, attempt: 2, want: "ci_inspection"},
+		{name: "redirected logs missing", conclusion: "failure", job: "failure", step: sourceCheckName, attempt: 2, log: "missing", logStatus: http.StatusNotFound, want: "ci_inspection"},
+		{name: "redirected logs throttled", conclusion: "failure", job: "failure", step: sourceCheckName, attempt: 2, log: "throttled", logStatus: http.StatusTooManyRequests},
+		{name: "redirected logs interrupted", conclusion: "failure", job: "failure", step: sourceCheckName, attempt: 2, log: "truncated", truncatedLog: true},
 		{name: "unmarked failure", conclusion: "failure", job: "failure", step: sourceCheckName, attempt: 2, log: "package download failed", want: "ci_inspection"},
 		{name: "other step", conclusion: "failure", job: "failure", step: "Setup", attempt: 2, log: "CAMP_SOURCE_REPAIR: known failure", want: "ci_inspection"},
 		{name: "multiple source steps", conclusion: "failure", job: "failure", step: sourceCheckName, attempt: 2, otherStep: true, log: "CAMP_SOURCE_REPAIR: reported by a previous custom step", want: "ci_inspection"},
@@ -38,6 +43,7 @@ func TestWorkflowOutcomesOnlyRepairAnExactMarkedSourceFailure(t *testing.T) {
 		{name: "other required observation failed", conclusion: "failure", job: "failure", step: sourceCheckName, attempt: 2, other: true, log: "CAMP_SOURCE_REPAIR: known failure", want: "ci_inspection"},
 		{name: "rerun in progress", conclusion: "failure", attempt: 2, rerun: true},
 		{name: "rerun during diagnostics", conclusion: "failure", job: "failure", step: sourceCheckName, attempt: 2, log: "CAMP_SOURCE_REPAIR: stale failure", rerunDuringLogs: true},
+		{name: "rerun while logs are missing", conclusion: "failure", job: "failure", step: sourceCheckName, attempt: 2, rerunDuringLogs: true},
 		{name: "authorized source check", conclusion: "failure", job: "failure", step: sourceCheckName, attempt: 2, log: "2026-11-18T14:00:02.012Z CAMP_SOURCE_REPAIR: append the release marker", want: "ci_source_failed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -50,6 +56,13 @@ func TestWorkflowOutcomesOnlyRepairAnExactMarkedSourceFailure(t *testing.T) {
 			logServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Authorization") != "" {
 					t.Error("GitHub credential reached the redirected log download")
+				}
+				if test.logStatus != 0 {
+					w.Header().Set("Retry-After", "120")
+					w.WriteHeader(test.logStatus)
+				}
+				if test.truncatedLog {
+					w.Header().Set("Content-Length", "1024")
 				}
 				_, _ = fmt.Fprintln(w, test.log)
 			}))
@@ -105,6 +118,12 @@ func TestWorkflowOutcomesOnlyRepairAnExactMarkedSourceFailure(t *testing.T) {
 			delivery := result.Delivery
 			if result.Effect != "" || f.writes["/pulls/12/merge"] != 0 || delivery.FailureCode != test.want {
 				t.Fatal("unexpected observation or external effect", result)
+			}
+			if test.logStatus == http.StatusTooManyRequests || test.truncatedLog {
+				if delivery.Status != "waiting" || delivery.ReadFailures != 1 || delivery.HasRepairEvidence() {
+					t.Fatal("a transient log download must retry within its read allowance", result)
+				}
+				return
 			}
 			if test.rerun || test.rerunDuringLogs {
 				if delivery.Status != "waiting" || delivery.Checks != 1 || (!test.rerunDuringLogs && logReads != 0) {

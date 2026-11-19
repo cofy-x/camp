@@ -58,18 +58,18 @@ func (c *Client) checks(ctx context.Context, token, base, sha string, workflowID
 	if _, retry := githubReadRetry(err, time.Now()); retry {
 		return workflowCheck{}, err
 	}
-	if diagnostic == "" {
-		check.state = workflowNeedsInspection
-		return check, nil
-	}
 	// The failed attempt can be superseded while its logs are being read.
-	// Verify the current exact-head snapshot before using the diagnostic.
+	// Verify the current exact-head snapshot before blocking or repairing.
 	current, err := c.observeWorkflows(ctx, token, base, sha, workflowID, event)
 	if err != nil || current.state != workflowSourceCandidate {
 		return current, err
 	}
 	if current.run != check.run {
 		return workflowCheck{}, nil
+	}
+	if diagnostic == "" {
+		check.state = workflowNeedsInspection
+		return check, nil
 	}
 	check.state, check.diagnostics = workflowSourceFailure, diagnostic
 	return check, nil

@@ -63,7 +63,10 @@ func (c *Client) request(ctx context.Context, token, method, path string, body, 
 	}
 	defer response.Body.Close()
 	raw, e := io.ReadAll(io.LimitReader(response.Body, 8<<20+1))
-	if e != nil || len(raw) > 8<<20 {
+	if e != nil && response.StatusCode >= 200 && response.StatusCode < 300 {
+		return 0, response.Header, errors.New("GitHub did not confirm the response")
+	}
+	if len(raw) > 8<<20 {
 		return response.StatusCode, response.Header, errors.New("The GitHub response could not be read within its limit")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -175,7 +178,16 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 		result.Delivery.FailureCode = code
 		return fail(reason)
 	}
+	scheduleCheck := func(at time.Time) {
+		if deadline, err := time.Parse(time.RFC3339Nano, d.Deadline); err == nil && at.After(deadline) {
+			at = deadline
+		}
+		result.Delivery.NextCheckAt = at.UTC().Format(time.RFC3339Nano)
+	}
 	readFailure := func(err error, reason string) orchestration.GitHubDeliveryResult {
+		if result.Delivery.Stage == "merge" && !reconcile {
+			result.Delivery.Stage = "checks"
+		}
 		var scope evidenceError
 		if errors.As(err, &scope) {
 			return failWith("check_scope", scope.Error())
@@ -183,17 +195,14 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 		now := time.Now()
 		if retry, ok := githubReadRetry(err, now); ok && !d.Reconcile {
 			if d.ReadFailures >= 3 {
-				if result.Delivery.Stage == "checks" || result.Delivery.Stage == "review" || result.Delivery.Stage == "deployment" {
+				if result.Delivery.WorkflowObservationStage() {
 					return failWith("read_unavailable", "GitHub is still unavailable. Check the recorded delivery again.")
 				}
 				return failWith("connection", reason)
 			}
 			result.Delivery.ReadFailures++
 			result.Delivery.Status, result.Delivery.Reason = "waiting", "Waiting for GitHub to respond."
-			if deadline, err := time.Parse(time.RFC3339Nano, d.Deadline); err == nil && retry.After(deadline) {
-				retry = deadline
-			}
-			result.Delivery.NextCheckAt = retry.UTC().Format(time.RFC3339Nano)
+			scheduleCheck(retry)
 			return result
 		}
 		return failWith("connection", reason)
@@ -243,21 +252,27 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 		result.Delivery.FailureCode, result.Delivery.ReadFailures = "", 0
 		result.Delivery.Status = "waiting"
 		result.Delivery.Reason = reason
-		result.Delivery.NextCheckAt = time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano)
+		scheduleCheck(time.Now().Add(30 * time.Second))
 		return result
+	}
+	confirmRepairPR := func() error {
+		var pr pullRequest
+		path := base + "/pulls/" + strconv.FormatInt(d.PullRequest, 10)
+		if err := c.call(ctx, token, "GET", path, nil, &pr); err != nil {
+			return err
+		}
+		if !validPR(pr, d) || pr.State != "open" {
+			return evidenceError{"The pull request changed while its repair evidence was read. Review its current source."}
+		}
+		return nil
 	}
 	readPRChecks := func() (workflowCheck, error) {
 		check, err := c.checks(ctx, token, base, d.HeadSHA, d.CIWorkflowID, "pull_request")
 		if err != nil || check.state != workflowSourceFailure {
 			return check, err
 		}
-		var pr pullRequest
-		path := base + "/pulls/" + strconv.FormatInt(d.PullRequest, 10)
-		if err = c.call(ctx, token, "GET", path, nil, &pr); err != nil {
+		if err = confirmRepairPR(); err != nil {
 			return workflowCheck{}, err
-		}
-		if !validPR(pr, d) || pr.State != "open" {
-			return workflowCheck{}, evidenceError{"The pull request changed while its failed check was read. Review its current source."}
 		}
 		return check, nil
 	}
@@ -277,6 +292,9 @@ func (c *Client) Step(ctx context.Context, d orchestration.GitHubDelivery, ref s
 	}
 	applyReviewFeedback := func(feedback string) orchestration.GitHubDeliveryResult {
 		result.Delivery.Stage = "checks"
+		if err := confirmRepairPR(); err != nil {
+			return readFailure(err, "The current pull request could not be confirmed after reading its reviews.")
+		}
 		result.Delivery.Diagnostics = feedback
 		result.Delivery.RepairCause = orchestration.GitHubRepairApprovedReview
 		return failWith("review_changes", "An approved reviewer requested changes on this exact source version.")
@@ -616,7 +634,7 @@ type pullRequest struct {
 }
 
 func validPR(pr pullRequest, d orchestration.GitHubDelivery) bool {
-	return pr.Number > 0 && pr.User.ID == d.ActorID && pr.Head.SHA == d.HeadSHA && pr.Head.Ref == d.Branch && pr.Head.Repo.ID == d.RepositoryID && pr.Base.Repo.ID == d.RepositoryID && pr.Base.Ref == d.Spec.BaseBranch && strings.Contains(pr.Body, marker(d))
+	return pr.Number > 0 && (d.PullRequest == 0 || pr.Number == d.PullRequest) && pr.User.ID == d.ActorID && pr.Head.SHA == d.HeadSHA && pr.Head.Ref == d.Branch && pr.Head.Repo.ID == d.RepositoryID && pr.Base.Repo.ID == d.RepositoryID && pr.Base.Ref == d.Spec.BaseBranch && strings.Contains(pr.Body, marker(d))
 }
 func (c *Client) findPullRequest(ctx context.Context, token, base string, d orchestration.GitHubDelivery, out *pullRequest) error {
 	var pulls []pullRequest

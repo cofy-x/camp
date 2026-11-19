@@ -182,3 +182,21 @@ func TestGitHubRepairDoesNotSpendAllowanceOnWorkflowInspection(t *testing.T) {
 		})
 	}
 }
+
+func TestGitHubRepairAndResumeRequireCurrentRepositoryConnection(t *testing.T) {
+	s, actor, original, repo := deliveryFixture(t, 1)
+	completeDeliveryStage(t, s, claimDelivery(t, s), "checks", "queued")
+	claim := claimDelivery(t, s)
+	input := orchestration.GitHubRepositoryInput{ID: repo.ID, Revision: repo.Revision, RequestID: newID(), Repository: repo.Repository, CIWorkflow: repo.CIWorkflow}
+	if _, err := s.SaveGitHubRepository(actor, input, repo, strings.Repeat("a", 48)); err != nil {
+		t.Fatal(err)
+	}
+	failDeliveryCI(t, s, claim)
+	blocked, err := s.GetWorkItem(actor, original.ID)
+	if err != nil || blocked.Status != "needs_attention" || blocked.ActiveTaskID != "" || blocked.Usage != original.Usage || blocked.GitHubDelivery.FailureCode != "connection" {
+		t.Fatal("a disabled connection admitted repair", blocked, err)
+	}
+	retry := orchestration.WorkItemOperation{RequestID: newID(), Revision: blocked.Revision, Kind: "retry_delivery", DeliveryRevision: blocked.GitHubDelivery.Revision}
+	_, err = s.OperateWorkItem(actor, original.ID, retry, roomBudget)
+	requireCode(t, err, "connection")
+}

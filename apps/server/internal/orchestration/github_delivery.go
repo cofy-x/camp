@@ -128,6 +128,15 @@ func (d GitHubDelivery) VisibleWriteStage() bool {
 	}
 }
 
+func (d GitHubDelivery) WorkflowObservationStage() bool {
+	switch d.Stage {
+	case "checks", "review", "deployment":
+		return true
+	default:
+		return false
+	}
+}
+
 // PullRequestBody is the frozen protocol envelope shared by outbound delivery
 // and authenticated ingress echo detection, never an execution authorization.
 func (d GitHubDelivery) PullRequestBody() string {

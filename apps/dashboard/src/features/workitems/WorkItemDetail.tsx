@@ -85,6 +85,8 @@ export function WorkItemDetail({
     if (
       action &&
       action !== 'unfollow' &&
+      action !== 'retry_delivery' &&
+      action !== 'repair_delivery' &&
       (action !== 'authorize' ||
         (pausedTaskId &&
           next.activeTaskId === pausedTaskId &&
@@ -374,6 +376,7 @@ export function WorkItemDetail({
                     workRevision={item.revision}
                     workId={item.id}
                     editable={owner}
+                    closing={Boolean(closing)}
                     onReviewScope={() => manage('allowance')}
                     onProjectSettings={onProjectSettings}
                     canRepair={

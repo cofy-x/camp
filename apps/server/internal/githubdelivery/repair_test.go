@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRepairUpdatesOnlyTheKnownBranchAndReconcilesLostRepliesWithoutResending(t *testing.T) {
@@ -66,8 +67,12 @@ func TestReviewFeedbackRequiresApprovedActorAndExactHead(t *testing.T) {
 	d := f.delivery
 	d.Stage, d.HeadSHA, d.PullRequest, d.ReviewerIDs = "checks", strings.Repeat("e", 40), 12, []int64{8}
 	actor, sha := int64(9), d.HeadSHA
+	moveHead := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/pulls/12/comments") {
+			if moveHead {
+				f.otherHead = true
+			}
 			_ = json.NewEncoder(w).Encode([]map[string]any{{"pull_request_review_id": 18, "commit_id": sha, "path": "src/app.mjs", "line": 10, "body": "Render the saved note title.", "user": map[string]any{"id": actor}}})
 			return
 		}
@@ -91,6 +96,12 @@ func TestReviewFeedbackRequiresApprovedActorAndExactHead(t *testing.T) {
 	result := f.client.Step(context.Background(), d, "")
 	if result.Delivery.Status != "blocked" || result.Delivery.Stage != "checks" || result.Delivery.FailureCode != "review_changes" || !strings.Contains(result.Delivery.Diagnostics, "title is missing") || !strings.Contains(result.Delivery.Diagnostics, "Render the saved note title") || len(f.writes) != 0 {
 		t.Fatal(result, f.writes)
+	}
+	moveHead = true
+	d.Stage = "merge"
+	result = f.client.Step(context.Background(), d, "")
+	if result.Delivery.Status != "blocked" || result.Delivery.FailureCode != "check_scope" || result.Delivery.HasRepairEvidence() || result.Effect != "" || len(f.writes) != 0 {
+		t.Fatal("a head change during the review read must fence repair and merge", result, f.writes)
 	}
 }
 
@@ -199,10 +210,11 @@ func TestPendingRepositoryRequirementsWaitWithoutMergeAttempts(t *testing.T) {
 	f.client.origin = server.URL
 	d := f.delivery
 	d.HeadSHA, d.PullRequest = strings.Repeat("e", 40), 12
+	d.Deadline = time.Now().Add(10 * time.Second).UTC().Format(time.RFC3339Nano)
 	for _, stage := range []string{"checks", "merge", "review"} {
 		d.Stage = stage
 		result := f.client.Step(context.Background(), d, "")
-		if result.Delivery.Stage != "review" || result.Delivery.Status != "waiting" || result.Effect != "" || len(f.writes) != 0 {
+		if result.Delivery.Stage != "review" || result.Delivery.Status != "waiting" || result.Delivery.NextCheckAt != d.Deadline || result.Effect != "" || len(f.writes) != 0 {
 			t.Fatal(result, f.writes)
 		}
 	}

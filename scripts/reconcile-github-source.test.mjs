@@ -52,6 +52,14 @@ test('an earlier provider success makes the missing receipt a discrepancy', () =
   );
 });
 
+test('recognizes a provider-reported network failure without an HTTP status', () => {
+  const report = compareDeliveries(
+    [{ ...attempt(1, guid, null), status: 'Failed to connect to network' }],
+    [],
+  );
+  assert.equal(report[0].status, 'failed_without_receipt');
+});
+
 function fixture(older = 1, newer = 2) {
   const writes = [];
   let prepared = false;
@@ -62,17 +70,26 @@ function fixture(older = 1, newer = 2) {
       return {
         id: 31,
         active: true,
-        config: { url: settings.publicOrigin + '/api/hooks/github/source' },
+        config: {
+          url: settings.publicOrigin + '/api/hooks/github/source',
+          content_type: 'json',
+          insecure_ssl: '0',
+        },
       };
     if (route === 'repos/acme/project/hooks/31/deliveries?per_page=100')
       return [
         { ...attempt(2, guid, 503), id: newer },
         { ...attempt(2, guid, 500), id: older },
       ];
-    assert.equal(
-      route,
-      'repos/acme/project/hooks/31/deliveries/' + newer + '/attempts',
-    );
+    const path = 'repos/acme/project/hooks/31/deliveries/' + newer;
+    if (route === path)
+      return {
+        id: newer,
+        guid,
+        repository_id: 17,
+        url: settings.publicOrigin + '/api/hooks/github/source',
+      };
+    assert.equal(route, path + '/attempts');
     assert.equal(method, 'POST');
     assert.ok(prepared);
     writes.push('redeliver');
@@ -170,4 +187,48 @@ test('source recovery distinguishes adjacent 64-bit attempt IDs', async () => {
   );
   await reconcileSource({ ...settings, recoveryId: newer }, f.deps);
   assert.deepEqual(f.writes, ['prepare', 'redeliver']);
+});
+
+test('a delivery from the hook’s earlier callback is not prepared', async () => {
+  const f = fixture();
+  await assert.rejects(
+    reconcileSource(
+      { ...settings, recoveryId: 2 },
+      {
+        ...f.deps,
+        provider: async (route, method) => {
+          const reply = await f.deps.provider(route, method);
+          if (route.endsWith('/deliveries/2'))
+            return { ...reply, url: settings.publicOrigin + '/elsewhere' };
+          return reply;
+        },
+      },
+    ),
+    /historical delivery.*exact Camp callback/u,
+  );
+  assert.deepEqual(f.writes, []);
+});
+
+test('a hook changed during the provider scan is checked before preparing', async () => {
+  const f = fixture();
+  let hookReads = 0;
+  await assert.rejects(
+    reconcileSource(
+      { ...settings, recoveryId: 2 },
+      {
+        ...f.deps,
+        provider: async (route, method) => {
+          const reply = await f.deps.provider(route, method);
+          if (route.endsWith('/hooks/31') && ++hookReads === 2)
+            return {
+              ...reply,
+              config: { ...reply.config, insecure_ssl: '1' },
+            };
+          return reply;
+        },
+      },
+    ),
+    /verify HTTPS before recovery/u,
+  );
+  assert.deepEqual(f.writes, []);
 });
