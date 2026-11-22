@@ -15,6 +15,7 @@ import { useWorkItemOperation } from './useWorkItemOperation';
 import type { WorkItem } from './api';
 import { confirmedWorkAction, type Pending } from './workRequestRecovery';
 import {
+  workItemExecutionError,
   workItemOverviewFallback,
   workItemQuestion,
   workItemStatus,
@@ -56,12 +57,15 @@ export function WorkItemDetail({
   onProjectSettings?: () => void;
 }) {
   const { user } = useAccount();
-  const [item, setItem] = useState<WorkItem | null>(null);
+  const [acceptedItem, setAcceptedItem] = useState<WorkItem | null>(null);
   const itemRead = useRead<{ item: WorkItem }>(
     `/work-items/${encodeURIComponent(id)}`,
     { enabled: active },
   );
   const error = itemRead.error;
+  // A permission failure clears the shared read's accepted data. The
+  // revision merge below must respect that even with a retained receipt.
+  const item = error && !itemRead.data ? null : acceptedItem;
   const [retry, setRetry] = useState(0);
   const [viewSelection, setViewSelection] = useState({
     request: initialRequest,
@@ -69,7 +73,9 @@ export function WorkItemDetail({
     section: 'allowance',
   });
   const view =
-    viewSelection.request === initialRequest ? viewSelection.view : 'overview';
+    item && viewSelection.request === initialRequest
+      ? viewSelection.view
+      : 'overview';
   const managementSection = viewSelection.section;
 
   function setView(view: string) {
@@ -93,7 +99,7 @@ export function WorkItemDetail({
           next.budget.maxModelRequests > next.usage.reservedModelRequests))
     )
       setView('overview');
-    setItem((current) =>
+    setAcceptedItem((current) =>
       !current || next.revision >= current.revision ? next : current,
     );
     setRetry((value) => value + 1);
@@ -106,7 +112,7 @@ export function WorkItemDetail({
   useEffect(() => {
     const item = itemRead.data?.item;
     if (!item) return;
-    setItem((current) =>
+    setAcceptedItem((current) =>
       !current || item.revision >= current.revision ? item : current,
     );
   }, [itemRead.data]);
@@ -117,6 +123,7 @@ export function WorkItemDetail({
   const selectedView =
     (!editable || closing) && view === 'manage' ? 'overview' : view;
   const question = item && workItemQuestion(item);
+  const executionError = item && workItemExecutionError(item);
   const summary = item?.execution?.summary;
   const displayStatus = item ? workItemStatus(item, false) : '';
   const inspectDelivery =
@@ -269,18 +276,20 @@ export function WorkItemDetail({
         >
           {selectedView === 'overview' ? 'Back to Work' : 'Back to item'}
         </Button>
-        <div className="app-actions">
-          {selectedView !== 'activity' && (
-            <Button onClick={() => setView('activity')}>Activity</Button>
-          )}
-          <Button
-            aria-haspopup="menu"
-            aria-label="More work actions"
-            onClick={(event) => more(event.currentTarget)}
-          >
-            More
-          </Button>
-        </div>
+        {item && (
+          <div className="app-actions">
+            {selectedView !== 'activity' && (
+              <Button onClick={() => setView('activity')}>Activity</Button>
+            )}
+            <Button
+              aria-haspopup="menu"
+              aria-label="More work actions"
+              onClick={(event) => more(event.currentTarget)}
+            >
+              More
+            </Button>
+          </div>
+        )}
       </div>
       {error && (
         <p className="app-error" role="alert">
@@ -296,9 +305,9 @@ export function WorkItemDetail({
         </p>
       )}
       {!item && !error && <p role="status">Loading work…</p>}
-      {operation.feedback}
       {item && (
         <>
+          {operation.feedback}
           <header className="work-item-heading">
             <GoalHeading goal={item.goal} />
             {(showStatus || due || (progress && onViewProgress)) && (
@@ -335,9 +344,9 @@ export function WorkItemDetail({
                   Stopping the current work. Future follow-ups are disabled.
                 </p>
               )}
-              {item.execution?.error && (
+              {executionError && (
                 <p className="app-error" role="alert">
-                  {item.execution.error}
+                  {executionError}
                 </p>
               )}
               {editable && pausedTaskId && (

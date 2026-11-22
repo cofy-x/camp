@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  workItemExecutionError,
   workItemOverviewFallback,
   workItemQuestion,
   workItemStatus,
@@ -280,6 +281,42 @@ describe('current work question', () => {
   });
 });
 
+describe('current execution error', () => {
+  const interrupted = {
+    ...ready,
+    status: 'needs_attention',
+    execution: {
+      ...ready.execution!,
+      status: 'interrupted',
+      error: 'Runner disconnected.',
+    },
+  };
+
+  it('keeps the current paused session error and a terminal error needing attention', () => {
+    expect(
+      workItemExecutionError({
+        ...interrupted,
+        status: 'running',
+        activeTaskId: 'latest-task',
+      }),
+    ).toBe(interrupted.execution.error);
+    expect(workItemExecutionError(interrupted)).toBe(
+      interrupted.execution.error,
+    );
+  });
+
+  it.each<Partial<PresentedWork>>([
+    { status: 'open' },
+    { status: 'completed' },
+    { status: 'cancelled' },
+    { status: 'stopping', activeTaskId: 'latest-task' },
+    { question: 'Is another session needed?' },
+    { status: 'running', activeTaskId: 'newer-task' },
+  ])('keeps historical errors out of the current overview: %j', (change) => {
+    expect(workItemExecutionError({ ...interrupted, ...change })).toBe('');
+  });
+});
+
 describe('empty work overview', () => {
   const closed: Parameters<typeof workItemOverviewFallback>[0] = {
     status: 'completed',
@@ -362,10 +399,11 @@ describe('empty work overview', () => {
     ).toBe('Marked complete');
   });
 
-  it('shows the recorded closure when only a former question remains', () => {
+  it('shows the recorded closure when only an earlier question and error remain', () => {
     const execution = {
       ...ready.execution!,
       summary: '',
+      error: 'Runner disconnected.',
       question: { id: 'q', text: 'Which customer?', options: [], answer: '' },
     };
     expect(
@@ -374,13 +412,6 @@ describe('empty work overview', () => {
   });
 
   it.each<Partial<typeof closed>>([
-    {
-      execution: {
-        ...ready.execution!,
-        summary: '',
-        error: 'Runner disconnected.',
-      },
-    },
     { execution: ready.execution },
     { waitCondition: 'Waiting for confirmed delivery receipts.' },
     { result: { ...ready.result!, summary: '' } },
