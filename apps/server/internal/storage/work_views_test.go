@@ -132,6 +132,61 @@ func TestWorkViewPinsResultAndAnswersAtTheMatter(t *testing.T) {
 	}
 }
 
+func TestWorkViewKeepsDeclaredArtifactFromEarlierRound(t *testing.T) {
+	s, actor, _, room, writer, reviewer := taskFixture(t)
+	w := createTestWork(t, s, actor, room)
+	w = decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{Kind: "execute", ParticipantAgentIDs: []string{writer.ID, reviewer.ID}, FirstAgentID: writer.ID})
+	task, err := s.GetTaskState(actor, w.ActiveTaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, participant := range task.Participants {
+		enableTaskInputs(t, s, participant.RunnerID)
+	}
+	checkpoint := strings.Repeat("b", 40)
+	finishTaskTestRound(t, s, task, checkpoint, CoordinationIntent{CallID: newID(), Kind: "handoff", TargetAgentID: reviewer.ID, Instruction: "Check the saved notebook.", ArtifactPaths: []string{"notes.mjs"}})
+	task, err = s.GetTaskState(actor, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishTaskTestRound(t, s, task, "", CoordinationIntent{CallID: newID(), Kind: "handoff", TargetAgentID: writer.ID, Instruction: "Publish the checked version."})
+	task, err = s.GetTaskState(actor, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, _ := finishTaskTestRound(t, s, task, checkpoint, CoordinationIntent{CallID: newID(), Kind: "finish", Summary: "Notebook verified.", ArtifactPaths: []string{"notes.mjs", "notes.mjs"}})
+	if len(final.Files) != 0 {
+		t.Fatal("final checks unexpectedly changed the checkpoint", final.Files)
+	}
+	if err := s.ReconcileTask(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	w, err = s.GetWorkItem(actor, w.ID)
+	wantFiles := []orchestration.WorkResultFile{{Path: "notes.mjs", Status: "saved"}}
+	if err != nil || w.Result == nil || !w.Result.Published || w.Result.Commit != checkpoint || !reflect.DeepEqual(w.Result.Files, wantFiles) {
+		t.Fatal("Work must open the exact verified artifact even if the last round has an empty delta", w.Result, err)
+	}
+}
+
+func TestWorkViewKeepsDeclaredReadOnlyArtifactAtItsBaseline(t *testing.T) {
+	s, actor, _, room, _, reader := taskFixture(t)
+	w := createTestWork(t, s, actor, room)
+	w = decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{Kind: "execute", ParticipantAgentIDs: []string{reader.ID}, FirstAgentID: reader.ID})
+	task, err := s.GetTaskState(actor, w.ActiveTaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enableTaskInputs(t, s, task.Participants[0].RunnerID)
+	finishTaskTestRound(t, s, task, "", CoordinationIntent{CallID: newID(), Kind: "finish", Summary: "Existing notebook checked.", ArtifactPaths: []string{"notes.mjs"}})
+	if err := s.ReconcileTask(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	w, err = s.GetWorkItem(actor, w.ID)
+	if err != nil || w.Result == nil || w.Result.Commit != task.BaseSharedCommit || !reflect.DeepEqual(w.Result.Files, []orchestration.WorkResultFile{{Path: "notes.mjs", Status: "saved"}}) {
+		t.Fatal("read-only work lost the path verified against its exact baseline", w.Result, err)
+	}
+}
+
 func TestWorkListFiltersBeforePagingAndKeepsCurrentTaskQuestions(t *testing.T) {
 	s, admin, _, room, writer, _ := taskFixture(t)
 	questionWork := createTestWork(t, s, admin, room)

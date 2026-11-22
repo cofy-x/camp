@@ -31,6 +31,9 @@ func normalizeWorkItem(w *orchestration.WorkItem) {
 	if w.StopRequested && w.Status != "cancelled" {
 		w.Status = "stopping"
 	}
+	if w.Status != "needs_attention" || w.ActiveTaskID != "" || w.Question != "" {
+		w.WorkRecovery, w.RecoveryLimit = nil, ""
+	}
 	if w.CompletionMode == "" {
 		w.CompletionMode = "criteria"
 		if strings.TrimSpace(w.CompletionCriteria) == "" {

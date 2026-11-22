@@ -60,13 +60,15 @@ export function WorkItemResult({ item }: { item: WorkItem }) {
                 ) : (
                   <Button onClick={() => open(file.path)}>{file.path}</Button>
                 )}
-                <span>
-                  {file.status === 'D' || file.status === 'deleted'
-                    ? 'Deleted'
-                    : file.status === 'A' || file.status === 'added'
-                      ? 'Added'
-                      : 'Changed'}
-                </span>
+                {file.status !== 'saved' && (
+                  <span>
+                    {file.status === 'D' || file.status === 'deleted'
+                      ? 'Deleted'
+                      : file.status === 'A' || file.status === 'added'
+                        ? 'Added'
+                        : 'Changed'}
+                  </span>
+                )}
               </li>
             ))}
           </ul>

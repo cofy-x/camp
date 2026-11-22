@@ -18,6 +18,9 @@ func populateWorkView(ctx context.Context, q *sqlgen.Queries, w *orchestration.W
 	if err := populateGitHubDelivery(ctx, q, w); err != nil {
 		return err
 	}
+	if err := populateWorkRecovery(ctx, q, w); err != nil {
+		return err
+	}
 	raw, err := q.WorkExecutionView(ctx, sqlgen.WorkExecutionViewParams{ActiveTaskID: w.ActiveTaskID, WorkItemID: w.ID})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err

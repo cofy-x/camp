@@ -23,16 +23,14 @@ func expireWorkItems(ctx context.Context, q *sqlgen.Queries) error {
 		if err = insertWorkFact(ctx, q, &w, ev); err != nil {
 			return err
 		}
-		w.Status = "needs_attention"
-		w.Question = ev.Content
-		w.QuestionKind = orchestration.WorkQuestionJudgment
+		markWorkRecovery(&w, workFailureRecovery(w, "authorization_expired"), "")
 		if err = q.CancelWorkTimers(ctx, w.ID); err != nil {
 			return err
 		}
 		if err = appendWorkDecision(ctx, q, w, orchestration.WorkDecision{Kind: "request_judgment", Reason: ev.Content, ActorKind: "system", ActorID: "timer", EvidenceIDs: []string{ev.ID}}); err != nil {
 			return err
 		}
-		if err = workNotice(ctx, q, &w, "work_item_attention", ev.Content); err != nil {
+		if err = workNotice(ctx, q, &w, "work_item_attention", w.WorkRecovery.Message); err != nil {
 			return err
 		}
 		if err = saveWorkItem(ctx, q, &w); err != nil {

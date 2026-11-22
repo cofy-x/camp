@@ -14,6 +14,13 @@ SELECT * FROM work_item_evidence WHERE work_item_id=? ORDER BY created_at,event_
 SELECT * FROM work_item_evidence WHERE work_item_id=? ORDER BY seq LIMIT 1001;
 -- name: WorkDecisions :many
 SELECT * FROM work_item_decisions WHERE work_item_id=? AND seq>? ORDER BY seq DESC LIMIT ?;
+-- name: LegacyWorkRecovery :one
+SELECT d.value AS decision,CAST(coalesce(t.status,'') AS TEXT) AS task_status
+FROM work_item_decisions d
+LEFT JOIN work_item_tasks linked ON linked.work_item_id=d.work_item_id AND linked.task_id=json_extract(d.value,'$.taskId')
+LEFT JOIN collaboration_tasks t ON t.id=linked.task_id
+WHERE d.work_item_id=? AND json_extract(d.value,'$.kind') IN ('request_judgment','result','wait','execute','accept','complete','cancel','stop','answer','answer_continue','create','delegate')
+ORDER BY d.seq DESC LIMIT 1;
 -- name: InsertWorkDecision :exec
 INSERT INTO work_item_decisions(id,work_item_id,value) VALUES(?,?,?);
 -- name: WorkTasks :many

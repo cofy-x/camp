@@ -31,19 +31,34 @@ WITH candidate AS (
  SELECT id,snapshot,
   CASE WHEN coalesce(json_extract(snapshot,'$.publishedCommit'),'')<>'' THEN json_extract(snapshot,'$.publishedCommit') ELSE coalesce(json_extract(snapshot,'$.checkpointCommit'),'') END AS result_commit
  FROM candidate
+), result AS (
+ SELECT t.*,r.snapshot AS run_snapshot FROM saved t LEFT JOIN runs r ON r.id=coalesce(
+  (SELECT id FROM runs WHERE id=json_extract(t.snapshot,'$.publicationRunId') AND status='succeeded'
+   AND json_extract(snapshot,'$.taskId')=t.id AND coalesce(nullif(json_extract(snapshot,'$.resultCommit'),''),json_extract(snapshot,'$.baselineCommit'))=t.result_commit),
+  (SELECT id FROM runs WHERE json_extract(snapshot,'$.taskId')=t.id AND json_extract(snapshot,'$.resultCommit')=t.result_commit
+   AND status='succeeded' ORDER BY created_at DESC,id DESC LIMIT 1)
+ )
+), changed_files AS (
+ SELECT json_extract(f.value,'$.path') AS path,json_extract(f.value,'$.status') AS status
+ FROM json_each((SELECT run_snapshot FROM result),'$.files') f
+), artifacts AS (
+ SELECT DISTINCT CAST(value AS TEXT) AS path FROM json_each((SELECT run_snapshot FROM result),'$.intent.artifactPaths')
+ WHERE type='text' AND value<>''
+), visible_files AS (
+ SELECT a.path,coalesce(c.status,'saved') AS status,0 AS priority
+ FROM artifacts a LEFT JOIN changed_files c ON c.path=a.path
+ UNION ALL
+ SELECT c.path,c.status,1 FROM changed_files c WHERE NOT EXISTS(SELECT 1 FROM artifacts a WHERE a.path=c.path)
 )
 SELECT CAST(json_object(
  'taskId',t.id,'summary',coalesce(json_extract(t.snapshot,'$.summary'),''),
  'resourceId',coalesce(json_extract(t.snapshot,'$.resourceId'),''),'commit',t.result_commit,
  'published',json(CASE WHEN coalesce(json_extract(t.snapshot,'$.publishedCommit'),'')<>'' THEN 'true' ELSE 'false' END),
- 'filesLimited',json(CASE WHEN coalesce(json_array_length(r.snapshot,'$.files'),0)>20 THEN 'true' ELSE 'false' END),
- 'files',json((SELECT json_group_array(json_object('path',json_extract(f.value,'$.path'),'status',json_extract(f.value,'$.status')))
-  FROM (SELECT value FROM json_each(r.snapshot,'$.files') LIMIT 20) f))
+ 'filesLimited',json(CASE WHEN (SELECT count(*) FROM visible_files)>20 THEN 'true' ELSE 'false' END),
+ 'files',json((SELECT json_group_array(json_object('path',path,'status',status))
+  FROM (SELECT path,status FROM visible_files ORDER BY priority,path LIMIT 20)))
 ) AS TEXT) AS metadata
-FROM saved t LEFT JOIN runs r ON r.id=(
- SELECT id FROM runs WHERE json_extract(snapshot,'$.taskId')=t.id AND json_extract(snapshot,'$.resultCommit')=t.result_commit
- AND status='succeeded' ORDER BY created_at DESC,id DESC LIMIT 1
-);
+FROM result t;
 
 -- name: WorkItemsStatePage :many
 SELECT w.* FROM work_items w

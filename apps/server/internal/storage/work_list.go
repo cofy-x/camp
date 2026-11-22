@@ -28,6 +28,7 @@ type WorkListItem struct {
 	DueAt          string                         `json:"dueAt,omitempty"`
 	Question       string                         `json:"question,omitempty"`
 	QuestionKind   orchestration.WorkQuestionKind `json:"questionKind,omitempty"`
+	WorkRecovery   *orchestration.WorkRecovery    `json:"workRecovery,omitempty"`
 	ActiveTaskID   string                         `json:"activeTaskId,omitempty"`
 	Execution      *orchestration.WorkExecution   `json:"execution,omitempty"`
 	Result         *orchestration.WorkResult      `json:"result,omitempty"`
@@ -154,7 +155,7 @@ func (s *Store) ListWorkItems(ctx context.Context, options WorkListOptions) (out
 			if err = populateWorkView(ctx, q, &item); err != nil {
 				return err
 			}
-			out.Items = append(out.Items, WorkListItem{GitHubDelivery: item.GitHubDelivery, Seq: item.Seq, ID: item.ID, RoomID: item.RoomID, RoomName: row.RoomName, OwnerUserID: item.OwnerUserID, Goal: item.Goal, Status: item.Status, Revision: item.Revision, DueAt: item.DueAt, Question: item.Question, QuestionKind: item.QuestionKind, ActiveTaskID: item.ActiveTaskID, Execution: item.Execution, Result: item.Result, NeedsYou: row.NeedsYou == 1, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt})
+			out.Items = append(out.Items, WorkListItem{GitHubDelivery: item.GitHubDelivery, Seq: item.Seq, ID: item.ID, RoomID: item.RoomID, RoomName: row.RoomName, OwnerUserID: item.OwnerUserID, Goal: item.Goal, Status: item.Status, Revision: item.Revision, DueAt: item.DueAt, Question: item.Question, QuestionKind: item.QuestionKind, WorkRecovery: item.WorkRecovery, ActiveTaskID: item.ActiveTaskID, Execution: item.Execution, Result: item.Result, NeedsYou: row.NeedsYou == 1, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt})
 			encoded, err := json.Marshal(out)
 			if err != nil {
 				return err

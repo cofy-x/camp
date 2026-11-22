@@ -332,7 +332,7 @@ func TestWorkFlowReviewExplicitRunAddsContextWithoutAnotherAssessment(t *testing
 	assertScalar(t, s, "SELECT count(*) FROM collaboration_tasks", 0)
 }
 
-func TestWorkFlowReviewBlockedTimerRequiresJudgmentAndFreshHumanAnswer(t *testing.T) {
+func TestWorkFlowReviewBlockedTimerRequiresFreshAuthorizedFollowUp(t *testing.T) {
 	for _, change := range []string{"policy_off", "runner_revoked"} {
 		t.Run(change, func(t *testing.T) {
 			s, actor, _, room, writer, _ := taskFixture(t)
@@ -356,8 +356,8 @@ func TestWorkFlowReviewBlockedTimerRequiresJudgmentAndFreshHumanAnswer(t *testin
 				t.Fatal("lost origin authority spent a model allowance", c, err)
 			}
 			w, err = s.GetWorkItem(actor, w.ID)
-			if err != nil || w.Status != "needs_attention" || w.Question == "" {
-				t.Fatal("blocked timer stranded a matter without actionable judgment", w, err)
+			if err != nil || w.Status != "needs_attention" || w.Question != "" || w.WorkRecovery == nil || w.WorkRecovery.Kind != orchestration.WorkRecoveryReviewRule {
+				t.Fatal("blocked timer stranded a matter without a rule recovery", w, err)
 			}
 			assertScalar(t, s, "SELECT count(*) FROM automation_evaluations", 1)
 			if change == "policy_off" {
@@ -373,12 +373,14 @@ func TestWorkFlowReviewBlockedTimerRequiresJudgmentAndFreshHumanAnswer(t *testin
 			if c, err := s.ClaimAutomationEvaluation(ctx, "unused", roomBudget); err != nil || c != nil {
 				t.Fatal("restoring authority silently replayed blocked work", c, err)
 			}
-			w = decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{Kind: "answer", Reason: "The review is complete. Resume assessment under the current policy."})
+			originalEventID := w.Timers[0].EventID
+			w = decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{Kind: "wait", WaitCondition: "Check the recorded review under the current rule.", ResumeAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano)})
+			reviewFireWorkTimer(t, s, w)
 			c := claimAutomation(t, s)
-			if c.Events[0].Kind != "workitem.answer" || c.Events[0].ActorKind != "user" || c.Events[0].ActorID != actorID(actor) || c.Events[0].WorkItemID != w.ID {
-				t.Fatal("human answer lost its authenticated source proof", c)
+			if len(c.Events) != 1 || c.Events[0].Kind != "timer.fired" || c.Events[0].WorkItemID != w.ID || c.Events[0].ID == originalEventID {
+				t.Fatal("the fresh follow-up did not preserve the original as separate evidence", c)
 			}
-			if err := s.CompleteAutomationEvaluation(ctx, c.ID, orchestration.Assessment{Outcome: "complete", WorkItemID: w.ID, Reason: "The authenticated judgment and evidence satisfy the completion criteria."}); err != nil {
+			if err := s.CompleteAutomationEvaluation(ctx, c.ID, orchestration.Assessment{Outcome: "complete", WorkItemID: w.ID, Reason: "The recorded review satisfies the completion criteria."}); err != nil {
 				t.Fatal(err)
 			}
 			current, err := s.GetWorkItem(actor, w.ID)
@@ -415,9 +417,9 @@ func TestWorkFlowReviewTaskCancellationCannotResumeThroughWatchedBacklog(t *test
 	if err != nil || task.Status != "cancelled" {
 		t.Fatal(task, err)
 	}
-	w, err = s.GetWorkItem(actor, w.ID)
-	if err != nil || w.Status != "needs_attention" || w.ActiveTaskID != "" {
-		t.Fatal("task cancellation did not preserve a human decision boundary", w, err)
+	w = assertCurrentWorkRecovery(t, s, actor, w.ID, orchestration.WorkRecoveryReviewExecution)
+	if w.ActiveTaskID != "" || w.WorkRecovery.TaskID != task.ID {
+		t.Fatal("ended task recovery did not identify the exact retained session", w)
 	}
 	if c, err := s.ClaimAutomationEvaluation(ctx, "unused", roomBudget); err != nil || c != nil {
 		t.Fatal("cancelled task resumed from old source backlog", c, err)
@@ -538,7 +540,7 @@ func TestWorkFlowReviewDisabledOwningPolicyRetainsArrivalForHumanJudgment(t *tes
 	}
 	sendAutomationDiscussion(t, s, actor, room, "A review arrived after the owning delegation was disabled.")
 	w, err = s.GetWorkItem(actor, w.ID)
-	if err != nil || w.Status != "needs_attention" || w.Question == "" {
+	if err != nil || w.Status != "needs_attention" || w.Question != "" || w.WorkRecovery == nil || w.WorkRecovery.Kind != orchestration.WorkRecoveryReviewRule {
 		t.Fatal("disabled policy stranded watched evidence", w, err)
 	}
 	if c, err := s.ClaimAutomationEvaluation(ctx, "unused", roomBudget); err != nil || c != nil {

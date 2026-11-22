@@ -304,6 +304,27 @@ func (q *Queries) InsertWorkTimer(ctx context.Context, arg InsertWorkTimerParams
 	return err
 }
 
+const legacyWorkRecovery = `-- name: LegacyWorkRecovery :one
+SELECT d.value AS decision,CAST(coalesce(t.status,'') AS TEXT) AS task_status
+FROM work_item_decisions d
+LEFT JOIN work_item_tasks linked ON linked.work_item_id=d.work_item_id AND linked.task_id=json_extract(d.value,'$.taskId')
+LEFT JOIN collaboration_tasks t ON t.id=linked.task_id
+WHERE d.work_item_id=? AND json_extract(d.value,'$.kind') IN ('request_judgment','result','wait','execute','accept','complete','cancel','stop','answer','answer_continue','create','delegate')
+ORDER BY d.seq DESC LIMIT 1
+`
+
+type LegacyWorkRecoveryRow struct {
+	Decision   string
+	TaskStatus string
+}
+
+func (q *Queries) LegacyWorkRecovery(ctx context.Context, workItemID string) (LegacyWorkRecoveryRow, error) {
+	row := q.db.QueryRowContext(ctx, legacyWorkRecovery, workItemID)
+	var i LegacyWorkRecoveryRow
+	err := row.Scan(&i.Decision, &i.TaskStatus)
+	return i, err
+}
+
 const releaseWorkTaskReservation = `-- name: ReleaseWorkTaskReservation :execrows
 UPDATE work_item_tasks SET reservation_released=1 WHERE task_id=? AND reservation_released=0
 `

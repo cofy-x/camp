@@ -6,6 +6,8 @@ type WorkItem struct {
 	ProjectRevision          int64                  `json:"projectRevision,omitempty"`
 	GitHubDelivery           *GitHubDelivery        `json:"githubDelivery,omitempty"`
 	QuestionKind             WorkQuestionKind       `json:"questionKind,omitempty"`
+	WorkRecovery             *WorkRecovery          `json:"workRecovery,omitempty"`
+	RecoveryLimit            string                 `json:"-"`
 	StopRequested            bool                   `json:"stopRequested,omitempty"`
 	Execution                *WorkExecution         `json:"execution,omitempty"`
 	Result                   *WorkResult            `json:"result,omitempty"`
@@ -39,6 +41,27 @@ type WorkItem struct {
 	HistoryLimited           bool                   `json:"historyLimited,omitempty"`
 	CreatedAt                string                 `json:"createdAt"`
 	UpdatedAt                string                 `json:"updatedAt"`
+}
+
+type WorkRecoveryKind string
+
+const (
+	WorkRecoveryReviewRule         WorkRecoveryKind = "review_rule"
+	WorkRecoveryIncreaseAllowance  WorkRecoveryKind = "increase_allowance"
+	WorkRecoveryDailyLimit         WorkRecoveryKind = "daily_limit"
+	WorkRecoveryRenewAuthorization WorkRecoveryKind = "renew_authorization"
+	WorkRecoveryReviewActivity     WorkRecoveryKind = "review_activity"
+	WorkRecoveryReviewExecution    WorkRecoveryKind = "review_execution"
+	WorkRecoveryReminder           WorkRecoveryKind = "reminder"
+)
+
+// WorkRecovery describes the current operator action. Mutations still use the
+// owning Work, policy or execution command with its own revision and authority.
+type WorkRecovery struct {
+	Kind     WorkRecoveryKind `json:"kind"`
+	Message  string           `json:"message"`
+	TaskID   string           `json:"taskId,omitempty"`
+	SourceID string           `json:"sourceId,omitempty"`
 }
 
 // PendingWorkCompletion retains an accepted judgment while external receipts

@@ -121,6 +121,25 @@ func TestCapturedFilesRecoveryRejectsOlderFenceAndOtherTask(t *testing.T) {
 	requireCode(t, err, "revision_conflict")
 }
 
+func TestUnchangedCaptureKeepsTheExistingTaskBaseline(t *testing.T) {
+	s, admin, _, room, writer, reviewer := taskFixture(t)
+	task := startTask(t, s, admin, room, writer, reviewer)
+	run, paused := failedCapturedTaskRound(t, s, admin, task, strings.Repeat("b", 40), true)
+	// A captured archive can produce a distinct commit with the same tree.
+	if _, err := s.db.Exec(`UPDATE runs SET snapshot=json_set(snapshot,'$.files',json('[]')) WHERE id=?`, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if candidate, err := s.TaskRecoveryCandidate(admin, task.ID); err != nil || candidate != nil {
+		t.Fatal("an unchanged capture was advertised as saved work", candidate, err)
+	}
+	_, err := s.OperateTask(admin, task.ID, "continue", TaskOperation{RequestID: "unchanged-capture", Revision: paused.Revision, FromRunID: run.ID})
+	requireCode(t, err, "invalid_task_recovery")
+	continued, err := s.OperateTask(admin, task.ID, "continue", TaskOperation{RequestID: "continue-checkpoint", Revision: paused.Revision})
+	if err != nil || continued.CheckpointCommit != task.CheckpointCommit {
+		t.Fatal("continuation failed to keep the current task baseline", continued, err)
+	}
+}
+
 func TestCapturedFilesRecoveryRequiresCommittedCleanupAndCurrentAuthority(t *testing.T) {
 	t.Run("unconfirmed cleanup", func(t *testing.T) {
 		s, admin, _, room, writer, reviewer := taskFixture(t)

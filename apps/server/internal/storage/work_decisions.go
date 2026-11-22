@@ -248,22 +248,43 @@ func recordAssessmentAttention(ctx context.Context, q *sqlgen.Queries, c orchest
 				continue
 			}
 		}
-		if w.Status != "waiting_for_person" {
-			w.Status = "needs_attention"
-			w.Question = "Review the recorded event assessment: " + reason
-			w.QuestionKind = orchestration.WorkQuestionJudgment
+		needsRecovery := w.Status != "waiting_for_person" && (w.Status != "needs_attention" || (w.Question == "" && w.WorkRecovery == nil))
+		decisionKind := "superseded"
+		if needsRecovery {
+			decisionKind = "request_judgment"
+			limit := recoveryExecution
+			if w.Budget.MaxEvaluations <= w.Usage.Evaluations && !containsTargetedWorkEvent(c.Events, w.ID) {
+				// Only a targeted candidate charges its assessment before apply.
+				limit = recoveryEvaluations
+			} else if a.Outcome == "wait" {
+				limit = recoveryFollowUps
+			}
+			if e = markWorkFailure(ctx, q, &w, reason, limit); e != nil {
+				return e
+			}
 		}
-		if e = appendWorkDecision(ctx, q, w, orchestration.WorkDecision{Kind: "request_judgment", Reason: reason, ActorKind: "system", ActorID: "assessment", EvaluationID: c.ID, PolicyRevision: c.Policy.Revision, EvidenceIDs: ids}); e != nil {
+		if e = appendWorkDecision(ctx, q, w, orchestration.WorkDecision{Kind: decisionKind, Reason: reason, ActorKind: "system", ActorID: "assessment", EvaluationID: c.ID, PolicyRevision: c.Policy.Revision, EvidenceIDs: ids}); e != nil {
 			return e
 		}
-		if e = workNotice(ctx, q, &w, "work_item_attention", w.Question); e != nil {
-			return e
+		if needsRecovery {
+			if e = workNotice(ctx, q, &w, "work_item_attention", w.WorkRecovery.Message); e != nil {
+				return e
+			}
 		}
 		if e = saveWorkItem(ctx, q, &w); e != nil {
 			return e
 		}
 	}
 	return nil
+}
+
+func containsTargetedWorkEvent(events []orchestration.SourceEvent, workID string) bool {
+	for _, event := range events {
+		if event.WorkItemID == workID {
+			return true
+		}
+	}
+	return false
 }
 
 // A changed matter frontier can reflect ordinary new source evidence. Its new
