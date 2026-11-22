@@ -36,15 +36,16 @@ func (m *Manager) buildInput(ctx context.Context, run storage.Run, a storage.Att
 	if err != nil {
 		return PreparedInput{}, err
 	}
-	if model.ReasoningEffort != "" {
-		runner, err := m.store.GetRunner(ctx, run.RunnerID)
-		if err != nil {
-			return PreparedInput{}, err
-		}
-		var capabilities p.Capabilities
-		if json.Unmarshal(runner.Capabilities, &capabilities) != nil || capabilities.ReasoningEffortVersion != 1 {
-			return PreparedInput{}, problem("runner_unavailable", "Update the assigned Runner to use this reasoning setting.")
-		}
+	runner, err := m.store.GetRunner(ctx, run.RunnerID)
+	if err != nil {
+		return PreparedInput{}, err
+	}
+	var capabilities p.Capabilities
+	if err := json.Unmarshal(runner.Capabilities, &capabilities); err != nil {
+		return PreparedInput{}, err
+	}
+	if model.ReasoningEffort != "" && capabilities.ReasoningEffortVersion != 1 {
+		return PreparedInput{}, problem("runner_unavailable", "Update the assigned Runner to use this reasoning setting.")
 	}
 	if a.Preparation == nil {
 		return PreparedInput{}, problem("stale_attempt", "The Attempt has no frozen preparation context.")
@@ -118,6 +119,11 @@ func (m *Manager) buildInput(ctx context.Context, run storage.Run, a storage.Att
 
 	spec := &p.ExecutionSpec{Task: taskSpec, RunID: run.ID, AttemptID: a.ID, ResourceID: run.ResourceID, BaselineCommit: run.BaselineCommit, Fence: a.WriterFence, AgentName: run.AgentSnapshot.Name, Instructions: run.AgentSnapshot.Instructions, Access: run.AgentSnapshot.Access, Prompt: prompt, Request: run.Prompt, Environment: run.Environment, Model: run.Model, MaxTokens: run.MaxTokens, MaxSteps: run.MaxSteps, TimeoutSeconds: run.TimeoutSeconds, ConversationID: conv.ID, SessionID: conv.SessionID, Generation: conv.Generation, Resume: conv.Resumable, Project: project, References: references}
 	spec.ReasoningEffort = model.ReasoningEffort
+	// Earlier Runners hash the decoded command in their journal. Send the new
+	// field only when the Runner will retain it across durable replays.
+	if capabilities.RuntimeFenceVersion == 1 {
+		spec.RunnerFingerprint = capabilities.Fingerprint
+	}
 	return PreparedInput{spec: spec, inputPath: filepath.Join(dir, "project.tar"), conversation: conv}, nil
 }
 

@@ -245,6 +245,95 @@ func TestAcceptedCancellationDoesNotStartFixture(t *testing.T) {
 	}
 }
 
+func TestAcceptedRuntimeMismatchDoesNotStartExecutor(t *testing.T) {
+	ctx, stop := context.WithTimeout(context.Background(), 3*time.Second)
+	defer stop()
+	directory := t.TempDir()
+	j, err := openJournal(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.db.Close()
+	command := testCommand()
+	command.Spec.RunnerFingerprint = "previous-runtime"
+	command.Spec.Resume = true
+	if _, err := j.accept(ctx, command); err != nil {
+		t.Fatal(err)
+	}
+	d := &Daemon{config: Config{DataDir: directory, Executor: "fixture", Slots: 1}, journal: j,
+		grants: map[string]grant{command.OperationID: {until: time.Now().Add(time.Minute)}},
+		active: map[string]*activeOperation{}}
+	done := make(chan struct{})
+	go func() { d.schedule(ctx); close(done) }()
+	defer func() {
+		stop()
+		<-done
+		d.workers.Wait()
+	}()
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		ops, err := j.operations(ctx)
+		if err != nil || len(ops) != 1 {
+			t.Fatal("the accepted operation was lost", ops, err)
+		}
+		if result := ops[0].Result; result != nil {
+			if result.Status != "interrupted" || !result.CleanupConfirmed || !strings.Contains(result.Error, "runtime changed") {
+				t.Fatal("the changed runtime needs an interruption receipt", result)
+			}
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("the mismatched operation was not settled")
+		case <-ticker.C:
+		}
+	}
+	if _, err := os.Stat(filepath.Join(directory, "operations", command.OperationID)); !os.IsNotExist(err) {
+		t.Fatal("the executor opened a workspace before checking the runtime", err)
+	}
+}
+
+func TestRestartRetainsBoundCommandsAndSettlesUnboundResumes(t *testing.T) {
+	for _, test := range []struct {
+		name, fingerprint   string
+		resume, interrupted bool
+	}{
+		{name: "bound resume", fingerprint: "fixed-runtime", resume: true},
+		{name: "legacy new session"},
+		{name: "legacy resume", resume: true, interrupted: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			j, err := openJournal(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer j.db.Close()
+			command := testCommand()
+			command.Spec.RunnerFingerprint, command.Spec.Resume = test.fingerprint, test.resume
+			if _, err := j.accept(ctx, command); err != nil {
+				t.Fatal(err)
+			}
+			d := &Daemon{journal: j}
+			if err := d.recoverOperation(ctx, operation{Command: command, State: "accepted"}, true); err != nil {
+				t.Fatal(err)
+			}
+			ops, err := j.operations(ctx)
+			if err != nil || len(ops) != 1 {
+				t.Fatal(ops, err)
+			}
+			if test.interrupted {
+				if ops[0].State != "uploading" || ops[0].Result == nil || ops[0].Result.Status != "interrupted" {
+					t.Fatal("the unbound session resume survived restart", ops)
+				}
+			} else if ops[0].State != "accepted" || ops[0].Result != nil {
+				t.Fatal("the compatible start lost its accepted state", ops)
+			}
+		})
+	}
+}
+
 func TestReceiptAndSessionEligibilityCommitTogether(t *testing.T) {
 	ctx := context.Background()
 	directory := t.TempDir()

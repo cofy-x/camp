@@ -24,6 +24,7 @@ type Capabilities struct {
 	TaskInputsVersion         int              `json:"taskInputsVersion,omitempty"`
 	WorkItemCompletionVersion int              `json:"workItemCompletionVersion,omitempty"`
 	ReasoningEffortVersion    int              `json:"reasoningEffortVersion,omitempty"`
+	RuntimeFenceVersion       int              `json:"runtimeFenceVersion,omitempty"`
 	Storage                   *StorageHealth   `json:"storage,omitempty"`
 	Platform                  string           `json:"platform,omitempty"`
 	Workspace                 string           `json:"workspace,omitempty"`
@@ -121,6 +122,9 @@ type ExecutionSpec struct {
 	ModelToken      string          `json:"modelToken"`
 	Project         Artifact        `json:"project"`
 	References      *Artifact       `json:"references,omitempty"`
+
+	// Sent only when the Runner advertises runtime fence version 1.
+	RunnerFingerprint string `json:"runnerFingerprint,omitempty"`
 }
 type SourceCapture struct {
 	SourceID string `json:"sourceId"`

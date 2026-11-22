@@ -202,9 +202,28 @@ func createRunnerCommand(ctx context.Context, q *sqlgen.Queries, id, runnerID, o
 		ID          string `json:"id"`
 		OperationID string `json:"operationId"`
 		Kind        string `json:"kind"`
+		Spec        struct {
+			RunnerFingerprint string `json:"runnerFingerprint"`
+		} `json:"spec"`
 	}
 	if json.Unmarshal(payload, &identity) != nil || identity.ID != id || identity.OperationID != operationID || identity.Kind != kind {
 		return problem("invalid_command", "The command envelope does not match its durable identity.")
+	}
+	if kind == "run.start" && identity.Spec.RunnerFingerprint != "" {
+		runner, err := q.GetRunner(ctx, runnerID)
+		if err != nil {
+			return err
+		}
+		var capabilities struct {
+			Fingerprint         string `json:"fingerprint"`
+			RuntimeFenceVersion int    `json:"runtimeFenceVersion"`
+		}
+		if err := json.Unmarshal([]byte(runner.Capabilities), &capabilities); err != nil {
+			return err
+		}
+		if capabilities.Fingerprint != identity.Spec.RunnerFingerprint || capabilities.RuntimeFenceVersion != 1 {
+			return problem("stale_attempt", "The Runner runtime binding changed during preparation.")
+		}
 	}
 	hash := remoteHash(payload)
 	old, err := q.GetRunnerCommand(ctx, sqlgen.GetRunnerCommandParams{OperationID: operationID, Kind: kind})
@@ -262,11 +281,59 @@ func (s *Store) AcknowledgeRunnerCommand(ctx context.Context, runnerID, commandI
 	}
 	return err
 }
+
+const changedRuntimeBeforeExecution = "The Runner runtime changed after execution was prepared. This request was not replayed."
+
+func preparedRuntimeChanged(a Attempt, r Run, runner sqlgen.Runner) (bool, error) {
+	if a.Preparation == nil {
+		return false, nil
+	}
+	key, err := conversationRuntimeKeyForRunner(r, runner)
+	return key != a.Preparation.RuntimeKey, err
+}
+
+// The ready connection changes its capability identity in the same transaction
+// that retires commands it can no longer accept. An accepted command can have
+// a retained result so its terminal reconciliation remains available.
+func interruptPreparedRuntimeChanges(ctx context.Context, q *sqlgen.Queries, runner sqlgen.Runner) error {
+	rows, err := q.ListRunnerAttempts(ctx, runner.ID)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.Status != "dispatching" || row.PreparationContext == "" {
+			continue
+		}
+		a, err := attemptRow(ctx, q, row)
+		if err != nil {
+			return err
+		}
+		if len(a.Command) == 0 {
+			continue
+		}
+		r, err := getRun(ctx, q, a.RunID)
+		if err != nil {
+			return err
+		}
+		changed, err := preparedRuntimeChanged(a, r, runner)
+		if err != nil {
+			return err
+		}
+		if changed {
+			if _, err := interruptAttempt(ctx, q, a, changedRuntimeBeforeExecution); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func validateAttempt(ctx context.Context, q *sqlgen.Queries, a Attempt, runnerID string, allowCancelled bool) error {
 	if a.RunnerID != runnerID {
 		return problem("runner_mismatch", "This execution belongs to another runner.")
 	}
-	if _, err := availableRunner(ctx, q, runnerID); err != nil {
+	runner, err := availableRunner(ctx, q, runnerID)
+	if err != nil {
 		return err
 	}
 	if a.Phase == "finished" {
@@ -279,7 +346,6 @@ func validateAttempt(ctx context.Context, q *sqlgen.Queries, a Attempt, runnerID
 		return problem("run_cancelled", "Cancellation was requested before this operation.")
 	}
 	var r Run
-	var err error
 	if allowCancelled {
 		var raw string
 		raw, err = q.GetRunAttemptState(ctx, a.RunID)
@@ -294,6 +360,17 @@ func validateAttempt(ctx context.Context, q *sqlgen.Queries, a Attempt, runnerID
 	}
 	if r.AttemptID != a.ID || r.RunnerID != runnerID || runTerminal(r.Status) {
 		return problem("stale_attempt", "This execution attempt is no longer current.")
+	}
+	// A changed runtime cannot use a retained execution grant for more model
+	// or input work. Receipt paths keep their bounded, cleanup-only validation.
+	if a.Phase == "executing" && !allowCancelled {
+		changed, err := preparedRuntimeChanged(a, r, runner)
+		if err != nil {
+			return err
+		}
+		if changed {
+			return problem("stale_attempt", changedRuntimeBeforeExecution)
+		}
 	}
 	if !allowCancelled {
 		reason, err := completionCancellation(ctx, q, r)
@@ -731,28 +808,28 @@ func (s *Store) InterruptAttempt(ctx context.Context, id, reason string) (out Ru
 		if e != nil {
 			return e
 		}
-		r, e := getRun(ctx, q, a.RunID)
-		if e != nil {
-			return e
-		}
-		if a.Phase == "finished" {
-			out = r
-			return nil
-		}
-		r.Status = "interrupted"
-		r.Error = reason
-		out, e = finishRun(ctx, q, r, "", false)
-		if e != nil {
-			return e
-		}
-		receipt, _ := json.Marshal(map[string]string{"disposition": "rejected", "runId": r.ID, "status": "interrupted", "reason": reason})
-		if e = q.FinishAttempt(ctx, sqlgen.FinishAttemptParams{ID: id, Result: string(receipt), UpdatedAt: now()}); e != nil {
-			return e
-		}
-		if _, e = q.ReleaseResourceLease(ctx, sqlgen.ReleaseResourceLeaseParams{ResourceID: r.ResourceID, Owner: id, Fence: a.WriterFence}); e != nil {
-			return e
-		}
-		return q.AcknowledgeOperationCommands(ctx, id)
+		out, e = interruptAttempt(ctx, q, a, reason)
+		return e
 	})
 	return
+}
+
+func interruptAttempt(ctx context.Context, q *sqlgen.Queries, a Attempt, reason string) (Run, error) {
+	r, err := getRun(ctx, q, a.RunID)
+	if err != nil || a.Phase == "finished" {
+		return r, err
+	}
+	r.Status, r.Error = "interrupted", reason
+	out, err := finishRun(ctx, q, r, "", false)
+	if err != nil {
+		return out, err
+	}
+	receipt, _ := json.Marshal(map[string]string{"disposition": "rejected", "runId": r.ID, "status": "interrupted", "reason": reason})
+	if err = q.FinishAttempt(ctx, sqlgen.FinishAttemptParams{ID: a.ID, Result: string(receipt), UpdatedAt: now()}); err != nil {
+		return out, err
+	}
+	if _, err = q.ReleaseResourceLease(ctx, sqlgen.ReleaseResourceLeaseParams{ResourceID: r.ResourceID, Owner: a.ID, Fence: a.WriterFence}); err != nil {
+		return out, err
+	}
+	return out, q.AcknowledgeOperationCommands(ctx, a.ID)
 }
