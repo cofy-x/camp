@@ -29,6 +29,7 @@ export function useWorkAction({
   operation,
   view,
   managementSection,
+  recoveryActive,
   readOnly,
 }: {
   item: WorkItem;
@@ -41,6 +42,7 @@ export function useWorkAction({
   operation: WorkOperation;
   view: string;
   managementSection: string;
+  recoveryActive: boolean;
   readOnly: boolean;
 }) {
   const { user } = useAccount();
@@ -76,7 +78,9 @@ export function useWorkAction({
       : view === 'overview'
         ? hasQuestion && !completionQuestion
           ? 'answer'
-          : values.section || workManagementForIntent(savedIntent)
+          : recoveryActive ||
+              values.section ||
+              workManagementForIntent(savedIntent)
             ? ''
             : savedIntent
         : '';

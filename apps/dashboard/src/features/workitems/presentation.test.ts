@@ -3,6 +3,7 @@ import {
   workItemExecutionError,
   workItemOverviewFallback,
   workItemQuestion,
+  workItemRecovery,
   workItemStatus,
 } from './presentation';
 
@@ -314,6 +315,61 @@ describe('current execution error', () => {
     { status: 'running', activeTaskId: 'newer-task' },
   ])('keeps historical errors out of the current overview: %j', (change) => {
     expect(workItemExecutionError({ ...interrupted, ...change })).toBe('');
+  });
+});
+
+describe('current Work recovery', () => {
+  const blocked = {
+    ...ready,
+    status: 'needs_attention',
+    workRecovery: {
+      kind: 'increase_allowance' as const,
+      message: 'This Work reached its assessment allowance.',
+    },
+  };
+
+  it('uses the matching recovery only while it owns the next step', () => {
+    expect(workItemRecovery(blocked)).toEqual(blocked.workRecovery);
+    expect(
+      workItemRecovery({ ...blocked, status: 'completed' }),
+    ).toBeUndefined();
+    expect(
+      workItemRecovery({ ...blocked, question: 'Which customer?' }),
+    ).toBeUndefined();
+    expect(
+      workItemRecovery({
+        ...blocked,
+        activeTaskId: 'latest-task',
+        execution: {
+          ...ready.execution!,
+          status: 'waiting_for_person',
+          question: {
+            id: 'q',
+            text: 'Which customer?',
+            options: [],
+            answer: '',
+          },
+        },
+      }),
+    ).toBeUndefined();
+    expect(
+      workItemRecovery({
+        ...blocked,
+        githubDelivery: {
+          id: 'delivery',
+          revision: 1,
+          repository: 'example/notes',
+          spec: {
+            connectionId: 'source',
+            connectionRevision: 1,
+            baseBranch: 'main',
+            mode: 'pr',
+          },
+          stage: 'checks',
+          status: 'blocked',
+        },
+      }),
+    ).toBeUndefined();
   });
 });
 

@@ -62,6 +62,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
     'settings',
   );
   const [managementRequest, setManagementRequest] = useState(0);
+  const [managementSource, setManagementSource] = useState<string>();
   const [memoryMessage, setMemoryMessage] = useState<Message>();
   const [memoryRequest, setMemoryRequest] = useState(0);
   const [sourceId, setSourceId] = useState('');
@@ -129,7 +130,14 @@ export function Workspace({ window, desktop }: AppWindowProps) {
     const teamRequest = team.getNavigationRevision();
     if (intent.app && intent.app !== 'workspace') return;
     workspace.selectConversation(intent.roomId, intent.threadId);
-    setPanel(intent.taskId ? 'tasks' : intent.reviewId ? 'reviews' : 'chat');
+    if (intent.ruleSourceId) {
+      setManagementView('settings');
+      setManagementSource(intent.ruleSourceId);
+      setManagementRequest((value) => value + 1);
+      setPanel('automation');
+    } else {
+      setPanel(intent.taskId ? 'tasks' : intent.reviewId ? 'reviews' : 'chat');
+    }
     setTaskId(intent.taskId ?? '');
     setReviewId(intent.reviewId ?? '');
     setInspect(intent.taskId ? '' : (intent.runId ?? ''));
@@ -297,6 +305,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
           action: () =>
             void navigate(() => {
               setManagementView('settings');
+              setManagementSource(undefined);
               setManagementRequest((value) => value + 1);
               setPanel('automation');
               setInspect('');
@@ -308,6 +317,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
           action: () =>
             void navigate(() => {
               setManagementView('activity');
+              setManagementSource(undefined);
               setManagementRequest((value) => value + 1);
               setPanel('automation');
               setInspect('');
@@ -796,6 +806,7 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 availability={workspace.status ?? undefined}
                 initialView={managementView}
                 initialRequest={managementRequest}
+                initialRuleSource={managementSource}
                 onTrackEvent={(event) => openWork('', event)}
                 onOpenWorkItem={(id) => openWork(id)}
                 onOpenTask={(id) =>

@@ -10,7 +10,11 @@ import { WorkItemForm } from './WorkItemForm';
 import { TaskDetail } from '../collaboration/TaskDetail';
 import { RunInspector } from '../workspace/RunInspector';
 import { useWorkController, type WorkView } from './useWorkController';
-import { workItemQuestion, workItemStatus } from './presentation';
+import {
+  workItemQuestion,
+  workItemRecovery,
+  workItemStatus,
+} from './presentation';
 import { AttentionList } from '../attention/AttentionList';
 import './workitems.css';
 
@@ -154,7 +158,9 @@ export function Work(props: AppWindowProps) {
                     >
                       <span className="work-item-row-title">{item.goal}</span>
                       <span>
-                        {workItemQuestion(item)?.text || workItemStatus(item)}
+                        {workItemQuestion(item)?.text ||
+                          workItemRecovery(item)?.message ||
+                          workItemStatus(item)}
                       </span>
                       {(!work.roomFilter || item.dueAt) && (
                         <small className="work-item-row-context">
@@ -251,6 +257,12 @@ export function Work(props: AppWindowProps) {
                   onOpenTask={work.openTask}
                   onViewProgress={work.viewProgress}
                   onOpenRoom={openRoom}
+                  onReviewRule={(sourceId) =>
+                    void work.team.navigate({
+                      roomId: selection.roomId,
+                      ruleSourceId: sourceId ?? 'room',
+                    })
+                  }
                   onProjectSettings={work.projectSettings}
                 />
               )}

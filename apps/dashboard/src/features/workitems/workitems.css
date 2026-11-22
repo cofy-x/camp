@@ -120,6 +120,9 @@
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
   gap: 10px;
 }
+.work-item-model-limit {
+  max-inline-size: 180px;
+}
 .work-item-limit {
   display: grid;
   align-content: start;

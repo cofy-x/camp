@@ -1,9 +1,9 @@
-import { useEffect, useId } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
 import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
 import { WorkBudgetEditor } from './WorkBudgetEditor';
-import { localDateTime, utcDateTime } from './workSettings';
+import { localDateTime, utcDateTime, workBudgetLimits } from './workSettings';
 import type { WorkOperation } from './useWorkItemOperation';
 import { confirmedWorkAction } from './workRequestRecovery';
 import type { WorkBudget, WorkItem } from './api';
@@ -22,6 +22,7 @@ export function WorkItemAllowance({
   operation,
   onRecoveryChange,
   onDraftChange,
+  modelRequestsOnly,
   readOnly,
   contextReady,
 }: {
@@ -29,6 +30,7 @@ export function WorkItemAllowance({
   operation: WorkOperation;
   onRecoveryChange: (problem: string) => void;
   onDraftChange: (hasDraft: boolean) => void;
+  modelRequestsOnly: boolean;
   readOnly: boolean;
   contextReady: boolean;
 }) {
@@ -47,6 +49,17 @@ export function WorkItemAllowance({
     reason: '',
   };
   const localExpiry = values.expiresAt ?? values.deadline ?? '';
+  // An earlier draft may contain edits made in the full allowance form.
+  // Keep those fields visible so a focused submission cannot conceal changes.
+  const hasOtherEdits = workBudgetLimits.some(
+    ({ key }) =>
+      key !== 'maxModelRequests' && values.budget[key] !== item.budget[key],
+  );
+  const [fullDraft, setFullDraft] = useState(false);
+  useEffect(() => {
+    if (!modelRequestsOnly) setFullDraft(false);
+    else if (hasOtherEdits) setFullDraft(true);
+  }, [modelRequestsOnly, hasOtherEdits]);
   const expiryEdited =
     values.deadlineEdited && localExpiry !== currentLocalExpiry;
   const disabled =
@@ -109,6 +122,9 @@ export function WorkItemAllowance({
               value={values.budget}
               onChange={(budget) => edit({ budget })}
               current={item}
+              modelRequestsOnly={
+                modelRequestsOnly && !fullDraft && !hasOtherEdits
+              }
             />
             <div className="work-item-limit">
               <label htmlFor={expiryId}>Authorization expires</label>

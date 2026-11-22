@@ -1,5 +1,5 @@
 import { GitHubDeliveryStatus } from '../github-delivery/GitHubDeliveryStatus';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, type DesktopAPI, type MenuItem } from '@cofy-x/camp-platinum';
 import { useAccount } from '../../team/AuthContext';
 import { useRead } from '../../shared/reads/useRead';
@@ -18,6 +18,7 @@ import {
   workItemExecutionError,
   workItemOverviewFallback,
   workItemQuestion,
+  workItemRecovery,
   workItemStatus,
 } from './presentation';
 
@@ -39,6 +40,7 @@ export function WorkItemDetail({
   onOpenTask,
   onViewProgress,
   onOpenRoom,
+  onReviewRule,
   onProjectSettings,
 }: {
   id: string;
@@ -54,6 +56,7 @@ export function WorkItemDetail({
   onOpenTask: (id: string) => void;
   onViewProgress?: (taskId: string, runId: string) => void;
   onOpenRoom?: () => void;
+  onReviewRule: (sourceId?: string) => void;
   onProjectSettings?: () => void;
 }) {
   const { user } = useAccount();
@@ -67,6 +70,7 @@ export function WorkItemDetail({
   // revision merge below must respect that even with a retained receipt.
   const item = error && !itemRead.data ? null : acceptedItem;
   const [retry, setRetry] = useState(0);
+  const backButton = useRef<HTMLButtonElement>(null);
   const [viewSelection, setViewSelection] = useState({
     request: initialRequest,
     view: 'overview',
@@ -88,15 +92,22 @@ export function WorkItemDetail({
 
   function saved(next: WorkItem, request: Pending) {
     const action = confirmedWorkAction(request);
+    const allowanceRestored =
+      view === 'manage' &&
+      ['allowance', 'model-allowance'].includes(managementSection) &&
+      ((recovery &&
+        (recovery.kind === 'increase_allowance' ||
+          recovery.kind === 'renew_authorization') &&
+        next.workRecovery?.kind !== recovery.kind) ||
+        (pausedTaskId &&
+          next.activeTaskId === pausedTaskId &&
+          next.budget.maxModelRequests > next.usage.reservedModelRequests));
     if (
       action &&
       action !== 'unfollow' &&
       action !== 'retry_delivery' &&
       action !== 'repair_delivery' &&
-      (action !== 'authorize' ||
-        (pausedTaskId &&
-          next.activeTaskId === pausedTaskId &&
-          next.budget.maxModelRequests > next.usage.reservedModelRequests))
+      (action !== 'authorize' || allowanceRestored)
     )
       setView('overview');
     setAcceptedItem((current) =>
@@ -123,6 +134,7 @@ export function WorkItemDetail({
   const selectedView =
     (!editable || closing) && view === 'manage' ? 'overview' : view;
   const question = item && workItemQuestion(item);
+  const recovery = item && workItemRecovery(item);
   const executionError = item && workItemExecutionError(item);
   const summary = item?.execution?.summary;
   const displayStatus = item ? workItemStatus(item, false) : '';
@@ -133,7 +145,8 @@ export function WorkItemDetail({
     item.githubDelivery?.status === 'blocked' &&
     Boolean(item.githubDelivery.reason) &&
     ['checks', 'review', 'deployment'].includes(item.githubDelivery.stage);
-  const showStatus = !question && !inspectDelivery;
+  const showStatus =
+    !question && !inspectDelivery && !(recovery && selectedView === 'overview');
   const due = item?.dueAt
     ? `Due ${item.dueAt.length === 10 ? item.dueAt : new Date(item.dueAt).toLocaleDateString()}`
     : '';
@@ -173,6 +186,68 @@ export function WorkItemDetail({
     setViewSelection({ request: initialRequest, view: 'manage', section });
   }
 
+  function openRecoveryView(next: () => void) {
+    next();
+    backButton.current?.focus({ preventScroll: true });
+  }
+
+  function recoveryAction() {
+    switch (recovery?.kind) {
+      case 'review_rule':
+      case 'daily_limit':
+        return {
+          label: 'Review rule…',
+          open: () => onReviewRule(recovery.sourceId),
+        };
+      case 'increase_allowance':
+      case 'renew_authorization':
+        if (editable)
+          return {
+            label:
+              recovery.kind === 'renew_authorization'
+                ? 'Review authorization…'
+                : 'Increase allowance…',
+            open: () =>
+              openRecoveryView(() =>
+                manage(workAllowanceUsed ? 'model-allowance' : 'allowance'),
+              ),
+          };
+        return;
+      case 'review_execution':
+        if (recovery.taskId && recovery.taskId === execution?.taskId) {
+          const taskId = recovery.taskId;
+          return {
+            label:
+              editable && taskId === pausedTaskId
+                ? 'Review and continue…'
+                : 'Review execution',
+            open: () => onOpenTask(taskId),
+          };
+        }
+        return {
+          label: 'View activity',
+          open: () => openRecoveryView(() => setView('activity')),
+        };
+      case 'review_activity':
+        return {
+          label: 'View activity',
+          open: () => openRecoveryView(() => setView('activity')),
+        };
+      case 'reminder':
+        if (editable && !item?.result)
+          return {
+            label: 'Start work…',
+            open: () => openRecoveryView(() => manage('start')),
+          };
+        return {
+          label: 'View activity',
+          open: () => openRecoveryView(() => setView('activity')),
+        };
+    }
+  }
+
+  const recoveryControl = recoveryAction();
+
   function more(button: HTMLButtonElement) {
     const items: MenuItem[] = [];
     if (editable && !closing) {
@@ -211,6 +286,8 @@ export function WorkItemDetail({
       );
     }
     if (editable && !closing && item && !item.activeTaskId) {
+      if (recovery && !item.result && recoveryControl?.label !== 'Start work…')
+        items.push({ label: 'Start work…', action: () => manage('start') });
       if (item.result && question?.kind !== 'completion')
         items.push({
           label: 'Request changes…',
@@ -270,6 +347,7 @@ export function WorkItemDetail({
     <section aria-label="Work item detail" className="work-item-detail">
       <div className="workspace-panel-heading">
         <Button
+          ref={backButton}
           onClick={
             selectedView === 'overview' ? onBack : () => setView('overview')
           }
@@ -278,9 +356,13 @@ export function WorkItemDetail({
         </Button>
         {item && (
           <div className="app-actions">
-            {selectedView !== 'activity' && (
-              <Button onClick={() => setView('activity')}>Activity</Button>
-            )}
+            {selectedView !== 'activity' &&
+              !(
+                selectedView === 'overview' &&
+                recoveryControl?.label === 'View activity'
+              ) && (
+                <Button onClick={() => setView('activity')}>Activity</Button>
+              )}
             <Button
               aria-haspopup="menu"
               aria-label="More work actions"
@@ -344,18 +426,37 @@ export function WorkItemDetail({
                   Stopping the current work. Future follow-ups are disabled.
                 </p>
               )}
-              {executionError && (
+              {recovery && (
+                <div className="work-item-overview-record">
+                  <p
+                    role="status"
+                    className={
+                      recovery.kind === 'reminder' ? undefined : 'app-error'
+                    }
+                  >
+                    {recovery.message}
+                  </p>
+                  {recoveryControl && (
+                    <div className="app-actions">
+                      <Button primary onClick={recoveryControl.open}>
+                        {recoveryControl.label}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {!recovery && executionError && (
                 <p className="app-error" role="alert">
                   {executionError}
                 </p>
               )}
-              {editable && pausedTaskId && (
+              {!recovery && editable && pausedTaskId && (
                 <div className="app-actions">
                   <Button
                     primary
                     onClick={() =>
                       workAllowanceUsed
-                        ? manage('allowance')
+                        ? openRecoveryView(() => manage('model-allowance'))
                         : onOpenTask(pausedTaskId)
                     }
                   >
@@ -406,7 +507,7 @@ export function WorkItemDetail({
               {(!question || question.kind === 'completion') &&
                 !earlierResult && <WorkItemResult item={item} />}
               {question && !editable && <p>{question.text}</p>}
-              {overviewFallback && (
+              {!recovery && overviewFallback && (
                 <div className="work-item-overview-record">
                   <p>
                     {overviewFallback.label}
@@ -437,6 +538,7 @@ export function WorkItemDetail({
               onViewChange={setView}
               managementSection={managementSection}
               onManage={manage}
+              recoveryActive={Boolean(recovery)}
               readOnly={!editable || Boolean(closing)}
             />
             <div

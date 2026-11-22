@@ -43,6 +43,7 @@ export function workSectionIntent(
     stop: 'stop',
     reply: 'answer',
     continue: 'answer_continue',
+    start: 'start',
     changes: 'start',
     complete: 'complete',
     completion: 'completion',

@@ -12,6 +12,20 @@ export interface WorkBudget {
   maxFollowUps: number;
 }
 
+export interface WorkRecovery {
+  kind:
+    | 'review_rule'
+    | 'increase_allowance'
+    | 'daily_limit'
+    | 'renew_authorization'
+    | 'review_activity'
+    | 'review_execution'
+    | 'reminder';
+  message: string;
+  sourceId?: string;
+  taskId?: string;
+}
+
 export interface WorkItem {
   projectRevision?: number;
   githubDelivery?: GitHubDelivery;
@@ -24,6 +38,7 @@ export interface WorkItem {
   completionCriteria: string;
   completionMode?: 'automatic' | 'human' | 'criteria';
   status: string;
+  workRecovery?: WorkRecovery;
   revision: number;
   activeTaskId?: string;
   question?: string;
@@ -232,6 +247,7 @@ export interface WorkItemOperation {
 export type WorkListItem = Pick<
   WorkItem,
   | 'githubDelivery'
+  | 'workRecovery'
   | 'seq'
   | 'id'
   | 'roomId'

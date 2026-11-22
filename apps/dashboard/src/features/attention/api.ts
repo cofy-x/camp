@@ -1,4 +1,5 @@
 import { request } from '../../shared/api/http';
+import type { WorkRecovery } from '../workitems/api';
 
 export type AttentionKind = 'judgment' | 'review' | 'exception';
 
@@ -12,6 +13,7 @@ export interface AttentionItem {
   roomName: string;
   status: string;
   reason: string;
+  workRecovery?: WorkRecovery;
   priority: number;
   createdAt: string;
   updatedAt: string;

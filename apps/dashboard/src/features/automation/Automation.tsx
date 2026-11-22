@@ -459,6 +459,7 @@ export function Automation({
   availability,
   initialView = 'settings',
   initialRequest,
+  initialRuleSource,
   onTrackEvent,
   onOpenWorkItem,
 }: {
@@ -469,6 +470,7 @@ export function Automation({
   availability?: Pick<WorkspaceStatus, 'available' | 'reason'>;
   initialView?: 'settings' | 'activity';
   initialRequest?: number;
+  initialRuleSource?: string;
   onTrackEvent: (event: SourceEvent) => void;
   onOpenWorkItem: (id: string) => void;
 }) {
@@ -478,7 +480,10 @@ export function Automation({
   );
   const sources = sourcesRead.data?.sources ?? [];
   const [policies, setPolicies] = useState<AutomationPolicy[]>([]);
-  const [sourceId, setSourceId] = useState('room');
+  const [selectedSource, setSourceId] = useState(initialRuleSource ?? 'room');
+  const sourceId = sources.some((source) => source.id === selectedSource)
+    ? selectedSource
+    : 'room';
   const [activitySource, setActivitySource] = useState('');
   const [view, setView] = useState<string>(initialView);
   const [settingsVisited, setSettingsVisited] = useState(
@@ -486,10 +491,16 @@ export function Automation({
   );
   const [githubSelection, setGitHubSelection] = useState<string | null>(null);
   const navigation = useRef(0);
+  const backButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
+    navigation.current++;
     setView(initialView);
     if (initialView === 'settings') setSettingsVisited(true);
-  }, [initialView, initialRequest]);
+    if (initialRuleSource) {
+      setSourceId(initialRuleSource);
+      backButton.current?.focus({ preventScroll: true });
+    }
+  }, [initialView, initialRequest, initialRuleSource]);
   useEffect(
     () => () => {
       navigation.current++;
@@ -504,11 +515,11 @@ export function Automation({
     });
   }
 
-  const [ready, setReady] = useState(false);
   const policiesRead = useRead<{ policies: AutomationPolicy[] }>(
     `/rooms/${encodeURIComponent(room.id)}/automation-policies`,
     { enabled: settingsVisited },
   );
+  const ready = Boolean(policiesRead.data && sourcesRead.data);
   const error = policiesRead.error || sourcesRead.error;
   useEffect(() => {
     if (!policiesRead.data) return;
@@ -522,9 +533,6 @@ export function Automation({
       return [...merged.values()];
     });
   }, [policiesRead.data]);
-  useEffect(() => {
-    if (policiesRead.data && sourcesRead.data) setReady(true);
-  }, [policiesRead.data, sourcesRead.data]);
 
   function refreshPolicies() {
     void policiesRead.refresh();
@@ -582,7 +590,9 @@ export function Automation({
       aria-label="Room management"
     >
       <div className="workspace-panel-heading">
-        <Button onClick={onClose}>Back to Discussion</Button>
+        <Button ref={backButton} onClick={onClose}>
+          Back to Discussion
+        </Button>
       </div>
       {error && (
         <p className="app-error" role="alert">

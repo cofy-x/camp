@@ -7,11 +7,13 @@ export function WorkBudgetEditor({
   onChange,
   label = 'Total allowance',
   current,
+  modelRequestsOnly = false,
 }: {
   value: WorkBudget;
   onChange: (value: WorkBudget) => void;
   label?: string;
   current?: Pick<WorkItem, 'budget' | 'usage'>;
+  modelRequestsOnly?: boolean;
 }) {
   const groupId = useId();
   const used = current && {
@@ -24,12 +26,17 @@ export function WorkBudgetEditor({
   const reserved = current
     ? current.usage.reservedModelRequests - current.usage.modelRequests
     : 0;
+  const limits = modelRequestsOnly
+    ? workBudgetLimits.filter(({ key }) => key === 'maxModelRequests')
+    : workBudgetLimits;
 
   return (
-    <fieldset>
-      {label && <legend>{label}</legend>}
+    <fieldset
+      className={modelRequestsOnly ? 'work-item-model-limit' : undefined}
+    >
+      {label && !modelRequestsOnly && <legend>{label}</legend>}
       <div className="work-item-limits">
-        {workBudgetLimits.map(({ key, label, max }) => {
+        {limits.map(({ key, label, max }) => {
           const id = `${groupId}-${key}`;
           const description = [
             used?.[key] ? `${used[key]} used` : null,

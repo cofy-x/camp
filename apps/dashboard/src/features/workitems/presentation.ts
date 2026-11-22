@@ -84,6 +84,18 @@ export function workDeliveryActive(item: Pick<WorkItem, 'githubDelivery'>) {
   );
 }
 
+export function workItemRecovery(
+  item: WorkQuestionSource & Pick<WorkItem, 'workRecovery' | 'githubDelivery'>,
+) {
+  if (
+    item.workRecovery &&
+    !['completed', 'cancelled', 'stopping'].includes(item.status) &&
+    !workItemQuestion(item) &&
+    !workDeliveryActive(item)
+  )
+    return item.workRecovery;
+}
+
 export function workItemStatus(item: PresentedWork, delivery = true) {
   if (delivery && item.githubDelivery?.reconcile)
     return 'Delivery not confirmed';
