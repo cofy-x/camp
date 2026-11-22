@@ -34,7 +34,10 @@ export function WorkItemAllowance({
   readOnly: boolean;
   contextReady: boolean;
 }) {
-  const expiryId = useId();
+  const fieldId = useId();
+  const expiryId = `${fieldId}-expiry`;
+  const noteId = `${fieldId}-note`;
+  const resumeHintId = `${fieldId}-resume`;
   const draft = usePrivateDraft<AllowanceDraft | null>(
     'conversation',
     `work-item-allowance:${item.id}`,
@@ -49,17 +52,19 @@ export function WorkItemAllowance({
     reason: '',
   };
   const localExpiry = values.expiresAt ?? values.deadline ?? '';
-  // An earlier draft may contain edits made in the full allowance form.
-  // Keep those fields visible so a focused submission cannot conceal changes.
-  const hasOtherEdits = workBudgetLimits.some(
-    ({ key }) =>
-      key !== 'maxModelRequests' && values.budget[key] !== item.budget[key],
-  );
+  // Keep every edited field visible when resuming a draft in the quick form.
+  const hasOtherEdits =
+    Boolean(values.reason) ||
+    workBudgetLimits.some(
+      ({ key }) =>
+        key !== 'maxModelRequests' && values.budget[key] !== item.budget[key],
+    );
   const [fullDraft, setFullDraft] = useState(false);
   useEffect(() => {
     if (!modelRequestsOnly) setFullDraft(false);
     else if (hasOtherEdits) setFullDraft(true);
   }, [modelRequestsOnly, hasOtherEdits]);
+  const focused = modelRequestsOnly && !fullDraft && !hasOtherEdits;
   const expiryEdited =
     values.deadlineEdited && localExpiry !== currentLocalExpiry;
   const disabled =
@@ -117,14 +122,15 @@ export function WorkItemAllowance({
               </Button>
             </p>
           )}
-          <fieldset disabled={disabled}>
+          <fieldset
+            className={focused ? 'work-allowance-limits' : undefined}
+            disabled={disabled}
+          >
             <WorkBudgetEditor
               value={values.budget}
               onChange={(budget) => edit({ budget })}
               current={item}
-              modelRequestsOnly={
-                modelRequestsOnly && !fullDraft && !hasOtherEdits
-              }
+              modelRequestsOnly={focused}
             />
             <div className="work-item-limit">
               <label htmlFor={expiryId}>Authorization expires</label>
@@ -147,21 +153,31 @@ export function WorkItemAllowance({
                 </small>
               )}
             </div>
-            <label>
-              Note (optional)
-              <textarea
-                className="p9-field"
-                rows={2}
-                value={values.reason ?? ''}
-                onChange={(event) => edit({ reason: event.target.value })}
-              />
-            </label>
+            {!focused && (
+              <div className="work-item-limit">
+                <label htmlFor={noteId}>Note (optional)</label>
+                <textarea
+                  id={noteId}
+                  className="p9-field"
+                  rows={2}
+                  value={values.reason ?? ''}
+                  onChange={(event) => edit({ reason: event.target.value })}
+                />
+              </div>
+            )}
           </fieldset>
-          <p>Saving changes the limits. Continue work separately.</p>
           <div className="app-actions">
-            <Button primary type="submit" disabled={disabled || stale}>
+            <Button
+              primary
+              type="submit"
+              aria-describedby={modelRequestsOnly ? resumeHintId : undefined}
+              disabled={disabled || stale}
+            >
               Save allowance
             </Button>
+            {modelRequestsOnly && (
+              <p id={resumeHintId}>Continue work after saving.</p>
+            )}
           </div>
         </form>
       </section>

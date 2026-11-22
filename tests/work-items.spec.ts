@@ -2182,6 +2182,13 @@ test('open Work offers live allowance recovery @work-loop', async ({
   await expect(modelRequests).toHaveAccessibleDescription('24 used');
   await expect(allowance.getByRole('spinbutton')).toHaveCount(1);
   await expect(allowance.getByLabel('Authorization expires')).toBeVisible();
+  const allowanceNote = allowance.getByLabel('Note (optional)', {
+    exact: true,
+  });
+  await expect(allowanceNote).toHaveCount(0);
+  await expect(
+    allowance.getByRole('button', { name: 'Save allowance', exact: true }),
+  ).toHaveAccessibleDescription('Continue work after saving.');
   await capture(page, 'allowance-editor');
   await openWorkAction(page, 'Allowance and access…');
   const assessments = allowance.getByRole('spinbutton', {
@@ -2189,6 +2196,17 @@ test('open Work offers live allowance recovery @work-loop', async ({
     exact: true,
   });
   await expect(allowance.getByRole('spinbutton')).toHaveCount(5);
+  await allowanceNote.fill(
+    'Finish the saved proposal before requesting review.',
+  );
+  await detail(page)
+    .getByRole('button', { name: 'Back to item', exact: true })
+    .click();
+  await increase.press('Enter');
+  await expect(allowanceNote).toHaveValue(
+    'Finish the saved proposal before requesting review.',
+  );
+  await allowanceNote.clear();
   await assessments.fill('13');
   await detail(page)
     .getByRole('button', { name: 'Back to item', exact: true })

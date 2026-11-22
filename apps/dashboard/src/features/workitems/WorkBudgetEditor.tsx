@@ -29,11 +29,10 @@ export function WorkBudgetEditor({
   const limits = modelRequestsOnly
     ? workBudgetLimits.filter(({ key }) => key === 'maxModelRequests')
     : workBudgetLimits;
+  const Group = modelRequestsOnly ? 'div' : 'fieldset';
 
   return (
-    <fieldset
-      className={modelRequestsOnly ? 'work-item-model-limit' : undefined}
-    >
+    <Group>
       {label && !modelRequestsOnly && <legend>{label}</legend>}
       <div className="work-item-limits">
         {limits.map(({ key, label, max }) => {
@@ -70,6 +69,6 @@ export function WorkBudgetEditor({
           );
         })}
       </div>
-    </fieldset>
+    </Group>
   );
 }

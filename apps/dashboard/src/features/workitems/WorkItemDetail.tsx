@@ -192,7 +192,19 @@ export function WorkItemDetail({
   }
 
   function recoveryAction() {
-    switch (recovery?.kind) {
+    if (!recovery) {
+      if (!editable || !pausedTaskId) return;
+      return {
+        label: workAllowanceUsed
+          ? 'Increase allowance…'
+          : 'Review and continue…',
+        open: () =>
+          workAllowanceUsed
+            ? openRecoveryView(() => manage('model-allowance'))
+            : onOpenTask(pausedTaskId),
+      };
+    }
+    switch (recovery.kind) {
       case 'review_rule':
       case 'daily_limit':
         return {
@@ -246,6 +258,7 @@ export function WorkItemDetail({
     }
   }
 
+  const recoveryMessage = recovery?.message ?? executionError;
   const recoveryControl = recoveryAction();
 
   function more(button: HTMLButtonElement) {
@@ -426,44 +439,24 @@ export function WorkItemDetail({
                   Stopping the current work. Future follow-ups are disabled.
                 </p>
               )}
-              {recovery && (
-                <div className="work-item-overview-record">
-                  <p
-                    role="status"
-                    className={
-                      recovery.kind === 'reminder' ? undefined : 'app-error'
-                    }
-                  >
-                    {recovery.message}
-                  </p>
-                  {recoveryControl && (
-                    <div className="app-actions">
-                      <Button primary onClick={recoveryControl.open}>
-                        {recoveryControl.label}
-                      </Button>
-                    </div>
+              {(recoveryMessage || recoveryControl) && (
+                <div
+                  className={
+                    recoveryMessage && recovery?.kind !== 'reminder'
+                      ? 'work-item-recovery app-error'
+                      : 'work-item-recovery'
+                  }
+                >
+                  {recoveryMessage && (
+                    <p role={recovery ? 'status' : 'alert'}>
+                      {recoveryMessage}
+                    </p>
                   )}
-                </div>
-              )}
-              {!recovery && executionError && (
-                <p className="app-error" role="alert">
-                  {executionError}
-                </p>
-              )}
-              {!recovery && editable && pausedTaskId && (
-                <div className="app-actions">
-                  <Button
-                    primary
-                    onClick={() =>
-                      workAllowanceUsed
-                        ? openRecoveryView(() => manage('model-allowance'))
-                        : onOpenTask(pausedTaskId)
-                    }
-                  >
-                    {workAllowanceUsed
-                      ? 'Increase allowance…'
-                      : 'Review and continue…'}
-                  </Button>
+                  {recoveryControl && (
+                    <Button primary onClick={recoveryControl.open}>
+                      {recoveryControl.label}
+                    </Button>
+                  )}
                 </div>
               )}
               {!question && !item.githubDelivery && item.waitCondition && (
