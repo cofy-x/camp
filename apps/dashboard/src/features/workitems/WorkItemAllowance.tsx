@@ -1,9 +1,9 @@
-import { useEffect, useId } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
 import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
 import { WorkBudgetEditor } from './WorkBudgetEditor';
-import { localDateTime, utcDateTime } from './workSettings';
+import { localDateTime, utcDateTime, workBudgetLimits } from './workSettings';
 import type { WorkOperation } from './useWorkItemOperation';
 import { confirmedWorkAction } from './workRequestRecovery';
 import type { WorkBudget, WorkItem } from './api';
@@ -22,6 +22,7 @@ export function WorkItemAllowance({
   operation,
   onRecoveryChange,
   onDraftChange,
+  modelRequestsOnly,
   readOnly,
   contextReady,
 }: {
@@ -29,10 +30,14 @@ export function WorkItemAllowance({
   operation: WorkOperation;
   onRecoveryChange: (problem: string) => void;
   onDraftChange: (hasDraft: boolean) => void;
+  modelRequestsOnly: boolean;
   readOnly: boolean;
   contextReady: boolean;
 }) {
-  const expiryId = useId();
+  const fieldId = useId();
+  const expiryId = `${fieldId}-expiry`;
+  const noteId = `${fieldId}-note`;
+  const resumeHintId = `${fieldId}-resume`;
   const draft = usePrivateDraft<AllowanceDraft | null>(
     'conversation',
     `work-item-allowance:${item.id}`,
@@ -47,6 +52,19 @@ export function WorkItemAllowance({
     reason: '',
   };
   const localExpiry = values.expiresAt ?? values.deadline ?? '';
+  const changedLimits = workBudgetLimits.filter(
+    ({ key }) => values.budget[key] !== item.budget[key],
+  );
+  // Keep every edited field visible when resuming a draft in the quick form.
+  const hasOtherEdits =
+    Boolean(values.reason) ||
+    changedLimits.some(({ key }) => key !== 'maxModelRequests');
+  const [fullDraft, setFullDraft] = useState(false);
+  useEffect(() => {
+    if (!modelRequestsOnly) setFullDraft(false);
+    else if (hasOtherEdits) setFullDraft(true);
+  }, [modelRequestsOnly, hasOtherEdits]);
+  const focused = modelRequestsOnly && !fullDraft && !hasOtherEdits;
   const expiryEdited =
     values.deadlineEdited && localExpiry !== currentLocalExpiry;
   const disabled =
@@ -57,6 +75,9 @@ export function WorkItemAllowance({
     !draft.loaded ||
     Boolean(draft.error);
   const stale = values.revision !== item.revision;
+  const hasChanges =
+    changedLimits.length > 0 || expiryEdited || Boolean(values.reason?.trim());
+  const cannotSave = disabled || stale || !hasChanges;
   const clearDraft = draft.setValue;
   const problem =
     draft.error || (draft.comparison ? 'Review your allowance draft.' : '');
@@ -81,14 +102,12 @@ export function WorkItemAllowance({
           aria-label="Work allowance"
           onSubmit={(event) => {
             event.preventDefault();
-            if (disabled || stale) return;
+            if (cannotSave) return;
             void operation.act(item.id, 'authorize', {
               revision: values.revision,
               comment: values.reason,
               budget: values.budget,
-              expiresAt: values.deadlineEdited
-                ? utcDateTime(localExpiry)
-                : undefined,
+              expiresAt: expiryEdited ? utcDateTime(localExpiry) : undefined,
             });
           }}
         >
@@ -104,11 +123,15 @@ export function WorkItemAllowance({
               </Button>
             </p>
           )}
-          <fieldset disabled={disabled}>
+          <fieldset
+            className={focused ? 'work-allowance-limits' : undefined}
+            disabled={disabled}
+          >
             <WorkBudgetEditor
               value={values.budget}
               onChange={(budget) => edit({ budget })}
               current={item}
+              modelRequestsOnly={focused}
             />
             <div className="work-item-limit">
               <label htmlFor={expiryId}>Authorization expires</label>
@@ -131,21 +154,31 @@ export function WorkItemAllowance({
                 </small>
               )}
             </div>
-            <label>
-              Note (optional)
-              <textarea
-                className="p9-field"
-                rows={2}
-                value={values.reason ?? ''}
-                onChange={(event) => edit({ reason: event.target.value })}
-              />
-            </label>
+            {!focused && (
+              <div className="work-item-limit">
+                <label htmlFor={noteId}>Note (optional)</label>
+                <textarea
+                  id={noteId}
+                  className="p9-field"
+                  rows={2}
+                  value={values.reason ?? ''}
+                  onChange={(event) => edit({ reason: event.target.value })}
+                />
+              </div>
+            )}
           </fieldset>
-          <p>Saving changes the limits. Continue work separately.</p>
           <div className="app-actions">
-            <Button primary type="submit" disabled={disabled || stale}>
+            <Button
+              primary
+              type="submit"
+              aria-describedby={modelRequestsOnly ? resumeHintId : undefined}
+              disabled={cannotSave}
+            >
               Save allowance
             </Button>
+            {modelRequestsOnly && (
+              <p id={resumeHintId}>Continue work after saving.</p>
+            )}
           </div>
         </form>
       </section>

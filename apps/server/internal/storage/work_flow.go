@@ -155,7 +155,11 @@ func syncWorkItemTask(ctx context.Context, q *sqlgen.Queries, t CollaborationTas
 	} else if !terminal {
 		w.Status = "open"
 		if t.Status != "completed" {
-			w.Status = "needs_attention"
+			recovery := workTaskRecovery(t.ID)
+			if workExpired(w) {
+				recovery = workFailureRecovery(w, "authorization_expired")
+			}
+			markWorkRecovery(&w, recovery, "")
 		}
 	}
 	id := "task-result:" + t.ID
@@ -444,8 +448,11 @@ func (s *Store) FireWorkItemTimers(ctx context.Context) error {
 			w.Status = "open"
 			w.WaitCondition = ""
 			status := "pending"
-			if w.Usage.FollowUps >= w.Budget.MaxFollowUps || w.PolicyID == "" {
-				w.Status = "needs_attention"
+			if w.Usage.FollowUps >= w.Budget.MaxFollowUps {
+				markWorkRecovery(&w, workFailureRecovery(w, "work_budget_exhausted"), recoveryFollowUps)
+				status = "context"
+			} else if w.PolicyID == "" {
+				markWorkRecovery(&w, orchestration.WorkRecovery{Kind: orchestration.WorkRecoveryReminder, Message: "Your scheduled follow-up is due."}, "")
 				status = "context"
 			}
 			w.Usage.FollowUps++
@@ -557,15 +564,20 @@ func recordWorkIntakeAttention(ctx context.Context, q *sqlgen.Queries, ev orches
 	if workTerminal(w) || w.ActiveTaskID != "" || w.Status == "waiting_for_person" || w.Status == "needs_attention" {
 		return nil
 	}
-	w.Status = "needs_attention"
-	w.Question = "Review the follow-up before further autonomous work: " + reason
+	limit := ""
+	if reason == "work_budget_exhausted" {
+		limit = recoveryEvaluations
+	}
+	if e = markWorkFailure(ctx, q, &w, reason, limit); e != nil {
+		return e
+	}
 	if e = q.CancelWorkTimers(ctx, w.ID); e != nil {
 		return e
 	}
 	if e = appendWorkDecision(ctx, q, w, orchestration.WorkDecision{Kind: "request_judgment", Reason: reason, ActorKind: "system", ActorID: "intake", EvidenceIDs: []string{ev.ID}}); e != nil {
 		return e
 	}
-	if e = workNotice(ctx, q, &w, "work_item_attention", w.Question); e != nil {
+	if e = workNotice(ctx, q, &w, "work_item_attention", w.WorkRecovery.Message); e != nil {
 		return e
 	}
 	return saveWorkItem(ctx, q, &w)

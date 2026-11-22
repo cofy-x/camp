@@ -18,20 +18,27 @@ export function AttentionList({
 }) {
   return (
     <ul className="attention-list" aria-label="Needs me">
-      {items.map((item) => (
-        <li key={item.id}>
-          <button type="button" onClick={() => onOpen(item)}>
-            <span className="attention-title">{item.title}</span>
-            {item.summary && item.summary !== item.title && (
-              <span className="attention-summary">{item.summary}</span>
-            )}
-            <small>
-              {kindLabels[item.kind]}
-              {showRoom && ` · ${item.roomName}`}
-            </small>
-          </button>
-        </li>
-      ))}
+      {items.map((item) => {
+        const summary = item.workRecovery?.message || item.summary;
+        return (
+          <li key={item.id}>
+            <button type="button" onClick={() => onOpen(item)}>
+              <span className="attention-title">{item.title}</span>
+              {summary && summary !== item.title && (
+                <span className="attention-summary">{summary}</span>
+              )}
+              {item.workRecovery ? (
+                showRoom && <small>{item.roomName}</small>
+              ) : (
+                <small>
+                  {kindLabels[item.kind]}
+                  {showRoom && ` · ${item.roomName}`}
+                </small>
+              )}
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }

@@ -12,8 +12,15 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
 
+type workItemRecord struct {
+	*orchestration.WorkItem
+	RecoveryLimit string `json:"recoveryLimit,omitempty"`
+}
+
 func workItemRow(row sqlgen.WorkItem) (w orchestration.WorkItem, err error) {
-	err = json.Unmarshal([]byte(row.Value), &w)
+	record := workItemRecord{WorkItem: &w}
+	err = json.Unmarshal([]byte(row.Value), &record)
+	w.RecoveryLimit = record.RecoveryLimit
 	w.ID, w.Seq, w.RoomID, w.OwnerUserID, w.PolicyID = row.ID, row.Seq, row.RoomID, row.OwnerUserID, row.PolicyID
 	w.Status, w.Revision, w.CreatedAt, w.UpdatedAt = row.Status, row.Revision, row.CreatedAt, row.UpdatedAt
 	normalizeWorkItem(&w)
@@ -33,7 +40,7 @@ func workItemSnapshot(w orchestration.WorkItem) ([]byte, error) {
 	w.HistoryLimited = false
 	w.Execution, w.Result, w.GitHubDelivery = nil, nil, nil
 	normalizeWorkItem(&w)
-	return json.Marshal(w)
+	return json.Marshal(workItemRecord{WorkItem: &w, RecoveryLimit: w.RecoveryLimit})
 }
 
 func saveWorkItem(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem) error {
@@ -542,6 +549,11 @@ func (s *Store) OperateWorkItem(ctx context.Context, id string, in orchestration
 			if next.MaxEvaluations < w.Usage.Evaluations || next.MaxTasks < w.Usage.Tasks || next.MaxModelRequests < w.Usage.ReservedModelRequests || next.MaxActions < w.Usage.Actions || next.MaxFollowUps < w.Usage.FollowUps {
 				return problem("invalid_work_item", "The new allowance must cover all work already reserved or consumed.")
 			}
+			recovery, limit, e := currentWorkRecovery(ctx, q, w)
+			if e != nil {
+				return e
+			}
+			previousBudget := w.Budget
 			w.Budget = next
 			d.Budget = &next
 			if in.Deadline != "" {
@@ -556,10 +568,11 @@ func (s *Store) OperateWorkItem(ctx context.Context, id string, in orchestration
 				w.Deadline, w.ExpiresAt = deadline, deadline
 				d.Deadline = deadline
 			}
-			if w.Status == "needs_attention" {
+			if recovery != nil && recoveryAllowanceRestored(w, recovery.Kind, limit, previousBudget, in.Deadline != "") {
 				w.Status = "open"
 				w.Question = ""
 				w.QuestionKind = ""
+				w.WorkRecovery, w.RecoveryLimit = nil, ""
 			}
 		case "evidence":
 			if len(in.EvidenceIDs) == 0 {
@@ -578,8 +591,16 @@ func (s *Store) OperateWorkItem(ctx context.Context, id string, in orchestration
 				return e
 			}
 		case "delegate":
+			recovery, _, e := currentWorkRecovery(ctx, q, w)
+			if e != nil {
+				return e
+			}
 			if e = bindWorkDelegation(ctx, q, &w, in.PolicyID, in.PolicyRevision); e != nil {
 				return e
+			}
+			if recovery != nil && recovery.Kind == orchestration.WorkRecoveryReviewRule {
+				w.Status, w.Question, w.QuestionKind = "open", "", ""
+				w.WorkRecovery, w.RecoveryLimit = nil, ""
 			}
 			d.PolicyID, d.PolicyRevision = w.PolicyID, w.DelegationPolicyRevision
 			if in.Follow {
@@ -665,6 +686,13 @@ func (s *Store) OperateWorkItem(ctx context.Context, id string, in orchestration
 			} else {
 				if w.Status != "waiting_for_person" && w.Status != "needs_attention" {
 					return problem("invalid_work_item", "This matter is not waiting for a judgment.")
+				}
+				recovery, _, e := currentWorkRecovery(ctx, q, w)
+				if e != nil {
+					return e
+				}
+				if recovery != nil {
+					return problem("question_answered", "This Work needs a recovery action. Review its current state.")
 				}
 				content := in.Content
 				if content == "" {

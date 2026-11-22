@@ -120,6 +120,10 @@
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
   gap: 10px;
 }
+.work-item-form > .work-allowance-limits {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  max-inline-size: 440px;
+}
 .work-item-limit {
   display: grid;
   align-content: start;
@@ -383,6 +387,24 @@ button.work-activity-heading:hover {
 }
 .work-item-overview:empty {
   display: none;
+}
+.work-item-recovery {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.work-item-recovery.app-error {
+  font-size: inherit;
+}
+.work-item-recovery > p {
+  min-width: 0;
+  white-space: pre-wrap;
+}
+.work-item-recovery > .p9-button {
+  max-inline-size: 100%;
+  color: var(--p9-text);
+  white-space: normal;
 }
 .work-item-overview-record {
   display: grid;

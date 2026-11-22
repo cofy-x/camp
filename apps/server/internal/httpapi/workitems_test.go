@@ -107,3 +107,20 @@ func TestWorkItemHTTPLimitsAndCancelledUnknownRequests(t *testing.T) {
 		requireHTTP(t, teamRequest(t, f, f.adminCookie, "POST", path, body), http.StatusBadRequest)
 	}
 }
+
+func TestProjectSettingsValidationReturnsTypedBadRequest(t *testing.T) {
+	f := newTeamFixture(t)
+	path := "/api/rooms/" + f.room.ID + "/project-settings"
+	input := orchestration.ProjectSettingsInput{
+		ProjectSettings: orchestration.ProjectSettings{RoomID: f.room.ID},
+	}
+	response := teamRequest(t, f, f.adminCookie, "POST", path, input)
+	requireHTTP(t, response, http.StatusBadRequest)
+	var problem map[string]string
+	if err := json.Unmarshal(response.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if problem["code"] != "invalid_project" || problem["error"] != "A stable request ID is required." {
+		t.Fatalf("unexpected project validation response: %s", response.Body.String())
+	}
+}

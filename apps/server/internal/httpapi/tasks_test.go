@@ -52,6 +52,14 @@ func TestTaskSummaryExposesOnlyCurrentCapturedRecoveryCandidate(t *testing.T) {
 	if strings.Contains(string(fields["recoveryRun"]), "resultCommit") || strings.Contains(string(fields["recoveryRun"]), "private") {
 		t.Fatal("candidate exposed private execution metadata", string(fields["recoveryRun"]))
 	}
+	conflict := teamRequest(t, f, f.adminCookie, "POST", "/api/tasks/"+data.Task.ID+"/continue?view=summary", map[string]any{
+		"requestId": "choose-two-baselines", "revision": data.Task.Revision, "fromRunId": run.ID, "fromLatest": true,
+	})
+	requireHTTP(t, conflict, http.StatusConflict)
+	var failure struct{ Code string }
+	if err := json.Unmarshal(conflict.Body.Bytes(), &failure); err != nil || failure.Code != "invalid_task_recovery" {
+		t.Fatal("the continuation must return a typed starting-files conflict", conflict.Body.String(), err)
+	}
 }
 
 func TestTaskHTTPAdmissionReplayAndMemberOperations(t *testing.T) {

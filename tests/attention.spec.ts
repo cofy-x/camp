@@ -9,8 +9,11 @@ import {
 import type { AttentionPage } from '../apps/dashboard/src/features/attention/api';
 import type { Review } from '../apps/dashboard/src/features/reviews/api';
 import type { WorkItem } from '../apps/dashboard/src/features/workitems/api';
+import type { Runner } from '../apps/dashboard/src/features/runners/api';
+import type { Room } from '../apps/dashboard/src/features/workspace/api';
 import type { InboxItem } from '../apps/dashboard/src/team/api';
 import { watchPageErrors } from './page-errors';
+import { remoteBrowserEnvironment } from './remote-browser-helpers';
 import {
   createRoom,
   inboxToggle,
@@ -69,6 +72,178 @@ async function openWorkPending(page: Page, roomId = '') {
     .selectOption(roomId);
   return workQueue(page);
 }
+
+type Remote = Awaited<ReturnType<typeof remoteBrowserEnvironment>>;
+const remoteTest = test.extend<{ remote: Remote }>({
+  remote: async ({ browserName }, use, info) => {
+    const remote = await remoteBrowserEnvironment(info, browserName);
+    try {
+      await use(remote);
+    } finally {
+      await remote.close();
+    }
+  },
+  baseURL: async ({ remote }, use) => {
+    await use(remote.origin);
+  },
+});
+
+remoteTest(
+  'Needs me opens the rule for an unavailable Work follow-up @work-loop',
+  async ({ page, browserName, remote }) => {
+    const errors = watchPageErrors(page, browserName);
+    await remote.setup(page);
+    const room = await createRoom(page, 'Customer notes');
+    const enrollment = await mutate(page, '/runner-enrollments', {
+      name: 'Follow-up Runner',
+    });
+    expect(enrollment.ok()).toBe(true);
+    const { token } = await enrollment.json();
+    await remote.join('follow-up-runner', token);
+    let runnerId = '';
+    await expect
+      .poll(async () => {
+        const { runners } = (await (
+          await page.request.get('/api/runners')
+        ).json()) as { runners: Runner[] };
+        runnerId =
+          runners.find((runner) => runner.online && runner.capabilities.ready)
+            ?.id ?? '';
+        return runnerId;
+      })
+      .not.toBe('');
+    const { rooms } = (await (await page.request.get('/api/rooms')).json()) as {
+      rooms: Room[];
+    };
+    const assigned = await mutate(
+      page,
+      `/rooms/${room.id}/runner`,
+      {
+        runnerId,
+        revision: rooms.find((candidate) => candidate.id === room.id)!
+          .runnerRevision,
+      },
+      'PUT',
+    );
+    expect(assigned.ok()).toBe(true);
+    const sourceResponse = await mutate(
+      page,
+      `/rooms/${room.id}/github-sources`,
+      {
+        requestId: randomUUID(),
+        repository: 'camp-example/notes',
+        secret: 'private-synthetic-follow-up-webhook-secret',
+      },
+    );
+    expect(sourceResponse.ok(), await sourceResponse.text()).toBe(true);
+    const { source } = await sourceResponse.json();
+    const { members } = await (
+      await page.request.get(`/api/rooms/${room.id}/members`)
+    ).json();
+    expect(members).toHaveLength(1);
+    const granted = await mutate(
+      page,
+      `/runners/${runnerId}/agents/${members[0].id}`,
+      {},
+      'PUT',
+    );
+    expect(granted.ok(), await granted.text()).toBe(true);
+    const rulePath = `/rooms/${room.id}/automation-policies/${source.id}`;
+    const ruleInput = {
+      enabled: true,
+      mode: 'auto',
+      rules: 'Summarize customer feedback when the follow-up is due.',
+      allowedActorIds: ['42'],
+      participantAgentIds: [members[0].id],
+      firstAgentId: members[0].id,
+      maxTurns: 1,
+      maxModelRequests: 4,
+      dailyEvaluations: 2,
+      dailyTasks: 2,
+    };
+    const rule = await mutate(
+      page,
+      rulePath,
+      { ...ruleInput, requestId: randomUUID(), revision: 0 },
+      'PUT',
+    );
+    expect(rule.ok(), await rule.text()).toBe(true);
+    const { policy } = await rule.json();
+    const created = await mutate(page, `/rooms/${room.id}/work-items`, {
+      requestId: randomUUID(),
+      goal: 'Summarize weekly customer feedback',
+      policyId: policy.id,
+      policyRevision: policy.revision,
+    });
+    expect(created.ok(), await created.text()).toBe(true);
+    const { item } = (await created.json()) as { item: WorkItem };
+    const disabled = await mutate(
+      page,
+      rulePath,
+      {
+        ...ruleInput,
+        requestId: randomUUID(),
+        revision: policy.revision,
+        enabled: false,
+      },
+      'PUT',
+    );
+    expect(disabled.ok()).toBe(true);
+    const scheduled = await mutate(
+      page,
+      `/work-items/${item.id}/actions/wait`,
+      {
+        requestId: randomUUID(),
+        revision: item.revision,
+        waitCondition: 'The weekly feedback is ready.',
+        resumeAt: new Date(Date.now() + 2000).toISOString(),
+      },
+    );
+    expect(scheduled.ok(), await scheduled.text()).toBe(true);
+    const read = async () =>
+      (
+        (await (
+          await page.request.get(`/api/work-items/${item.id}`)
+        ).json()) as { item: WorkItem }
+      ).item;
+    await expect
+      .poll(async () => (await read()).workRecovery?.kind)
+      .toBe('review_rule');
+    const paused = await read();
+    expect(paused.workRecovery!.sourceId).toBe(source.id);
+    expect(paused.usage.tasks).toBe(0);
+    const row = (await openPending(page))
+      .getByRole('button')
+      .filter({ hasText: item.goal });
+    await expect(row).toContainText(paused.workRecovery!.message);
+    await row.press('Enter');
+    await expect(
+      workDetail(page)
+        .getByRole('status')
+        .filter({ hasText: paused.workRecovery!.message }),
+    ).toBeVisible();
+    await expect(workDetail(page).getByLabel('Your answer')).toHaveCount(0);
+    const reviewRule = workDetail(page).getByRole('button', {
+      name: 'Review rule…',
+      exact: true,
+    });
+    await reviewRule.press('Enter');
+    const settings = workspace(page).getByRole('region', {
+      name: 'Room management',
+      exact: true,
+    });
+    await expect(
+      settings.getByRole('combobox', { name: 'Event source' }),
+    ).toHaveValue(source.id);
+    await expect(
+      settings.getByRole('button', { name: 'Back to Discussion', exact: true }),
+    ).toBeFocused();
+    expect((await read()).usage).toEqual(paused.usage);
+    expect((await read()).revision).toBe(paused.revision);
+    expect((await pending(page, room.id)).items).toHaveLength(1);
+    expect(errors.errors).toEqual([]);
+  },
+);
 
 async function question(page: Page, roomId: string, goal: string) {
   const created = await mutate(page, `/rooms/${roomId}/work-items`, {
@@ -237,7 +412,12 @@ test('Inbox keeps readable feedback and reachable tabs while each view starts at
     const originalNotices = await notices(page);
     await openPending(page);
     const needs = queue(page).getByRole('button');
+    const viewAll = palette(page).getByRole('button', {
+      name: 'View all in Work',
+      exact: true,
+    });
     await expect(needs).toHaveCount(7);
+    await expect(viewAll).toHaveCount(0);
     await expect(needs.first()).toBeInViewport();
     await needs.last().scrollIntoViewIfNeeded();
     await expect(needs.first()).not.toBeInViewport();
@@ -287,6 +467,22 @@ test('Inbox keeps readable feedback and reachable tabs while each view starts at
     await expect(activity.first()).toBeInViewport();
     expect(await notices(page)).toEqual(originalNotices);
     expect((await pending(page)).total).toBe(7);
+
+    for (let index = 7; index < 21; index++)
+      await question(page, room.id, `Customer update ${index}`);
+    await needsTab.click();
+    await expect(needs).toHaveCount(20);
+    await needs.last().scrollIntoViewIfNeeded();
+    await expect(viewAll).toBeInViewport();
+    await viewAll.click();
+    await expect(palette(page)).toHaveCount(0);
+    await expect(
+      work(page).getByRole('combobox', { name: 'View', exact: true }),
+    ).toHaveValue('needs_me');
+    await work(page)
+      .getByRole('button', { name: 'More work', exact: true })
+      .click();
+    await expect(workQueue(page).getByRole('button')).toHaveCount(1);
   } finally {
     await member.context.close();
   }

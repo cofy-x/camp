@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cofy-x/camp/apps/server/internal/orchestration"
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
 
@@ -26,20 +27,21 @@ type AttentionTarget struct {
 // AttentionItem is a current navigation projection, never an authorization or
 // another owner of the source's status, question, revision or recovery receipt.
 type AttentionItem struct {
-	ID          string          `json:"id"`
-	Kind        string          `json:"kind"`
-	Source      string          `json:"source"`
-	RoomID      string          `json:"roomId"`
-	RoomName    string          `json:"roomName"`
-	Title       string          `json:"title"`
-	Summary     string          `json:"summary"`
-	Status      string          `json:"status"`
-	Reason      string          `json:"reason"`
-	Priority    int64           `json:"priority"`
-	CreatedAt   string          `json:"createdAt"`
-	UpdatedAt   string          `json:"updatedAt"`
-	TextLimited bool            `json:"textLimited,omitempty"`
-	Target      AttentionTarget `json:"target"`
+	ID           string                      `json:"id"`
+	Kind         string                      `json:"kind"`
+	Source       string                      `json:"source"`
+	RoomID       string                      `json:"roomId"`
+	RoomName     string                      `json:"roomName"`
+	Title        string                      `json:"title"`
+	Summary      string                      `json:"summary"`
+	Status       string                      `json:"status"`
+	Reason       string                      `json:"reason"`
+	Priority     int64                       `json:"priority"`
+	CreatedAt    string                      `json:"createdAt"`
+	UpdatedAt    string                      `json:"updatedAt"`
+	TextLimited  bool                        `json:"textLimited,omitempty"`
+	Target       AttentionTarget             `json:"target"`
+	WorkRecovery *orchestration.WorkRecovery `json:"workRecovery,omitempty"`
 }
 
 type AttentionCounts struct {
@@ -155,8 +157,16 @@ func (s *Store) Attention(ctx context.Context, options AttentionOptions) (out At
 				out.HasMore = true
 				break
 			}
-			title, summary := truncateUTF8(row.Title, 512), truncateUTF8(row.Summary, 2048)
-			item := AttentionItem{ID: row.ID, Kind: row.Kind, Source: row.Source, RoomID: row.RoomID, RoomName: row.RoomName, Title: title, Summary: summary, Status: row.Status, Reason: row.Reason, Priority: row.Priority, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, TextLimited: title != row.Title || summary != row.Summary, Target: AttentionTarget{App: row.TargetApp, RoomID: row.RoomID, WorkItemID: row.WorkItemID, ReviewID: row.ReviewID, TaskID: row.TaskID}}
+			recovery, err := attentionWorkRecovery(row)
+			if err != nil {
+				return err
+			}
+			summaryText := row.Summary
+			if recovery != nil {
+				summaryText = recovery.Message
+			}
+			title, summary := truncateUTF8(row.Title, 512), truncateUTF8(summaryText, 2048)
+			item := AttentionItem{ID: row.ID, Kind: row.Kind, Source: row.Source, RoomID: row.RoomID, RoomName: row.RoomName, Title: title, Summary: summary, Status: row.Status, Reason: row.Reason, Priority: row.Priority, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, TextLimited: title != row.Title || summary != summaryText, Target: AttentionTarget{App: row.TargetApp, RoomID: row.RoomID, WorkItemID: row.WorkItemID, ReviewID: row.ReviewID, TaskID: row.TaskID}, WorkRecovery: recovery}
 			out.Items = append(out.Items, item)
 			raw, err := json.Marshal(out)
 			if err != nil {
@@ -178,4 +188,17 @@ func (s *Store) Attention(ctx context.Context, options AttentionOptions) (out At
 		return nil
 	})
 	return
+}
+
+func attentionWorkRecovery(row sqlgen.AttentionPageRow) (*orchestration.WorkRecovery, error) {
+	if row.WorkRecovery != "" && row.WorkQuestion == "" {
+		var recovery orchestration.WorkRecovery
+		err := json.Unmarshal([]byte(row.WorkRecovery), &recovery)
+		return &recovery, err
+	}
+	recovery, _, err := legacyWorkRecovery(
+		orchestration.WorkItem{ID: row.WorkItemID, Status: row.Status, Question: row.WorkQuestion, Deadline: row.WorkDeadline},
+		row.LegacyRecoveryDecision, row.LegacyRecoveryTaskStatus, row.LegacyRecoverySourceID,
+	)
+	return recovery, err
 }

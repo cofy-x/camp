@@ -304,6 +304,48 @@ func (q *Queries) InsertWorkTimer(ctx context.Context, arg InsertWorkTimerParams
 	return err
 }
 
+const legacyWorkRecovery = `-- name: LegacyWorkRecovery :one
+SELECT d.value AS decision,CAST(coalesce(t.status,'') AS TEXT) AS task_status,
+ CAST(coalesce(p.source_id,'') AS TEXT) AS source_id,
+ CAST(coalesce(json_extract(a.assessment,'$.outcome'),'') AS TEXT) AS assessment_outcome,
+ CAST(coalesce(json_extract(a.assessment,'$.workItemId'),'') AS TEXT) AS assessed_work_item_id,
+ CAST(EXISTS(SELECT 1 FROM json_each(a.candidate,'$.events')
+  WHERE json_extract(value,'$.workItemId')=d.work_item_id) AS INTEGER) AS targeted
+FROM work_item_decisions d
+JOIN work_items w ON w.id=d.work_item_id
+LEFT JOIN work_item_tasks linked ON linked.work_item_id=d.work_item_id AND linked.task_id=json_extract(d.value,'$.taskId')
+LEFT JOIN collaboration_tasks t ON t.id=linked.task_id
+LEFT JOIN automation_policies p ON p.id=w.policy_id AND p.room_id=w.room_id AND p.owner_user_id=w.owner_user_id
+LEFT JOIN automation_evaluations a ON a.id=json_extract(d.value,'$.evaluationId')
+ AND a.status='needs_attention'
+ AND json_extract(d.value,'$.actorKind')='system' AND json_extract(d.value,'$.reason')='work_budget_exhausted'
+WHERE d.work_item_id=? AND json_extract(d.value,'$.kind') IN ('request_judgment','result','wait','execute','accept','complete','cancel','stop','answer','answer_continue','create','delegate')
+ORDER BY d.seq DESC LIMIT 1
+`
+
+type LegacyWorkRecoveryRow struct {
+	Decision           string
+	TaskStatus         string
+	SourceID           string
+	AssessmentOutcome  string
+	AssessedWorkItemID string
+	Targeted           int64
+}
+
+func (q *Queries) LegacyWorkRecovery(ctx context.Context, workItemID string) (LegacyWorkRecoveryRow, error) {
+	row := q.db.QueryRowContext(ctx, legacyWorkRecovery, workItemID)
+	var i LegacyWorkRecoveryRow
+	err := row.Scan(
+		&i.Decision,
+		&i.TaskStatus,
+		&i.SourceID,
+		&i.AssessmentOutcome,
+		&i.AssessedWorkItemID,
+		&i.Targeted,
+	)
+	return i, err
+}
+
 const releaseWorkTaskReservation = `-- name: ReleaseWorkTaskReservation :execrows
 UPDATE work_item_tasks SET reservation_released=1 WHERE task_id=? AND reservation_released=0
 `

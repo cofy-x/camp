@@ -243,9 +243,11 @@ export function DesktopInbox() {
                 </>
               )}
             </div>
-            {view === 'needs_me' && Boolean(team.attention?.items.length) && (
+            {view === 'needs_me' && team.attention?.hasMore && (
               <div className="camp-inbox-actions">
-                <Button onClick={() => void openAttention()}>Open Work</Button>
+                <Button onClick={() => void openAttention()}>
+                  View all in Work
+                </Button>
               </div>
             )}
           </Tabs>

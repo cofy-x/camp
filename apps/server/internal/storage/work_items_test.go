@@ -181,12 +181,12 @@ func TestWorkItemTimerFiresOnceAndCancellationFencesOldWait(t *testing.T) {
 	}
 	wg.Wait()
 	w, e := s.GetWorkItem(admin, w.ID)
-	if e != nil || w.Usage.FollowUps != 1 || w.Status != "needs_attention" || len(w.Evidence) != 1 || w.Timers[0].Status != "fired" {
+	if e != nil || w.Usage.FollowUps != 1 || w.Status != "needs_attention" || len(w.Evidence) != 1 || w.Timers[0].Status != "fired" ||
+		w.WorkRecovery == nil || w.WorkRecovery.Kind != orchestration.WorkRecoveryReminder {
 		t.Fatal(w, e)
 	}
 	assertScalar(t, s, "SELECT count(*) FROM automation_events WHERE source_id='timer'", 1)
 	assertScalar(t, s, "SELECT count(*) FROM collaboration_tasks", 0)
-	w = decideTestWork(t, s, admin, w, orchestration.WorkItemOperation{Kind: "answer", Reason: "Continue observing."})
 	w = decideTestWork(t, s, admin, w, orchestration.WorkItemOperation{Kind: "wait", WaitCondition: "Another review", ResumeAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano)})
 	w = decideTestWork(t, s, admin, w, orchestration.WorkItemOperation{Kind: "cancel", Reason: "The release was cancelled."})
 	if _, e = s.db.Exec("UPDATE work_item_timers SET due_at=?", time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)); e != nil {
@@ -274,7 +274,7 @@ func TestWorkItemAuthorizationPreservesConsumptionAndRequiresCurrentOwner(t *tes
 			return e
 		}
 		current.Usage = orchestration.WorkUsage{Evaluations: 12, Tasks: 4, ModelRequests: 60, ReservedModelRequests: 96, Actions: 16, FollowUps: 8}
-		current.Status = "needs_attention"
+		markWorkRecovery(&current, workFailureRecovery(current, "work_budget_exhausted"), recoveryExecution)
 		return saveWorkItem(ctx, q, &current)
 	}); e != nil {
 		t.Fatal(e)
@@ -369,7 +369,8 @@ func TestWorkItemDeadlineEscalatesOnceWithoutATimerAndNeedsNewAuthorization(t *t
 		}
 	}
 	w, e := s.GetWorkItem(admin, w.ID)
-	if e != nil || w.Status != "needs_attention" || len(w.Evidence) != 1 || len(w.Actions) != 1 || w.Usage.Evaluations != 0 || w.Usage.FollowUps != 0 {
+	if e != nil || w.Status != "needs_attention" || len(w.Evidence) != 1 || len(w.Actions) != 1 || w.Usage.Evaluations != 0 || w.Usage.FollowUps != 0 ||
+		w.WorkRecovery == nil || w.WorkRecovery.Kind != orchestration.WorkRecoveryRenewAuthorization || w.Question != "" {
 		t.Fatal(w, e)
 	}
 	_, e = s.OperateWorkItem(admin, w.ID, orchestration.WorkItemOperation{RequestID: newID(), Revision: w.Revision, Kind: "answer", Reason: "Try again"}, roomBudget)

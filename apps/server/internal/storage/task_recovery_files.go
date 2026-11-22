@@ -30,7 +30,7 @@ func recoverableTaskRun(ctx context.Context, q *sqlgen.Queries, task Collaborati
 		return Run{}, err
 	}
 	if run.TaskID != task.ID || run.RoomID != task.RoomID || run.ResourceID != task.ResourceID || run.AgentSnapshot.Access != "write" ||
-		(run.Status != "failed" && run.Status != "interrupted") || run.Published || !commitValid(run.ResultCommit) || run.ResultCommit == task.CheckpointCommit ||
+		(run.Status != "failed" && run.Status != "interrupted") || run.Published || len(run.Files) == 0 || !commitValid(run.ResultCommit) || run.ResultCommit == task.CheckpointCommit ||
 		run.InputCommit != task.CheckpointCommit || run.BaselineCommit != run.InputCommit || run.WriterFence != task.DraftFence || run.AttemptID == "" {
 		return invalid()
 	}

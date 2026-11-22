@@ -25,6 +25,7 @@ export function WorkItemActions({
   onViewChange,
   managementSection,
   onManage,
+  recoveryActive,
   readOnly,
 }: {
   item: WorkItem;
@@ -39,6 +40,7 @@ export function WorkItemActions({
   managementSection: string;
   onManage: (section: string) => void;
   onViewChange: (view: string) => void;
+  recoveryActive: boolean;
   readOnly: boolean;
 }) {
   const [allowanceProblem, setAllowanceProblem] = useState('');
@@ -108,8 +110,11 @@ export function WorkItemActions({
     operation,
     view,
     managementSection,
+    recoveryActive,
     readOnly,
   });
+  const editingAllowance =
+    view === 'manage' && ['allowance', 'model-allowance'].includes(section);
   return (
     <div
       className="work-item-actions"
@@ -155,6 +160,7 @@ export function WorkItemActions({
       )}
       {!readOnly &&
         view === 'overview' &&
+        !recoveryActive &&
         !intent &&
         (!hasQuestion || completionQuestion) &&
         item.status !== 'stopping' && (
@@ -560,9 +566,7 @@ export function WorkItemActions({
           </section>
         )}
       {(allowanceProblem || (readOnly && allowanceDraft)) &&
-        (readOnly
-          ? !allowanceRecoveryOpen
-          : view !== 'manage' || section !== 'allowance') && (
+        (readOnly ? !allowanceRecoveryOpen : !editingAllowance) && (
           <p
             className={allowanceProblem ? 'app-error' : undefined}
             role={allowanceProblem ? 'alert' : undefined}
@@ -615,18 +619,13 @@ export function WorkItemActions({
             </div>
           ))}
       </div>
-      <div
-        hidden={
-          readOnly
-            ? !allowanceRecoveryOpen
-            : view !== 'manage' || section !== 'allowance'
-        }
-      >
+      <div hidden={readOnly ? !allowanceRecoveryOpen : !editingAllowance}>
         <WorkItemAllowance
           item={item}
           operation={operation}
           onRecoveryChange={setAllowanceProblem}
           onDraftChange={setAllowanceDraft}
+          modelRequestsOnly={editingAllowance && section === 'model-allowance'}
           readOnly={readOnly}
           contextReady={contextReady}
         />

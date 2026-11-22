@@ -31,6 +31,7 @@ export type NavigationTarget =
       workItemId?: string;
       reviewId?: string;
       threadId?: string;
+      ruleSourceId?: string;
       reference?: Reference;
       handoff?: { message: Message; run?: Run };
     }

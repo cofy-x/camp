@@ -44,16 +44,38 @@ func (q *Queries) AttentionCounts(ctx context.Context, arg AttentionCountsParams
 }
 
 const attentionPage = `-- name: AttentionPage :many
-SELECT CAST(id AS TEXT) AS id,source,entity_id,room_id,room_name,kind,priority,title,summary,status,reason,
- created_at,CAST(updated_at AS TEXT) AS updated_at,target_app,work_item_id,review_id,task_id
-FROM personal_attention
-WHERE responsible_user_id=?1
- AND (?2='' OR room_id=?2)
- AND (?3='all' OR kind=?3)
- AND (?4='' OR priority>?5
-  OR (priority=?5 AND created_at<?6)
-  OR (priority=?5 AND created_at=?6 AND id>?4))
-ORDER BY priority,created_at DESC,id LIMIT ?7
+WITH page AS (
+ SELECT queue.id, queue.source, queue.entity_id, queue.responsible_user_id, queue.room_id, queue.room_name, queue.kind, queue.priority, queue.title, queue.summary, queue.status, queue.reason, queue.created_at, queue.updated_at, queue.target_app, queue.work_item_id, queue.review_id, queue.task_id FROM personal_attention queue
+ WHERE queue.responsible_user_id=?1
+  AND (?2='' OR queue.room_id=?2)
+  AND (?3='all' OR queue.kind=?3)
+  AND (?4='' OR queue.priority>?5
+   OR (queue.priority=?5 AND queue.created_at<?6)
+   OR (queue.priority=?5 AND queue.created_at=?6 AND queue.id>?4))
+ ORDER BY queue.priority,queue.created_at DESC,queue.id LIMIT ?7
+)
+SELECT CAST(page.id AS TEXT) AS id,page.source,page.entity_id,page.room_id,page.room_name,page.kind,page.priority,page.title,page.summary,page.status,page.reason,
+ page.created_at,CAST(page.updated_at AS TEXT) AS updated_at,page.target_app,page.work_item_id,page.review_id,page.task_id,
+ CAST(coalesce(json_extract(w.value,'$.workRecovery'),'') AS TEXT) AS work_recovery,
+ CAST(coalesce(json_extract(w.value,'$.question'),'') AS TEXT) AS work_question,
+ CAST(coalesce(json_extract(w.value,'$.deadline'),'') AS TEXT) AS work_deadline,
+ CAST(coalesce(d.value,'') AS TEXT) AS legacy_recovery_decision,
+ CAST(coalesce(t.status,'') AS TEXT) AS legacy_recovery_task_status,
+ CAST(coalesce(p.source_id,'') AS TEXT) AS legacy_recovery_source_id
+FROM page
+LEFT JOIN work_items w ON page.source='work_item' AND page.kind='exception' AND page.entity_id=w.id
+ AND w.status='needs_attention' AND coalesce(json_extract(w.value,'$.activeTaskId'),'')=''
+ AND coalesce(json_extract(w.value,'$.stopRequested'),0)=0
+ AND NOT EXISTS(SELECT 1 FROM github_publications g WHERE g.work_item_id=w.id
+  AND (g.status IN ('unknown','blocked') OR coalesce(json_extract(g.value,'$.reconcile'),0)=1))
+LEFT JOIN work_item_decisions d ON w.id IS NOT NULL AND json_type(w.value,'$.workRecovery') IS NULL AND d.seq=(
+ SELECT latest.seq FROM work_item_decisions latest WHERE latest.work_item_id=w.id
+  AND json_extract(latest.value,'$.kind') IN ('request_judgment','result','wait','execute','accept','complete','cancel','stop','answer','answer_continue','create','delegate')
+ ORDER BY latest.seq DESC LIMIT 1)
+LEFT JOIN work_item_tasks linked ON linked.work_item_id=w.id AND linked.task_id=json_extract(d.value,'$.taskId')
+LEFT JOIN collaboration_tasks t ON t.id=linked.task_id
+LEFT JOIN automation_policies p ON d.seq IS NOT NULL AND p.id=w.policy_id AND p.room_id=w.room_id AND p.owner_user_id=w.owner_user_id
+ORDER BY page.priority,page.created_at DESC,page.id
 `
 
 type AttentionPageParams struct {
@@ -67,23 +89,29 @@ type AttentionPageParams struct {
 }
 
 type AttentionPageRow struct {
-	ID         string
-	Source     string
-	EntityID   string
-	RoomID     string
-	RoomName   string
-	Kind       string
-	Priority   int64
-	Title      string
-	Summary    string
-	Status     string
-	Reason     string
-	CreatedAt  string
-	UpdatedAt  string
-	TargetApp  string
-	WorkItemID string
-	ReviewID   string
-	TaskID     string
+	ID                       string
+	Source                   string
+	EntityID                 string
+	RoomID                   string
+	RoomName                 string
+	Kind                     string
+	Priority                 int64
+	Title                    string
+	Summary                  string
+	Status                   string
+	Reason                   string
+	CreatedAt                string
+	UpdatedAt                string
+	TargetApp                string
+	WorkItemID               string
+	ReviewID                 string
+	TaskID                   string
+	WorkRecovery             string
+	WorkQuestion             string
+	WorkDeadline             string
+	LegacyRecoveryDecision   string
+	LegacyRecoveryTaskStatus string
+	LegacyRecoverySourceID   string
 }
 
 func (q *Queries) AttentionPage(ctx context.Context, arg AttentionPageParams) ([]AttentionPageRow, error) {
@@ -121,6 +149,12 @@ func (q *Queries) AttentionPage(ctx context.Context, arg AttentionPageParams) ([
 			&i.WorkItemID,
 			&i.ReviewID,
 			&i.TaskID,
+			&i.WorkRecovery,
+			&i.WorkQuestion,
+			&i.WorkDeadline,
+			&i.LegacyRecoveryDecision,
+			&i.LegacyRecoveryTaskStatus,
+			&i.LegacyRecoverySourceID,
 		); err != nil {
 			return nil, err
 		}
