@@ -381,6 +381,30 @@ func workEventEligible(ctx context.Context, q *sqlgen.Queries, ev orchestration.
 	return e == nil && r.ID == p.ID
 }
 
+const replacedWorkFollowUp = "follow_up_replaced"
+
+// Replacing a wait also retires earlier timer facts that have already fired
+// but have not produced a decision. Their documents and assessment links stay
+// available for audit. A decision based on the current timer can schedule its
+// own next wait without retiring the assessment that scheduled it.
+func replaceWorkWait(ctx context.Context, q *sqlgen.Queries, w orchestration.WorkItem, currentEvaluationID string) error {
+	if err := q.CancelWorkTimers(ctx, w.ID); err != nil {
+		return err
+	}
+	retired, err := q.RetireWorkTimerFollowUps(ctx, sqlgen.RetireWorkTimerFollowUpsParams{
+		RoomID: w.RoomID, ThreadKey: "workitem:" + w.ID, CurrentEvaluationID: currentEvaluationID, Reason: replacedWorkFollowUp,
+	})
+	if err != nil {
+		return err
+	}
+	for _, id := range retired {
+		if err := event(ctx, q, "automation.event.updated", w.RoomID, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Timer expiry commits a unique firing fact and receipt in the same transaction.
 // Restart can rescan safely; changing the wait cancels its prior timer first.
 func (s *Store) FireWorkItemTimers(ctx context.Context) error {

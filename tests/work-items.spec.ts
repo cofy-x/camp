@@ -275,6 +275,79 @@ async function presentation(
   };
 }
 
+test('Work scheduling shows the linked rule’s authority @work-loop', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-11-22T09:00:00Z'));
+  const value = await presentation(
+    page,
+    async () => {
+      await page.reload();
+    },
+    {
+      goal: 'Summarize weekly customer feedback',
+      policyId: 'feedback-follow-up',
+    },
+  );
+  const policy = {
+    id: value.item.policyId,
+    roomId: value.room.id,
+    sourceId: 'room',
+    ownerUserId: value.item.ownerUserId,
+    enabled: true,
+    mode: 'auto',
+  };
+  await page.route(
+    `**/api/rooms/${value.room.id}/automation-policies`,
+    (route) => route.fulfill({ json: { policies: [policy] } }),
+  );
+  const openFollowUp = async () => {
+    await value.open();
+    await openWorkAction(page, 'Schedule follow-up…');
+    return detail(page).getByLabel('Follow up at', { exact: true });
+  };
+  const followUpTime = await openFollowUp();
+  await expect(followUpTime).toHaveAccessibleDescription(
+    'The linked rule can resume work when due.',
+  );
+  await followUpTime.fill('2026-11-24T09:00');
+  await detail(page)
+    .getByLabel('Waiting for (optional)', { exact: true })
+    .fill('This week’s feedback is ready.');
+  await expect(
+    detail(page).getByRole('button', {
+      name: 'Schedule follow-up',
+      exact: true,
+    }),
+  ).toBeEnabled();
+  await detail(page).screenshot({
+    path: test.info().outputPath('work-scheduling.png'),
+  });
+
+  policy.mode = 'observe';
+  await page.reload();
+  await expect(await openFollowUp()).toHaveAccessibleDescription(
+    'The linked rule can only assess the follow-up.',
+  );
+
+  policy.enabled = false;
+  await page.reload();
+  await expect(await openFollowUp()).toHaveAccessibleDescription(
+    'The linked rule is off.',
+  );
+
+  value.setItem({ policyId: undefined });
+  await page.reload();
+  await value.open();
+  await openWorkAction(page, 'Set reminder…');
+  await expect(
+    detail(page).getByLabel('Remind me at', { exact: true }),
+  ).toHaveAccessibleDescription('The reminder will appear in your Inbox.');
+  await expect(
+    detail(page).getByRole('button', { name: 'Save reminder', exact: true }),
+  ).toBeVisible();
+});
+
 test('starting Work waits for the selected Runner check while recording stays available', async ({
   page,
 }, info) => {
@@ -1456,6 +1529,124 @@ test('a stopped task retains its files and private reply without asking an old q
       exact: true,
     }),
   ).toHaveCount(0);
+  expect(errors.errors).toEqual([]);
+});
+
+test('settled Work keeps the result and moves an earlier execution error to Records @work-loop', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  const formerError = 'The Runner disconnected during the last session.';
+  const value = await presentation(page, errors.reload, {
+    status: 'needs_attention',
+    execution: {
+      taskId: 'failed-task',
+      status: 'interrupted',
+      revision: 4,
+      summary: '',
+      error: formerError,
+      currentAgentName: 'Writer',
+      activeRunId: '',
+      updatedAt: '2026-11-22T08:00:00Z',
+    },
+    result: {
+      taskId: 'accepted-task',
+      summary: '',
+      resourceId: 'room-files',
+      commit: 'saved-proposal',
+      published: true,
+      files: [{ path: 'proposal.md', status: 'added' }],
+    },
+    decisions: [
+      {
+        id: 'saved-failure',
+        seq: 1,
+        kind: 'result',
+        reason: formerError,
+        actorKind: 'system',
+        actorId: 'task',
+        evidenceIds: [],
+        createdAt: '2026-11-22T08:00:00Z',
+      },
+    ],
+  });
+  await value.open();
+  const panel = detail(page);
+  const alert = panel.getByRole('alert').filter({ hasText: formerError });
+  await expect(alert).toBeVisible();
+
+  value.setItem({ status: 'completed', revision: 2 });
+  await openWorkAction(page, 'Refresh');
+  await expect(panel.getByText('Completed', { exact: true })).toBeVisible();
+  if (browserName === 'chromium' && page.viewportSize()?.width === 1440)
+    await capture(page, 'settled-execution');
+  await expect(alert).toHaveCount(0);
+  await expect(
+    panel.getByRole('button', { name: 'proposal.md', exact: true }),
+  ).toBeVisible();
+  await openWorkAction(page, 'Records…');
+  await expect(
+    panel.getByRole('region', { name: 'Work records' }).getByText(formerError),
+  ).toBeVisible();
+  expect(errors.errors).toEqual([]);
+});
+
+test('a Work detail retains a temporary read failure and clears revoked content @work-loop', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  const question = 'Should we send the proposal today?';
+  const draft = 'Wait until the customer confirms the date.';
+  const value = await presentation(page, errors.reload, {
+    status: 'waiting_for_person',
+    question,
+  });
+  let status = 0;
+  await page.route(`**/api/work-items/${value.item.id}`, (route) =>
+    status
+      ? route.fulfill({
+          status,
+          json: {
+            error: status === 403 ? 'Access changed.' : 'Work is unavailable.',
+          },
+        })
+      : route.fallback(),
+  );
+  await value.open();
+  const panel = detail(page);
+  const answer = panel.getByLabel('Your answer', { exact: true });
+  const retry = panel.getByRole('button', { name: 'Retry work', exact: true });
+  await answer.fill(draft);
+
+  status = 503;
+  await openWorkAction(page, 'Refresh');
+  await expect(panel.getByRole('alert')).toContainText('Work is unavailable.');
+  await expect(panel.getByText(question, { exact: true })).toBeVisible();
+  await expect(answer).toHaveValue(draft);
+
+  status = 403;
+  await retry.click();
+  await expect(panel.getByRole('alert')).toContainText('Access changed.');
+  await expect(
+    panel.getByRole('heading', { name: value.item.goal }),
+  ).toHaveCount(0);
+  await expect(panel.getByText(question, { exact: true })).toHaveCount(0);
+  await expect(answer).toHaveCount(0);
+  await expect(
+    panel.getByRole('button', { name: 'More work actions', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    panel.getByRole('button', { name: 'Activity', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    panel.getByRole('button', { name: 'Back to Work', exact: true }),
+  ).toBeVisible();
+
+  status = 0;
+  await retry.click();
+  await expect(answer).toHaveValue(draft);
   expect(errors.errors).toEqual([]);
 });
 

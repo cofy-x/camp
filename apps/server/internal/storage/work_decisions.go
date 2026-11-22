@@ -144,7 +144,7 @@ func applyAutomationWorkDecisionTx(ctx context.Context, tx *sql.Tx, c orchestrat
 		w.WaitCondition = a.WaitCondition
 		w.Question = ""
 		w.QuestionKind = ""
-		if e = q.CancelWorkTimers(ctx, w.ID); e != nil {
+		if e = replaceWorkWait(ctx, q, w, c.ID); e != nil {
 			return "", e
 		}
 		if a.ResumeAt != "" {

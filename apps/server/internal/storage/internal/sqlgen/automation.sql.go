@@ -681,6 +681,38 @@ func (q *Queries) ChargeAutomationTask(ctx context.Context, arg ChargeAutomation
 	return err
 }
 
+const claimableAutomationEventIDs = `-- name: ClaimableAutomationEventIDs :many
+SELECT id FROM automation_events
+WHERE status='pending' AND room_id NOT IN (
+ SELECT coalesce(json_extract(candidate, '$.policy.roomId'), '')
+ FROM automation_evaluations WHERE status='running'
+)
+ORDER BY seq LIMIT ?
+`
+
+func (q *Queries) ClaimableAutomationEventIDs(ctx context.Context, limit int64) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, claimableAutomationEventIDs, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const closeTaskAutomationSubscriptions = `-- name: CloseTaskAutomationSubscriptions :exec
 UPDATE automation_subscriptions SET enabled=0,revision=revision+1,closed_after=(SELECT coalesce(max(e.seq),0) FROM automation_events e WHERE e.source_id=automation_subscriptions.source_id AND e.thread_key=automation_subscriptions.thread_key) WHERE automation_subscriptions.task_id=? AND enabled=1
 `
@@ -1234,50 +1266,6 @@ func (q *Queries) PendingAutomationDeliveries(ctx context.Context) ([]Automation
 	return items, nil
 }
 
-const pendingAutomationEvents = `-- name: PendingAutomationEvents :many
-SELECT seq, id, room_id, source_id, thread_key, kind, actor_id, actor_kind, message_id, external_event_id, status, value, evaluation_id, task_id, reason, policy_revision FROM automation_events WHERE status='pending' ORDER BY seq LIMIT 100
-`
-
-func (q *Queries) PendingAutomationEvents(ctx context.Context) ([]AutomationEvent, error) {
-	rows, err := q.db.QueryContext(ctx, pendingAutomationEvents)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AutomationEvent{}
-	for rows.Next() {
-		var i AutomationEvent
-		if err := rows.Scan(
-			&i.Seq,
-			&i.ID,
-			&i.RoomID,
-			&i.SourceID,
-			&i.ThreadKey,
-			&i.Kind,
-			&i.ActorID,
-			&i.ActorKind,
-			&i.MessageID,
-			&i.ExternalEventID,
-			&i.Status,
-			&i.Value,
-			&i.EvaluationID,
-			&i.TaskID,
-			&i.Reason,
-			&i.PolicyRevision,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const recoverAutomationDeliveries = `-- name: RecoverAutomationDeliveries :exec
 UPDATE automation_deliveries SET status='reconcile',revision=revision+1 WHERE status='sending'
 `
@@ -1339,22 +1327,6 @@ func (q *Queries) RunningAutomationEvaluations(ctx context.Context) ([]Automatio
 		return nil, err
 	}
 	return items, nil
-}
-
-const runningAutomationThread = `-- name: RunningAutomationThread :one
-SELECT count(*) FROM automation_evaluations WHERE source_id=? AND thread_key=? AND status='running'
-`
-
-type RunningAutomationThreadParams struct {
-	SourceID  string
-	ThreadKey string
-}
-
-func (q *Queries) RunningAutomationThread(ctx context.Context, arg RunningAutomationThreadParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, runningAutomationThread, arg.SourceID, arg.ThreadKey)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
 }
 
 const saveAutomationRequest = `-- name: SaveAutomationRequest :exec

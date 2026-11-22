@@ -156,11 +156,8 @@ func Run(ctx context.Context, config Config, output io.Writer) error {
 		return err
 	}
 	for _, op := range previous {
-		if op.State == "running" {
-			result := p.Result{CompletionID: randomID(), Status: "interrupted", Error: "Runner restarted before execution completed. The request was not replayed.", Checks: []p.CheckResult{}, CleanupConfirmed: cleanupConfirmed}
-			if err = journal.finish(ctx, op.Command.OperationID, result, ""); err != nil {
-				return err
-			}
+		if err := d.recoverOperation(ctx, op, cleanupConfirmed); err != nil {
+			return err
 		}
 	}
 	if cleanupConfirmed {
@@ -243,7 +240,7 @@ func (d *Daemon) capabilities() p.Capabilities {
 	failure := d.failure
 	storage := d.storage
 	d.mu.Unlock()
-	c := p.Capabilities{WorkItemCompletionVersion: 1, TaskInputsVersion: 1, ReasoningEffortVersion: 1, Readiness: d.readiness, Executor: d.config.Executor, Ready: failure == nil, Slots: d.config.Slots, Fingerprint: fmt.Sprintf("camp-remote-v%d:%s:%s:%s", p.Version, runtime.GOOS, runtime.GOARCH, d.config.Executor)}
+	c := p.Capabilities{WorkItemCompletionVersion: 1, TaskInputsVersion: 1, ReasoningEffortVersion: 1, RuntimeFenceVersion: 1, Readiness: d.readiness, Executor: d.config.Executor, Ready: failure == nil, Slots: d.config.Slots, Fingerprint: fmt.Sprintf("camp-remote-v%d:%s:%s:%s", p.Version, runtime.GOOS, runtime.GOARCH, d.config.Executor)}
 	c.Storage = storage
 	if p.ValidateInstallation(d.config.Installation) == nil {
 		c.Installation = d.config.Installation
@@ -549,6 +546,7 @@ func (d *Daemon) setGrant(id, requestID string, milliseconds int64, until string
 }
 
 func (d *Daemon) schedule(ctx context.Context) {
+	fingerprint := d.capabilities().Fingerprint
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	uploading := map[string]bool{}
@@ -610,6 +608,12 @@ func (d *Daemon) schedule(ctx context.Context) {
 					}
 					continue
 				}
+				if spec := op.Command.Spec; spec != nil && spec.RunnerFingerprint != "" && spec.RunnerFingerprint != fingerprint {
+					if err := d.interruptOperation(ctx, op, "The Runner runtime changed after execution was prepared. This request was not replayed.", true); err != nil {
+						d.setFailure(err)
+					}
+					continue
+				}
 				d.mu.Lock()
 				g, authorized := d.grants[id]
 				ready := d.failure == nil && len(d.active) < d.config.Slots && authorized && time.Now().Before(g.until)
@@ -644,4 +648,21 @@ func (d *Daemon) schedule(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (d *Daemon) recoverOperation(ctx context.Context, op operation, cleanupConfirmed bool) error {
+	if op.State == "running" {
+		return d.interruptOperation(ctx, op, "Runner restarted before execution completed. The request was not replayed.", cleanupConfirmed)
+	}
+	// Earlier commands did not bind the installed runtime. A retained resume
+	// cannot prove its old session is compatible after a process restart.
+	if spec := op.Command.Spec; op.State == "accepted" && !op.Cancelled && spec != nil && spec.Resume && spec.RunnerFingerprint == "" {
+		return d.interruptOperation(ctx, op, "The saved native session lacks a runtime identity. Send a new request to rebuild its context.", true)
+	}
+	return nil
+}
+
+func (d *Daemon) interruptOperation(ctx context.Context, op operation, reason string, cleanupConfirmed bool) error {
+	result := p.Result{CompletionID: randomID(), Status: "interrupted", Error: reason, Checks: []p.CheckResult{}, CleanupConfirmed: cleanupConfirmed}
+	return d.journal.finish(ctx, op.Command.OperationID, result, "")
 }

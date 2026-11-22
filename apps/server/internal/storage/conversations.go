@@ -12,12 +12,20 @@ import (
 )
 
 func conversationRuntimeKey(ctx context.Context, q *sqlgen.Queries, r Run) (string, error) {
-	runnerKey := ""
+	var runner sqlgen.Runner
+	var err error
 	if r.RunnerID != "" {
-		runner, err := q.GetRunner(ctx, r.RunnerID)
+		runner, err = q.GetRunner(ctx, r.RunnerID)
 		if err != nil {
 			return "", err
 		}
+	}
+	return conversationRuntimeKeyForRunner(r, runner)
+}
+
+func conversationRuntimeKeyForRunner(r Run, runner sqlgen.Runner) (string, error) {
+	runnerKey := ""
+	if r.RunnerID != "" {
 		var capability struct {
 			Fingerprint string `json:"fingerprint"`
 		}

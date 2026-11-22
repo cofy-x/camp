@@ -615,7 +615,7 @@ func (s *Store) OperateWorkItem(ctx context.Context, id string, in orchestration
 			w.WaitCondition = in.WaitCondition
 			w.Question = ""
 			w.QuestionKind = ""
-			if e = q.CancelWorkTimers(ctx, w.ID); e != nil {
+			if e = replaceWorkWait(ctx, q, w, ""); e != nil {
 				return e
 			}
 			if in.ResumeAt != "" {

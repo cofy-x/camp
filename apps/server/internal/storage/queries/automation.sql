@@ -18,8 +18,13 @@ SELECT * FROM automation_events WHERE id=?;
 SELECT * FROM automation_events WHERE external_event_id=?;
 -- name: AutomationEventsPage :many
 SELECT * FROM automation_events WHERE room_id=? AND seq>? AND seq<=? ORDER BY seq LIMIT ?;
--- name: PendingAutomationEvents :many
-SELECT * FROM automation_events WHERE status='pending' ORDER BY seq LIMIT 100;
+-- name: ClaimableAutomationEventIDs :many
+SELECT id FROM automation_events
+WHERE status='pending' AND room_id NOT IN (
+ SELECT coalesce(json_extract(candidate, '$.policy.roomId'), '')
+ FROM automation_evaluations WHERE status='running'
+)
+ORDER BY seq LIMIT ?;
 -- name: AutomationThreadBatch :many
 SELECT * FROM automation_events WHERE room_id=? AND source_id=? AND thread_key=? AND status='pending' ORDER BY seq LIMIT 20;
 -- name: UpdateAutomationEvent :exec
@@ -28,8 +33,6 @@ UPDATE automation_events SET status=?,evaluation_id=?,task_id=?,reason=?,policy_
 INSERT INTO automation_evaluations(id,source_id,thread_key,status,candidate,created_at) VALUES(?,?,?,'running',?,?);
 -- name: GetAutomationEvaluation :one
 SELECT * FROM automation_evaluations WHERE id=?;
--- name: RunningAutomationThread :one
-SELECT count(*) FROM automation_evaluations WHERE source_id=? AND thread_key=? AND status='running';
 -- name: FinishAutomationEvaluation :exec
 UPDATE automation_evaluations SET status=?,assessment=? WHERE id=? AND status='running';
 -- name: EnsureAutomationUsage :exec

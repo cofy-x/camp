@@ -7,6 +7,32 @@ import { decisionLabel, workStatus } from '../workitems/api';
 import { EvaluationContext } from './EvaluationContext';
 import { memorySourceLabel } from '../memory/api';
 
+function assessmentDecisionLabel(evaluation: Evaluation) {
+  if (evaluation.status === 'superseded')
+    return 'A newer follow-up replaced this assessment.';
+  if (evaluation.status === 'needs_attention')
+    return 'Needs attention. No collaboration started.';
+
+  const observation = evaluation.status === 'observed';
+  switch (evaluation.assessment?.outcome) {
+    case 'accept':
+    case 'execute':
+      return observation
+        ? 'Would start a collaboration in Auto.'
+        : 'Collaboration started.';
+    case 'ignore':
+      return 'No new work.';
+    case 'unavailable':
+      return 'Assessment unavailable.';
+    case 'wait':
+    case 'request_judgment':
+    case 'complete':
+      return `${decisionLabel[evaluation.assessment.outcome]}${observation ? ' (observation only)' : ''}`;
+    default:
+      return 'Assessing…';
+  }
+}
+
 export function EvaluationDecision({
   id,
   onOpenTask,
@@ -43,25 +69,7 @@ export function EvaluationDecision({
         <>
           <dl className="automation-facts">
             <dt>Decision</dt>
-            <dd>
-              {evaluation.status === 'needs_attention'
-                ? 'Needs attention. No collaboration started.'
-                : assessment?.outcome === 'accept' ||
-                    assessment?.outcome === 'execute'
-                  ? evaluation.status === 'observed'
-                    ? 'Would start a collaboration in Auto.'
-                    : 'Collaboration started.'
-                  : assessment?.outcome === 'ignore'
-                    ? 'No new work.'
-                    : assessment?.outcome === 'unavailable'
-                      ? 'Assessment unavailable.'
-                      : assessment &&
-                          ['wait', 'request_judgment', 'complete'].includes(
-                            assessment.outcome,
-                          )
-                        ? `${decisionLabel[assessment.outcome]}${evaluation.status === 'observed' ? ' (observation only)' : ''}`
-                        : 'Assessing…'}
-            </dd>
+            <dd>{assessmentDecisionLabel(evaluation)}</dd>
             <dt>Policy</dt>
             <dd>
               Revision {evaluation.policy.revision} ·{' '}

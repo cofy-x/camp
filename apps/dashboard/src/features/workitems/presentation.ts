@@ -16,6 +16,22 @@ function currentExecution(item: WorkQuestionSource) {
     : undefined;
 }
 
+export function workItemExecutionError(item: WorkQuestionSource) {
+  const execution = item.execution;
+  if (!execution?.error) return '';
+  if (currentExecution(item)) return execution.error;
+  // A final interrupted or cancelled task releases its active link. Its
+  // failure still describes unresolved Work until a newer question or decision.
+  if (
+    !item.activeTaskId &&
+    item.status === 'needs_attention' &&
+    !item.question &&
+    ['interrupted', 'cancelled'].includes(execution.status)
+  )
+    return execution.error;
+  return '';
+}
+
 type CurrentQuestion =
   | {
       kind: 'task';
@@ -116,7 +132,7 @@ export function workItemOverviewFallback(
     item.status === 'stopping' ||
     (editable && item.activeTaskId) ||
     workItemQuestion(item) ||
-    item.execution?.error ||
+    workItemExecutionError(item) ||
     visibleSummary ||
     item.waitCondition ||
     visibleResult

@@ -381,10 +381,12 @@ func (s *Store) UpdateRunner(ctx context.Context, id string, input RunnerUpdate)
 	return
 }
 func (s *Store) ConnectRunner(ctx context.Context, id string, in RunnerConnection) (out Runner, err error) {
-	var capabilityStorage struct {
-		Storage *runnerprotocol.StorageHealth `json:"storage"`
+	var capabilities struct {
+		Ready       bool                          `json:"ready"`
+		Fingerprint string                        `json:"fingerprint"`
+		Storage     *runnerprotocol.StorageHealth `json:"storage"`
 	}
-	if json.Unmarshal(in.Capabilities, &capabilityStorage) != nil || runnerprotocol.ValidateStorageHealth(capabilityStorage.Storage) != nil {
+	if json.Unmarshal(in.Capabilities, &capabilities) != nil || runnerprotocol.ValidateStorageHealth(capabilities.Storage) != nil {
 		return out, problem("invalid_runner", "The storage observation is invalid.")
 	}
 	if !validText(in.Runtime, 240, false) || in.Slots < 1 || in.Slots > runnerprotocol.MaxSlots || !objectJSON(in.Capabilities) || len(in.Sources) > runnerprotocol.MaxSources {
@@ -410,6 +412,16 @@ func (s *Store) ConnectRunner(ctx context.Context, id string, in RunnerConnectio
 		if row.StorageID != in.StorageID {
 			return problem("runner_storage_changed", "The runner storage identity changed. Register this storage as a new runner.")
 		}
+		var previous struct {
+			Ready       bool   `json:"ready"`
+			Fingerprint string `json:"fingerprint"`
+		}
+		if err := json.Unmarshal([]byte(row.Capabilities), &previous); err != nil {
+			return err
+		}
+		// First connection has no prior runtime capable of accepting a command.
+		reconcile := row.ConnectionGeneration > 0 && capabilities.Ready && capabilities.Fingerprint != "" &&
+			(!previous.Ready || capabilities.Fingerprint != previous.Fingerprint || in.Runtime != row.Runtime)
 		stamp := now()
 		if err := q.ConnectRunner(ctx, sqlgen.ConnectRunnerParams{ID: id, Runtime: in.Runtime, Slots: int64(in.Slots), Capabilities: string(in.Capabilities), Sources: string(sources), ConnectedAt: stamp, LastSeenAt: stamp, UpdatedAt: stamp}); err != nil {
 			return err
@@ -417,6 +429,11 @@ func (s *Store) ConnectRunner(ctx context.Context, id string, in RunnerConnectio
 		row, err = q.GetRunner(ctx, id)
 		if err != nil {
 			return err
+		}
+		if reconcile {
+			if err := interruptPreparedRuntimeChanges(ctx, q, row); err != nil {
+				return err
+			}
 		}
 		out, err = runnerRow(row)
 		if err != nil {

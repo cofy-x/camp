@@ -316,6 +316,49 @@ func (q *Queries) ReleaseWorkTaskReservation(ctx context.Context, taskID string)
 	return result.RowsAffected()
 }
 
+const retireWorkTimerFollowUps = `-- name: RetireWorkTimerFollowUps :many
+UPDATE automation_events
+SET status='context',reason=?1
+WHERE room_id=?2 AND source_id='timer' AND thread_key=?3 AND kind='timer.fired'
+ AND (status='pending' OR (status='evaluating' AND evaluation_id<>?4))
+RETURNING id
+`
+
+type RetireWorkTimerFollowUpsParams struct {
+	Reason              string
+	RoomID              string
+	ThreadKey           string
+	CurrentEvaluationID string
+}
+
+func (q *Queries) RetireWorkTimerFollowUps(ctx context.Context, arg RetireWorkTimerFollowUpsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, retireWorkTimerFollowUps,
+		arg.Reason,
+		arg.RoomID,
+		arg.ThreadKey,
+		arg.CurrentEvaluationID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const saveWorkItem = `-- name: SaveWorkItem :execrows
 UPDATE work_items SET policy_id=?,status=?,revision=revision+1,value=?,updated_at=? WHERE id=? AND revision=?
 `

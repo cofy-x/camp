@@ -84,9 +84,12 @@ func TestRPCProcessHelper(t *testing.T) {
 				if mode == "failed-turn" {
 					reason = "error"
 				}
-				if mode == "exhausted-allowance" {
+				switch mode {
+				case "exhausted-allowance":
 					event("turn/end", map[string]any{"reason": map[string]any{"kind": "error", "error": map[string]any{"code": "AUTH", "status": 403, "message": "The collaboration model request allowance is exhausted. Add an explicit allowance before continuing."}}})
-				} else {
+				case "provider-refused":
+					event("turn/end", map[string]any{"reason": map[string]any{"kind": "error", "error": map[string]any{"code": "CONTENT_REFUSED", "message": "raw refusal detail"}}})
+				default:
 					event("turn/end", map[string]any{"reason": map[string]string{"kind": reason}})
 				}
 			}
@@ -161,7 +164,7 @@ func TestCancellationInterruptsBlockedProtocolWrite(t *testing.T) {
 }
 
 func TestRPCCompletionAndFailure(t *testing.T) {
-	for _, mode := range []string{"success", "failed-turn", "exhausted-allowance", "idle-only", "rpc-error", "eof", "malformed", "steps", "cancel"} {
+	for _, mode := range []string{"success", "failed-turn", "exhausted-allowance", "provider-refused", "idle-only", "rpc-error", "eof", "malformed", "steps", "cancel"} {
 		t.Run(mode, func(t *testing.T) {
 			exe, err := os.Executable()
 			if err != nil {
@@ -188,6 +191,9 @@ func TestRPCCompletionAndFailure(t *testing.T) {
 			}
 			if mode == "exhausted-allowance" && !strings.Contains(err.Error(), "Saved work is retained; add an explicit allowance") {
 				t.Fatal("the actionable allowance failure was lost", err)
+			}
+			if mode == "provider-refused" && (!strings.Contains(err.Error(), refusedRequestMessage) || !strings.Contains(output.String(), refusedRequestMessage) || strings.Contains(output.String(), "raw refusal detail")) {
+				t.Fatalf("expected safe refusal in both result and completion event: %v %s", err, output.String())
 			}
 			if cmd.ProcessState == nil {
 				t.Fatal("process was not reaped")

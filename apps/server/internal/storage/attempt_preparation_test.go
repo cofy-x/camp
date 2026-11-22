@@ -122,6 +122,18 @@ func TestPreparationActivationRechecksAuthorityAndFrozenIdentity(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
+		{"runner_binding_came_from_a_different_runtime", "stale_attempt", func(t *testing.T, s *Store, _ context.Context, _ Run, a Attempt, in *PreparedAttempt) {
+			runner, err := s.GetRunner(ctx, a.RunnerID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The running fingerprint matches the claim again, but the input
+			// builder observed a different one while the runtime was changing.
+			if _, err = s.ConnectRunner(ctx, runner.ID, RunnerConnection{StorageID: runner.StorageID, Runtime: runner.Runtime, Slots: runner.Slots, Capabilities: json.RawMessage(`{"ready":true,"executor":"fixture","fingerprint":"v1","runtimeFenceVersion":1}`)}); err != nil {
+				t.Fatal(err)
+			}
+			in.Command, _ = json.Marshal(map[string]any{"id": a.CommandID, "operationId": a.ID, "kind": "run.start", "spec": map[string]string{"runnerFingerprint": "transient-runtime"}})
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			s, actor, r, a, in := preparationFixture(t, "write")
@@ -133,6 +145,74 @@ func TestPreparationActivationRechecksAuthorityAndFrozenIdentity(t *testing.T) {
 				t.Fatal("late result installed execution authority", retained)
 			}
 			assertScalar(t, s, "SELECT count(*) FROM runner_commands WHERE kind='run.start'", 0)
+		})
+	}
+}
+
+func TestRunnerChangeFencesPreparedExecutionAndRetainsReceipts(t *testing.T) {
+	for _, phase := range []string{"dispatching", "accepted", "uploading"} {
+		t.Run(phase, func(t *testing.T) {
+			s, _, run, a, input := preparationFixture(t, "write")
+			if _, err := s.ActivateAttempt(ctx, a.ID, input); err != nil {
+				t.Fatal(err)
+			}
+			runner, err := s.GetRunner(ctx, a.RunnerID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reconnect := func(caps string) {
+				t.Helper()
+				if _, err := s.ConnectRunner(ctx, runner.ID, RunnerConnection{StorageID: runner.StorageID, Runtime: runner.Runtime, Slots: runner.Slots, Capabilities: json.RawMessage(caps)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			reconnect(`{"ready":true,"executor":"fixture","fingerprint":"v1","taskInputsVersion":1}`)
+			same, err := s.GetAttempt(ctx, a.ID)
+			if err != nil || same.Phase != "dispatching" || string(same.Command) != string(input.Command) {
+				t.Fatal("reconnecting the same runtime changed its command", same, err)
+			}
+			if phase != "dispatching" {
+				if _, err := s.AcceptAttempt(ctx, a.ID, runner.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if phase == "uploading" {
+				if _, err := s.BeginFinalizing(ctx, a.ID, runner.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			reconnect(`{"ready":true,"executor":"fixture","fingerprint":"v2"}`)
+			retained, err := s.GetAttempt(ctx, a.ID)
+			if err != nil || string(retained.Command) != string(input.Command) || retained.ModelInFlight {
+				t.Fatal("runtime change replaced the immutable command", retained, err)
+			}
+			if phase == "dispatching" {
+				if retained.Phase != "finished" || !strings.Contains(string(retained.Receipt), changedRuntimeBeforeExecution) {
+					t.Fatal("a pending incompatible command must settle immediately", retained)
+				}
+				commands, err := s.ListRunnerCommands(ctx, runner.ID)
+				if err != nil || len(commands) != 0 {
+					t.Fatal("the interrupted command was still pending for delivery", commands, err)
+				}
+				_, err = s.AcceptAttempt(ctx, a.ID, runner.ID)
+				requireCode(t, err, "attempt_finished")
+				assertScalar(t, s, "SELECT count(*) FROM resource_writer_leases WHERE owner<>''", 0)
+				return
+			}
+			if phase == "accepted" {
+				requireCode(t, s.BeginAttemptModel(ctx, a.ID, runner.ID), "stale_attempt")
+				if _, err := s.BeginFinalizing(ctx, a.ID, runner.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			run.Status = "succeeded"
+			run.ResultCommit = strings.Repeat("c", 40)
+			for range 2 {
+				out, err := s.FinishRemoteRun(ctx, a.ID, runner.ID, "retained-completion", strings.Repeat("d", 64), run, "The original output.", true, true)
+				if err != nil || out.Status != "succeeded" || out.ResultCommit != run.ResultCommit {
+					t.Fatal("the original completed output must remain deliverable", out, err)
+				}
+			}
 		})
 	}
 }
