@@ -52,13 +52,13 @@ export function WorkItemAllowance({
     reason: '',
   };
   const localExpiry = values.expiresAt ?? values.deadline ?? '';
+  const changedLimits = workBudgetLimits.filter(
+    ({ key }) => values.budget[key] !== item.budget[key],
+  );
   // Keep every edited field visible when resuming a draft in the quick form.
   const hasOtherEdits =
     Boolean(values.reason) ||
-    workBudgetLimits.some(
-      ({ key }) =>
-        key !== 'maxModelRequests' && values.budget[key] !== item.budget[key],
-    );
+    changedLimits.some(({ key }) => key !== 'maxModelRequests');
   const [fullDraft, setFullDraft] = useState(false);
   useEffect(() => {
     if (!modelRequestsOnly) setFullDraft(false);
@@ -75,6 +75,9 @@ export function WorkItemAllowance({
     !draft.loaded ||
     Boolean(draft.error);
   const stale = values.revision !== item.revision;
+  const hasChanges =
+    changedLimits.length > 0 || expiryEdited || Boolean(values.reason?.trim());
+  const cannotSave = disabled || stale || !hasChanges;
   const clearDraft = draft.setValue;
   const problem =
     draft.error || (draft.comparison ? 'Review your allowance draft.' : '');
@@ -99,14 +102,12 @@ export function WorkItemAllowance({
           aria-label="Work allowance"
           onSubmit={(event) => {
             event.preventDefault();
-            if (disabled || stale) return;
+            if (cannotSave) return;
             void operation.act(item.id, 'authorize', {
               revision: values.revision,
               comment: values.reason,
               budget: values.budget,
-              expiresAt: values.deadlineEdited
-                ? utcDateTime(localExpiry)
-                : undefined,
+              expiresAt: expiryEdited ? utcDateTime(localExpiry) : undefined,
             });
           }}
         >
@@ -171,7 +172,7 @@ export function WorkItemAllowance({
               primary
               type="submit"
               aria-describedby={modelRequestsOnly ? resumeHintId : undefined}
-              disabled={disabled || stale}
+              disabled={cannotSave}
             >
               Save allowance
             </Button>

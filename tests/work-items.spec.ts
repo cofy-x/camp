@@ -2181,15 +2181,32 @@ test('open Work offers live allowance recovery @work-loop', async ({
   await expect(modelRequests).toHaveValue('24');
   await expect(modelRequests).toHaveAccessibleDescription('24 used');
   await expect(allowance.getByRole('spinbutton')).toHaveCount(1);
-  await expect(allowance.getByLabel('Authorization expires')).toBeVisible();
+  const expiry = allowance.getByLabel('Authorization expires');
+  await expect(expiry).toBeVisible();
   const allowanceNote = allowance.getByLabel('Note (optional)', {
     exact: true,
   });
   await expect(allowanceNote).toHaveCount(0);
-  await expect(
-    allowance.getByRole('button', { name: 'Save allowance', exact: true }),
-  ).toHaveAccessibleDescription('Continue work after saving.');
+  const saveAllowance = allowance.getByRole('button', {
+    name: 'Save allowance',
+    exact: true,
+  });
+  await expect(saveAllowance).toHaveAccessibleDescription(
+    'Continue work after saving.',
+  );
+  await expect(saveAllowance).toBeDisabled();
   await capture(page, 'allowance-editor');
+  await modelRequests.fill('25');
+  await expect(saveAllowance).toBeEnabled();
+  await modelRequests.fill('24');
+  await expect(saveAllowance).toBeDisabled();
+  const savedExpiry = await expiry.inputValue();
+  await expiry.fill(
+    `${savedExpiry.slice(0, -2)}${savedExpiry.endsWith('00') ? '01' : '00'}`,
+  );
+  await expect(saveAllowance).toBeEnabled();
+  await expiry.fill(savedExpiry);
+  await expect(saveAllowance).toBeDisabled();
   await openWorkAction(page, 'Allowance and access…');
   const assessments = allowance.getByRole('spinbutton', {
     name: 'Assessments',
@@ -2199,6 +2216,7 @@ test('open Work offers live allowance recovery @work-loop', async ({
   await allowanceNote.fill(
     'Finish the saved proposal before requesting review.',
   );
+  await expect(saveAllowance).toBeEnabled();
   await detail(page)
     .getByRole('button', { name: 'Back to item', exact: true })
     .click();
@@ -2207,6 +2225,7 @@ test('open Work offers live allowance recovery @work-loop', async ({
     'Finish the saved proposal before requesting review.',
   );
   await allowanceNote.clear();
+  await expect(saveAllowance).toBeDisabled();
   await assessments.fill('13');
   await detail(page)
     .getByRole('button', { name: 'Back to item', exact: true })
@@ -2217,8 +2236,11 @@ test('open Work offers live allowance recovery @work-loop', async ({
   await expect(assessments).toBeVisible();
   const authorize = `**/api/work-items/${value.item.id}/actions/authorize`;
   await page.route(authorize, (route) => {
-    const { budget } = route.request().postDataJSON() as WorkActionInput;
+    const { budget, expiresAt } = route
+      .request()
+      .postDataJSON() as WorkActionInput;
     expect(budget).toEqual({ ...value.item.budget, maxModelRequests: 48 });
+    expect(expiresAt).toBeUndefined();
     value.setItem({ budget, revision: 2 });
     return route.fulfill({ json: { item: value.item } });
   });
@@ -2226,9 +2248,7 @@ test('open Work offers live allowance recovery @work-loop', async ({
   await expect(modelRequests).toHaveAccessibleDescription(
     '24 used · 24 currently authorized',
   );
-  await allowance
-    .getByRole('button', { name: 'Save allowance', exact: true })
-    .click();
+  await saveAllowance.click();
   await expect(allowance).toBeHidden();
   expect(continuations).toBe(0);
   await expect(

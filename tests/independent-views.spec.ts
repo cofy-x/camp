@@ -451,6 +451,12 @@ for (const pending of ['members', 'policies'] as const)
       ).toHaveCount(0);
       await expect(answer).toHaveValue(draft);
       await openWorkAction(page, 'Allowance and access…');
+      const assessments = allowance.getByRole('spinbutton', {
+        name: 'Assessments',
+        exact: true,
+      });
+      await expect(assessments).toBeEnabled();
+      await assessments.fill(String(value.item.budget.maxEvaluations + 1));
       await expect(
         allowance.getByRole('button', { name: 'Save allowance', exact: true }),
       ).toBeEnabled();
@@ -646,6 +652,12 @@ test('a late Room context cannot replace another Work item or enable its grants 
       name: 'Save allowance',
       exact: true,
     });
+    const assessments = detail.getByRole('spinbutton', {
+      name: 'Assessments',
+      exact: true,
+    });
+    await expect(assessments).toBeEnabled();
+    await assessments.fill(String(second.item.budget.maxEvaluations + 1));
     await expect(save).toBeEnabled();
     gate.release();
     await page.unrouteAll({ behavior: 'wait' });
