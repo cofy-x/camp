@@ -73,7 +73,7 @@ func workTaskRecovery(taskID string) orchestration.WorkRecovery {
 	return orchestration.WorkRecovery{Kind: orchestration.WorkRecoveryReviewExecution, Message: "The last work session ended before completing this Work.", TaskID: taskID}
 }
 
-func recoveryAllowanceRestored(w orchestration.WorkItem, kind orchestration.WorkRecoveryKind, previous orchestration.WorkBudget, deadlineChanged bool) bool {
+func recoveryAllowanceRestored(w orchestration.WorkItem, kind orchestration.WorkRecoveryKind, limit string, previous orchestration.WorkBudget, deadlineChanged bool) bool {
 	if workExpired(w) {
 		return false
 	}
@@ -83,7 +83,7 @@ func recoveryAllowanceRestored(w orchestration.WorkItem, kind orchestration.Work
 	if kind != orchestration.WorkRecoveryIncreaseAllowance {
 		return false
 	}
-	switch w.RecoveryLimit {
+	switch limit {
 	case recoveryEvaluations:
 		return w.Budget.MaxEvaluations > previous.MaxEvaluations && w.Budget.MaxEvaluations > w.Usage.Evaluations
 	case recoveryExecution:
@@ -96,56 +96,81 @@ func recoveryAllowanceRestored(w orchestration.WorkItem, kind orchestration.Work
 	}
 }
 
-// Retained synthetic questions are recognized only with the latest matching
-// system decision. Preserve human text and avoid guessing from a prefix alone.
-func legacyWorkRecovery(w orchestration.WorkItem, raw, taskStatus string) (*orchestration.WorkRecovery, error) {
-	if !canShowWorkRecovery(w) || raw == "" {
-		return nil, nil
+func assessmentRecoveryLimit(w orchestration.WorkItem, targeted bool, outcome string) string {
+	if !targeted && w.Usage.Evaluations >= w.Budget.MaxEvaluations {
+		return recoveryEvaluations
 	}
-	var d orchestration.WorkDecision
-	if err := json.Unmarshal([]byte(raw), &d); err != nil {
-		return nil, err
-	}
-	if d.ActorKind != "system" || len(d.EvidenceIDs) == 0 {
-		return nil, nil
-	}
-	switch {
-	case d.Kind == "result" && d.ActorID == "task" && w.Question == "" && d.TaskID != "" &&
-		(taskStatus == "interrupted" || taskStatus == "cancelled"):
-		r := workTaskRecovery(d.TaskID)
-		return &r, nil
-	case d.Kind == "request_judgment" && d.ActorID == "timer" &&
-		w.Question == d.Reason && strings.HasPrefix(d.EvidenceIDs[0], "deadline:"+w.ID+":"):
-		r := workFailureRecovery(w, "authorization_expired")
-		return &r, nil
-	case d.Kind == "request_judgment" && d.ActorID == "intake" &&
-		w.Question == "Review the follow-up before further autonomous work: "+d.Reason:
-		r := workFailureRecovery(w, d.Reason)
-		return &r, nil
-	case d.Kind == "request_judgment" && d.ActorID == "assessment" && d.EvaluationID != "" &&
-		w.Question == "Review the recorded event assessment: "+d.Reason:
-		r := workFailureRecovery(w, d.Reason)
-		return &r, nil
+	switch outcome {
+	case "accept":
+		return recoveryExecution
+	case "wait":
+		return recoveryFollowUps
 	default:
-		return nil, nil
+		return ""
 	}
 }
 
-func currentWorkRecovery(ctx context.Context, q *sqlgen.Queries, w orchestration.WorkItem) (*orchestration.WorkRecovery, error) {
+// Retained synthetic questions are recognized only with the latest matching
+// system decision. Preserve human text and avoid guessing from a prefix alone.
+func legacyWorkRecovery(w orchestration.WorkItem, raw, taskStatus, sourceID string) (*orchestration.WorkRecovery, string, error) {
+	if !canShowWorkRecovery(w) || raw == "" {
+		return nil, "", nil
+	}
+	var d orchestration.WorkDecision
+	if err := json.Unmarshal([]byte(raw), &d); err != nil {
+		return nil, "", err
+	}
+	if d.ActorKind != "system" || len(d.EvidenceIDs) == 0 {
+		return nil, "", nil
+	}
+	var recovery orchestration.WorkRecovery
+	switch {
+	case d.Kind == "result" && d.ActorID == "task" && w.Question == "" && d.TaskID != "" &&
+		(taskStatus == "interrupted" || taskStatus == "cancelled"):
+		recovery = workTaskRecovery(d.TaskID)
+	case d.Kind == "request_judgment" && d.ActorID == "timer" &&
+		w.Question == d.Reason && strings.HasPrefix(d.EvidenceIDs[0], "deadline:"+w.ID+":"):
+		recovery = workFailureRecovery(w, "authorization_expired")
+	case d.Kind == "request_judgment" && d.ActorID == "intake" &&
+		w.Question == "Review the follow-up before further autonomous work: "+d.Reason:
+		recovery = workFailureRecovery(w, d.Reason)
+	case d.Kind == "request_judgment" && d.ActorID == "assessment" && d.EvaluationID != "" &&
+		w.Question == "Review the recorded event assessment: "+d.Reason:
+		recovery = workFailureRecovery(w, d.Reason)
+	default:
+		return nil, "", nil
+	}
+	if recovery.Kind == orchestration.WorkRecoveryReviewRule || recovery.Kind == orchestration.WorkRecoveryDailyLimit {
+		recovery.SourceID = sourceID
+	}
+	return &recovery, d.ActorID, nil
+}
+
+func currentWorkRecovery(ctx context.Context, q *sqlgen.Queries, w orchestration.WorkItem) (*orchestration.WorkRecovery, string, error) {
 	if !canShowWorkRecovery(w) {
-		return nil, nil
+		return nil, "", nil
 	}
 	if w.WorkRecovery != nil && w.Question == "" {
-		return w.WorkRecovery, nil
+		return w.WorkRecovery, w.RecoveryLimit, nil
 	}
 	row, err := q.LegacyWorkRecovery(ctx, w.ID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+		return nil, "", nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return legacyWorkRecovery(w, row.Decision, row.TaskStatus)
+	recovery, actor, err := legacyWorkRecovery(w, row.Decision, row.TaskStatus, row.SourceID)
+	limit := ""
+	if recovery != nil && recovery.Kind == orchestration.WorkRecoveryIncreaseAllowance {
+		if actor == "intake" {
+			limit = recoveryEvaluations
+		} else if actor == "assessment" && row.AssessmentOutcome != "" &&
+			(row.Targeted != 0 || row.AssessedWorkItemID == w.ID) {
+			limit = assessmentRecoveryLimit(w, row.Targeted != 0, row.AssessmentOutcome)
+		}
+	}
+	return recovery, limit, err
 }
 
 func populateWorkRecovery(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem) error {
@@ -154,7 +179,7 @@ func populateWorkRecovery(ctx context.Context, q *sqlgen.Queries, w *orchestrati
 		w.WorkRecovery = nil
 		return nil
 	}
-	recovery, err := currentWorkRecovery(ctx, q, *w)
+	recovery, _, err := currentWorkRecovery(ctx, q, *w)
 	if err != nil {
 		return err
 	}

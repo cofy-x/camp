@@ -24,7 +24,8 @@ SELECT CAST(page.id AS TEXT) AS id,page.source,page.entity_id,page.room_id,page.
  CAST(coalesce(json_extract(w.value,'$.question'),'') AS TEXT) AS work_question,
  CAST(coalesce(json_extract(w.value,'$.deadline'),'') AS TEXT) AS work_deadline,
  CAST(coalesce(d.value,'') AS TEXT) AS legacy_recovery_decision,
- CAST(coalesce(t.status,'') AS TEXT) AS legacy_recovery_task_status
+ CAST(coalesce(t.status,'') AS TEXT) AS legacy_recovery_task_status,
+ CAST(coalesce(p.source_id,'') AS TEXT) AS legacy_recovery_source_id
 FROM page
 LEFT JOIN work_items w ON page.source='work_item' AND page.kind='exception' AND page.entity_id=w.id
  AND w.status='needs_attention' AND coalesce(json_extract(w.value,'$.activeTaskId'),'')=''
@@ -37,4 +38,5 @@ LEFT JOIN work_item_decisions d ON w.id IS NOT NULL AND json_type(w.value,'$.wor
  ORDER BY latest.seq DESC LIMIT 1)
 LEFT JOIN work_item_tasks linked ON linked.work_item_id=w.id AND linked.task_id=json_extract(d.value,'$.taskId')
 LEFT JOIN collaboration_tasks t ON t.id=linked.task_id
+LEFT JOIN automation_policies p ON d.seq IS NOT NULL AND p.id=w.policy_id AND p.room_id=w.room_id AND p.owner_user_id=w.owner_user_id
 ORDER BY page.priority,page.created_at DESC,page.id;

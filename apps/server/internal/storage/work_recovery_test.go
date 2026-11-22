@@ -98,6 +98,15 @@ func TestRetainedWorkRecoveryUsesMatchingSystemDecisionAndKeepsReceipts(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	source := testGitHubSource(t, s, actor, room)
+	policy, err := s.SaveAutomationPolicy(actor, room.ID, source.ID, orchestration.PolicyInput{
+		RequestID: newID(), Enabled: false, Mode: "auto", Rules: "Review the original issue.",
+		AllowedActorIDs: []string{"42"}, ParticipantAgentIDs: []string{writer.ID},
+		FirstAgentID: writer.ID, DailyEvaluations: 5, DailyTasks: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := s.transaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
 		current, err := getWorkItem(ctx, q, w.ID)
@@ -110,6 +119,7 @@ func TestRetainedWorkRecoveryUsesMatchingSystemDecisionAndKeepsReceipts(t *testi
 		}
 		current.Status = "needs_attention"
 		current.Question = "Review the follow-up before further autonomous work: policy_not_applicable"
+		current.PolicyID = policy.ID
 		if err := appendWorkDecision(ctx, q, current, orchestration.WorkDecision{Kind: "request_judgment", Reason: "policy_not_applicable", ActorID: "intake", ActorKind: "system", EvidenceIDs: []string{timerEventID}}); err != nil {
 			return err
 		}
@@ -122,6 +132,9 @@ func TestRetainedWorkRecoveryUsesMatchingSystemDecisionAndKeepsReceipts(t *testi
 		t.Fatal(err)
 	}
 	current := assertCurrentWorkRecovery(t, s, actor, w.ID, orchestration.WorkRecoveryReviewRule)
+	if current.WorkRecovery.SourceID != source.ID {
+		t.Fatal("the retained system decision lost its saved GitHub rule", current.WorkRecovery)
+	}
 	_, err = s.OperateWorkItem(actor, w.ID, orchestration.WorkItemOperation{RequestID: newID(), Revision: current.Revision, Kind: "answer", Content: "Cannot clear a rule failure."}, roomBudget)
 	requireCode(t, err, "question_answered")
 	replayed, err := s.OperateWorkItem(actor, w.ID, answer, roomBudget)
@@ -140,6 +153,93 @@ func TestRetainedWorkRecoveryUsesMatchingSystemDecisionAndKeepsReceipts(t *testi
 	w = decideTestWork(t, s, actor, current, orchestration.WorkItemOperation{Kind: "request_judgment", Question: "Review the follow-up before further autonomous work: policy_not_applicable"})
 	if w.WorkRecovery != nil || w.QuestionKind != orchestration.WorkQuestionJudgment || w.Question == "" {
 		t.Fatal("the genuine human question was reclassified", w)
+	}
+}
+
+func TestRetainedAllowanceRecoveryUsesKnownProducerAndSavedAssessment(t *testing.T) {
+	for _, tc := range []struct {
+		name, producer, outcome, limit string
+		targeted                       bool
+	}{
+		{"intake evaluation", "intake", "", recoveryEvaluations, false},
+		{"assessment evaluation", "assessment", "wait", recoveryEvaluations, false},
+		{"targeted execution", "assessment", "accept", recoveryExecution, true},
+		{"targeted follow-up", "assessment", "wait", recoveryFollowUps, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, actor, _, room, writer, _ := taskFixture(t)
+			w, policy := reviewWaitingWork(t, s, actor, room, writer, true)
+			if err := s.transaction(ctx, func(tx *sql.Tx) error {
+				q := sqlgen.New(tx)
+				current, err := getWorkItem(ctx, q, w.ID)
+				if err != nil {
+					return err
+				}
+				d := orchestration.WorkDecision{
+					Kind: "request_judgment", ActorKind: "system", ActorID: tc.producer,
+					Reason: "work_budget_exhausted", EvidenceIDs: []string{w.Evidence[0].EventID},
+				}
+				current.Status = "needs_attention"
+				current.Usage.Evaluations = current.Budget.MaxEvaluations
+				if tc.producer == "intake" {
+					current.Question = "Review the follow-up before further autonomous work: " + d.Reason
+				} else {
+					current.Question = "Review the recorded event assessment: " + d.Reason
+					current.QuestionKind = orchestration.WorkQuestionJudgment
+					d.EvaluationID = newID()
+					event := orchestration.SourceEvent{ID: w.Evidence[0].EventID, RoomID: room.ID, SourceID: policy.SourceID}
+					if tc.targeted {
+						event.WorkItemID = w.ID
+					}
+					candidate, err := json.Marshal(orchestration.Candidate{ID: d.EvaluationID, Policy: policy, Events: []orchestration.SourceEvent{event}})
+					if err != nil {
+						return err
+					}
+					assessment, err := json.Marshal(orchestration.Assessment{Outcome: tc.outcome, WorkItemID: w.ID})
+					if err != nil {
+						return err
+					}
+					if err := q.InsertAutomationEvaluation(ctx, sqlgen.InsertAutomationEvaluationParams{ID: d.EvaluationID, SourceID: policy.SourceID, ThreadKey: "workitem:" + w.ID, Candidate: string(candidate), CreatedAt: now()}); err != nil {
+						return err
+					}
+					if err := q.FinishAutomationEvaluation(ctx, sqlgen.FinishAutomationEvaluationParams{ID: d.EvaluationID, Status: "needs_attention", Assessment: string(assessment)}); err != nil {
+						return err
+					}
+				}
+				switch tc.limit {
+				case recoveryExecution:
+					current.Usage.ReservedModelRequests = current.Budget.MaxModelRequests
+				case recoveryFollowUps:
+					current.Usage.FollowUps = current.Budget.MaxFollowUps
+				}
+				if err := appendWorkDecision(ctx, q, current, d); err != nil {
+					return err
+				}
+				return saveWorkItem(ctx, q, &current)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			w = assertCurrentWorkRecovery(t, s, actor, w.ID, orchestration.WorkRecoveryIncreaseAllowance)
+			budget := w.Budget
+			budget.MaxActions++
+			w = decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{Kind: "authorize", Budget: &budget})
+			if w.WorkRecovery == nil || w.Status != "needs_attention" {
+				t.Fatal("an unrelated allowance closed retained recovery", w)
+			}
+			switch tc.limit {
+			case recoveryEvaluations:
+				budget.MaxEvaluations++
+			case recoveryExecution:
+				budget.MaxModelRequests++
+			case recoveryFollowUps:
+				budget.MaxFollowUps++
+			}
+			w = decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{Kind: "authorize", Budget: &budget})
+			if w.WorkRecovery != nil || w.Status != "open" {
+				t.Fatal("restoring the exhausted allowance left retained recovery in Needs me", w)
+			}
+			assertScalar(t, s, "SELECT count(*) FROM collaboration_tasks", 0)
+		})
 	}
 }
 

@@ -252,13 +252,8 @@ func recordAssessmentAttention(ctx context.Context, q *sqlgen.Queries, c orchest
 		decisionKind := "superseded"
 		if needsRecovery {
 			decisionKind = "request_judgment"
-			limit := recoveryExecution
-			if w.Budget.MaxEvaluations <= w.Usage.Evaluations && !containsTargetedWorkEvent(c.Events, w.ID) {
-				// Only a targeted candidate charges its assessment before apply.
-				limit = recoveryEvaluations
-			} else if a.Outcome == "wait" {
-				limit = recoveryFollowUps
-			}
+			// Only a targeted candidate charges its assessment before apply.
+			limit := assessmentRecoveryLimit(w, containsTargetedWorkEvent(c.Events, w.ID), a.Outcome)
 			if e = markWorkFailure(ctx, q, &w, reason, limit); e != nil {
 				return e
 			}

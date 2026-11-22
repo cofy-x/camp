@@ -549,7 +549,7 @@ func (s *Store) OperateWorkItem(ctx context.Context, id string, in orchestration
 			if next.MaxEvaluations < w.Usage.Evaluations || next.MaxTasks < w.Usage.Tasks || next.MaxModelRequests < w.Usage.ReservedModelRequests || next.MaxActions < w.Usage.Actions || next.MaxFollowUps < w.Usage.FollowUps {
 				return problem("invalid_work_item", "The new allowance must cover all work already reserved or consumed.")
 			}
-			recovery, e := currentWorkRecovery(ctx, q, w)
+			recovery, limit, e := currentWorkRecovery(ctx, q, w)
 			if e != nil {
 				return e
 			}
@@ -568,7 +568,7 @@ func (s *Store) OperateWorkItem(ctx context.Context, id string, in orchestration
 				w.Deadline, w.ExpiresAt = deadline, deadline
 				d.Deadline = deadline
 			}
-			if recovery != nil && recoveryAllowanceRestored(w, recovery.Kind, previousBudget, in.Deadline != "") {
+			if recovery != nil && recoveryAllowanceRestored(w, recovery.Kind, limit, previousBudget, in.Deadline != "") {
 				w.Status = "open"
 				w.Question = ""
 				w.QuestionKind = ""
@@ -591,7 +591,7 @@ func (s *Store) OperateWorkItem(ctx context.Context, id string, in orchestration
 				return e
 			}
 		case "delegate":
-			recovery, e := currentWorkRecovery(ctx, q, w)
+			recovery, _, e := currentWorkRecovery(ctx, q, w)
 			if e != nil {
 				return e
 			}
@@ -687,7 +687,7 @@ func (s *Store) OperateWorkItem(ctx context.Context, id string, in orchestration
 				if w.Status != "waiting_for_person" && w.Status != "needs_attention" {
 					return problem("invalid_work_item", "This matter is not waiting for a judgment.")
 				}
-				recovery, e := currentWorkRecovery(ctx, q, w)
+				recovery, _, e := currentWorkRecovery(ctx, q, w)
 				if e != nil {
 					return e
 				}

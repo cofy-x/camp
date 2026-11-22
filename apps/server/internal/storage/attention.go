@@ -196,8 +196,9 @@ func attentionWorkRecovery(row sqlgen.AttentionPageRow) (*orchestration.WorkReco
 		err := json.Unmarshal([]byte(row.WorkRecovery), &recovery)
 		return &recovery, err
 	}
-	return legacyWorkRecovery(
+	recovery, _, err := legacyWorkRecovery(
 		orchestration.WorkItem{ID: row.WorkItemID, Status: row.Status, Question: row.WorkQuestion, Deadline: row.WorkDeadline},
-		row.LegacyRecoveryDecision, row.LegacyRecoveryTaskStatus,
+		row.LegacyRecoveryDecision, row.LegacyRecoveryTaskStatus, row.LegacyRecoverySourceID,
 	)
+	return recovery, err
 }
