@@ -15,7 +15,9 @@ import { toolPatch } from './camp-tools/patch.mjs';
 
 // The real fixed DSH calls deterministic loopback fixtures, with no provider key.
 const runtime = fileURLToPath(new URL('.', import.meta.url));
-const root = await mkdtemp(join(runtime, '../../.data/camp-tools-probe-'));
+const data = join(runtime, '../../.data');
+await mkdir(data, { recursive: true, mode: 0o700 });
+const root = await mkdtemp(join(data, 'camp-tools-probe-'));
 const token = 'camp-tools-keyless-fixture-capability';
 const fileContent = new Map([
   ['/workspace/brief.txt', 'A bridge-owned document.\n'],
