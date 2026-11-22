@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Button, Checkbox, Select } from '@cofy-x/camp-platinum';
 import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
 import type { AutomationPolicy } from '../automation/api';
@@ -44,6 +44,21 @@ export function WorkItemActions({
   const [allowanceProblem, setAllowanceProblem] = useState('');
   const [allowanceDraft, setAllowanceDraft] = useState(false);
   const [allowanceRecoveryOpen, setAllowanceRecoveryOpen] = useState(false);
+  const followUpHelpId = useId();
+  const followUpRule = policies.find((policy) => policy.id === item.policyId);
+  const ruleMode = followUpRule?.enabled
+    ? followUpRule.mode
+    : followUpRule
+      ? 'off'
+      : 'unknown';
+  const followUpHelp = item.policyId
+    ? {
+        auto: 'The linked rule can resume work when due.',
+        observe: 'The linked rule can only assess the follow-up.',
+        off: 'The linked rule is off.',
+        unknown: 'Camp checks the linked rule when the follow-up is due.',
+      }[ruleMode]
+    : 'The reminder will appear in your Inbox.';
   const {
     settings,
     question,
@@ -296,9 +311,10 @@ export function WorkItemActions({
             ) : intent === 'wait' ? (
               <>
                 <label>
-                  Remind me at
+                  {item.policyId ? 'Follow up at' : 'Remind me at'}
                   <input
                     className="p9-field"
+                    aria-describedby={followUpHelpId}
                     type="datetime-local"
                     required
                     step={1}
@@ -323,11 +339,7 @@ export function WorkItemActions({
                     }
                   />
                 </div>
-                <p>
-                  {item.policyId
-                    ? 'The automatic rule may resume work at this time.'
-                    : 'The reminder will appear in your Inbox.'}
-                </p>
+                <p id={followUpHelpId}>{followUpHelp}</p>
               </>
             ) : intent === 'attach' || intent === 'follow' ? (
               <>
@@ -465,7 +477,7 @@ export function WorkItemActions({
           {intent === 'wait' &&
             (reminderError || (values.resumeAt && !futureReminder)) && (
               <p className="app-error" role="alert">
-                Choose a future time for this reminder.
+                Choose a future time.
               </p>
             )}
           {newExecution && (expired || exhausted) && (
@@ -510,7 +522,11 @@ export function WorkItemActions({
                   ))
               }
             >
-              {operation.busy ? 'Saving…' : (labels[intent] ?? 'Save')}
+              {operation.busy
+                ? 'Saving…'
+                : intent === 'wait' && item.policyId
+                  ? 'Schedule follow-up'
+                  : (labels[intent] ?? 'Save')}
             </Button>
             {!(view === 'overview' && intent === 'answer' && hasQuestion) && (
               <Button

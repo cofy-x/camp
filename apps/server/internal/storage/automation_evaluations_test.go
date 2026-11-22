@@ -35,6 +35,53 @@ func claimAutomation(t *testing.T, s *Store) *orchestration.Candidate {
 	}
 	return c
 }
+
+func TestAutomationClaimSkipsBusyRoomBeforeCandidateLimit(t *testing.T) {
+	s, actor, _, room, writer, _ := taskFixture(t)
+	work, policy := reviewWaitingWork(t, s, actor, room, writer, true)
+	reviewFireWorkTimer(t, s, work)
+	first := claimAutomation(t, s)
+	if len(first.Events) != 1 || first.Events[0].Kind != "timer.fired" || first.Events[0].WorkItemID != work.ID {
+		t.Fatal("the timer did not claim the existing matter", first)
+	}
+
+	// One watched source creates pending events in two source lanes in this
+	// Room, both referring to the same Work as the in-flight timer.
+	for range 101 {
+		sendAutomationDiscussion(t, s, actor, room, "Additional release evidence.")
+	}
+	assertScalar(t, s, "SELECT count(*) FROM automation_events WHERE status='pending'", 202)
+	other, err := s.CreateRoom(actor, Room{Name: "Independent requests", ResourceID: room.ResourceID, DefaultAgentID: writer.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err = s.SetRoomRunner(actor, other.ID, room.RunnerID, other.RunnerRevision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherPolicy := testRoomAutomationPolicy(t, s, actor, other, writer, "observe")
+	message := sendAutomationDiscussion(t, s, actor, other, "Review the independent report.")
+	second := claimAutomation(t, s)
+	if second.Policy.RoomID != other.ID || len(second.Events) != 1 || second.Events[0].MessageID != message.Message.ID {
+		t.Fatalf("older events in busy Room %s displaced ready Room %s (claimed Room %s, %d events)", room.ID, other.ID, second.Policy.RoomID, len(second.Events))
+	}
+	if claim, err := s.ClaimAutomationEvaluation(ctx, "model-revision", roomBudget); err != nil || claim != nil {
+		t.Fatal("a second source could evaluate the same matter while its first assessment was active", claim, err)
+	}
+	for policyID, want := range map[string]int64{policy.ID: 2, otherPolicy.ID: 1} {
+		usage, err := s.queries().GetAutomationUsage(ctx, sqlgen.GetAutomationUsageParams{PolicyID: policyID, Day: automationDay()})
+		if err != nil || usage.Evaluations != want {
+			t.Fatal("failed claim changed the Room's charged allowance", policyID, usage, err)
+		}
+	}
+	if err := s.CompleteAutomationEvaluation(ctx, first.ID, orchestration.Assessment{Outcome: "ignore", WorkItemID: work.ID, Reason: "New evidence awaits a separate decision."}); err != nil {
+		t.Fatal(err)
+	}
+	if third := claimAutomation(t, s); third.Policy.RoomID != room.ID {
+		t.Fatal("the completed assessment did not release its own Room", third)
+	}
+}
+
 func TestAutomationObservationVersionAndFiniteAutomaticTask(t *testing.T) {
 	s, actor, _, room, writer, _ := taskFixture(t)
 	p := testRoomAutomationPolicy(t, s, actor, room, writer, "observe")

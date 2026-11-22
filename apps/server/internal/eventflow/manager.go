@@ -76,10 +76,12 @@ func New(ctx context.Context, store Store, models Models, credentials *configura
 	}
 	worker, cancel := context.WithCancel(context.Background())
 	m := &Manager{store: store, models: models, channel: config.Channel, logger: logger, ctx: worker, cancel: cancel, done: make(chan struct{}), period: config.PollInterval}
-	m.workers.Add(3)
-	go func() { defer m.workers.Done(); m.fireTimers() }()
-	go func() { defer m.workers.Done(); m.evaluate() }()
-	go func() { defer m.workers.Done(); m.deliver() }()
+	m.workers.Go(m.fireTimers)
+	// Bound provider concurrency. Storage keeps a single ordered lane per Room.
+	for range 2 {
+		m.workers.Go(m.evaluate)
+	}
+	m.workers.Go(m.deliver)
 	go func() { m.workers.Wait(); close(m.done) }()
 	return m, nil
 }

@@ -130,6 +130,9 @@ export function WorkItemDetail({
   const due = item?.dueAt
     ? `Due ${item.dueAt.length === 10 ? item.dueAt : new Date(item.dueAt).toLocaleDateString()}`
     : '';
+  const waitingTimer = item?.waitCondition
+    ? item.timers.find((timer) => timer.status === 'pending')
+    : undefined;
   const execution = item?.execution;
   const pausedTaskId =
     !closing &&
@@ -174,7 +177,7 @@ export function WorkItemDetail({
           action: () => manage('completion'),
         },
         {
-          label: 'Set reminder…',
+          label: item?.policyId ? 'Schedule follow-up…' : 'Set reminder…',
           disabled: Boolean(item?.activeTaskId),
           action: () => manage('reminder'),
         },
@@ -356,9 +359,8 @@ export function WorkItemDetail({
               {!question && !item.githubDelivery && item.waitCondition && (
                 <p className="work-item-wait">
                   {item.waitCondition}
-                  {item.timers.find((timer) => timer.status === 'pending')
-                    ? ` · Reminder ${stamp(item.timers.find((timer) => timer.status === 'pending')!.dueAt)}`
-                    : ''}
+                  {waitingTimer &&
+                    ` · ${item.policyId ? 'Follow-up' : 'Reminder'} ${stamp(waitingTimer.dueAt)}`}
                 </p>
               )}
               {!question && summary && summary !== item.result?.summary && (

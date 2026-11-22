@@ -78,12 +78,12 @@ func workActionFixtureWithMode(t *testing.T, mode string, criteria ...string) (*
 	// lane under test, rather than a second fixture GitHub conversation.
 	if err = s.transaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
-		rows, e := q.PendingAutomationEvents(ctx)
+		ids, e := q.ClaimableAutomationEventIDs(ctx, 100)
 		if e != nil {
 			return e
 		}
-		for _, row := range rows {
-			if e = q.UpdateAutomationEvent(ctx, sqlgen.UpdateAutomationEventParams{ID: row.ID, Status: "context", Reason: "setup_reviewed"}); e != nil {
+		for _, id := range ids {
+			if e = q.UpdateAutomationEvent(ctx, sqlgen.UpdateAutomationEventParams{ID: id, Status: "context", Reason: "setup_reviewed"}); e != nil {
 				return e
 			}
 		}

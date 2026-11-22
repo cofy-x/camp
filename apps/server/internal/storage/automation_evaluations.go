@@ -103,18 +103,27 @@ func unavailableAutomationCandidate(c orchestration.Candidate) (orchestration.Ca
 }
 
 // Claim reserves the charge and records the frozen candidate before a provider
-// call. A running lane is never reclaimed by a timer that could duplicate it.
+// call. The write transaction claims at most one candidate per Room because
+// different sources or threads can refer to the same matter.
 func (s *Store) ClaimAutomationEvaluation(ctx context.Context, modelRevision string, b Budget) (out *orchestration.Candidate, err error) {
+	ready, err := s.queries().ClaimableAutomationEventIDs(ctx, 1)
+	if err != nil || len(ready) == 0 {
+		return nil, err
+	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
-		rows, e := q.PendingAutomationEvents(ctx)
+		ids, e := q.ClaimableAutomationEventIDs(ctx, 100)
 		if e != nil {
 			return e
 		}
-		for _, row := range rows {
-			evt, e2 := automationEvent(row)
-			if e2 != nil {
-				return e2
+		for _, id := range ids {
+			row, e := q.GetAutomationEvent(ctx, id)
+			if e != nil {
+				return e
+			}
+			evt, e := automationEvent(row)
+			if e != nil {
+				return e
 			}
 			pRow, e := workEventPolicy(ctx, q, evt)
 			var p orchestration.Policy
@@ -144,13 +153,6 @@ func (s *Store) ClaimAutomationEvaluation(ctx context.Context, modelRevision str
 				if e = updateAutomationEvent(ctx, q, evt); e != nil {
 					return e
 				}
-				continue
-			}
-			n, e := q.RunningAutomationThread(ctx, sqlgen.RunningAutomationThreadParams{SourceID: evt.SourceID, ThreadKey: evt.ThreadKey})
-			if e != nil {
-				return e
-			}
-			if n > 0 {
 				continue
 			}
 			day := automationDay()

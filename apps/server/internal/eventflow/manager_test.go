@@ -2,6 +2,7 @@ package eventflow
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -21,7 +22,7 @@ type queueStore struct {
 	timerScans       atomic.Int64
 	mu               sync.Mutex
 	recovered        bool
-	candidate        *orchestration.Candidate
+	candidates       []orchestration.Candidate
 	delivery         *orchestration.Delivery
 	evaluation       orchestration.Assessment
 	result           orchestration.DeliveryResult
@@ -47,9 +48,12 @@ func (s *queueStore) ClaimAutomationEvaluation(_ context.Context, revision strin
 	if !s.recovered {
 		return nil, errors.New("claimed before recovery")
 	}
-	value := s.candidate
-	s.candidate = nil
-	return value, nil
+	if len(s.candidates) == 0 {
+		return nil, nil
+	}
+	value := s.candidates[0]
+	s.candidates = s.candidates[1:]
+	return &value, nil
 }
 func (s *queueStore) CompleteAutomationEvaluation(_ context.Context, id string, result orchestration.Assessment) error {
 	s.mu.Lock()
@@ -97,7 +101,7 @@ func TestWorkersRetryOnlyCompletedTransactionsAndDrainOnShutdown(t *testing.T) {
 	}))
 	defer server.Close()
 	candidate := assessmentCandidate()
-	store := &queueStore{candidate: &candidate, delivery: &orchestration.Delivery{ID: "delivery"}, failFirst: true}
+	store := &queueStore{candidates: []orchestration.Candidate{candidate}, delivery: &orchestration.Delivery{ID: "delivery"}, failFirst: true}
 	channel := &countingChannel{}
 	models := frozenModels{model: configuration.Model{BaseURL: server.URL, APIKey: "private-key", Model: "model", MaxTokens: 1024, TimeoutSeconds: 1}}
 	manager, err := New(context.Background(), store, models, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), Config{Channel: channel, PollInterval: time.Millisecond})
@@ -146,7 +150,7 @@ func TestTimersAndDeliveryContinueWhileAssessmentWaitsForProvider(t *testing.T) 
 	defer server.Close()
 	defer close(release)
 	candidate := assessmentCandidate()
-	store := &queueStore{candidate: &candidate, delivery: &orchestration.Delivery{ID: "delivery"}}
+	store := &queueStore{candidates: []orchestration.Candidate{candidate}, delivery: &orchestration.Delivery{ID: "delivery"}}
 	channel := &countingChannel{}
 	models := frozenModels{model: configuration.Model{BaseURL: server.URL, APIKey: "private-key", Model: "model", MaxTokens: 1024, TimeoutSeconds: 30}}
 	manager, err := New(context.Background(), store, models, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), Config{Channel: channel, PollInterval: time.Millisecond})
@@ -171,6 +175,66 @@ func TestTimersAndDeliveryContinueWhileAssessmentWaitsForProvider(t *testing.T) 
 	defer cancel()
 	if err := manager.Shutdown(ctx); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAssessmentsProgressInIndependentRoomsWhileProviderWaits(t *testing.T) {
+	started := make(chan struct{})
+	allowCompletion := make(chan struct{})
+	var modelCalls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		modelCalls.Add(1)
+		var body struct {
+			Messages []struct{ Content string }
+		}
+		var candidate orchestration.Candidate
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Messages) != 1 || json.Unmarshal([]byte(body.Messages[0].Content), &candidate) != nil {
+			http.Error(w, "Invalid assessment fixture request", http.StatusBadRequest)
+			return
+		}
+		if candidate.Policy.RoomID == "slow" {
+			close(started)
+			<-r.Context().Done()
+			return
+		}
+		select {
+		case <-allowCompletion:
+			assessmentMessage(w, `{"outcome":"ignore","reason":"Independent request assessed."}`)
+		case <-r.Context().Done():
+		}
+	}))
+	defer server.Close()
+	slow, ready := assessmentCandidate(), assessmentCandidate()
+	slow.Policy.RoomID = "slow"
+	ready.ID, ready.Policy.RoomID = "independent", "ready"
+	store := &queueStore{candidates: []orchestration.Candidate{slow, ready}}
+	models := frozenModels{model: configuration.Model{BaseURL: server.URL, APIKey: "private-key", Model: "model", MaxTokens: 1024, TimeoutSeconds: 30}}
+	manager, err := New(context.Background(), store, models, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), Config{Channel: &countingChannel{}, PollInterval: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Shutdown(context.Background())
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("the slow assessment did not reach the provider")
+	}
+	close(allowCompletion)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		store.mu.Lock()
+		result, writes := store.evaluation, store.evaluationWrites
+		store.mu.Unlock()
+		if result.Outcome == "ignore" {
+			if writes != 1 || modelCalls.Load() != 2 {
+				t.Fatal("independent progress repeated a provider request or completion", writes, modelCalls.Load())
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the independent assessment did not commit while the other provider request waited")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

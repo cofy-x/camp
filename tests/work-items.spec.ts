@@ -275,6 +275,79 @@ async function presentation(
   };
 }
 
+test('Work scheduling shows the linked rule’s authority @work-loop', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-11-22T09:00:00Z'));
+  const value = await presentation(
+    page,
+    async () => {
+      await page.reload();
+    },
+    {
+      goal: 'Summarize weekly customer feedback',
+      policyId: 'feedback-follow-up',
+    },
+  );
+  const policy = {
+    id: value.item.policyId,
+    roomId: value.room.id,
+    sourceId: 'room',
+    ownerUserId: value.item.ownerUserId,
+    enabled: true,
+    mode: 'auto',
+  };
+  await page.route(
+    `**/api/rooms/${value.room.id}/automation-policies`,
+    (route) => route.fulfill({ json: { policies: [policy] } }),
+  );
+  const openFollowUp = async () => {
+    await value.open();
+    await openWorkAction(page, 'Schedule follow-up…');
+    return detail(page).getByLabel('Follow up at', { exact: true });
+  };
+  const followUpTime = await openFollowUp();
+  await expect(followUpTime).toHaveAccessibleDescription(
+    'The linked rule can resume work when due.',
+  );
+  await followUpTime.fill('2026-11-24T09:00');
+  await detail(page)
+    .getByLabel('Waiting for (optional)', { exact: true })
+    .fill('This week’s feedback is ready.');
+  await expect(
+    detail(page).getByRole('button', {
+      name: 'Schedule follow-up',
+      exact: true,
+    }),
+  ).toBeEnabled();
+  await detail(page).screenshot({
+    path: test.info().outputPath('work-scheduling.png'),
+  });
+
+  policy.mode = 'observe';
+  await page.reload();
+  await expect(await openFollowUp()).toHaveAccessibleDescription(
+    'The linked rule can only assess the follow-up.',
+  );
+
+  policy.enabled = false;
+  await page.reload();
+  await expect(await openFollowUp()).toHaveAccessibleDescription(
+    'The linked rule is off.',
+  );
+
+  value.setItem({ policyId: undefined });
+  await page.reload();
+  await value.open();
+  await openWorkAction(page, 'Set reminder…');
+  await expect(
+    detail(page).getByLabel('Remind me at', { exact: true }),
+  ).toHaveAccessibleDescription('The reminder will appear in your Inbox.');
+  await expect(
+    detail(page).getByRole('button', { name: 'Save reminder', exact: true }),
+  ).toBeVisible();
+});
+
 test('starting Work waits for the selected Runner check while recording stays available', async ({
   page,
 }, info) => {
