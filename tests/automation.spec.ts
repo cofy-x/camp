@@ -41,6 +41,79 @@ async function openAutomation(page: Page) {
   ).toBeEnabled();
 }
 
+test('Activity shows the replaced follow-up and retains its proposal @work-loop', async ({
+  page,
+}) => {
+  await signIn(page);
+  const room = await createRoom(
+    page,
+    `Follow-up history ${randomUUID().slice(0, 8)}`,
+  );
+  const retained: SourceEvent = {
+    id: 'fixture-replaced-timer',
+    seq: 1,
+    roomId: room.id,
+    sourceId: 'timer',
+    threadKey: 'workitem:fixture-work',
+    workItemId: 'fixture-work',
+    kind: 'timer.fired',
+    actorId: 'timer',
+    actorLogin: '',
+    actorKind: 'system',
+    content: 'The original scheduled follow-up is due.',
+    occurredAt: '2026-11-03T02:00:00Z',
+    status: 'context',
+    reason: 'follow_up_replaced',
+    evaluationId: 'fixture-old-evaluation',
+    assessmentOutcome: 'accept',
+  };
+  await page.route(`**/api/rooms/${room.id}/automation-events?*`, (route) =>
+    route.fulfill({
+      json: {
+        items: [retained],
+        through: 1,
+        nextBefore: null,
+        nextAfter: null,
+        hasMore: false,
+      } satisfies SourceEventPage,
+    }),
+  );
+  await page.route(
+    '**/api/automation-evaluations/fixture-old-evaluation',
+    (route) =>
+      route.fulfill({
+        json: {
+          id: retained.evaluationId,
+          status: 'superseded',
+          policy: { mode: 'auto', revision: 1 },
+          events: [retained],
+          tasks: [],
+          assessment: {
+            outcome: 'accept',
+            reason: 'The earlier follow-up was due.',
+          },
+          createdAt: retained.occurredAt,
+        },
+      }),
+  );
+  await openActivity(page);
+  const followUp = panel(page)
+    .getByRole('region', { name: 'Automation events' })
+    .getByRole('listitem')
+    .filter({ hasText: 'Follow-up replaced' });
+  await followUp.getByText('Details', { exact: true }).click();
+  await followUp.getByText('Assessment decision', { exact: true }).click();
+  await expect(
+    followUp.getByText('A newer follow-up replaced this assessment.'),
+  ).toBeVisible();
+  await expect(
+    followUp.getByText('The earlier follow-up was due.'),
+  ).toBeVisible();
+  await expect(
+    followUp.getByText('Collaboration started.', { exact: true }),
+  ).toHaveCount(0);
+});
+
 test('GitHub Activity opens its Work directly @work-loop', async ({
   page,
   browserName,

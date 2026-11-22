@@ -38,6 +38,12 @@ SELECT w.* FROM work_items w JOIN work_item_watches s ON s.work_item_id=w.id WHE
 SELECT * FROM work_item_timers WHERE status='pending' AND due_at<=? ORDER BY due_at,id LIMIT 100;
 -- name: CancelWorkTimers :exec
 UPDATE work_item_timers SET status='cancelled' WHERE work_item_id=? AND status='pending';
+-- name: RetireWorkTimerFollowUps :many
+UPDATE automation_events
+SET status='context',reason=sqlc.arg(reason)
+WHERE room_id=sqlc.arg(room_id) AND source_id='timer' AND thread_key=sqlc.arg(thread_key) AND kind='timer.fired'
+ AND (status='pending' OR (status='evaluating' AND evaluation_id<>sqlc.arg(current_evaluation_id)))
+RETURNING id;
 -- name: InsertWorkTimer :exec
 INSERT INTO work_item_timers(id,work_item_id,due_at,condition,status,created_at) VALUES(?,?,?,?,'pending',?);
 -- name: FireWorkTimer :exec

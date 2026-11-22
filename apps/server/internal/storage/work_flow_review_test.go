@@ -99,6 +99,121 @@ func TestWorkFlowReviewTimerAssessmentFiniteTaskResultAndCompletion(t *testing.T
 	assertScalar(t, s, "SELECT count(*) FROM automation_events WHERE source_id='timer'", 1)
 }
 
+func TestWorkFollowUpReplacementPreservesTheNewTimer(t *testing.T) {
+	for _, stage := range []string{"pending", "running", "restart", "already_due"} {
+		t.Run(stage, func(t *testing.T) {
+			s, actor, _, room, writer, _ := taskFixture(t)
+			w, _ := reviewWaitingWork(t, s, actor, room, writer, true)
+			firstID := "timer:" + w.Timers[0].ID
+			reviewFireWorkTimer(t, s, w)
+			original, err := s.queries().GetAutomationEvent(ctx, firstID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var old *orchestration.Candidate
+			if stage != "pending" {
+				old = claimAutomation(t, s)
+			}
+			w, err = s.GetWorkItem(actor, w.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			w = decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{
+				Kind: "wait", WaitCondition: "Check the updated review window.",
+				ResumeAt: time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339Nano),
+			})
+			nextID := "timer:" + w.Timers[0].ID
+			if nextID == firstID || w.Timers[0].Status != "pending" {
+				t.Fatal("the replacement timer was not scheduled", w.Timers)
+			}
+			if stage == "already_due" {
+				reviewFireWorkTimer(t, s, w)
+			}
+			if old != nil {
+				if stage == "restart" {
+					if err = s.RecoverAutomationWork(ctx); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					proposal := orchestration.Assessment{Outcome: "execute", WorkItemID: w.ID, Reason: "The original follow-up is due."}
+					if err = s.CompleteAutomationEvaluation(ctx, old.ID, proposal); err != nil {
+						t.Fatal(err)
+					}
+				}
+				retained, err := s.queries().GetAutomationEvaluation(ctx, old.ID)
+				if err != nil || retained.Status != "superseded" || retained.Assessment == "{}" {
+					t.Fatal("the old model outcome should remain recorded without becoming a decision", retained.Status, err)
+				}
+			}
+			w, err = s.GetWorkItem(actor, w.ID)
+			if err != nil || w.Status == "needs_attention" || w.Question != "" || w.Usage.Tasks != 0 {
+				t.Fatal("an older follow-up changed the current wait or started execution", w, err)
+			}
+			if stage != "already_due" {
+				if w.Status != "waiting" || w.Timers[0].Status != "pending" {
+					t.Fatal("the newer wait needs to stay scheduled", w)
+				}
+				if candidate, err := s.ClaimAutomationEvaluation(ctx, "model", roomBudget); err != nil || candidate != nil {
+					t.Fatal("the older pending follow-up was sent for assessment", candidate, err)
+				}
+				reviewFireWorkTimer(t, s, w)
+			}
+			events, err := s.ListInbox(actor)
+			if err != nil || len(events) != 0 {
+				t.Fatal("the old follow-up should not send a notification", events, err)
+			}
+			retired, err := s.queries().GetAutomationEvent(ctx, firstID)
+			if err != nil || retired.Status != "context" || retired.Value != original.Value || (old != nil && retired.EvaluationID != old.ID) {
+				t.Fatal("the original timer fact and its assessment link must remain auditable", retired, err)
+			}
+			next := claimAutomation(t, s)
+			if len(next.Events) != 1 || next.Events[0].ID != nextID {
+				t.Fatal("only the replacement timer may be assessed", next)
+			}
+			proposal := orchestration.Assessment{Outcome: "execute", WorkItemID: w.ID, Reason: "The replacement follow-up is due."}
+			for range 2 {
+				if err = s.CompleteAutomationEvaluation(ctx, next.ID, proposal); err != nil {
+					t.Fatal(err)
+				}
+			}
+			w, err = s.GetWorkItem(actor, w.ID)
+			if err != nil || w.ActiveTaskID == "" || w.Usage.Tasks != 1 || w.Usage.FollowUps != 2 {
+				t.Fatal("the replacement timer must authorize exactly one finite task", w, err)
+			}
+			wantEvaluations := 2
+			if old != nil {
+				wantEvaluations++
+			}
+			if w.Usage.Evaluations != wantEvaluations {
+				t.Fatal("superseded requests retain exactly the claimed allowance", w.Usage)
+			}
+		})
+	}
+}
+
+func TestWorkFollowUpAssessmentCanScheduleItsNextCheck(t *testing.T) {
+	s, actor, _, room, writer, _ := taskFixture(t)
+	w, _ := reviewWaitingWork(t, s, actor, room, writer, true)
+	reviewFireWorkTimer(t, s, w)
+	candidate := claimAutomation(t, s)
+	proposal := orchestration.Assessment{
+		Outcome: "wait", WorkItemID: w.ID, Reason: "Publication requires a review.",
+		WaitCondition: "A review becomes available.",
+		ResumeAt:      time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano),
+	}
+	if err := s.CompleteAutomationEvaluation(ctx, candidate.ID, proposal); err != nil {
+		t.Fatal(err)
+	}
+	ev, err := s.queries().GetAutomationEvent(ctx, candidate.Events[0].ID)
+	if err != nil || ev.Status != "wait" || ev.EvaluationID != candidate.ID {
+		t.Fatal("a follow-up must retain the decision it produced", ev, err)
+	}
+	w, err = s.GetWorkItem(actor, w.ID)
+	if err != nil || w.Status != "waiting" || w.WaitCondition != proposal.WaitCondition || len(w.Timers) != 2 || w.Timers[0].Status != "pending" {
+		t.Fatal("the decision should schedule its own next timer", w, err)
+	}
+}
+
 func TestWorkFlowReviewWatchedFeishuEvidenceUsesOwningPolicyAndPreservesActor(t *testing.T) {
 	s, actor, _, room, writer, _ := taskFixture(t)
 	w, origin := reviewWaitingWork(t, s, actor, room, writer, false)

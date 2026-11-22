@@ -86,6 +86,7 @@ function eventStatus(event: AutomationActivityItem) {
   if (event.reason === 'explicit_run') return 'Agent run started';
   if (event.reason === 'post_only') return 'Discussion only';
   if (event.reason === 'recovered_delivery') return 'Recovered event';
+  if (event.reason === 'follow_up_replaced') return 'Follow-up replaced';
   if (event.reason === 'own_output')
     return event.kind.startsWith('pull_request.')
       ? 'Camp pull request'
@@ -147,9 +148,10 @@ function EventRecord({
   const kind = eventLabels[event.kind] ?? event.kind;
   const outcome = eventStatus(event);
   const attention =
-    event.status === 'needs_attention' ||
-    event.status === 'unavailable' ||
-    event.assessmentOutcome === 'unavailable';
+    event.reason !== 'follow_up_replaced' &&
+    (event.status === 'needs_attention' ||
+      event.status === 'unavailable' ||
+      event.assessmentOutcome === 'unavailable');
   const attentionReason =
     attention &&
     (attentionReasons[event.reason ?? ''] || event.assessmentReason);

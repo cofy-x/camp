@@ -342,11 +342,13 @@ func (s *Store) CompleteAutomationEvaluation(ctx context.Context, id string, a o
 		if !stale {
 			stale = automationAuthority(ctx, q, p) != nil
 		}
+		replaced := true
 		for _, v := range c.Events {
 			current, e := q.GetAutomationEvent(ctx, v.ID)
 			if e != nil {
 				return e
 			}
+			replaced = replaced && current.Status == "context" && current.Reason == replacedWorkFollowUp && current.EvaluationID == id
 			if current.Status != "evaluating" || current.EvaluationID != id {
 				stale = true
 			}
@@ -361,6 +363,8 @@ func (s *Store) CompleteAutomationEvaluation(ctx context.Context, id string, a o
 			}
 		}
 		switch {
+		case replaced:
+			status = "superseded"
 		case stale:
 			status, reason = "needs_attention", "stale_assessment"
 		case a.Outcome == "unavailable":
