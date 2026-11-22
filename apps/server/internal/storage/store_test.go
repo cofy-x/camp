@@ -6,14 +6,42 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
 var ctx = context.Background()
 
+// Build an empty, fully migrated database once per test process. Tests that
+// exercise initialization and migration history still open their own files.
+var testStoreSeed = sync.OnceValues(func() ([]byte, error) {
+	dir, err := os.MkdirTemp("", "camp-storage-test-seed-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	filename := filepath.Join(dir, "desktop.sqlite")
+	s, err := Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.Close(); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(filename)
+})
+
 func testStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := Open(filepath.Join(t.TempDir(), "desktop.sqlite"))
+	seed, err := testStoreSeed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	filename := filepath.Join(t.TempDir(), "desktop.sqlite")
+	if err := os.WriteFile(filename, seed, 0600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(filename)
 	if err != nil {
 		t.Fatal(err)
 	}
