@@ -419,7 +419,8 @@ func (s *Store) ConnectRunner(ctx context.Context, id string, in RunnerConnectio
 		if err := json.Unmarshal([]byte(row.Capabilities), &previous); err != nil {
 			return err
 		}
-		reconcile := capabilities.Ready && capabilities.Fingerprint != "" &&
+		// First connection has no prior runtime capable of accepting a command.
+		reconcile := row.ConnectionGeneration > 0 && capabilities.Ready && capabilities.Fingerprint != "" &&
 			(!previous.Ready || capabilities.Fingerprint != previous.Fingerprint || in.Runtime != row.Runtime)
 		stamp := now()
 		if err := q.ConnectRunner(ctx, sqlgen.ConnectRunnerParams{ID: id, Runtime: in.Runtime, Slots: int64(in.Slots), Capabilities: string(in.Capabilities), Sources: string(sources), ConnectedAt: stamp, LastSeenAt: stamp, UpdatedAt: stamp}); err != nil {
