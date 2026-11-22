@@ -61,7 +61,7 @@ The menu bar follows the active window. File owns generic desktop selection/open
 
 ### Inbox
 
-Inbox keeps its outer frame and one tab content boundary. Tabs and the Work shortcut remain reachable while one content area scrolls. Both views use compact body-font titles and summaries; Activity combines Room and time on one metadata row, retaining the full timestamp. Needs me and Activity share the same contrasting highlight for pointer hover and keyboard focus, including metadata. Keep unread and keyboard focus cues visible.
+Inbox keeps its outer frame and one tab content boundary. Tabs stay reachable while one content area scrolls. Each Needs me row opens its own destination; offer **View all in Work** below the list only when more items exist. Both views use compact body-font titles and summaries. Activity combines Room and time on one metadata row, retaining the full timestamp. Needs me and Activity share the same contrasting highlight for pointer hover and keyboard focus, including metadata. Keep unread and keyboard focus cues visible.
 
 Activity loads independently of team metadata. An unknown initial read shows loading; a failed read keeps accepted rows with its own retry, and revoked access clears them. Neither state becomes an empty feed or changes Needs me responsibility.
 

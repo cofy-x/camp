@@ -412,7 +412,12 @@ test('Inbox keeps readable feedback and reachable tabs while each view starts at
     const originalNotices = await notices(page);
     await openPending(page);
     const needs = queue(page).getByRole('button');
+    const viewAll = palette(page).getByRole('button', {
+      name: 'View all in Work',
+      exact: true,
+    });
     await expect(needs).toHaveCount(7);
+    await expect(viewAll).toHaveCount(0);
     await expect(needs.first()).toBeInViewport();
     await needs.last().scrollIntoViewIfNeeded();
     await expect(needs.first()).not.toBeInViewport();
@@ -462,6 +467,22 @@ test('Inbox keeps readable feedback and reachable tabs while each view starts at
     await expect(activity.first()).toBeInViewport();
     expect(await notices(page)).toEqual(originalNotices);
     expect((await pending(page)).total).toBe(7);
+
+    for (let index = 7; index < 21; index++)
+      await question(page, room.id, `Customer update ${index}`);
+    await needsTab.click();
+    await expect(needs).toHaveCount(20);
+    await needs.last().scrollIntoViewIfNeeded();
+    await expect(viewAll).toBeInViewport();
+    await viewAll.click();
+    await expect(palette(page)).toHaveCount(0);
+    await expect(
+      work(page).getByRole('combobox', { name: 'View', exact: true }),
+    ).toHaveValue('needs_me');
+    await work(page)
+      .getByRole('button', { name: 'More work', exact: true })
+      .click();
+    await expect(workQueue(page).getByRole('button')).toHaveCount(1);
   } finally {
     await member.context.close();
   }
