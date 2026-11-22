@@ -47,6 +47,8 @@ type frameResult struct {
 	err   error
 }
 
+const refusedRequestMessage = "The model provider refused this request."
+
 // Run uses the public stdio protocol and requires a completed turn, wait response, and successful process exit.
 func Run(ctx context.Context, cmd *exec.Cmd, c Config, session, prompt string, emit func(Event) error) (int, error) {
 	if err := ctx.Err(); err != nil {
@@ -192,6 +194,7 @@ func Run(ctx context.Context, cmd *exec.Cmd, c Config, session, prompt string, e
 						Reason struct {
 							Kind  string `json:"kind"`
 							Error struct {
+								Code    string `json:"code"`
 								Message string `json:"message"`
 							} `json:"error"`
 						} `json:"reason"`
@@ -202,10 +205,17 @@ func Run(ctx context.Context, cmd *exec.Cmd, c Config, session, prompt string, e
 					turnReason = data.Reason.Kind
 					// Preserve the known admission denial without exposing arbitrary
 					// provider errors in the business-state summary.
-					if turnReason == "error" && data.Reason.Error.Message == "The collaboration model request allowance is exhausted. Add an explicit allowance before continuing." {
-						turnReason = "model-request-allowance-exhausted"
+					detail := string(p.Event.Data)
+					if turnReason == "error" {
+						switch {
+						case data.Reason.Error.Code == "CONTENT_REFUSED":
+							turnReason = "provider-refused"
+							detail = refusedRequestMessage
+						case data.Reason.Error.Message == "The collaboration model request allowance is exhausted. Add an explicit allowance before continuing.":
+							turnReason = "model-request-allowance-exhausted"
+						}
 					}
-					if err := emit(Event{Type: "completion", Text: "[DSH] Turn ended: " + string(p.Event.Data) + "\n"}); err != nil {
+					if err := emit(Event{Type: "completion", Text: "[DSH] Turn ended: " + detail + "\n"}); err != nil {
 						return nil, err
 					}
 				case "assistant/message":
@@ -266,8 +276,11 @@ func Run(ctx context.Context, cmd *exec.Cmd, c Config, session, prompt string, e
 			return nil, err
 		}
 		if turnReason != "completed" {
-			if turnReason == "model-request-allowance-exhausted" {
+			switch turnReason {
+			case "model-request-allowance-exhausted":
 				return nil, fmt.Errorf("The collaboration model request allowance is exhausted. Saved work is retained; add an explicit allowance before continuing.")
+			case "provider-refused":
+				return nil, errors.New(refusedRequestMessage)
 			}
 			return nil, fmt.Errorf("DSH turn did not complete: %s", turnReason)
 		}

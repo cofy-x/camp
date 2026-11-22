@@ -1,6 +1,6 @@
 # Camp tool providers
 
-These modules implement the public `FileSystem` and `ShellExecutor` seams from DSH **0.2.2-rc.3**. Go's `dsh.RemoteOverlay` owns the production `sdk-minimal` overlay; `patch.mjs` is the equivalent isolated JavaScript probe fixture. There are no shared-checkout imports and no direct filesystem or subprocess calls. DSH still owns its private session persistence and attachment storage.
+These modules implement the public `FileSystem` and `ShellExecutor` seams from [Camp's pinned DSH runtime](../package.json). Go's `dsh.RemoteOverlay` owns the production `sdk-minimal` overlay; `patch.mjs` is the equivalent isolated JavaScript probe fixture. There are no shared-checkout imports and no direct filesystem or subprocess calls. DSH still owns its private session persistence and attachment storage.
 
 The write profile exposes `read`, `write`, `edit`, `list_files`, `search_files`, and foreground `bash`. The read profile exposes only the first read operation and the two discovery tools. Both disable local filesystem, subprocess, PTY, persistent terminals, background jobs, working-directory tools and image reading. The patch tool is explicitly disabled because Camp's file bridge does not support DSH's patch, delete and move operations. The working-directory service uses Camp's filesystem provider. The bash tool is the published DSH tool with background execution and timeout promotion disabled. The public filesystem observation policy forwards the version observed by DSH's read/write tools into guarded mutations; an old observation cannot silently overwrite a newer file version.
 
@@ -54,7 +54,7 @@ CAMP_TEST_LAYERFS_RUNTIME="$PWD/tools/layerfs-runtime" \
   go test -race ./apps/server/internal/layerfs -run TestLayerFSDSHIntegration -count=1 -v
 ```
 
-The probe launches the actual pinned DSH under Bubblewrap against keyless model and bridge fixtures. It verifies exact tool catalogs, real tool dispatch through both public providers, forbidden paths, absent read-only mutation/command tools, and clean shutdown. It does not test Docker, LayerFS, real shell execution or model quality; the server integration tests establish those separate guarantees. The native Go test uses the production overlay and real LayerFS container. It covers command/file dispatch, non-root execution, private configuration absence, reference reading, checkpoint/export, original preservation and detached-process cleanup on both normal completion and explicit cancellation.
+The probe launches the actual pinned DSH under Bubblewrap against keyless model and bridge fixtures. It verifies exact tool catalogs, real tool dispatch through both public providers, forbidden paths, absent read-only mutation/command tools, reasoning and output limits, and clean shutdown. A streamed refusal must fail the turn after one request, with no model tool calls. The native Go test uses the production overlay and real LayerFS container. It covers command/file dispatch, non-root execution, private configuration absence, reference reading, checkpoint/export, original preservation and detached-process cleanup on both normal completion and explicit cancellation.
 
 ## Collaboration tools
 

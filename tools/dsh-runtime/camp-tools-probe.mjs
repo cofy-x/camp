@@ -29,6 +29,7 @@ const reasoning = {
   read: 'low',
   coordination: 'high',
   history: 'max',
+  refusal: 'off',
 };
 const scenarios = {
   history: [
@@ -123,6 +124,7 @@ async function readJSON(request) {
 
 const model = createServer(async (request, response) => {
   const body = await readJSON(request);
+  assert.equal(body.max_tokens, 1024);
   const effort = reasoning[profile];
   assert.deepEqual(body.thinking, {
     type: effort === 'off' ? 'disabled' : 'enabled',
@@ -132,7 +134,9 @@ const model = createServer(async (request, response) => {
     effort === 'off' ? undefined : effort,
   );
   schemas = body.tools;
-  const next = scenarios[profile][step++];
+  const next = scenarios[profile]?.[step];
+  step++;
+  const refused = profile === 'refusal';
   response.writeHead(200, { 'content-type': 'text/event-stream' });
   response.end(
     streamMessage(
@@ -143,8 +147,8 @@ const model = createServer(async (request, response) => {
             name: next[0],
             input: next[1],
           }
-        : { type: 'text', text: 'Fixture finished.' },
-      next ? 'tool_use' : 'end_turn',
+        : { type: 'text', text: refused ? '' : 'Fixture finished.' },
+      refused ? 'refusal' : next ? 'tool_use' : 'end_turn',
     ),
   );
 });
@@ -335,9 +339,7 @@ async function run(access) {
   await writeFile(
     overlay,
     JSON.stringify([
-      ...toolPatch(
-        ['coordination', 'history'].includes(access) ? 'read' : access,
-      ),
+      ...toolPatch(access === 'write' ? 'write' : 'read'),
       ...(['coordination', 'history'].includes(access)
         ? [
             {
@@ -491,12 +493,23 @@ async function run(access) {
       ],
     });
     await rpc('session/wait', { sessionId: `camp-${access}` });
-    assert.equal(
-      events.find((frame) => frame.params?.event?.type === 'turn/end')?.params
-        .event.data.reason.kind,
-      'completed',
-      stderr,
-    );
+    const reason = events.find(
+      (frame) => frame.params?.event?.type === 'turn/end',
+    )?.params.event.data.reason;
+    if (access === 'refusal') {
+      assert.equal(reason?.kind, 'error', stderr);
+      assert.equal(reason.error?.code, 'CONTENT_REFUSED', stderr);
+      assert.equal(step, 1, 'The model request was retried after refusal.');
+      assert.equal(
+        events.some((frame) => frame.params?.event?.type === 'tool/call'),
+        false,
+      );
+      await rpc('shutdown');
+      assert.equal((await exit)[0], 0, stderr);
+      console.log('refusal: structured turn failure, no retry or tools passed');
+      return;
+    }
+    assert.equal(reason?.kind, 'completed', stderr);
     const names = schemas.map((tool) => tool.name).sort();
     assert.deepEqual(
       names,
@@ -595,6 +608,7 @@ try {
   await run('read');
   await run('coordination');
   await run('history');
+  await run('refusal');
 } finally {
   model.closeAllConnections();
   bridge.closeAllConnections();
