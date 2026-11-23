@@ -58,7 +58,7 @@ export function WorkItemForm({
   availability?: Pick<WorkspaceStatus, 'available' | 'reason'> & {
     retry?: () => Promise<void>;
   };
-  onCreated: (item: WorkItem) => void;
+  onCreated: (item: WorkItem, fromRoom: string) => void;
   onClose: () => void;
   showHeader?: boolean;
 }) {
@@ -132,19 +132,23 @@ export function WorkItemForm({
     : (participants[0] ?? '');
   const operation = useWorkItemOperation(
     `create:${draftRoom}:${scope}`,
-    onCreated,
+    (item, _request, fromRoom) => onCreated(item, fromRoom ?? item.roomId),
     [],
-    async (_item, { draftSnapshot }) => {
+    async (item, { draftSnapshot }) => {
       if (!draft.loaded) return false;
       // Only clear the private draft that supplied this request. A newer draft
       // selected through conflict recovery belongs to its own future work.
-      if (
-        draft.getValue() !== null &&
-        matchesCreationDraft(draft.getValue(), draftSnapshot)
-      )
-        draft.setValue(null);
+      const current = draft.getValue();
+      if (current && matchesCreationDraft(current, draftSnapshot)) {
+        if ('rooms' in current && roomId && roomId !== item.roomId) {
+          const rooms = { ...current.rooms };
+          delete rooms[item.roomId];
+          draft.setValue({ ...current, rooms });
+        } else draft.setValue(null);
+      }
       return draft.flush();
     },
+    roomId,
   );
   const delegated = policies.filter(
     (policy) =>

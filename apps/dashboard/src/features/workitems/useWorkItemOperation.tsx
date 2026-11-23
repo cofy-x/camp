@@ -26,12 +26,17 @@ import {
 // create a second authorization; only its original receipt or replay resolves it.
 export function useWorkItemOperation(
   scope: string,
-  onConfirmed: (item: WorkItem, request: Pending) => void,
+  onConfirmed: (
+    item: WorkItem,
+    request: Pending,
+    creationRoom?: string,
+  ) => void,
   recoveryScopes: string[] = [],
   beforeConfirmed?: (
     item: WorkItem,
     context: { draftSnapshot?: string },
   ) => Promise<boolean>,
+  creationRoom?: string,
 ) {
   const { user } = useAccount();
   const team = useTeam();
@@ -107,7 +112,9 @@ export function useWorkItemOperation(
     setConfirmation(original.value);
     setRecorded('');
     setMissing(false);
-    callback.current(item, original.value);
+    // A direct submission or explicit recovery keeps the Room from the
+    // interaction that started it, even if the global form stays mounted.
+    callback.current(item, original.value, creationRoom);
     return true;
   }
 

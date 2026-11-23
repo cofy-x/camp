@@ -213,12 +213,13 @@ export function Work(props: AppWindowProps) {
                 sourceMessage={selection.sourceMessage}
                 sourceEvent={selection.sourceEvent}
                 showHeader={false}
-                onCreated={(item) =>
+                onCreated={(item, fromRoom) =>
                   work.created(
                     item,
                     selection.sourceMessage?.id ??
                       selection.sourceEvent?.id ??
                       'manual',
+                    fromRoom,
                   )
                 }
                 onClose={work.showList}

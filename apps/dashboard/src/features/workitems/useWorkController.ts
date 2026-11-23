@@ -284,11 +284,11 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
     });
   }
 
-  function created(item: WorkItem, source: string) {
+  function created(item: WorkItem, source: string, fromRoom: string) {
     reads.seed(`/work-items/${encodeURIComponent(item.id)}`, { item });
     setSelection((current) =>
       current.kind === 'create' &&
-      (current.globalDraft || current.roomId === item.roomId) &&
+      current.roomId === fromRoom &&
       (current.sourceMessage?.id ?? current.sourceEvent?.id ?? 'manual') ===
         source
         ? { kind: 'item', id: item.id, roomId: item.roomId }

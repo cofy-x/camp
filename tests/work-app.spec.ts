@@ -37,7 +37,7 @@ async function newMatterInRoom(page: Page, roomId: string, global = false) {
   await work(page)
     .getByRole('button', { name: 'New work…', exact: true })
     .click();
-  if (global) await roomFilter(page).selectOption(roomId);
+  if (global && roomId) await roomFilter(page).selectOption(roomId);
   await expect(
     work(page).getByRole('form', { name: 'New work', exact: true }),
   ).toBeVisible();
@@ -224,6 +224,88 @@ test('starting opens queued progress from the confirmed receipt before reading d
     release();
   }
 });
+
+for (const recover of [false, true]) {
+  test(`a global Work receipt preserves another Room's draft ${recover ? 'during explicit recovery' : 'on a delayed reply'}`, async ({
+    page,
+  }) => {
+    await signIn(page);
+    const stamp = randomUUID().slice(0, 8);
+    const original = await createRoom(page, `Originating Work ${stamp}`);
+    const selected = await createRoom(page, `Another Work Room ${stamp}`);
+    const goal = 'Prepare the Room handoff';
+    const win = work(page);
+    await newMatterInRoom(page, selected.id, true);
+    await win.getByText('Options', { exact: true }).click();
+    await win.getByText('Work details', { exact: true }).click();
+    await win.getByLabel('Due date', { exact: true }).fill('2030-03-05');
+    await roomFilter(page).selectOption(original.id);
+    await win.getByLabel('What needs to happen?', { exact: true }).fill(goal);
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let committed!: () => void;
+    const accepted = new Promise<void>((resolve) => {
+      committed = resolve;
+    });
+    await page.route(
+      `**/api/rooms/${original.id}/work-items`,
+      async (route) => {
+        const response = await route.fetch();
+        expect(response.ok()).toBeTruthy();
+        committed();
+        await held;
+        return recover ? route.abort('failed') : route.fulfill({ response });
+      },
+    );
+
+    const record = win.getByRole('button', { name: 'Keep track', exact: true });
+    try {
+      await record.click();
+      await accepted;
+      await roomFilter(page).selectOption(selected.id);
+      await expect(roomFilter(page)).toHaveValue(selected.id);
+      release();
+      if (recover) {
+        await win
+          .getByRole('button', { name: 'Check status', exact: true })
+          .click();
+        await expect(win.locator('.p9-window-title')).toHaveText(
+          `${original.name} — Work`,
+        );
+        await expect(detail(page)).toContainText(goal);
+      } else {
+        await expect(record).toBeEnabled();
+        await expect(roomFilter(page)).toHaveValue(selected.id);
+        await expect(
+          win.getByLabel('What needs to happen?', { exact: true }),
+        ).toHaveValue(goal);
+      }
+      const key = encodeURIComponent('work-item-create::manual');
+      const response = await page.request.get(
+        `/api/me/drafts/conversation?key=${key}`,
+      );
+      expect(response.ok()).toBeTruthy();
+      const { draft } = await response.json();
+      expect(draft.value).toMatchObject({
+        goal,
+        rooms: { [selected.id]: { dueAt: '2030-03-05' } },
+      });
+      expect(draft.value.rooms).not.toHaveProperty(original.id);
+      const cleanup = await mutate(
+        page,
+        '/me/drafts/conversation',
+        { key: 'work-item-create::manual', revision: draft.revision },
+        'DELETE',
+      );
+      expect(cleanup.ok()).toBeTruthy();
+    } finally {
+      release();
+    }
+  });
+}
 
 test('Work prioritizes attention across Rooms and Room and Inbox shortcuts reuse its single window', async ({
   page,
@@ -726,7 +808,8 @@ for (const global of [false, true]) {
     expect(item.goal).toBe(goal);
     page.once('dialog', (dialog) => dialog.accept());
     await errors.reload();
-    await newMatterInRoom(page, room.id, global);
+    await newMatterInRoom(page, global ? '' : room.id, global);
+    if (global) await expect(roomFilter(page)).toHaveValue('');
     expect(
       await page.evaluate((key) => sessionStorage.getItem(key), receiptKey),
     ).toBe(retained);
