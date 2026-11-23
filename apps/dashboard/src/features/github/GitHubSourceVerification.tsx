@@ -31,7 +31,7 @@ function deliveryText(
     case 'blocked':
       return delivery.issue?.message;
     case 'stale':
-      return 'Link the current rule again in Project settings to deliver to GitHub.';
+      return 'Link the current rule again in My Work defaults to deliver to GitHub.';
     case 'saved':
       return [
         `${delivery.repository} → ${delivery.branch}`,

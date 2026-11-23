@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DesktopLayout } from '@cofy-x/camp-platinum';
-import type { ConnectionStatus } from '../shared/api/connection';
 import { desktopApi } from './api';
 import { createLayoutPersistence } from './layout-persistence';
 
-export function useLayoutPersistence(
-  onConnectionChange: (status: ConnectionStatus) => void,
-) {
+export function useLayoutPersistence() {
   const [persistenceError, setPersistenceError] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const persistence = useRef<ReturnType<typeof createLayoutPersistence> | null>(
@@ -20,7 +17,6 @@ export function useLayoutPersistence(
         setPersistenceError(
           `Desktop layout was not saved: ${error instanceof Error ? error.message : String(error)}`,
         );
-        onConnectionChange('offline');
       },
     );
   }

@@ -20,6 +20,8 @@ Work checks Runner access only while proposing a finite execution. Key the advis
 
 GitHub source delivery uses an indexed due queue, not browser polling or Room-wide refresh. Empty-queue checks take no write transaction; active CI/deployment observations have a finite deadline and check allowance. Worker claim leases stay internal. Unchanged waiting results retain transport receipts without appending duplicate matter evidence or invalidating ordinary Work views. Repository metadata is read through the shared store only when Settings or selected delivery options need it. [The protocol](github.md#authorized-code-delivery), [queue queries](../apps/server/internal/storage/queries/github_delivery.sql) and [browser cases](../tests/github-delivery.spec.ts) own this scope.
 
+The [GitHub comment outbox](../apps/server/internal/storage/automation_deliveries.go) checks for queued or stale deliveries before starting a write transaction. Withdrawal and claims recheck their current state inside that transaction. An empty scan does not wake workspace event streams.
+
 ## Reads and live observations
 
 Use the account-scoped shared read store for accepted GET responses and in-flight deduplication. The path and query identify the read scope. A transient failure retains that scope's accepted content with a local retry; revoked access clears it. An old Room, file or page response cannot replace a newer navigation choice.

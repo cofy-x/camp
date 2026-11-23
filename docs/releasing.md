@@ -52,7 +52,7 @@ Linux release builders and public-installation hosts share the [CI dependency in
 
 Each native builder emits a schema-2 `runner-release-<platform>.json`. Contributions must agree on source/version/protocol before combining `runners`; the published `release.json` also uses schema 2. Server embeds the complete catalog. Runtime packaging precedes installer hashing; the final catalog hashes Server afterward, avoiding a circular self-hash. `servers` lists supported Server artifacts; `server` selects the Linux container/harness artifact. Mismatched or missing platforms, identities and checksums fail validation.
 
-Every runtime has a file/link manifest and licenses. Linux includes its fixed LayerFS image. A worker-enabled Mac runtime includes its controller/pin, with no Linux addon, daemon, image or Rust compiler; the optional image is downloaded separately and never loaded for native-local setup. Only foreign-platform node-pty prebuilds are excluded and recorded.
+Every runtime has a file/link manifest and licenses. Runner packaging checks that the staged DSH and provider versions match the runtime pins before assembling the archive. Linux includes its fixed LayerFS image. A worker-enabled Mac runtime includes its controller/pin, with no Linux addon, daemon, image or Rust compiler; the optional image is downloaded separately and never loaded for native-local setup. Only foreign-platform node-pty prebuilds are excluded and recorded.
 
 Archives normalize file order/metadata/ownership, and the helper omits Git build metadata. Actual file hashes determine runtime identity; the catalog independently retains exact release source/version. Dirty source is refused. Checksums establish integrity through a trusted release channel, not a publisher signature.
 

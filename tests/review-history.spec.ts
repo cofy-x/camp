@@ -81,9 +81,7 @@ async function fileHistory(page: Page, path = 'plan.md') {
     .click();
   await chooseFile(page, path);
   await expect(
-    library(page)
-      .getByRole('region', { name: 'Selected file', exact: true })
-      .getByRole('heading', { name: path, exact: true, level: 2 }),
+    library(page).getByRole('region', { name: `Preview ${path}`, exact: true }),
   ).toBeVisible();
   await openLibraryAction(page, 'Review history…');
   await expect(history(page).locator('li > button').first()).toBeVisible();
@@ -357,9 +355,10 @@ test('a late older page cannot replace a newer selected file and its scoped hist
       .click();
     await chooseFile(page, 'context.md');
     await expect(
-      library(page)
-        .getByRole('region', { name: 'Selected file', exact: true })
-        .getByRole('heading', { name: 'context.md', exact: true, level: 2 }),
+      library(page).getByRole('region', {
+        name: 'Preview context.md',
+        exact: true,
+      }),
     ).toBeVisible();
     await openLibraryAction(page, 'Review history…');
     await expect(history(page).locator('li > button')).toHaveCount(5);

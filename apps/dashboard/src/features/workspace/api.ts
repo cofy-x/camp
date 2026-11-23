@@ -281,16 +281,10 @@ export const workspaceApi = {
     request<{ rooms: Room[] }>('/rooms', { signal }),
   agents: (signal?: AbortSignal) =>
     request<{ agents: Agent[] }>('/agents', { signal }),
-  resources: (signal?: AbortSignal) =>
-    request<{ resources: Resource[] }>('/resources', { signal }),
-  status: (signal?: AbortSignal) =>
-    request<WorkspaceStatus>('/workspace/status', { signal }),
   createRoom: (name: string) =>
     request<{ room: Room }>('/rooms', json('POST', { name, description: '' })),
   updateRoom: (roomId: string, value: Partial<Room>) =>
     request<{ room: Room }>(`/rooms/${id(roomId)}`, json('PATCH', value)),
-  members: (roomId: string, signal?: AbortSignal) =>
-    request<{ members: Agent[] }>(`/rooms/${id(roomId)}/members`, { signal }),
   membership: (roomId: string, agentId: string, join: boolean) =>
     request<{ ok: boolean }>(
       `/rooms/${id(roomId)}/members/${id(agentId)}`,
@@ -365,13 +359,6 @@ export const workspaceApi = {
       `/rooms/${id(roomId)}/uploads/${id(requestId)}`,
       { signal },
     ),
-  uploads: (roomId: string, before = '', signal?: AbortSignal) =>
-    request<{ references: Reference[]; nextCursor: string }>(
-      `/rooms/${id(roomId)}/uploads?before=${id(before)}`,
-      { signal },
-    ),
-  runs: (roomId: string, signal?: AbortSignal) =>
-    request<{ runs: Run[] }>(`/rooms/${id(roomId)}/runs`, { signal }),
   run: (runId: string, signal?: AbortSignal) =>
     request<{ run: Run }>(`/runs/${id(runId)}`, { signal }),
   runSummary: (runId: string, signal?: AbortSignal) =>
@@ -404,13 +391,6 @@ export const workspaceApi = {
     request<{ resource: Resource }>(
       `/resources/${id(resourceId)}`,
       json('PATCH', value),
-    ),
-  files: (resourceId: string, signal?: AbortSignal, commit = '') =>
-    request<{ files: string[]; commit: string }>(
-      `/resources/${id(resourceId)}/files${commit ? `?commit=${id(commit)}` : ''}`,
-      {
-        signal,
-      },
     ),
   fileURL: (resourceId: string, path: string, commit: string) =>
     `/api/resources/${id(resourceId)}/file?path=${id(path)}&commit=${id(commit)}`,

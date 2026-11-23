@@ -122,44 +122,48 @@ export function Library({ desktop, window }: AppWindowProps) {
             </Button>
           </header>
           <div className="camp-library-source-list">
-            {[false, true].map((immutable) => (
-              <section key={String(immutable)}>
-                <h3>{immutable ? 'Originals' : 'Working files'}</h3>
-                {resources
-                  .filter((item) => item.immutable === immutable)
-                  .map((item) => (
-                    <button
-                      key={item.id}
-                      aria-current={resourceId === item.id ? 'true' : undefined}
-                      className={resourceId === item.id ? 'selected' : ''}
-                      onClick={() => void selectResource(item.id)}
-                    >
-                      <PixelIcon
-                        name={immutable ? 'document' : 'folder'}
-                        size={22}
-                      />
-                      <span>
-                        {item.name}
-                        <small>
-                          {rooms.find((room) => room.resourceId === item.id)
-                            ?.name ??
-                            (immutable ? 'Read only' : 'Shared files')}
-                        </small>
-                      </span>
-                    </button>
-                  ))}
-              </section>
-            ))}
+            {[false, true].map((immutable) => {
+              const group = resources.filter(
+                (item) => item.immutable === immutable,
+              );
+              if (group.length === 0) return null;
+              return (
+                <section key={String(immutable)}>
+                  <h3>{immutable ? 'Originals' : 'Working files'}</h3>
+                  {group.map((item) => {
+                    const room = rooms.find(
+                      (room) => room.resourceId === item.id,
+                    );
+                    return (
+                      <button
+                        key={item.id}
+                        aria-current={
+                          resourceId === item.id ? 'true' : undefined
+                        }
+                        className={resourceId === item.id ? 'selected' : ''}
+                        onClick={() => void selectResource(item.id)}
+                      >
+                        <PixelIcon
+                          name={immutable ? 'document' : 'folder'}
+                          size={22}
+                        />
+                        <span>
+                          {item.name}
+                          {room && <small>{room.name}</small>}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </section>
+              );
+            })}
             {drafts.length > 0 && (
               <section>
                 <h3>Your drafts</h3>
                 {drafts.map((item) => (
                   <button key={item.key} onClick={() => void openDraft(item)}>
                     <PixelIcon name="notes" size={20} />
-                    <span>
-                      {item.path}
-                      <small>Only you can see this draft</small>
-                    </span>
+                    <span>{item.path}</span>
                   </button>
                 ))}
               </section>
@@ -403,27 +407,8 @@ export function Library({ desktop, window }: AppWindowProps) {
                   ))}
                 </nav>
                 <div className="camp-file-selection">
-                  {files.length > 0 && (
-                    <div className="camp-file-picker">
-                      <Select
-                        label="File"
-                        value={path}
-                        onChange={(event) => {
-                          invalidateEditorRequest();
-                          setPath(event.target.value);
-                        }}
-                      >
-                        {files.map((file) => (
-                          <option key={file} value={file}>
-                            {file}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                  )}
                   {reference ? (
                     <FileDetail
-                      key={`${resource.id}:${commit}:${path}`}
                       resource={resource}
                       reference={reference}
                       reviewsOpen={reviewsOpen}
@@ -431,6 +416,22 @@ export function Library({ desktop, window }: AppWindowProps) {
                       contextRoomId={contextRoomId}
                       historical={Boolean(version)}
                       pending={pending}
+                      filePicker={
+                        <Select
+                          aria-label="File"
+                          value={path}
+                          onChange={(event) => {
+                            invalidateEditorRequest();
+                            setPath(event.target.value);
+                          }}
+                        >
+                          {files.map((file) => (
+                            <option key={file} value={file}>
+                              {file}
+                            </option>
+                          ))}
+                        </Select>
+                      }
                       onEdit={() => void edit()}
                     />
                   ) : (

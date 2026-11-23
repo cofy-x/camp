@@ -3,8 +3,7 @@
   overflow: auto;
   height: 100%;
 }
-.about-app > svg {
-  display: block;
+.about-app > .p9-pixel-icon {
   margin: 0 auto;
 }
 .about-app h1 {

@@ -186,16 +186,12 @@ function RoomWelcome({
   draftKey,
   members,
   membersReady,
-  available,
-  onSetup,
   onAgents,
   onPrepared,
 }: {
   draftKey: string;
   members: Agent[];
   membersReady: boolean;
-  available: boolean;
-  onSetup?: () => void;
   onAgents: () => void;
   onPrepared: () => void;
 }) {
@@ -212,11 +208,6 @@ function RoomWelcome({
     <div className="workspace-room-welcome">
       <PixelIcon name="conversation" size={28} />
       <h2>What would you like to work on?</h2>
-      {membersReady && !available && onSetup && (
-        <Button primary onClick={onSetup}>
-          Set Up Agent Work…
-        </Button>
-      )}
       {membersReady &&
         (hasMember ? (
           <>
@@ -290,7 +281,6 @@ export function RoomTimeline({
   onSource,
   onReference,
   onAgents,
-  onSetup,
 }: {
   desktop: DesktopAPI;
   room: Room;
@@ -305,7 +295,6 @@ export function RoomTimeline({
   onSource: (messageId: string) => void;
   onReference: (reference: Reference) => void;
   onAgents: () => void;
-  onSetup?: () => void;
   runs: RunTimeline[];
   tasks: ConversationTask[];
   history: ReturnType<typeof useWorkspace>['history'];
@@ -542,8 +531,6 @@ export function RoomTimeline({
             draftKey={key}
             members={members}
             membersReady={membersReady}
-            available={available}
-            onSetup={onSetup}
             onAgents={onAgents}
             onPrepared={() => setFocusRequest((value) => value + 1)}
           />

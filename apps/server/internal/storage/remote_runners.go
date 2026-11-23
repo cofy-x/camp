@@ -350,6 +350,11 @@ func (s *Store) UpdateRunner(ctx context.Context, id string, input RunnerUpdate)
 		if err := q.UpdateRunner(ctx, sqlgen.UpdateRunnerParams{ID: id, Name: name, Enabled: boolInt(enabled), Revoked: boolInt(revoke), UpdatedAt: now()}); err != nil {
 			return err
 		}
+		if revoke {
+			if err := clearRevokedRunnerDefaults(ctx, q, id); err != nil {
+				return err
+			}
+		}
 		if input.TeamShared != nil {
 			if err := q.SetRunnerOwnership(ctx, sqlgen.SetRunnerOwnershipParams{ID: id, OwnerUserID: row.OwnerUserID, TeamShared: boolInt(*input.TeamShared)}); err != nil {
 				return err

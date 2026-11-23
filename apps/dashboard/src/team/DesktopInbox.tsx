@@ -274,7 +274,7 @@ export function DesktopInbox() {
         <span className="camp-inbox-account" title={user.name}>
           {user.name}
         </span>
-        <span>· Needs me ({attentionCount})</span>
+        <span className="camp-inbox-caption">Needs me ({attentionCount})</span>
         {unread > 0 && (
           <span className="camp-inbox-unread" aria-label="Unread activity" />
         )}

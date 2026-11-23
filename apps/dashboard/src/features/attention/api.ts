@@ -1,4 +1,3 @@
-import { request } from '../../shared/api/http';
 import type { WorkRecovery } from '../workitems/api';
 
 export type AttentionKind = 'judgment' | 'review' | 'exception';
@@ -34,12 +33,3 @@ export interface AttentionPage {
   total: number;
   counts: Record<AttentionKind, number>;
 }
-
-export const attentionApi = {
-  list(query: { roomId?: string; cursor?: string } = {}, signal?: AbortSignal) {
-    const params = new URLSearchParams({ limit: '20' });
-    if (query.roomId) params.set('roomId', query.roomId);
-    if (query.cursor) params.set('cursor', query.cursor);
-    return request<AttentionPage>(`/attention?${params}`, { signal });
-  },
-};

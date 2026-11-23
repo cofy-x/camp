@@ -148,8 +148,6 @@ export const runnersApi = {
       `/runner-installation${platform === 'linux-amd64' ? '' : `?platform=${encodeURIComponent(platform)}`}`,
       { signal },
     ),
-  defaults: (signal?: AbortSignal) =>
-    request<ExecutionDefaults>('/execution-defaults', { signal }),
   saveDefault: (
     scope: 'personal' | 'team',
     runnerId: string,
@@ -168,14 +166,8 @@ export const runnersApi = {
       `/runners/${id(runnerId)}/agents/${id(agentId)}`,
       json(allow ? 'PUT' : 'DELETE', {}),
     ),
-  list: (signal?: AbortSignal) =>
-    request<{ runners: Runner[] }>('/runners', { signal }),
   enroll: (name: string) =>
     request<Enrollment>('/runner-enrollments', json('POST', { name })),
-  enrollments: (signal?: AbortSignal) =>
-    request<{ enrollments: EnrollmentRecord[] }>('/runner-enrollments', {
-      signal,
-    }),
   revokeEnrollment: (enrollmentId: string) =>
     request<Record<string, never>>(
       `/runner-enrollments/${id(enrollmentId)}/revoke`,
@@ -194,21 +186,11 @@ export const runnersApi = {
       `/runners/${id(runnerId)}`,
       json('PATCH', input),
     ),
-  sources: (runnerId: string, signal?: AbortSignal) =>
-    request<{ sources: RunnerSource[] }>(`/runners/${id(runnerId)}/sources`, {
-      signal,
-    }),
   importSource: (input: SourceImportInput) =>
     request<{ sourceImport: SourceImport }>(
       '/source-imports',
       json('POST', input),
     ),
-  sourceImport: (importId: string, signal?: AbortSignal) =>
-    request<{ sourceImport: SourceImport }>(`/source-imports/${id(importId)}`, {
-      signal,
-    }),
-  sourceImports: (signal?: AbortSignal) =>
-    request<{ sourceImports: SourceImport[] }>('/source-imports', { signal }),
   cancelImport: (importId: string) =>
     request<{ sourceImport: SourceImport }>(
       `/source-imports/${id(importId)}/cancel`,

@@ -117,30 +117,9 @@ const post = (body: unknown) => ({
 });
 
 export const tasksApi = {
-  list: (roomId: string, signal?: AbortSignal) =>
-    request<{ tasks: Task[] }>(`/rooms/${id(roomId)}/tasks?view=summary`, {
-      signal,
-    }),
   get: (taskId: string, signal?: AbortSignal) =>
     request<{ task: Task; recoveryRun?: TaskRecoveryRun | null }>(
       `/tasks/${id(taskId)}?view=summary`,
-      { signal },
-    ),
-  inputs: (
-    taskId: string,
-    after: number,
-    through: number | undefined,
-    signal?: AbortSignal,
-  ) => {
-    const query = new URLSearchParams({ after: String(after) });
-    if (through !== undefined) query.set('through', String(through));
-    return request<TaskInputPage>(`/tasks/${id(taskId)}/inputs?${query}`, {
-      signal,
-    });
-  },
-  runs: (taskId: string, cursor: string, signal?: AbortSignal) =>
-    request<TaskRunPage>(
-      `/tasks/${id(taskId)}/runs?${new URLSearchParams({ cursor })}`,
       { signal },
     ),
   create: (

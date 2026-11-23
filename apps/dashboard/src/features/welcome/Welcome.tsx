@@ -1,9 +1,9 @@
-import { PixelIcon } from '@cofy-x/camp-platinum';
+import { CampMark } from '../../shared/desktop/CampMark';
 
 export function About() {
   return (
     <div className="about-app app-pad">
-      <PixelIcon name="conversation" size={64} />
+      <CampMark size={64} />
       <h1>Camp</h1>
       <p>A shared desktop for people and agents.</p>
       <hr />

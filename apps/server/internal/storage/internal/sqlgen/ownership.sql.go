@@ -10,6 +10,24 @@ import (
 	"database/sql"
 )
 
+const clearPersonalRunnerDefaults = `-- name: ClearPersonalRunnerDefaults :exec
+UPDATE personal_runner_defaults SET runner_id=NULL,revision=revision+1 WHERE runner_id=?
+`
+
+func (q *Queries) ClearPersonalRunnerDefaults(ctx context.Context, runnerID sql.NullString) error {
+	_, err := q.db.ExecContext(ctx, clearPersonalRunnerDefaults, runnerID)
+	return err
+}
+
+const clearTeamRunnerDefault = `-- name: ClearTeamRunnerDefault :exec
+UPDATE team_runner_defaults SET runner_id=NULL,revision=revision+1 WHERE runner_id=?
+`
+
+func (q *Queries) ClearTeamRunnerDefault(ctx context.Context, runnerID sql.NullString) error {
+	_, err := q.db.ExecContext(ctx, clearTeamRunnerDefault, runnerID)
+	return err
+}
+
 const createRunnerAgentGrant = `-- name: CreateRunnerAgentGrant :exec
 INSERT INTO runner_agent_grants(runner_id,agent_id,created_at) VALUES(?,?,?) ON CONFLICT DO NOTHING
 `
@@ -61,13 +79,19 @@ func (q *Queries) GetEnrollmentByID(ctx context.Context, id string) (RunnerEnrol
 }
 
 const getPersonalRunnerDefault = `-- name: GetPersonalRunnerDefault :one
-SELECT user_id, runner_id, revision FROM personal_runner_defaults WHERE user_id=?
+SELECT r.id AS runner_id,d.revision FROM personal_runner_defaults d
+LEFT JOIN runners r ON r.id=d.runner_id AND r.revoked=0 WHERE d.user_id=?
 `
 
-func (q *Queries) GetPersonalRunnerDefault(ctx context.Context, userID string) (PersonalRunnerDefault, error) {
+type GetPersonalRunnerDefaultRow struct {
+	RunnerID sql.NullString
+	Revision int64
+}
+
+func (q *Queries) GetPersonalRunnerDefault(ctx context.Context, userID string) (GetPersonalRunnerDefaultRow, error) {
 	row := q.db.QueryRowContext(ctx, getPersonalRunnerDefault, userID)
-	var i PersonalRunnerDefault
-	err := row.Scan(&i.UserID, &i.RunnerID, &i.Revision)
+	var i GetPersonalRunnerDefaultRow
+	err := row.Scan(&i.RunnerID, &i.Revision)
 	return i, err
 }
 
@@ -88,13 +112,19 @@ func (q *Queries) GetRunnerAgentGrant(ctx context.Context, arg GetRunnerAgentGra
 }
 
 const getTeamRunnerDefault = `-- name: GetTeamRunnerDefault :one
-SELECT id, runner_id, revision FROM team_runner_defaults WHERE id='default'
+SELECT r.id AS runner_id,d.revision FROM team_runner_defaults d
+LEFT JOIN runners r ON r.id=d.runner_id AND r.revoked=0 WHERE d.id='default'
 `
 
-func (q *Queries) GetTeamRunnerDefault(ctx context.Context) (TeamRunnerDefault, error) {
+type GetTeamRunnerDefaultRow struct {
+	RunnerID sql.NullString
+	Revision int64
+}
+
+func (q *Queries) GetTeamRunnerDefault(ctx context.Context) (GetTeamRunnerDefaultRow, error) {
 	row := q.db.QueryRowContext(ctx, getTeamRunnerDefault)
-	var i TeamRunnerDefault
-	err := row.Scan(&i.ID, &i.RunnerID, &i.Revision)
+	var i GetTeamRunnerDefaultRow
+	err := row.Scan(&i.RunnerID, &i.Revision)
 	return i, err
 }
 

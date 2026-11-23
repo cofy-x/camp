@@ -522,85 +522,49 @@ a {
   left: env(safe-area-inset-left, 0px);
   bottom: env(safe-area-inset-bottom, 0px);
   display: flex;
-  align-items: stretch;
+  align-items: flex-end;
   height: var(--p9-control-strip-height);
 }
 .p9-strip-body {
   display: flex;
-  align-items: stretch;
+  align-items: flex-end;
+  height: 24px;
   border: 1px solid #262626;
   border-right: 0;
   background: #c0c0c0;
 }
-.p9-strip-well {
+.p9-strip-module {
   position: relative;
-  display: grid;
-  place-items: center;
-  flex: 0 0 13px;
-  width: 13px;
+  width: 32px;
+  height: 22px;
   padding: 0;
   border: 0;
-  background: #c0c0c0;
-  box-shadow:
-    inset 1px 1px #808080,
-    inset -1px -1px #fff;
-}
-.p9-strip-well-right {
-  border-left: 1px solid #262626;
-  flex-basis: 14px;
-}
-.p9-strip-well:disabled {
-  color: #888;
-}
-.p9-strip-well:active:not(:disabled) {
-  background: #aaa;
-}
-.p9-strip-modules {
-  display: flex;
-  flex: 0 1 auto;
-  max-width: calc(100vw - 46px - env(safe-area-inset-left, 0px));
-  overflow: hidden;
-  scrollbar-width: none;
-}
-.p9-strip-module {
-  width: 31px;
-  flex: 0 0 31px;
-  position: relative;
-  padding: 1px 0 0 1px;
-  border: 0;
-  border-left: 1px solid #262626;
-  background: #c0c0c0;
+  background: transparent;
 }
 .p9-strip-face {
-  display: block;
-  height: 21px;
-  position: relative;
-  border-bottom: 1px solid #808080;
+  position: absolute;
+  inset: auto 0 0;
+  display: grid;
+  place-items: center;
+  height: 22px;
   border-right: 1px solid #808080;
+  background: #c0c0c0;
   box-shadow:
     inset 1px 1px #fff,
     inset -1px -1px #a0a0a0;
 }
-.p9-strip-face > .p9-pixel-icon {
-  position: absolute;
-  top: 2px;
-  left: 1px;
+.p9-strip-module + .p9-strip-module .p9-strip-face {
+  border-left: 1px solid #262626;
 }
-.p9-strip-triangle {
-  position: absolute;
-  top: 7px;
-  right: 3px;
-  width: 0;
-  height: 0;
-  border-left: 3px solid transparent;
-  border-right: 3px solid transparent;
-  border-top: 4px solid #262626;
-}
-.p9-strip-module:active {
-  background: #666;
+.p9-strip-module[aria-current='true'] .p9-strip-face {
+  background: #d5d5ef;
+  box-shadow:
+    inset 1px 1px #80809d,
+    inset -1px -1px #eee,
+    inset 0 -2px var(--p9-highlight);
 }
 .p9-strip-module:active .p9-strip-face {
-  background: #888;
+  background: #aaa;
   box-shadow:
     inset 1px 1px #444,
     inset -1px -1px #ccc;
@@ -635,24 +599,6 @@ a {
 }
 .p9-strip-handle:active .p9-tab-light {
   stroke: #bbb;
-}
-.p9-connection-light {
-  position: absolute;
-  left: 11px;
-  top: 12px;
-  width: 5px;
-  height: 5px;
-  border: 1px solid #555;
-  background: #469b54;
-  box-shadow: inset 1px 1px #9dde8d;
-}
-.p9-connection-light.is-connecting {
-  background: #dba936;
-  box-shadow: inset 1px 1px #ffe9a6;
-}
-.p9-connection-light.is-offline {
-  background: #bb4040;
-  box-shadow: inset 1px 1px #e99;
 }
 .p9-menu-layer {
   position: fixed;

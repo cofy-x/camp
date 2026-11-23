@@ -90,13 +90,24 @@ test('model details remain keyboard accessible while locked fields explain their
     },
   };
   let writes = 0;
+  let failRead = true;
   await page.route('**/api/settings/models', (route) => {
     if (route.request().method() !== 'GET') writes++;
+    else if (failRead)
+      return route.fulfill({
+        status: 503,
+        json: { error: 'Model settings temporarily unavailable.' },
+      });
     return route.fulfill({ json: model });
   });
   await openApp(page, 'Settings');
   await selectPanel(page, 'models', 'Models');
   const app = settings(page);
+  await expect(app.getByRole('alert')).toContainText(
+    'Model settings temporarily unavailable.',
+  );
+  failRead = false;
+  await app.getByRole('button', { name: 'Retry Model Settings' }).click();
   await expect(
     app.getByRole('form', { name: 'Model settings', exact: true }),
   ).toBeVisible();
@@ -164,6 +175,48 @@ test('model details remain keyboard accessible while locked fields explain their
     app.getByRole('button', { name: 'Save Model Settings', exact: true }),
   ).toBeEnabled();
   expect(writes).toBe(0);
+});
+
+test('clearing a saved model key preserves other unsaved settings', async ({
+  page,
+}) => {
+  await signIn(page);
+  const model: ModelSettings = {
+    model: 'shared-model',
+    baseUrl: 'https://provider.example/v1',
+    maxTokens: 4096,
+    maxSteps: 8,
+    timeoutSeconds: 180,
+    apiKeyConfigured: true,
+    revision: 'settings-preview',
+    fields: {},
+  };
+  const writes: unknown[] = [];
+  await page.route('**/api/settings/models', (route) => {
+    if (route.request().method() === 'GET')
+      return route.fulfill({ json: model });
+    writes.push(route.request().postDataJSON());
+    return route.fulfill({ json: { ...model, apiKeyConfigured: false } });
+  });
+  await openApp(page, 'Settings');
+  await selectPanel(page, 'models', 'Models');
+  const app = settings(page);
+  const name = app.getByLabel('Model', { exact: true });
+  const key = app.getByLabel('API key', { exact: true });
+  await name.fill('updated-model');
+  await key.fill('synthetic-replacement-key');
+  await app
+    .getByRole('button', { name: 'Clear Saved Key', exact: true })
+    .click();
+  await expect(
+    app.getByText('Saved key cleared.', { exact: true }),
+  ).toBeVisible();
+  await expect(name).toHaveValue('updated-model');
+  await expect(key).toHaveValue('synthetic-replacement-key');
+  await expect(
+    app.getByRole('button', { name: 'Save Model Settings', exact: true }),
+  ).toBeEnabled();
+  expect(writes).toEqual([{ clearApiKey: true }]);
 });
 
 test('remote environment settings show Server concurrency without inventing Runner limits', async ({

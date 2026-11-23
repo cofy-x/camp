@@ -85,6 +85,14 @@ func New(store *storage.Store, logger *slog.Logger, managers ...RoomService) *AP
 		}
 		a.respond(w, r, p, store.SavePreferences(r.Context(), p))
 	})
+	mux.HandleFunc("PATCH /api/preferences", func(w http.ResponseWriter, r *http.Request) {
+		var input storage.PreferencesPatch
+		if !decode(w, r, &input, 4<<10) {
+			return
+		}
+		preferences, err := store.PatchPreferences(r.Context(), input)
+		a.respond(w, r, preferences, err)
+	})
 	mux.HandleFunc("PUT /api/layout", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			ClientID string          `json:"clientId"`

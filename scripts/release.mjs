@@ -21,6 +21,33 @@ export const versionPattern =
   /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$/;
 export const runnerPlatforms = ['linux-amd64', 'darwin-arm64'];
 
+export async function verifyRunnerDSHRuntime(directory) {
+  const { dependencies } = JSON.parse(
+    await readFile(join(directory, 'package.json'), 'utf8'),
+  );
+  const dsh = dependencies?.['@deepseek-ai/dsh'];
+  if (!dsh) throw new Error('The Runner runtime manifest must pin DSH.');
+  for (const [name, expected] of Object.entries(dependencies)) {
+    let installed;
+    try {
+      installed = JSON.parse(
+        await readFile(
+          join(directory, 'node_modules', name, 'package.json'),
+          'utf8',
+        ),
+      );
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    if (installed?.name !== name || installed.version !== expected) {
+      throw new Error(
+        `Runner packaging requires ${name} ${expected}. Run make install-dsh before packaging.`,
+      );
+    }
+  }
+  return dsh;
+}
+
 export function verifyRunnerInstallationReport(
   report,
   descriptor,

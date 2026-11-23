@@ -200,19 +200,6 @@ export const automationApi = {
       `/rooms/${id(room)}/automation-policies/${id(source)}`,
       json('PUT', value),
     ),
-  events: (
-    room: string,
-    after: number,
-    through?: number,
-    signal?: AbortSignal,
-  ) => {
-    const query = new URLSearchParams({ after: String(after), limit: '20' });
-    if (through !== undefined) query.set('through', String(through));
-    return request<SourceEventPage>(
-      `/rooms/${id(room)}/automation-events?${query}`,
-      { signal },
-    );
-  },
   activity: (
     room: string,
     options: { before?: number; through?: number; sourceId?: string },
@@ -236,10 +223,6 @@ export const automationApi = {
       `/automation-requests/${id(requestId)}/cancel`,
       json('POST', {}),
     ),
-  evaluation: (evaluationId: string, signal?: AbortSignal) =>
-    request<Evaluation>(`/automation-evaluations/${id(evaluationId)}`, {
-      signal,
-    }),
   evaluationContext: <K extends 'work-items' | 'memories'>(
     evaluationId: string,
     kind: K,
@@ -256,11 +239,6 @@ export const automationApi = {
       `/automation-evaluations/${id(evaluationId)}/context/${kind}?after=${after}&limit=10`,
       { signal },
     ),
-  subscriptions: (task: string, signal?: AbortSignal) =>
-    request<{ subscriptions: Subscription[] }>(
-      `/tasks/${id(task)}/subscriptions`,
-      { signal },
-    ),
   saveSubscription: (
     task: string,
     value: Pick<
@@ -273,11 +251,6 @@ export const automationApi = {
     request<AutomationReceipt>(
       `/tasks/${id(task)}/subscriptions`,
       json('PUT', value),
-    ),
-  deliveries: (task: string, cursor = '', signal?: AbortSignal) =>
-    request<{ deliveries: Delivery[]; nextCursor: string }>(
-      `/tasks/${id(task)}/deliveries?${new URLSearchParams({ cursor, limit: '20' })}`,
-      { signal },
     ),
   deliveryAction: (
     delivery: string,

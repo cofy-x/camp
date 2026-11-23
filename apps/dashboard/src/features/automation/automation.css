@@ -201,22 +201,44 @@
 .automation-event-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 16px;
+  min-width: 0;
+  gap: 3px 12px;
   color: #555;
+  overflow-wrap: anywhere;
 }
-.automation-event-meta time {
-  margin-left: auto;
+.automation-event-list > li {
+  margin-block: 4px;
+  padding: 8px 10px;
 }
 .automation-event-list .automation-event-title {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  margin-block: 8px;
+  margin: 0 0 4px;
 }
 .automation-event-outcome {
   justify-content: flex-start;
-  gap: 8px 16px;
+  gap: 4px 12px;
+  margin-block: 4px;
+}
+.automation-event-list .automation-event-details {
+  margin: 0;
+}
+.automation-event-details > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  list-style: none;
+}
+.automation-event-details > summary::-webkit-details-marker {
+  display: none;
+}
+.automation-event-details-label {
+  flex-shrink: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .automation-event-list > .automation-event-attention {
   border-left: 4px solid #8a4b08;
@@ -225,13 +247,6 @@
   padding: 0;
   overflow: visible;
 }
-@media (max-width: 520px) {
-  .automation-event-meta time {
-    margin-left: 0;
-    flex-basis: 100%;
-  }
-}
-
 .automation-panel,
 .automation-panel > .p9-tabs,
 .automation-panel > .p9-tabs > .p9-tab-panel,

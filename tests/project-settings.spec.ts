@@ -83,14 +83,17 @@ test('delivery defaults identify which source rule the project authorizes', asyn
   await work(page)
     .getByRole('combobox', { name: 'Room', exact: true })
     .selectOption(room.id);
-  await openWorkAction(page, 'Project settings…');
+  await openWorkAction(page, 'My Work defaults…');
   const editor = work(page).getByRole('form', {
-    name: 'Project settings',
+    name: 'My Work defaults',
     exact: true,
   });
-  await editor.getByText('Delivery · Room files', { exact: true }).click();
+  await editor.getByText('Completion & delivery', { exact: true }).click();
   await editor
     .getByRole('combobox', { name: 'Delivery', exact: true })
+    .selectOption({ label: 'GitHub' });
+  await editor
+    .getByRole('combobox', { name: 'Repository', exact: true })
     .selectOption('notes');
 
   const rules = editor.getByRole('combobox', {
@@ -101,6 +104,28 @@ test('delivery defaults identify which source rule the project authorizes', asyn
   ).toHaveCount(1);
   await rules.selectOption({ label: 'example/support' });
   await expect(rules).toHaveValue('rule-1');
+
+  const branch = editor.getByRole('textbox', {
+    name: 'Target branch',
+    exact: true,
+  });
+  const save = editor.getByRole('button', {
+    name: 'Save defaults',
+    exact: true,
+  });
+  await branch.fill('');
+  await editor.getByText('Allowance', { exact: true }).click();
+  await save.click();
+  await expect(branch).toBeFocused();
+  await branch.fill('main');
+
+  await editor
+    .getByRole('combobox', { name: 'Completion', exact: true })
+    .selectOption('human');
+  await expect(
+    editor.getByText('GitHub delivery requires automatic completion.'),
+  ).toBeVisible();
+  await expect(save).toBeDisabled();
 });
 
 test('personal project defaults keep routine Work concise and freeze the visible grant', async ({
@@ -148,19 +173,45 @@ test('personal project defaults keep routine Work concise and freeze the visible
   await work(page)
     .getByRole('combobox', { name: 'Room', exact: true })
     .selectOption(room.id);
-  await openWorkAction(page, 'Project settings…');
+  await openWorkAction(page, 'My Work defaults…');
   const editor = work(page).getByRole('form', {
-    name: 'Project settings',
+    name: 'My Work defaults',
     exact: true,
   });
   await expect(editor).toBeVisible();
-  await editor.getByText('Total allowance', { exact: true }).click();
-  await editor.getByLabel('Model requests', { exact: true }).fill('32');
+  const completion = editor.getByRole('combobox', {
+    name: 'Completion',
+    exact: true,
+  });
+  await expect(completion).toBeHidden();
+  const deliverySection = editor.getByText('Completion & delivery', {
+    exact: true,
+  });
+  await deliverySection.click();
+  await expect(completion).toHaveValue('automatic');
+  const allowance = editor.getByText('Allowance', { exact: true });
+  const requests = editor.getByLabel('Model requests', { exact: true });
+  await allowance.click();
+  await expect(completion).toBeHidden();
+  await requests.fill('0');
+  await deliverySection.click();
+  await expect(requests).toBeHidden();
+  await editor
+    .getByRole('button', { name: 'Save defaults', exact: true })
+    .click();
+  await expect(requests).toBeFocused();
+  await expect(completion).toBeHidden();
+  await requests.fill('32');
   await editor
     .getByRole('button', { name: 'Save defaults', exact: true })
     .click();
   await expect.poll(() => writes).toBe(1);
-  await editor.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(
+    editor.getByRole('button', { name: 'Done', exact: true }),
+  ).toHaveCount(0);
+  await work(page)
+    .getByRole('button', { name: 'Back to Work', exact: true })
+    .click();
   await work(page)
     .getByRole('button', { name: 'New work…', exact: true })
     .click();
@@ -190,6 +241,205 @@ test('personal project defaults keep routine Work concise and freeze the visible
     projectRevision: 1,
     budget: { maxModelRequests: 32 },
     goal: 'Prepare a checked project note',
+  });
+});
+
+test('My Work defaults reveals GitHub setup on demand and saves disablement from More', async ({
+  page,
+}) => {
+  await signIn(page);
+  const room = await createRoom(
+    page,
+    `Default controls ${randomUUID().slice(0, 8)}`,
+  );
+  let repositoryReads = 0;
+  await page.route('**/api/github-repositories', (route) => {
+    repositoryReads++;
+    return route.fulfill({ json: { repositories: [] } });
+  });
+
+  await openApp(page, 'Work');
+  const window = work(page);
+  await window
+    .getByRole('combobox', { name: 'Room', exact: true })
+    .selectOption(room.id);
+  await openWorkAction(page, 'My Work defaults…');
+  const editor = window.getByRole('form', {
+    name: 'My Work defaults',
+    exact: true,
+  });
+  await expect(editor.getByText('Execution', { exact: true })).toBeVisible();
+  await expect(editor.locator('details[open]')).toHaveCount(0);
+  await editor.getByText('Completion & delivery', { exact: true }).click();
+  const connect = editor.getByRole('button', {
+    name: 'Connect repository…',
+    exact: true,
+  });
+  await expect(connect).toHaveCount(0);
+  expect(repositoryReads).toBe(0);
+
+  const delivery = editor.getByRole('combobox', {
+    name: 'Delivery',
+    exact: true,
+  });
+  const save = editor.getByRole('button', {
+    name: 'Save defaults',
+    exact: true,
+  });
+  await delivery.selectOption({ label: 'GitHub' });
+  await expect(connect).toBeVisible();
+  await expect(save).toBeDisabled();
+  await delivery.selectOption({ label: 'Room files' });
+  await expect(connect).toHaveCount(0);
+
+  const more = editor.getByRole('button', { name: /More/ });
+  await more.click();
+  await page
+    .getByRole('menuitem', { name: 'Disable defaults', exact: true })
+    .click();
+  let releaseRead!: () => void;
+  const heldRead = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  const defaultsPath = `/api/rooms/${room.id}/work-item-defaults`;
+  await page.route(`**${defaultsPath}`, async (route) => {
+    await heldRead;
+    await route.continue();
+  });
+  try {
+    await save.click();
+    await expect
+      .poll(async () => {
+        const response = await page.request.get(defaultsPath);
+        return (await response.json()).defaults.project?.enabled;
+      })
+      .toBe(false);
+    await expect(
+      editor.getByText(
+        'Personal defaults are off. New Work uses Room defaults.',
+      ),
+    ).toBeVisible();
+    await more.click();
+    await expect(
+      page.getByRole('menuitem', { name: 'Enable defaults', exact: true }),
+    ).toBeVisible();
+  } finally {
+    releaseRead();
+  }
+});
+
+test('New Work switches between personal defaults and a private one-time override', async ({
+  page,
+}) => {
+  await signIn(page);
+  const room = await createRoom(page, `Work modes ${randomUUID().slice(0, 8)}`);
+  const defaultsPath = `/api/rooms/${room.id}/work-item-defaults`;
+  const base = (await (await page.request.get(defaultsPath)).json())
+    .defaults as WorkItemDefaults;
+  const result = await mutate(page, `/rooms/${room.id}/project-settings`, {
+    requestId: randomUUID(),
+    roomId: room.id,
+    revision: 0,
+    enabled: true,
+    completionMode: 'automatic',
+    participantAgentIds: base.participantAgentIds,
+    firstAgentId: base.firstAgentId,
+    budget: { ...base.budget, maxModelRequests: 32 },
+  });
+  expect(result.ok()).toBe(true);
+
+  await openApp(page, 'Work');
+  const window = work(page);
+  const openDraft = async () => {
+    await window
+      .getByRole('button', { name: 'New work…', exact: true })
+      .click();
+    await window
+      .getByRole('combobox', { name: 'Room', exact: true })
+      .selectOption(room.id);
+  };
+  await openDraft();
+  const form = window.getByRole('form', { name: 'New work', exact: true });
+  const inherited = form.getByRole('radio', {
+    name: 'Use my defaults',
+    exact: true,
+  });
+  const custom = form.getByRole('radio', {
+    name: 'This Work only',
+    exact: true,
+  });
+  const goal = form.getByLabel('What needs to happen?', { exact: true });
+  const completion = form.getByRole('combobox', {
+    name: 'Completion',
+    exact: true,
+  });
+  const allowance = form.getByText('Allowance and access', { exact: true });
+  const modelRequests = form.getByLabel('Model requests', { exact: true });
+  await expect(inherited).toBeChecked();
+  await expect(
+    form.getByText('32 model requests total', { exact: true }),
+  ).toBeVisible();
+  await goal.fill('Keep these choices scoped to the current Work');
+
+  await custom.check();
+  await form.getByText('Completion & delivery', { exact: true }).click();
+  await completion.selectOption('human');
+  await allowance.click();
+  await expect(completion).toBeHidden();
+  await modelRequests.fill('18');
+
+  await inherited.check();
+  await expect(
+    form.getByText('32 model requests total', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    form.getByText("You'll confirm completion", { exact: true }),
+  ).toHaveCount(0);
+  await expect(goal).toHaveValue(
+    'Keep these choices scoped to the current Work',
+  );
+  await window
+    .getByRole('button', { name: 'Back to Work', exact: true })
+    .click();
+  await openDraft();
+  await expect(inherited).toBeChecked();
+  await custom.check();
+  await expect(
+    form.getByText("You'll confirm completion", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    form.getByText('18 model requests total', { exact: true }),
+  ).toBeVisible();
+
+  const record = form.getByRole('button', { name: 'Keep track', exact: true });
+  await allowance.click();
+  await modelRequests.fill('0');
+  await form.getByText('Options', { exact: true }).click();
+  await expect(modelRequests).toBeHidden();
+  await record.click();
+  await expect(modelRequests).toBeFocused();
+  await modelRequests.fill('18');
+
+  const posted = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' &&
+      request.url().endsWith(`/rooms/${room.id}/work-items`),
+  );
+  await record.click();
+  const body = (await posted).postDataJSON();
+  expect(body).toMatchObject({
+    completionMode: 'human',
+    budget: { maxModelRequests: 18 },
+    goal: 'Keep these choices scoped to the current Work',
+  });
+  expect(body).not.toHaveProperty('projectRevision');
+  expect(body).not.toHaveProperty('customDefaults');
+  const after = (await (await page.request.get(defaultsPath)).json()).defaults;
+  expect(after.project).toMatchObject({
+    enabled: true,
+    revision: 1,
+    completionMode: 'automatic',
+    budget: { maxModelRequests: 32 },
   });
 });
 

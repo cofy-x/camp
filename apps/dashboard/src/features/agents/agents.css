@@ -21,6 +21,9 @@
   padding: 16px;
   background: var(--p9-face);
 }
+.camp-agent-editing {
+  scroll-padding-block-end: 78px;
+}
 .camp-agent-empty {
   display: flex;
   flex-direction: column;

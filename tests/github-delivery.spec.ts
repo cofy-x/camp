@@ -82,6 +82,12 @@ test('repository credentials remain in memory while uncertain settings retain a 
   await settings(page)
     .getByLabel('Required CI workflow', { exact: true })
     .fill('ci.yml');
+  await settings(page)
+    .getByRole('button', { name: 'Close GitHub — Settings', exact: true })
+    .click();
+  await expect(
+    settings(page).getByLabel('GitHub token', { exact: true }),
+  ).toHaveValue(secret);
   const chooser = settings(page).getByLabel('Control panel', { exact: true });
   if (await chooser.isVisible()) await chooser.selectOption('account');
   else
@@ -162,8 +168,13 @@ test('optional delivery stays quiet until opened and keeps public merge and rele
   await expect(work(page).locator('.work-grant-limits').first()).toBeVisible();
   expect(reads).toBe(0);
   await work(page).locator('.work-item-options > summary').click();
+  await work(page).getByText('Completion & delivery', { exact: true }).click();
+  expect(reads).toBe(0);
   await work(page)
     .getByRole('combobox', { name: 'Delivery', exact: true })
+    .selectOption({ label: 'GitHub' });
+  await work(page)
+    .getByRole('combobox', { name: 'Repository', exact: true })
     .selectOption(repository.id);
   await work(page)
     .getByRole('combobox', { name: 'After the goal is met', exact: true })
@@ -531,7 +542,7 @@ test('CI recovery preserves newer Work navigation @work-loop', async ({
   await checkCancelledWorkflow(page, info, true);
 });
 
-test('a changed repository identity opens project settings @work-loop', async ({
+test('a changed repository identity opens My Work defaults @work-loop', async ({
   page,
 }, info) => {
   const { item, open } = await deliveryInterruption(
@@ -547,10 +558,10 @@ test('a changed repository identity opens project settings @work-loop', async ({
   const status = await open();
   await expect(status.getByRole('button')).toHaveCount(1);
   await status
-    .getByRole('button', { name: 'Review project settings…' })
+    .getByRole('button', { name: 'Review My Work defaults…' })
     .click();
   await expect(
-    work(page).getByRole('form', { name: 'Project settings' }),
+    work(page).getByRole('form', { name: 'My Work defaults' }),
   ).toBeVisible();
   await expect(
     work(page)

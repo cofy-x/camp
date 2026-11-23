@@ -57,15 +57,13 @@
 .p9-button[aria-busy='true'] {
   cursor: progress;
 }
-.settings-app,
-.gallery-app {
+.settings-app {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
 }
-.settings-app > .app-pad,
-.gallery-app > .app-pad {
+.settings-app > .app-pad {
   overflow: auto;
   flex: 1;
 }

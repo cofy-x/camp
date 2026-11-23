@@ -15,6 +15,7 @@ import {
   openRoomMore,
   createRoom,
   mutate,
+  post,
   signIn,
   work,
   workspace,
@@ -40,6 +41,37 @@ async function openAutomation(page: Page) {
     panel(page).getByRole('button', { name: 'Save Policy', exact: true }),
   ).toBeEnabled();
 }
+
+test('Room Activity keeps routine discussion compact and opens the original from the keyboard', async ({
+  page,
+}) => {
+  await signIn(page);
+  const room = await createRoom(
+    page,
+    `Compact Activity ${randomUUID().slice(0, 8)}`,
+  );
+  const message = 'Please review the launch checklist by Friday.';
+  await post(page, room.name, message);
+  await openActivity(page);
+  const events = panel(page).getByRole('region', { name: 'Automation events' });
+  const row = events.getByRole('listitem').filter({ hasText: message });
+  await expect(row).toBeVisible();
+  await expect(row.getByText('Context recorded', { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(row.getByText('Room discussion', { exact: true })).toBeVisible();
+  await expect(row.locator('time')).toHaveAttribute(
+    'datetime',
+    /^\d{4}-\d{2}-\d{2}T/,
+  );
+  const details = row.locator('summary').first();
+  await details.press('Enter');
+  await expect(row.locator('pre').filter({ hasText: message })).toBeVisible();
+  await expect(row.getByText('Event data', { exact: true })).toBeVisible();
+  await details.press('Enter');
+  await expect(row.getByText('Event data', { exact: true })).toBeHidden();
+  await expect(details).toBeFocused();
+});
 
 test('Activity shows the replaced follow-up and retains its proposal @work-loop', async ({
   page,

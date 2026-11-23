@@ -70,7 +70,7 @@ export function Work(props: AppWindowProps) {
               const rect = event.currentTarget.getBoundingClientRect();
               props.desktop.contextMenu(
                 [
-                  { label: 'Project settings…', action: work.projectSettings },
+                  { label: 'My Work defaults…', action: work.projectSettings },
                   { label: 'Refresh', action: work.refresh },
                 ],
                 { x: rect.left, y: rect.bottom },
@@ -196,7 +196,7 @@ export function Work(props: AppWindowProps) {
               roomId={selection.roomId}
               members={context.members}
               policies={context.policies}
-              onClose={work.showList}
+              desktop={props.desktop}
             />
           )}
           {selection.kind === 'create' && (
@@ -213,12 +213,13 @@ export function Work(props: AppWindowProps) {
                 sourceMessage={selection.sourceMessage}
                 sourceEvent={selection.sourceEvent}
                 showHeader={false}
-                onCreated={(item) =>
+                onCreated={(item, fromRoom) =>
                   work.created(
                     item,
                     selection.sourceMessage?.id ??
                       selection.sourceEvent?.id ??
                       'manual',
+                    fromRoom,
                   )
                 }
                 onClose={work.showList}

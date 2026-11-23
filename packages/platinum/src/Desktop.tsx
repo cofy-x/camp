@@ -1,7 +1,7 @@
 import { useRef } from 'react';
-import type { CSSProperties, MouseEvent } from 'react';
+import type { CSSProperties } from 'react';
 import { DialogOverlay, MenuOverlay } from './overlays';
-import type { DesktopProps, MenuGroup, MenuItem } from './types';
+import type { DesktopProps, MenuGroup } from './types';
 import { ControlStrip } from './desktop/ControlStrip';
 import { DesktopCanvas } from './desktop/DesktopCanvas';
 import { MenuBar } from './desktop/MenuBar';
@@ -43,6 +43,10 @@ export function Desktop(props: DesktopProps) {
     (win) => win.id === layout.activeWindowId,
   );
   const activeApp = props.apps.find((app) => app.id === activeWindow?.appId);
+  const shortcuts = (props.controlStripApps ?? []).flatMap((id) => {
+    const app = props.apps.find((item) => item.id === id);
+    return app ? [app] : [];
+  });
   const applicationMenu: MenuGroup = {
     id: 'platinum-applications',
     label: 'Applications',
@@ -75,15 +79,6 @@ export function Desktop(props: DesktopProps) {
     ).find((button) => button.dataset.menuId === next.id);
     if (opener) openMenuGroup(next, opener);
   };
-  const openMenu = (
-    event: MouseEvent<HTMLButtonElement>,
-    items: MenuItem[],
-  ) => {
-    event.currentTarget.focus({ preventScroll: true });
-    const rect = event.currentTarget.getBoundingClientRect();
-    api.contextMenu(items, { x: rect.left, y: rect.bottom });
-  };
-
   return (
     <div
       className={`p9-desktop p9-wallpaper-${props.wallpaper ?? 'lavender'} ${mobile ? 'is-mobile' : ''} ${overview ? 'is-overview' : ''}`}
@@ -94,8 +89,10 @@ export function Desktop(props: DesktopProps) {
       <MenuBar
         elementRef={menuBar}
         groups={groups}
+        systemMenuIcon={props.systemMenuIcon}
         applicationMenu={applicationMenu}
         activeApp={activeApp}
+        connectionStatus={props.connectionStatus}
         activeMenuId={menu?.menuBarId}
         menuElementId={menu ? `p9-menu-${menu.id}` : undefined}
         dismissMenu={controller.dismissMenu}
@@ -136,16 +133,15 @@ export function Desktop(props: DesktopProps) {
           />
         ) : null;
       })}
-      <ControlStrip
-        controlStrip={props.controlStrip}
-        onControlStripChange={props.onControlStripChange}
-        wallpaper={props.wallpaper}
-        connectionStatus={props.connectionStatus}
-        viewportWidth={viewport.width}
-        appearance={props.onAppearance}
-        windowItems={windowItems}
-        openMenu={openMenu}
-      />
+      {shortcuts.length > 0 && (
+        <ControlStrip
+          shortcuts={shortcuts}
+          activeAppId={activeWindow?.appId}
+          openApp={api.openApp}
+          controlStrip={props.controlStrip}
+          onControlStripChange={props.onControlStripChange}
+        />
+      )}
       {menu && (
         <MenuOverlay
           key={menu.id}

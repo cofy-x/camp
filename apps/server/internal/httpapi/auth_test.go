@@ -164,6 +164,66 @@ func TestTeamPrivateStateAndDisableRevocation(t *testing.T) {
 	requireHTTP(t, teamRequest(t, f, f.memberCookie, "GET", "/api/rooms", nil), 401)
 	requireHTTP(t, teamRequest(t, f, f.adminCookie, "PATCH", "/api/team/members/"+f.admin.ID, map[string]any{"enabled": false}), 409)
 }
+
+func TestPersonalPreferencesPatchMergesCommittedValues(t *testing.T) {
+	f := newTeamFixture(t)
+	const path = "/api/preferences"
+	read := func(r *httptest.ResponseRecorder) storage.Preferences {
+		t.Helper()
+		requireHTTP(t, r, http.StatusOK)
+		var prefs storage.Preferences
+		if err := json.Unmarshal(r.Body.Bytes(), &prefs); err != nil {
+			t.Fatal(err)
+		}
+		return prefs
+	}
+	bootstrap := func(cookie *http.Cookie) storage.Preferences {
+		t.Helper()
+		r := teamRequest(t, f, cookie, http.MethodGet, "/api/bootstrap", nil)
+		requireHTTP(t, r, http.StatusOK)
+		var boot storage.Bootstrap
+		if err := json.Unmarshal(r.Body.Bytes(), &boot); err != nil {
+			t.Fatal(err)
+		}
+		return boot.Preferences
+	}
+
+	requireHTTP(t, teamRequest(t, f, nil, http.MethodPatch, path, map[string]any{"controlStrip": false}), http.StatusUnauthorized)
+	first := read(teamRequest(t, f, f.memberCookie, http.MethodPatch, path, map[string]any{"controlStrip": false}))
+	if first != (storage.Preferences{Wallpaper: "lavender", IconSnap: true, ControlStrip: false}) {
+		t.Fatalf("first patch did not preserve defaults: %+v", first)
+	}
+	patches := []map[string]any{{"wallpaper": "grid"}, {"iconSnap": false}}
+	responses := make([]*httptest.ResponseRecorder, len(patches))
+	start := make(chan struct{})
+	var writes sync.WaitGroup
+	for index, patch := range patches {
+		writes.Go(func() {
+			<-start
+			responses[index] = teamRequest(t, f, f.memberCookie, http.MethodPatch, path, patch)
+		})
+	}
+	close(start)
+	writes.Wait()
+
+	want := storage.Preferences{Wallpaper: "grid", IconSnap: false, ControlStrip: false}
+	wallpaper, snap := read(responses[0]), read(responses[1])
+	if wallpaper.Wallpaper != want.Wallpaper || snap.IconSnap || wallpaper != want && snap != want {
+		t.Fatalf("patches did not return their committed values: wallpaper %+v, snap %+v", wallpaper, snap)
+	}
+	requireHTTP(t, teamRequest(t, f, f.memberCookie, http.MethodPatch, path, map[string]any{"wallpaper": "unknown", "iconSnap": true}), http.StatusBadRequest)
+	if got := bootstrap(f.memberCookie); got != want {
+		t.Fatalf("patches did not persist together: %+v", got)
+	}
+	if got := bootstrap(f.adminCookie); got != (storage.Preferences{Wallpaper: "lavender", IconSnap: true, ControlStrip: true}) {
+		t.Fatalf("another account's preferences changed: %+v", got)
+	}
+
+	replacement := storage.Preferences{Wallpaper: "solid", IconSnap: true, ControlStrip: true}
+	if got := read(teamRequest(t, f, f.memberCookie, http.MethodPut, path, replacement)); got != replacement {
+		t.Fatalf("PUT did not replace the document: %+v", got)
+	}
+}
 func TestTeamInviteOneUseLogoutAndSecureCookie(t *testing.T) {
 	f := newTeamFixture(t)
 	invitation := teamRequest(t, f, f.adminCookie, "POST", "/api/team/invites", map[string]any{"expiresInHours": 1})

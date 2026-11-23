@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { command, root } from './lib.mjs';
 
-await command(process.execPath, [join(root, 'scripts/package-linux.mjs')]);
+await command(process.execPath, [join(root, 'scripts/package-runner.mjs')]);
 await command(process.execPath, [
   join(root, 'scripts/build.mjs'),
   '--skip-dashboard',

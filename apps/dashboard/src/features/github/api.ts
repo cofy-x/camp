@@ -85,10 +85,6 @@ const id = encodeURIComponent;
 const body = (value: unknown) => JSON.stringify(value);
 
 export const githubApi = {
-  sources: (room: string, signal?: AbortSignal) =>
-    request<{ sources: GitHubSource[] }>(`/rooms/${id(room)}/github-sources`, {
-      signal,
-    }),
   verify: (room: string, source: string, signal: AbortSignal) =>
     request<GitHubSourceVerification>(
       `/rooms/${id(room)}/github-sources/${id(source)}/verification`,
@@ -131,8 +127,6 @@ export const githubApi = {
       { signal },
     );
   },
-  event: (event: string, signal?: AbortSignal) =>
-    request<{ event: GitHubEvent }>(`/github-events/${id(event)}`, { signal }),
   dismiss: (event: string, value: { requestId: string; reason: string }) =>
     request<{ event: GitHubEvent }>(`/github-events/${id(event)}/dismiss`, {
       method: 'POST',

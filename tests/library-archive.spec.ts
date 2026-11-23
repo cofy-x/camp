@@ -58,7 +58,10 @@ test('Library downloads its selected saved revision through pointer and keyboard
   };
   const original = await save('<h1>Saved Notes app</h1>');
   await expect(
-    library(page).getByRole('heading', { name: 'index.html', exact: true }),
+    library(page).getByRole('region', {
+      name: 'Preview index.html',
+      exact: true,
+    }),
   ).toBeVisible();
   const originalResponse = await page.request.get(
     `/api/resources/${room.resourceId}/archive?commit=${original}`,

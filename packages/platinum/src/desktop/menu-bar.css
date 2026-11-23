@@ -28,53 +28,34 @@
     display: none;
   }
 }
+.p9-server-status {
+  align-self: center;
+  padding-inline: 8px;
+  font-size: 11px;
+  color: #6e4b12;
+}
+.p9-server-status[data-state='offline'] {
+  color: #852020;
+}
+.p9-server-status[data-state='connected'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+@media (max-width: 420px) {
+  .p9-server-status:not([data-state='connected']) + .p9-clock {
+    display: none;
+  }
+}
 @media (pointer: coarse) {
-  .p9-control-strip {
-    align-items: flex-end;
-  }
   /* Expand the hit regions above the artwork without scaling the strip. */
-  .p9-control-strip .p9-strip-body {
-    height: 24px;
-  }
-  .p9-control-strip .p9-strip-module {
-    flex: 0 0 31px;
-    width: 31px;
-    min-height: 32px;
-    padding: 0;
-    border: 0;
-    background: transparent;
-  }
-  .p9-control-strip .p9-strip-module::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    bottom: 0;
-    height: 22px;
-    border-left: 1px solid #262626;
-    pointer-events: none;
-  }
-  .p9-control-strip .p9-strip-modules {
+  .p9-strip-module {
     height: 32px;
-    align-self: flex-end;
-    max-width: calc(
-      100vw - 60px - env(safe-area-inset-left, 0px) -
-        env(safe-area-inset-right, 0px)
-    );
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    touch-action: pan-x;
   }
-  .p9-control-strip .p9-strip-face {
-    position: absolute;
-    left: 2px;
-    bottom: 0;
-    width: 29px;
-    background: #c0c0c0;
-  }
-  .p9-control-strip .p9-strip-module:active .p9-strip-face {
-    background: #888;
-  }
-  .p9-control-strip .p9-strip-handle {
+  .p9-strip-handle {
     display: flex;
     align-items: flex-end;
     justify-content: flex-start;

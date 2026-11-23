@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent, PointerEvent, Ref } from 'react';
 import { PixelIcon } from '../controls';
-import type { AppDefinition, MenuGroup } from '../types';
+import type { AppDefinition, DesktopProps, MenuGroup } from '../types';
 import './menu-bar.css';
 
 interface MenuBarProps {
   elementRef: Ref<HTMLDivElement>;
   groups: MenuGroup[];
+  systemMenuIcon?: DesktopProps['systemMenuIcon'];
   applicationMenu: MenuGroup;
   activeApp?: Pick<AppDefinition, 'title' | 'icon'>;
+  connectionStatus?: DesktopProps['connectionStatus'];
   activeMenuId?: string;
   menuElementId?: string;
   overview: boolean;
@@ -24,8 +26,10 @@ interface MenuBarProps {
 export function MenuBar({
   elementRef,
   groups,
+  systemMenuIcon = <PixelIcon name="computer" size={16} />,
   applicationMenu,
   activeApp,
+  connectionStatus,
   activeMenuId,
   menuElementId,
   overview,
@@ -120,11 +124,7 @@ export function MenuBar({
           className={`${index === 0 ? 'p9-system-menu' : ''} ${activeMenuId === group.id ? 'is-pressed' : ''}`}
           {...menuButton(group)}
         >
-          {group.id === 'desktop' ? (
-            <PixelIcon name="computer" size={16} />
-          ) : (
-            group.label
-          )}
+          {group.id === 'desktop' ? systemMenuIcon : group.label}
         </button>
       ))}
       <div className="p9-menubar-spacer" />
@@ -139,6 +139,19 @@ export function MenuBar({
       >
         ▤
       </button>
+      {connectionStatus && (
+        <span
+          className="p9-server-status"
+          data-state={connectionStatus}
+          role="status"
+        >
+          {connectionStatus === 'offline'
+            ? 'Server offline'
+            : connectionStatus === 'connecting'
+              ? 'Connecting…'
+              : 'Server connected'}
+        </span>
+      )}
       <span className="p9-clock" aria-label="Current time">
         {clock.toLocaleTimeString('en', {
           hour: '2-digit',

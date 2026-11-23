@@ -172,11 +172,17 @@ func executionDefaults(ctx context.Context, q *sqlgen.Queries, userID string) (E
 	}
 	return out, nil
 }
-func (s *Store) GetExecutionDefaults(ctx context.Context) (ExecutionDefaults, error) {
-	if err := requireActor(ctx, s.queries(), false); err != nil {
-		return ExecutionDefaults{}, err
-	}
-	return executionDefaults(ctx, s.queries(), actorID(ctx))
+func (s *Store) GetExecutionDefaults(ctx context.Context) (out ExecutionDefaults, err error) {
+	err = s.readTransaction(ctx, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		if e := requireActor(ctx, q, false); e != nil {
+			return e
+		}
+		var e error
+		out, e = executionDefaults(ctx, q, actorID(ctx))
+		return e
+	})
+	return
 }
 func (s *Store) SetExecutionDefault(ctx context.Context, in ExecutionDefaultInput) (out ExecutionDefaults, err error) {
 	if in.Revision < 0 || in.Scope != "personal" && in.Scope != "team" {
@@ -302,6 +308,14 @@ func revokeUnauthorizedRunnerRuns(ctx context.Context, q *sqlgen.Queries, runner
 	})
 }
 
+func clearRevokedRunnerDefaults(ctx context.Context, q *sqlgen.Queries, runnerID string) error {
+	id := nullableParent(runnerID)
+	if err := q.ClearPersonalRunnerDefaults(ctx, id); err != nil {
+		return err
+	}
+	return q.ClearTeamRunnerDefault(ctx, id)
+}
+
 func revokeOwnedExecution(ctx context.Context, q *sqlgen.Queries, userID string) error {
 	if err := q.RevokeOwnerEnrollments(ctx, nullableParent(userID)); err != nil {
 		return err
@@ -325,6 +339,9 @@ func revokeOwnedExecution(ctx context.Context, q *sqlgen.Queries, userID string)
 		if runner.OwnerUserID.String == userID {
 			ownedRunners[runner.ID] = true
 			if err = q.UpdateRunner(ctx, sqlgen.UpdateRunnerParams{ID: runner.ID, Name: runner.Name, Enabled: 0, Revoked: 1, UpdatedAt: now()}); err != nil {
+				return err
+			}
+			if err = clearRevokedRunnerDefaults(ctx, q, runner.ID); err != nil {
 				return err
 			}
 			if err = event(ctx, q, "runner.updated", "", runner.ID); err != nil {

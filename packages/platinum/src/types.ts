@@ -2,10 +2,12 @@ import type { ComponentType, ReactNode } from 'react';
 
 export type IconName =
   | 'computer'
+  | 'runner'
   | 'disk'
   | 'folder'
   | 'document'
   | 'checklist'
+  | 'clipboard'
   | 'conversation'
   | 'room'
   | 'agent'
@@ -136,6 +138,7 @@ export interface DesktopIcon {
 export interface DesktopProps {
   apps: AppDefinition[];
   icons: DesktopIcon[];
+  systemMenuIcon?: ReactNode;
   initialLayout?: DesktopLayout;
   initialWindows?: { appId: string; params?: WindowParams; title?: string }[];
   onLayoutChange?: (layout: DesktopLayout) => void;
@@ -143,6 +146,7 @@ export interface DesktopProps {
   onDesktopMenu?: (ids: string[], desktop: DesktopAPI) => MenuItem[];
   wallpaper?: 'lavender' | 'grid' | 'solid';
   controlStrip?: boolean;
+  controlStripApps?: readonly string[];
   onControlStripChange?: (expanded: boolean) => void;
   iconSnap?: boolean;
   connectionStatus?: 'connected' | 'connecting' | 'offline';

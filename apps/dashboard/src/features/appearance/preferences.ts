@@ -10,25 +10,13 @@ export const defaultPreferences: Preferences = {
   controlStrip: true,
 };
 
-/** Merge each patch with the last committed preferences, including after failure. */
 export function createPreferenceQueue(
-  initial: Preferences,
-  write: (preferences: Preferences) => Promise<Preferences>,
+  write: (patch: Partial<Preferences>) => Promise<Preferences>,
 ) {
-  let current = initial;
   let queue: Promise<unknown> = Promise.resolve();
-  return {
-    reset(value: Preferences) {
-      current = value;
-    },
-    save(patch: Partial<Preferences>): Promise<Preferences> {
-      const pending = queue.then(async () => {
-        const saved = await write({ ...current, ...patch });
-        current = saved;
-        return saved;
-      });
-      queue = pending.catch(() => {});
-      return pending;
-    },
+  return (patch: Partial<Preferences>) => {
+    const pending = queue.then(() => write(patch));
+    queue = pending.catch(() => {});
+    return pending;
   };
 }

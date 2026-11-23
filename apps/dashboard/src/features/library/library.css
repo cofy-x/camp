@@ -132,10 +132,6 @@
   color: #555;
   margin: 3px 0 0;
 }
-.camp-file-heading .app-actions {
-  margin: 0;
-  gap: 6px;
-}
 .camp-file-provenance {
   padding: 16px 12px;
   font: 11px/1.5 var(--p9-body-font);
@@ -194,8 +190,6 @@
 }
 .camp-file-picker {
   display: none;
-  padding: 6px 10px;
-  border-bottom: 1px solid #aaa;
 }
 .camp-library-history,
 .camp-version-comparison {
@@ -454,16 +448,26 @@
   .camp-file-list {
     display: none;
   }
+  .camp-file-heading {
+    flex-wrap: nowrap;
+    padding: 6px 8px;
+  }
+  .camp-file-identity {
+    min-width: 0;
+  }
+  .camp-file-identity > div {
+    flex: 1;
+  }
+  .camp-file-identity > .p9-pixel-icon,
+  .camp-file-identity h2 {
+    display: none;
+  }
   .camp-file-picker {
     display: block;
   }
   .camp-file-picker .p9-select {
-    flex: 1;
     min-width: 0;
     width: 100%;
-  }
-  .camp-file-heading {
-    padding: 8px;
   }
   .camp-file-detail .workspace-file-preview {
     padding: 8px;

@@ -1,4 +1,10 @@
-import { useEffect, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from 'react';
 import {
   Button,
   PixelIcon,
@@ -12,7 +18,7 @@ import {
   type Room,
   type WorkspaceStatus,
 } from '../workspace/api';
-import { AgentEditor } from '../workspace/AgentsPanel';
+import { AgentEditor, agentEditorBlock } from '../workspace/AgentsPanel';
 import { IdentityAvatar } from '../identity/IdentityAvatar';
 import { useAccount } from '../../team/AuthContext';
 import { useTeam } from '../../team/TeamContext';
@@ -27,50 +33,75 @@ export function Agents({ desktop, window }: AppWindowProps) {
   const agents = agentsRead.data?.agents ?? [];
   const rooms = roomsRead.data?.rooms ?? [];
   const status = statusRead.data ?? null;
-  const [selected, setSelected] = useState('');
+  const [selection, setSelected] = useState('');
+  const selected = selection || agents[0]?.id || '';
   const membershipsRead = useRead<{ roomIds: string[] }>(
     selected ? `/agents/${encodeURIComponent(selected)}/rooms` : null,
   );
   const joined = new Set(membershipsRead.data?.roomIds ?? []);
   const membershipsReady = Boolean(membershipsRead.data);
-  const loading = !agentsRead.data && !agentsRead.error;
-  const [editing, setEditing] = useState(false);
-  const [creating, setCreating] = useState(false);
+  const [editor, setEditor] = useState<Agent | 'new' | null>(null);
+  const creating = editor === 'new';
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => {
-    const accepted = agentsRead.data;
-    if (!accepted) return;
-    setSelected((current) =>
-      accepted.agents.some((agent) => agent.id === current)
-        ? current
-        : (accepted.agents[0]?.id ?? ''),
-    );
-  }, [agentsRead.data]);
+  const dirty = useRef(false);
+  const busy = useRef(false);
+  const updateDirty = useCallback((value: boolean) => {
+    dirty.current = value;
+  }, []);
+  const updatePending = useCallback((value: boolean) => {
+    busy.current = value;
+    setPending(value);
+    if (value) setError('');
+  }, []);
+  const canLeave = useCallback(() => {
+    const warning = agentEditorBlock(busy.current, dirty.current);
+    if (!warning) return true;
+    setError(warning);
+    return false;
+  }, []);
+  const { beforeClose, setTitle } = desktop;
+  useEffect(
+    () => beforeClose(window.id, canLeave),
+    [beforeClose, window.id, canLeave],
+  );
+
+  function closeEditor() {
+    dirty.current = false;
+    setEditor(null);
+    setError('');
+  }
+
+  function selectAgent(id: string) {
+    if ((id === selected && !creating) || !canLeave()) return;
+    setSelected(id);
+    closeEditor();
+  }
+
+  const selectFromNavigation = useEffectEvent(selectAgent);
   const readError =
     agentsRead.error ||
     roomsRead.error ||
     statusRead.error ||
     membershipsRead.error;
+  const bodyError = editor ? readError : error || readError;
   useEffect(() => {
-    if (team.navigation?.app !== 'agents' || !team.navigation.agentId) return;
-    setSelected(team.navigation.agentId);
-    setEditing(false);
-    setCreating(false);
+    if (team.navigation?.app === 'agents' && team.navigation.agentId)
+      selectFromNavigation(team.navigation.agentId);
   }, [team.navigation]);
   const agent = agents.find((item) => item.id === selected);
   const location = creating
     ? 'New Agent'
-    : editing && agent
-      ? `Edit ${agent.name}`
+    : editor
+      ? `Edit ${editor.name}`
       : agent?.name;
   useEffect(() => {
-    desktop.setTitle(window.id, location ? `${location} — Agents` : 'Agents');
-  }, [desktop, window.id, location]);
+    setTitle(window.id, location ? `${location} — Agents` : 'Agents');
+  }, [setTitle, window.id, location]);
   const canEdit = user.role === 'admin' || agent?.ownerUserId === user.id;
 
   async function membership(room: Room) {
-    if (!agent) return;
+    if (!agent || busy.current) return;
     if (joined.has(room.id)) {
       const answer = await desktop.dialog({
         title: 'Leave Room',
@@ -82,8 +113,7 @@ export function Agents({ desktop, window }: AppWindowProps) {
       });
       if (answer?.button !== 'leave') return;
     }
-    setPending(true);
-    setError('');
+    updatePending(true);
     try {
       await workspaceApi.membership(room.id, agent.id, !joined.has(room.id));
       team.refresh();
@@ -92,26 +122,25 @@ export function Agents({ desktop, window }: AppWindowProps) {
         error instanceof Error ? error.message : 'Could not update membership.',
       );
     } finally {
-      setPending(false);
+      updatePending(false);
     }
   }
 
   return (
     <div className="camp-agents-app">
       <div className="app-toolbar">
-        {(agents.length > 0 || creating) && (
+        {(agents.length > 0 || creating || selected) && (
           <div className="camp-agents-chooser">
             <Select
               label="Agent"
               value={creating ? '' : selected}
               disabled={pending}
-              onChange={(event) => {
-                setSelected(event.target.value);
-                setEditing(false);
-                setCreating(false);
-              }}
+              onChange={(event) => selectAgent(event.target.value)}
             >
               {creating && <option value="">New Agent</option>}
+              {!creating && selected && !agent && (
+                <option value={selected}>Selected Agent</option>
+              )}
               {agents.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
@@ -123,8 +152,9 @@ export function Agents({ desktop, window }: AppWindowProps) {
         <Button
           disabled={pending}
           onClick={() => {
-            setCreating(true);
-            setEditing(true);
+            if (creating || !canLeave()) return;
+            setError('');
+            setEditor('new');
           }}
         >
           New Agent…
@@ -143,11 +173,8 @@ export function Agents({ desktop, window }: AppWindowProps) {
                 aria-current={
                   item.id === selected && !creating ? 'page' : undefined
                 }
-                onClick={() => {
-                  setSelected(item.id);
-                  setEditing(false);
-                  setCreating(false);
-                }}
+                disabled={pending}
+                onClick={() => selectAgent(item.id)}
               >
                 <IdentityAvatar avatar={item.avatar} kind="agent" size={28} />
                 <span>
@@ -159,28 +186,27 @@ export function Agents({ desktop, window }: AppWindowProps) {
           </nav>
         )}
         <main
-          className={`camp-agent-detail${!editing && !agent ? ' camp-agent-empty' : ''}`}
+          className={`camp-agent-detail${editor ? ' camp-agent-editing' : !agent ? ' camp-agent-empty' : ''}`}
         >
-          {(error || readError) && (
+          {bodyError && (
             <p className="app-error" role="alert">
-              {error || readError}
+              {bodyError}
             </p>
           )}
-          {editing ? (
+          {editor ? (
             <AgentEditor
-              key={creating ? 'new' : selected}
-              agent={creating ? undefined : agent}
+              key={editor === 'new' ? editor : editor.id}
+              agent={editor === 'new' ? undefined : editor}
               agents={agents}
               showHeading={false}
+              navigationError={error}
               onSave={(saved) => {
                 team.refresh();
                 setSelected(saved.id);
               }}
-              onClose={() => {
-                setEditing(false);
-                setCreating(false);
-              }}
-              onPending={setPending}
+              onClose={closeEditor}
+              onPending={updatePending}
+              onDirtyChange={updateDirty}
             />
           ) : agent ? (
             <>
@@ -208,9 +234,11 @@ export function Agents({ desktop, window }: AppWindowProps) {
               )}
               {canEdit && (
                 <Button
+                  disabled={pending}
                   onClick={() => {
-                    setCreating(false);
-                    setEditing(true);
+                    setError('');
+                    setSelected(agent.id);
+                    setEditor(agent);
                   }}
                 >
                   Edit Agent…
@@ -271,9 +299,9 @@ export function Agents({ desktop, window }: AppWindowProps) {
             <div className="camp-empty" role="status">
               <PixelIcon name="agent" size={32} />
               <h2>
-                {loading
+                {agentsRead.loading || (selected && agentsRead.refreshing)
                   ? 'Loading Agents…'
-                  : error
+                  : agentsRead.error || selected
                     ? 'Agents unavailable'
                     : 'No Agents yet'}
               </h2>

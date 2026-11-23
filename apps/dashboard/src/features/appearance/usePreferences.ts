@@ -1,44 +1,27 @@
 import { useCallback, useMemo, useState } from 'react';
 import { request } from '../../shared/api/http';
-import type { ConnectionStatus } from '../../shared/api/connection';
 import type { Preferences } from './preferences';
 import { createPreferenceQueue, defaultPreferences } from './preferences';
 
-export function usePreferences(
-  onConnectionChange: (status: ConnectionStatus) => void,
-) {
+export function usePreferences() {
   const [preferences, setPreferences] = useState(defaultPreferences);
-  const [queue] = useState(() =>
-    createPreferenceQueue(defaultPreferences, (value) =>
+  const [save] = useState(() =>
+    createPreferenceQueue((patch) =>
       request<Preferences>('/preferences', {
-        method: 'PUT',
-        body: JSON.stringify(value),
+        method: 'PATCH',
+        body: JSON.stringify(patch),
       }),
     ),
   );
-  const resetPreferences = useCallback(
-    (value: Preferences) => {
-      queue.reset(value);
-      setPreferences(value);
-    },
-    [queue],
-  );
   const savePreferences = useCallback(
     async (patch: Partial<Preferences>) => {
-      try {
-        const saved = await queue.save(patch);
-        setPreferences(saved);
-        onConnectionChange('connected');
-      } catch (error) {
-        onConnectionChange('offline');
-        throw error;
-      }
+      setPreferences(await save(patch));
     },
-    [queue, onConnectionChange],
+    [save],
   );
   const data = useMemo(
     () => ({ preferences, savePreferences }),
     [preferences, savePreferences],
   );
-  return { data, resetPreferences };
+  return { data, resetPreferences: setPreferences };
 }

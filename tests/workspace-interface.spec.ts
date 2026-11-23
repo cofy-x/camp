@@ -39,6 +39,52 @@ async function createAgent(page: Page, name: string, enabled = true) {
   return (await response.json()).agent as Agent;
 }
 
+test('Thread discussion labels retain the original reply destination', async ({
+  page,
+}, testInfo) => {
+  const room = await createRoom(
+    page,
+    `Thread routing ${testInfo.project.name}`,
+  );
+  const original = 'Please keep the next answer in this thread.';
+  await post(page, room.name, original);
+  const { messages } = await (
+    await page.request.get(`/api/rooms/${room.id}/messages`)
+  ).json();
+  const message = messages.find(
+    ({ content }: { content: string }) => content === original,
+  );
+  expect(message?.id).toBeTruthy();
+  const win = workspace(page);
+  await win
+    .getByRole('button', { name: 'Reply in thread', exact: true })
+    .click();
+  const composer = win.getByRole('form', {
+    name: 'Thread composer',
+    exact: true,
+  });
+  const recipient = composer.getByRole('button', {
+    name: 'To: Thread discussion ▾',
+    exact: true,
+  });
+  await recipient.click();
+  await expect(
+    composer.getByRole('button', { name: 'Room discussion', exact: true }),
+  ).toHaveCount(0);
+  await composer
+    .getByRole('button', { name: 'Thread discussion', exact: true })
+    .click();
+  const sent = page.waitForRequest(
+    (request) =>
+      new URL(request.url()).pathname === `/api/rooms/${room.id}/messages` &&
+      request.method() === 'POST',
+  );
+  await post(page, 'thread', 'This reply stays in the original thread.');
+  expect((await sent).postDataJSON()).toMatchObject({
+    threadRootId: message.id,
+  });
+});
+
 test('recipient labels match selected and mentioned Agents, while Post only suppresses all Agent work', async ({
   page,
 }, testInfo) => {

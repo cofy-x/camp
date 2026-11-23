@@ -1,26 +1,31 @@
 import { GitHubDeliverySummary } from '../github-delivery/GitHubDeliverySummary';
-import { useId, useState } from 'react';
-import { Button, Checkbox, Select } from '@cofy-x/camp-platinum';
+import { useId, useRef, useState } from 'react';
+import { Button, Checkbox, Radio } from '@cofy-x/camp-platinum';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
 import { useAccount } from '../../team/AuthContext';
-import { GitHubDeliveryChooser } from '../github-delivery/GitHubDeliveryChooser';
+import { useTeam } from '../../team/TeamContext';
 import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
 import type { Agent, Message, WorkspaceStatus } from '../workspace/api';
 import type { AutomationPolicy, SourceEvent } from '../automation/api';
 import { useWorkItemOperation } from './useWorkItemOperation';
-import { EvidenceChooser } from './WorkItemEvidence';
+import { WorkCreationOptions } from './WorkCreationOptions';
 import { WorkGrant, suggestedParticipants } from './WorkGrant';
 import { useWorkDefaults } from './useWorkDefaults';
 import { useWorkExecution } from './useWorkExecution';
-import { matchesCreationDraft } from './creationDraft';
+import {
+  matchesCreationDraft,
+  matchesWorkDefaults,
+  workDefaultsFields,
+  type WorkDefaultsFields,
+} from './creationDraft';
 import type { WorkItem, WorkItemInput } from './api';
-import { WorkBudgetEditor } from './WorkBudgetEditor';
-import { initialWorkBudget, localDateTime, utcDateTime } from './workSettings';
+import { utcDateTime } from './workSettings';
 
 type CreateDraft = Omit<WorkItemInput, 'requestId'> & {
   deadline?: string;
   expiryEdited?: boolean;
   projectDefaultsPending?: boolean;
+  customDefaults?: WorkDefaultsFields;
 };
 
 type UnassignedDraft = {
@@ -50,14 +55,22 @@ export function WorkItemForm({
   defaultAgentId?: string;
   sourceEvent?: SourceEvent;
   sourceMessage?: Message;
-  availability?: Pick<WorkspaceStatus, 'available' | 'reason'>;
-  onCreated: (item: WorkItem) => void;
+  availability?: Pick<WorkspaceStatus, 'available' | 'reason'> & {
+    retry?: () => Promise<void>;
+  };
+  onCreated: (item: WorkItem, fromRoom: string) => void;
   onClose: () => void;
   showHeader?: boolean;
 }) {
   const { user } = useAccount();
+  const { navigate } = useTeam();
   const goalId = useId();
-  const [optionsOpen, setOptionsOpen] = useState(false);
+  const startNoticeId = useId();
+  const recordNoticeId = useId();
+  const settingsModeId = useId();
+  const revealingInvalid = useRef(false);
+  const [openOptionsRoom, setOpenOptionsRoom] = useState<string>();
+  const [githubDestinationRoom, setGitHubDestinationRoom] = useState<string>();
   const [deliveryReady, setDeliveryReady] = useState(false);
   const scope = sourceMessage?.id ?? sourceEvent?.id ?? 'manual';
   const draftRoom = globalDraft ? '' : roomId;
@@ -91,15 +104,26 @@ export function WorkItemForm({
     ...baseValues,
     ...((!saved || saved.projectDefaultsPending) && project
       ? {
-          completionMode: project.completionMode,
-          participantAgentIds: project.participantAgentIds,
-          firstAgentId: project.firstAgentId,
-          budget: project.budget,
-          githubDelivery: project.githubDelivery,
+          ...workDefaultsFields(project),
           projectRevision: project.revision,
         }
       : {}),
   };
+  const usesProject = Boolean(
+    project &&
+    values.projectRevision === project.revision &&
+    matchesWorkDefaults(values, project),
+  );
+  const staleProject = Boolean(
+    values.projectRevision &&
+    defaults &&
+    values.projectRevision !== project?.revision,
+  );
+  const useGitHub =
+    Boolean(values.githubDelivery) || githubDestinationRoom === roomId;
+  const incompleteGitHub = useGitHub && !values.githubDelivery;
+  const setOptionsOpen = (open: boolean) =>
+    setOpenOptionsRoom(open ? roomId : undefined);
   const participants =
     values.participantAgentIds ??
     suggestedParticipants(members, defaults, defaultAgentId);
@@ -108,19 +132,23 @@ export function WorkItemForm({
     : (participants[0] ?? '');
   const operation = useWorkItemOperation(
     `create:${draftRoom}:${scope}`,
-    onCreated,
+    (item, _request, fromRoom) => onCreated(item, fromRoom ?? item.roomId),
     [],
-    async (_item, { draftSnapshot }) => {
+    async (item, { draftSnapshot }) => {
       if (!draft.loaded) return false;
       // Only clear the private draft that supplied this request. A newer draft
       // selected through conflict recovery belongs to its own future work.
-      if (
-        draft.getValue() !== null &&
-        matchesCreationDraft(draft.getValue(), draftSnapshot)
-      )
-        draft.setValue(null);
+      const current = draft.getValue();
+      if (current && matchesCreationDraft(current, draftSnapshot)) {
+        if ('rooms' in current && roomId && roomId !== item.roomId) {
+          const rooms = { ...current.rooms };
+          delete rooms[item.roomId];
+          draft.setValue({ ...current, rooms });
+        } else draft.setValue(null);
+      }
       return draft.flush();
     },
+    roomId,
   );
   const delegated = policies.filter(
     (policy) =>
@@ -160,10 +188,19 @@ export function WorkItemForm({
     contextReady &&
     defaults &&
     values.goal.trim() &&
+    !staleProject &&
+    !incompleteGitHub &&
     !invalidDelivery,
   );
   const canStart =
     canRecord && execution.ready && availability?.available !== false;
+  const blockedStart =
+    roomId && contextReady && availability?.available === false
+      ? availability
+      : null;
+  const recordingOnly = Boolean(
+    blockedStart || execution.issue || execution.error,
+  );
   const followLabel = sourceMessage
     ? 'Follow replies'
     : sourceEvent?.sourceId === 'room' &&
@@ -190,11 +227,40 @@ export function WorkItemForm({
     } else draft.setValue(next);
   }
 
+  function usePersonalDefaults() {
+    if (!project) return;
+    edit({
+      ...workDefaultsFields(project),
+      projectRevision: project.revision,
+      customDefaults: staleProject
+        ? values.customDefaults
+        : workDefaultsFields(values),
+    });
+    setGitHubDestinationRoom(undefined);
+    setOptionsOpen(false);
+  }
+
+  function customizeWork() {
+    edit({
+      ...(usesProject ? values.customDefaults : undefined),
+      projectRevision: undefined,
+      customDefaults: undefined,
+    });
+    setGitHubDestinationRoom(undefined);
+    setOptionsOpen(true);
+  }
+
+  function setDeliveryDestination(github: boolean) {
+    setGitHubDestinationRoom(github ? roomId : undefined);
+    if (!github && values.githubDelivery) edit({ githubDelivery: undefined });
+  }
+
   function create(start: boolean) {
     if (!(start ? canStart : canRecord)) return;
     const {
       expiryEdited,
       deadline,
+      customDefaults: _customDefaults,
       projectDefaultsPending: _projectDefaultsPending,
       ...input
     } = values;
@@ -202,6 +268,7 @@ export function WorkItemForm({
       roomId,
       {
         ...input,
+        projectRevision: usesProject ? input.projectRevision : undefined,
         start,
         policyRevision: values.policyId ? selectedPolicy?.revision : undefined,
         budget: values.budget ?? defaults?.budget,
@@ -220,8 +287,25 @@ export function WorkItemForm({
 
   return (
     <form
-      className="work-item-form"
+      className="work-item-form new-work-form"
       aria-label="New work"
+      onInvalid={(event) => {
+        const field = event.target;
+        if (revealingInvalid.current || !(field instanceof HTMLElement)) return;
+        const section = field.closest<HTMLDetailsElement>(
+          '.work-creation-option-section',
+        );
+        if (!section) return;
+        revealingInvalid.current = true;
+        const options =
+          section.closest<HTMLDetailsElement>('.work-item-options');
+        if (options) options.open = true;
+        section.open = true;
+        requestAnimationFrame(() => {
+          revealingInvalid.current = false;
+          if (field.isConnected && section.open && options?.open) field.focus();
+        });
+      }}
       onSubmit={(event) => {
         event.preventDefault();
         create(true);
@@ -273,6 +357,25 @@ export function WorkItemForm({
             aria-label="Work authorization"
             disabled={!defaults}
           >
+            {project && !staleProject && (
+              <fieldset className="work-default-mode">
+                <legend>Settings for this Work</legend>
+                <div>
+                  <Radio
+                    name={settingsModeId}
+                    label="Use my defaults"
+                    checked={usesProject}
+                    onChange={usePersonalDefaults}
+                  />
+                  <Radio
+                    name={settingsModeId}
+                    label="This Work only"
+                    checked={!usesProject}
+                    onChange={customizeWork}
+                  />
+                </div>
+              </fieldset>
+            )}
             {values.completionMode !== 'automatic' && (
               <p className="work-grant-limits">
                 {values.completionMode === 'human'
@@ -285,13 +388,40 @@ export function WorkItemForm({
               selected={participants}
               defaults={defaults}
               maxRequests={values.budget?.maxModelRequests}
+              editable={!usesProject && !staleProject}
+              policyScoped={Boolean(values.policyId)}
+              showTotalAllowance
               execution={execution}
+              executionNoticeId={blockedStart ? undefined : startNoticeId}
               firstAgentId={first}
               onChange={(participantAgentIds) => edit({ participantAgentIds })}
               onFirstChange={(firstAgentId) => edit({ firstAgentId })}
             />
-            {!defaults && !settings.error && (
-              <p role="status">Loading work settings…</p>
+            {blockedStart && (
+              <div
+                className="work-execution-notice app-error"
+                role="alert"
+                id={startNoticeId}
+              >
+                <span>
+                  <strong>Start work unavailable.</strong> {blockedStart.reason}
+                </span>
+                {blockedStart.retry ? (
+                  <Button onClick={() => void blockedStart.retry?.()}>
+                    Retry availability
+                  </Button>
+                ) : (
+                  user.role === 'admin' && (
+                    <Button
+                      onClick={() =>
+                        void navigate({ app: 'settings', section: 'readiness' })
+                      }
+                    >
+                      Open Getting Ready
+                    </Button>
+                  )
+                )}
+              </div>
             )}
             {values.githubDelivery && (
               <GitHubDeliverySummary
@@ -304,134 +434,23 @@ export function WorkItemForm({
                 GitHub delivery requires automatic completion.
               </p>
             )}
-            <details
-              className="work-item-options"
-              onToggle={(event) => setOptionsOpen(event.currentTarget.open)}
-            >
-              <summary>Options</summary>
-              <div className="work-item-form">
-                <Select
-                  label="Completion"
-                  value={
-                    values.completionMode ??
-                    (values.completionCriteria?.trim() ? 'criteria' : 'human')
-                  }
-                  onChange={(event) =>
-                    edit({
-                      completionMode: event.target.value as
-                        'automatic' | 'human',
-                    })
-                  }
-                >
-                  <option value="automatic">When the goal is met</option>
-                  <option value="human">I'll confirm</option>
-                  {!values.completionMode &&
-                    values.completionCriteria?.trim() && (
-                      <option value="criteria">
-                        Saved completion criteria
-                      </option>
-                    )}
-                </Select>
-                {optionsOpen && (
-                  <GitHubDeliveryChooser
-                    value={values.githubDelivery}
-                    onChange={(githubDelivery) => edit({ githubDelivery })}
-                  />
-                )}
-                <label>
-                  Due date
-                  <input
-                    className="p9-field"
-                    type="date"
-                    value={values.dueAt ?? ''}
-                    onChange={(event) => edit({ dueAt: event.target.value })}
-                  />
-                </label>
-                <label>
-                  Complete when
-                  <textarea
-                    className="p9-field"
-                    rows={2}
-                    placeholder={
-                      values.completionMode === 'automatic'
-                        ? 'Use the goal above'
-                        : undefined
-                    }
-                    value={values.completionCriteria ?? ''}
-                    onChange={(event) =>
-                      edit({ completionCriteria: event.target.value })
-                    }
-                  />
-                </label>
-                <EvidenceChooser
-                  roomId={roomId}
-                  selected={values.evidenceIds ?? []}
-                  onChange={(evidenceIds) => edit({ evidenceIds })}
-                />
-                {delegated.length > 0 || values.policyId ? (
-                  <Select
-                    label="Future follow-up"
-                    value={values.policyId ?? ''}
-                    onChange={(event) => edit({ policyId: event.target.value })}
-                  >
-                    <option value="">I'll decide</option>
-                    {delegated.map((policy) => (
-                      <option value={policy.id} key={policy.id}>
-                        {policy.sourceId === 'room'
-                          ? 'Room rule'
-                          : policy.sourceId}
-                      </option>
-                    ))}
-                    {values.policyId &&
-                      !delegated.some(
-                        (policy) => policy.id === values.policyId,
-                      ) && (
-                        <option value={values.policyId}>
-                          Saved rule unavailable
-                        </option>
-                      )}
-                  </Select>
-                ) : null}
-                <details>
-                  <summary>Allowance and access</summary>
-                  <div className="work-item-form">
-                    <WorkBudgetEditor
-                      value={
-                        values.budget ?? defaults?.budget ?? initialWorkBudget
-                      }
-                      onChange={(budget) => edit({ budget })}
-                    />
-                    <label>
-                      Authorization expires
-                      <input
-                        className="p9-field"
-                        type="datetime-local"
-                        value={
-                          values.expiryEdited
-                            ? (values.expiresAt ?? '')
-                            : localDateTime(
-                                values.expiresAt ??
-                                  values.deadline ??
-                                  defaults?.expiresAt ??
-                                  '',
-                              )
-                        }
-                        onChange={(event) =>
-                          edit({
-                            expiresAt: event.target.value,
-                            expiryEdited: true,
-                          })
-                        }
-                      />
-                    </label>
-                    <p>
-                      Limits apply across all work sessions. Expiry stops new
-                      automatic work; it does not set the due date.
-                    </p>
-                  </div>
-                </details>
-              </div>
-            </details>
+            {incompleteGitHub && (
+              <p role="status">
+                Choose a GitHub repository or switch to Room files.
+              </p>
+            )}
+            <WorkCreationOptions
+              values={values}
+              roomId={roomId}
+              defaults={defaults}
+              delegated={delegated}
+              custom={!usesProject && !staleProject}
+              open={openOptionsRoom === roomId}
+              onOpenChange={setOptionsOpen}
+              useGitHub={useGitHub}
+              onDeliveryDestinationChange={setDeliveryDestination}
+              onChange={edit}
+            />
           </fieldset>
         )}
       </fieldset>
@@ -453,35 +472,23 @@ export function WorkItemForm({
           </details>
         </div>
       )}
-      {values.projectRevision &&
-      project &&
-      values.projectRevision !== project.revision ? (
+      {staleProject && project && (
         <p role="alert" className="app-error">
-          Project settings changed. Your goal is preserved.{' '}
-          <Button
-            onClick={() =>
-              edit({
-                projectRevision: project.revision,
-                completionMode: project.completionMode,
-                budget: project.budget,
-                participantAgentIds: project.participantAgentIds,
-                firstAgentId: project.firstAgentId,
-                githubDelivery: project.githubDelivery,
-              })
-            }
-          >
-            Use current defaults
+          Work defaults changed.{' '}
+          <Button onClick={usePersonalDefaults}>Use current defaults</Button>{' '}
+          <Button onClick={customizeWork}>
+            Keep these choices for this Work
           </Button>
         </p>
-      ) : null}
-      {values.projectRevision && defaults && !project ? (
+      )}
+      {staleProject && !project && (
         <p role="alert" className="app-error">
-          Project defaults are disabled. Your goal and choices are preserved.{' '}
-          <Button onClick={() => edit({ projectRevision: undefined })}>
-            Use these choices
+          Work defaults are disabled. Your goal and choices are preserved.{' '}
+          <Button onClick={customizeWork}>
+            Keep these choices for this Work
           </Button>
         </p>
-      ) : null}
+      )}
       {roomId && contextReady && !defaults && !settings.error && (
         <p role="status">Loading work settings…</p>
       )}
@@ -491,21 +498,36 @@ export function WorkItemForm({
           <Button onClick={() => void settings.retry()}>
             Retry work settings
           </Button>
-        </p>
-      )}
-      {roomId && contextReady && availability?.available === false && (
-        <p className="app-error" role="alert">
-          {availability.reason}
+          {values.policyId && (
+            <Button onClick={() => edit({ policyId: '' })}>
+              Clear follow-up rule
+            </Button>
+          )}
         </p>
       )}
       {operation.feedback}
-      <div className="app-actions">
-        <Button type="submit" primary disabled={!canStart}>
+      <div className="app-actions work-create-actions">
+        <Button
+          type="submit"
+          primary={!recordingOnly}
+          disabled={!canStart}
+          aria-describedby={recordingOnly ? startNoticeId : undefined}
+        >
           {operation.busy ? 'Saving…' : 'Start work'}
         </Button>
-        <Button disabled={!canRecord} onClick={() => create(false)}>
+        <Button
+          primary={recordingOnly}
+          disabled={!canRecord}
+          aria-describedby={recordingOnly ? recordNoticeId : undefined}
+          onClick={(event) => {
+            if (event.currentTarget.form?.reportValidity()) create(false);
+          }}
+        >
           Keep track
         </Button>
+        {recordingOnly && (
+          <span id={recordNoticeId}>Records this without running Agents.</span>
+        )}
       </div>
     </form>
   );

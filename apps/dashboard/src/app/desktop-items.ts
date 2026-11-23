@@ -1,4 +1,5 @@
 import type { DesktopAPI, DesktopIcon, MenuItem } from '@cofy-x/camp-platinum';
+import { workApp } from '../features/workitems/definition';
 
 export function createDesktopIcons(): DesktopIcon[] {
   return [
@@ -11,7 +12,7 @@ export function createDesktopIcons(): DesktopIcon[] {
     {
       id: 'system:work',
       label: 'Work',
-      icon: 'checklist',
+      icon: workApp.icon,
       appId: 'work',
     },
     {
@@ -24,7 +25,7 @@ export function createDesktopIcons(): DesktopIcon[] {
     {
       id: 'system:runners',
       label: 'Runners',
-      icon: 'computer',
+      icon: 'runner',
       appId: 'runners',
     },
     {

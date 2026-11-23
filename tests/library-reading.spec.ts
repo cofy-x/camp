@@ -333,6 +333,7 @@ test('Library renders readable Markdown and keeps file actions safe in small win
 }, testInfo) => {
   const room = await createRoom(page, `reading-${testInfo.project.name}`);
   const path = 'handoff/customer-onboarding-guide.md';
+  const otherPath = 'zz-checklist.txt';
   const content = [
     '# Customer handoff',
     '',
@@ -355,12 +356,25 @@ test('Library renders readable Markdown and keeps file actions safe in small win
   const listing = await (
     await page.request.get(`/api/resources/${room.resourceId}/files`)
   ).json();
-  const published = await mutate(
+  const other = await mutate(
     page,
     `/resources/${room.resourceId}/files`,
     {
       requestId: randomUUID(),
       expectedCommit: listing.commit,
+      path: otherPath,
+      content: 'Follow-up checklist.',
+    },
+    'PUT',
+  );
+  expect(other.ok()).toBeTruthy();
+  const { publication: otherPublication } = await other.json();
+  const published = await mutate(
+    page,
+    `/resources/${room.resourceId}/files`,
+    {
+      requestId: randomUUID(),
+      expectedCommit: otherPublication.commit,
       path,
       content,
     },
@@ -372,6 +386,15 @@ test('Library renders readable Markdown and keeps file actions safe in small win
   };
   await openLibrary(page);
   const win = library(page);
+  const filePicker = win.getByRole('combobox', { name: 'File', exact: true });
+  const filename = win.getByRole('heading', { name: path, exact: true });
+  if (isMobile) {
+    await expect(filePicker).toHaveValue(path);
+    await expect(filename).toBeHidden();
+  } else {
+    await expect(filePicker).toBeHidden();
+    await expect(filename).toBeVisible();
+  }
   const preview = win.getByRole('region', { name: `Preview ${path}` });
   await expect(preview.getByRole('table')).toBeVisible();
   await expect(
@@ -491,13 +514,14 @@ test('Library renders readable Markdown and keeps file actions safe in small win
   } else {
     const edge = (await win.locator('[data-resize="se"]').boundingBox())!;
     const before = (await win.boundingBox())!;
-    await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+    // Drag from inside the triangular handle, away from its clipped edge.
+    const x = edge.x + (3 * edge.width) / 4;
+    const y = edge.y + (3 * edge.height) / 4;
+    await page.mouse.move(x, y);
     await page.mouse.down();
-    await page.mouse.move(
-      edge.x + edge.width / 2 - (before.width - 560),
-      edge.y + edge.height / 2 - (before.height - 360),
-      { steps: 5 },
-    );
+    await page.mouse.move(x - (before.width - 560), y - (before.height - 360), {
+      steps: 5,
+    });
     await page.mouse.up();
   }
   await expectNoHorizontalOverflow(win);
@@ -505,15 +529,43 @@ test('Library renders readable Markdown and keeps file actions safe in small win
   const end = preview.getByText('Document end marker.', { exact: true });
   await end.scrollIntoViewIfNeeded();
   await expect(end).toBeInViewport();
-  await win
-    .getByRole('button', { name: 'Edit Text', exact: true })
-    .scrollIntoViewIfNeeded();
-  await expect(
-    win.getByRole('button', { name: 'Edit Text', exact: true }),
-  ).toBeInViewport();
+  const edit = win.getByRole('button', { name: 'Edit Text', exact: true });
+  await edit.scrollIntoViewIfNeeded();
+  await expect(edit).toBeInViewport();
+  await expect(filePicker).toBeInViewport();
+  await expect(filename).toBeHidden();
+  const [pickerBounds, editBounds] = await Promise.all([
+    filePicker.boundingBox(),
+    edit.boundingBox(),
+  ]);
+  const midpoint = ({ y, height }: NonNullable<typeof pickerBounds>) =>
+    y + height / 2;
+  expect(
+    Math.abs(midpoint(pickerBounds!) - midpoint(editBounds!)),
+  ).toBeLessThanOrEqual(1);
   await page.screenshot({
     path: testInfo.outputPath('library-short-window.png'),
   });
+  if (isMobile) {
+    await filePicker.tap();
+    await page
+      .getByRole('listbox', { name: 'File', exact: true })
+      .getByRole('option', { name: otherPath, exact: true })
+      .tap();
+  } else {
+    await filePicker.press('End');
+    await filePicker.press('Enter');
+  }
+  await expect(filePicker).toHaveValue(otherPath);
+  await expect(filePicker).toBeFocused();
+  await expect(
+    win.getByRole('region', { name: `Preview ${otherPath}`, exact: true }),
+  ).toContainText('Follow-up checklist.');
+  await expect(edit).toBeEnabled();
+  await edit.click();
+  await expect(win.getByLabel('Document content', { exact: true })).toHaveValue(
+    'Follow-up checklist.',
+  );
   expect(
     (await (await page.request.get(`/api/rooms/${room.id}/runs`)).json()).runs,
   ).toEqual([]);
@@ -572,7 +624,10 @@ test('binary working copies keep exact bytes and do not offer text editing', asy
     .getByRole('button', { name: 'Create Copy', exact: true })
     .click();
   await expect(
-    win.getByRole('heading', { name: 'assets/reference.png', exact: true }),
+    win.getByRole('region', {
+      name: 'Preview assets/reference.png',
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(
     win.getByText('This file has no text preview.', { exact: false }),

@@ -451,11 +451,13 @@ func (s *Store) FireWorkItemTimers(ctx context.Context) error {
 			if w.Usage.FollowUps >= w.Budget.MaxFollowUps {
 				markWorkRecovery(&w, workFailureRecovery(w, "work_budget_exhausted"), recoveryFollowUps)
 				status = "context"
-			} else if w.PolicyID == "" {
-				markWorkRecovery(&w, orchestration.WorkRecovery{Kind: orchestration.WorkRecoveryReminder, Message: "Your scheduled follow-up is due."}, "")
-				status = "context"
+			} else {
+				w.Usage.FollowUps++
+				if w.PolicyID == "" {
+					markWorkRecovery(&w, orchestration.WorkRecovery{Kind: orchestration.WorkRecoveryReminder, Message: "Your scheduled follow-up is due."}, "")
+					status = "context"
+				}
 			}
-			w.Usage.FollowUps++
 			ev := orchestration.SourceEvent{ID: "timer:" + timer.ID, RoomID: w.RoomID, SourceID: "timer", ThreadKey: "workitem:" + w.ID, WorkItemID: w.ID, CausationID: timer.ID, Kind: "timer.fired", ActorKind: "system", ActorID: "timer", Content: "Follow-up is due. Waiting condition: " + timer.Condition, OccurredAt: now(), Status: status}
 			if e = insertWorkFact(ctx, q, &w, ev); e != nil {
 				return e

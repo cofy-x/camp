@@ -10,7 +10,7 @@ const Runners = lazyApplication(
 export const runnersApp: AppDefinition = {
   id: 'runners',
   title: 'Runners',
-  icon: 'computer',
+  icon: 'runner',
   component: Runners,
   windowKey: () => 'main',
   defaultSize: { width: 820, height: 650 },

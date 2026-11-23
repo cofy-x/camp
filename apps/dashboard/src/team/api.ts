@@ -84,12 +84,8 @@ export const teamApi = {
       teamName?: string;
     },
   ) => request<{ user: User }>(`/auth/${mode}`, json('POST', value)),
-  team: () =>
-    request<{ team: { id: string; name: string; updatedAt: string } }>('/team'),
   renameTeam: (name: string) => request('/team', json('PATCH', { name })),
   logout: () => request('/auth/logout', json('POST', {})),
-  members: (signal?: AbortSignal) =>
-    request<{ members: User[] }>('/team/members', { signal }),
   updateMember: (
     id: string,
     value: { role?: User['role']; enabled?: boolean },
@@ -98,7 +94,6 @@ export const teamApi = {
       `/team/members/${encodeURIComponent(id)}`,
       json('PATCH', value),
     ),
-  invitations: () => request<{ invites: Invitation[] }>('/team/invites'),
   invite: () =>
     request<{ invite: Invitation; token: string }>(
       '/team/invites',
@@ -106,14 +101,8 @@ export const teamApi = {
     ),
   revokeInvite: (id: string) =>
     request(`/team/invites/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  inbox: (signal?: AbortSignal) =>
-    request<{ items: InboxItem[] }>('/me/inbox', { signal }),
   readInbox: (id: string) =>
     request(`/me/inbox/${encodeURIComponent(id)}/read`, json('POST', {})),
-  reads: (signal?: AbortSignal) =>
-    request<{ reads: { roomId: string; seq: number }[] }>('/me/room-reads', {
-      signal,
-    }),
   readRoom: (roomId: string, seq: number) =>
     request(
       `/me/room-reads/${encodeURIComponent(roomId)}`,

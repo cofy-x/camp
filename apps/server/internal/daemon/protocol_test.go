@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,6 +18,74 @@ import (
 	"github.com/coder/websocket/wsjson"
 	p "github.com/cofy-x/camp/apps/server/internal/runnerprotocol"
 )
+
+func TestLocalFailureClosesIdleControlSession(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		connection, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer connection.CloseNow()
+		var message p.Message
+		if err := wsjson.Read(r.Context(), connection, &message); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := wsjson.Write(r.Context(), connection, p.Message{Type: "welcome", Version: p.Version, Epoch: 1}); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := wsjson.Read(r.Context(), connection, &message); err == nil {
+			t.Error("Runner sent a frame instead of closing the idle connection")
+		}
+	}))
+	defer server.Close()
+	directory := t.TempDir()
+	journal, err := openJournal(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer journal.db.Close()
+	d := &Daemon{config: Config{DataDir: directory, ServerURL: server.URL, Executor: "fixture", Slots: 1}, client: server.Client(), journal: journal}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	done := make(chan struct{})
+	var connectionError error
+	go func() {
+		defer close(done)
+		connectionError = d.connect(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+	statusPath := filepath.Join(directory, "status.json")
+	var status connectionRecord
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for readObservation(statusPath, &status) != nil || status.Connection != "connected" {
+		select {
+		case <-ctx.Done():
+			t.Fatal("Runner never recorded the welcome")
+		case <-ticker.C:
+		}
+	}
+	d.setFailure(errors.New("Local journal unavailable"))
+	select {
+	case <-done:
+		if !errors.Is(connectionError, context.Canceled) {
+			t.Fatal("Local failure did not cancel the control session", connectionError)
+		}
+	case <-ctx.Done():
+		t.Fatal("Idle connection waited for the outer context after a local failure")
+	}
+	if err := readObservation(statusPath, &status); err != nil {
+		t.Fatal(err)
+	}
+	if d.connectionCancel != nil || status.Connection != "disconnected" || status.Observed == nil || status.Observed.Capabilities.Ready {
+		t.Fatal("Runner did not release and record its suspended connection", status)
+	}
+}
 
 func TestIncompatibleProtocolStopsAndPersistsActionableStatus(t *testing.T) {
 	for _, fixture := range []struct {

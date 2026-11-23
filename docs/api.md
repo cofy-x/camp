@@ -237,6 +237,8 @@ Detail previews contain at most 20 evidence/decision/task/timer/action records; 
 
 Work detail and list responses and the corresponding personal attention item may include `workRecovery:{kind,message,taskId?,sourceId?}`. Kinds are `review_rule`, `increase_allowance`, `daily_limit`, `renew_authorization`, `review_activity`, `review_execution` and `reminder`. The message describes the recorded interruption. Optional identities link to the exact ended session or saved rule source. Active task and GitHub delivery recovery retain their existing owners. The field directs the person to an existing command and cannot grant authority or settle work. New answers to a typed system recovery fail with `question_answered`; exact original request replays still return their immutable receipts. Finite authorization edits settle only the specific restored Work allowance or expiry. Restoring a rule does not replay a blocked follow-up.
 
+A scheduled timer checks the current follow-up allowance when it becomes due. If its allowance has since been withdrawn, Work records the firing for history and requests attention without charging a follow-up. Restoring allowance clears that recovery. A new follow-up requires a new explicit wait.
+
 ## GitHub code delivery
 
 Authenticated members can list their own connections with `GET /api/github-repositories` and save one with `POST /api/github-repositories`. Input is `{requestId, id?, revision?, repository, token?, enabled, ciWorkflow?, deploymentWorkflow?}`. Existing connections require their expected revision; repository replacement under another numeric identity is rejected. Blank token retains an existing private credential. Returned metadata contains numeric identities, workflow IDs, public/private visibility and defaults, never token text or private credential references. There are at most 32 connections per member. `GET /api/github-repository-requests/{id}` reads that member's immutable receipt; `POST /api/github-repository-requests/{id}/cancel` fences an unresolved request or returns its already committed connection. A cancelled ID rejects a late original write. Browser recovery retains operation IDs, never tokens.
@@ -245,9 +247,11 @@ Work creation optionally accepts `githubDelivery: {connectionId, connectionRevis
 
 Current Work reads include a bounded `githubDelivery` projection with stage/status, exact source/merge identities and confirmed destination links. Source selection is frozen as `gitignore-v1`: accepted project ignore rules exclude untracked output while destination-tracked files remain eligible. Original resource versions are preserved. They include no blob contents or complete receipt log. `POST /api/work-items/{id}/github-delivery/check` with `{revision}` makes only an uncertain receipt eligible for read-only reconciliation; it cannot resend the effect. A typed `POST /api/work-items/{id}/actions/retry_delivery` with the normal recoverable Work request fields and `deliveryRevision` explicitly resumes a known failed stage after repair. Source/context and both revisions must still match. A visible-effect retry consumes one additional action; its exact request replay consumes none. A typed `actions/repair_delivery` request with both revisions explicitly authorizes one finite repair of a known CI/review failure, within current scope, remaining cumulative allowance and the three-repair ceiling. It cannot repair uncertain effects or silently reauthorize changed source/permissions. `githubDelivery` includes bounded `failureCode`, `repairs` and current progress; full diagnostics and accepted source history stay in their durable owners. `GitHubDeliverySpec.maxRepairs` is zero for legacy callers; optional `versionLine` resolves an accepted root `package.json` version and cannot be combined with an exact input tag. Normal waiting makes no new model request. Confirmed final delivery and all other unsettled external actions gate Work completion; stopping preserves unconfirmed effects in personal attention.
 
+Retry and repair return HTTP 409 with the specific recovery code and message when current delivery state prevents the action. This includes expired Work authorization, disconnected or changed repository scope, changed project, rule, source or Agent scope, and exhausted daily task allowance.
+
 ## Work item history
 
-`timeline` is a recent-first display projection over the same immutable decisions, with task-result summaries from their saved task and delivery outcomes from their immutable receipt facts. Technical identities remain in the original records. It uses the same actor/item/kind-bound frozen cursor, 20-record and 320 KiB limits as raw history. Earlier pages exclude later arrivals; a new first-page read resumes current observations. The original decisions and evidence remain independently readable.
+`timeline` is a recent-first display projection over the same immutable decisions, with task-result summaries from their saved task and delivery outcomes from their immutable receipt facts. Technical identities remain in the original records. It uses the same item- and kind-bound frozen cursor, 20-record and 320 KiB limits as raw history. Earlier pages exclude later arrivals; a new first-page read resumes current observations. The original decisions and evidence remain independently readable.
 
 GET `/api/work-items/:id/history/:kind?cursor=...&limit=20` reads `timeline` or retained `evidence`, `decisions`, `tasks`, `timers` or `actions` beyond the bounded Work Item detail preview. It requires an enabled team member and returns `{items,cursor,nextCursor}`. `cursor` identifies the accepted page at its frozen frontier, including the first page; use it when navigating back. Items retain each kind's complete record shape; evidence contains the original source event ID, and source originals remain available through their owning event endpoint. Reads admit no work and make no model request.
 
@@ -383,7 +387,7 @@ Stale `revision` returns 409 `revision_conflict`; invalid transitions return `re
 | Method | Path | Contract |
 | --- | --- | --- |
 | GET | `/api/bootstrap?clientId=...` | Personal preferences/layout and `workspaceEventCursor` |
-| PUT | `/api/preferences` | Personal appearance |
+| PATCH / PUT | `/api/preferences` | Merge submitted personal appearance fields or replace the whole document. Both return the full saved preferences. |
 | PUT | `/api/layout` | `{clientId,layout}` for signed-in person/browser |
 | GET | `/api/me/drafts?kind=document` | Private draft metadata |
 | GET / PUT / DELETE | `/api/me/drafts/:kind` | GET `?key=...`; PUT `{key,value,revision}`; DELETE `{key,revision}` |
@@ -392,6 +396,8 @@ Stale `revision` returns 409 `revision_conflict`; invalid transitions return `re
 | POST | `/api/me/inbox/:id/read` | `{}` |
 
 Bootstrap captures `workspaceEventCursor` before its initial snapshot reads. New browser views subscribe after that frontier and then read their current data, so changes committed during startup remain available without replaying all historical notifications. Reconnection of the existing SSE subscription uses its `Last-Event-ID` in preference to the original `after` query.
+
+Appearance preferences belong to the signed-in account. PATCH accepts any subset of `wallpaper`, `iconSnap` and `controlStrip`. It merges the supplied values into current preferences in one transaction, so changes to different fields from separate tabs both persist. PUT continues to replace the full document for existing clients.
 
 Advancing a Room read frontier or first reading an Inbox notice atomically emits `personal_read.updated` with the person's identity and no Room/content payload. Consumers apply it only to that person's read-position and Inbox queries; it never resolves attention responsibility. Repeated or older Room positions and repeated Inbox reads emit no new event, and repeated Inbox reads retain the first accepted timestamp.
 
@@ -437,6 +443,8 @@ Members list Runners and create their own enrollment credentials. Owner/admin co
 Omitted Runner patch fields retain current transactional values. Disabling cancels queued/active work; renaming cannot re-enable or undo revocation. Agents expose `ownerUserId,preferredRunnerId`; Runners expose `ownerUserId,teamShared`. Empty owner denotes a legacy team object. Native first-task fields require execution provenance; fixture or unattributed historical success is not upgraded to native success by changing the Runner's current capabilities.
 
 Personal Agent routing stays on its saved target. Team Agent order is explicit Agent target → Room target → team default, falling back only for absent configuration. Admission freezes the target; offline/busy queues never change it. A message's `runnerRevision` checks a saved Room route only when that route is used; replays return their original receipt before checking a changed route.
+
+Permanent Runner revocation clears matching personal and team defaults in the same transaction and increments their revisions. The existing `runner.updated` event refreshes the machine and default reads. A read from an older database reports a revoked default as empty and retains its saved revision for replacement.
 
 SourceImport has its own durable identity and revocation, not a Run or model call. Capture creates a central immutable initial commit and new working Room resource, not a second immutable-original Resource row. Later work uses copies and never writes back to the operator's directory. Server-directory admin import is a separate allowlisted API, not permission to browse arbitrary Runner paths.
 
