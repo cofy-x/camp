@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test';
+import type { Preferences } from '../apps/dashboard/src/features/appearance/preferences';
 import {
   createRoom,
   inboxToggle,
   library,
+  mutate,
   openApp,
   settings,
   signIn,
@@ -99,6 +101,66 @@ test('Control Strip visibility survives reload and keeps shortcuts after a faile
     .getByRole('button', { name: 'OK', exact: true })
     .click();
   await expect(handle).toBeFocused();
+});
+
+test('desktop preference edits from two tabs preserve each other', async ({
+  page,
+  context,
+}) => {
+  await signIn(page);
+  const { preferences: original } = (await (
+    await page.request.get('/api/bootstrap')
+  ).json()) as { preferences: Preferences };
+  const other = await context.newPage();
+  try {
+    const reset = await mutate(
+      page,
+      '/preferences',
+      { ...original, wallpaper: 'lavender', controlStrip: true },
+      'PUT',
+    );
+    expect(reset.ok()).toBeTruthy();
+    await page.reload();
+    await other.goto('/');
+    await expect(workspace(other)).toBeVisible();
+
+    await page.bringToFront();
+    const handle = page
+      .getByRole('group', { name: 'Control Strip', exact: true })
+      .getByRole('button', { name: /Control Strip/ });
+    await handle.click();
+    await expect(handle).toHaveAttribute('aria-expanded', 'false');
+
+    await other.bringToFront();
+    await other
+      .getByRole('menubar')
+      .getByRole('menuitem', { name: 'View', exact: true })
+      .click();
+    await other
+      .getByRole('menuitem', { name: 'Appearance…', exact: true })
+      .click();
+    await settings(other)
+      .getByRole('button', { name: 'Graph Paper', exact: true })
+      .click();
+    await expect(settings(other)).toContainText('Saved.');
+    const { preferences: saved } = await (
+      await other.request.get('/api/bootstrap')
+    ).json();
+    expect(saved).toEqual({
+      ...original,
+      wallpaper: 'grid',
+      controlStrip: false,
+    });
+    await expect(
+      other
+        .getByRole('group', { name: 'Control Strip', exact: true })
+        .getByRole('button', { name: /Control Strip/ }),
+    ).toHaveAttribute('aria-expanded', 'false');
+  } finally {
+    await other.close();
+    const restored = await mutate(page, '/preferences', original, 'PUT');
+    expect(restored.ok()).toBeTruthy();
+  }
 });
 
 test('The menu bar reports Server health without opening a menu', async ({

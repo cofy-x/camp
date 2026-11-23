@@ -387,7 +387,7 @@ Stale `revision` returns 409 `revision_conflict`; invalid transitions return `re
 | Method | Path | Contract |
 | --- | --- | --- |
 | GET | `/api/bootstrap?clientId=...` | Personal preferences/layout and `workspaceEventCursor` |
-| PUT | `/api/preferences` | Personal appearance |
+| PATCH / PUT | `/api/preferences` | Merge submitted personal appearance fields or replace the whole document. Both return the full saved preferences. |
 | PUT | `/api/layout` | `{clientId,layout}` for signed-in person/browser |
 | GET | `/api/me/drafts?kind=document` | Private draft metadata |
 | GET / PUT / DELETE | `/api/me/drafts/:kind` | GET `?key=...`; PUT `{key,value,revision}`; DELETE `{key,revision}` |
@@ -396,6 +396,8 @@ Stale `revision` returns 409 `revision_conflict`; invalid transitions return `re
 | POST | `/api/me/inbox/:id/read` | `{}` |
 
 Bootstrap captures `workspaceEventCursor` before its initial snapshot reads. New browser views subscribe after that frontier and then read their current data, so changes committed during startup remain available without replaying all historical notifications. Reconnection of the existing SSE subscription uses its `Last-Event-ID` in preference to the original `after` query.
+
+Appearance preferences belong to the signed-in account. PATCH accepts any subset of `wallpaper`, `iconSnap` and `controlStrip`. It merges the supplied values into current preferences in one transaction, so changes to different fields from separate tabs both persist. PUT continues to replace the full document for existing clients.
 
 Advancing a Room read frontier or first reading an Inbox notice atomically emits `personal_read.updated` with the person's identity and no Room/content payload. Consumers apply it only to that person's read-position and Inbox queries; it never resolves attention responsibility. Repeated or older Room positions and repeated Inbox reads emit no new event, and repeated Inbox reads retain the first accepted timestamp.
 

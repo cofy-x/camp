@@ -19,6 +19,12 @@ type Preferences struct {
 	ControlStrip bool   `json:"controlStrip"`
 }
 
+type PreferencesPatch struct {
+	Wallpaper    *string `json:"wallpaper"`
+	IconSnap     *bool   `json:"iconSnap"`
+	ControlStrip *bool   `json:"controlStrip"`
+}
+
 type Bootstrap struct {
 	Preferences          Preferences     `json:"preferences"`
 	Layout               json.RawMessage `json:"layout"`

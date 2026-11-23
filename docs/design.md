@@ -61,7 +61,7 @@ The menu bar follows the active window. File owns generic desktop selection/open
 
 Camp's tent mark appears in the browser tab, on the startup and sign-in screens, in About This Desktop, and as the system menu button. [Tent artwork](../apps/dashboard/public/camp-tent.svg)
 
-The Control Strip opens Workspace, Work and Library in one step. Workspace uses overlapping conversation bubbles, and Work uses a clipboard. Each shortcut uses its application icon and brings the existing window forward with its current view and draft. The active shortcut has an inset state, and the handle saves the strip's visibility preference. Appearance lives in View and Settings. The menu bar announces Server reachability from its health read and shows text while connecting or offline. Write failures retain their own recovery controls.
+The Control Strip opens Workspace, Work and Library in one step. Workspace uses overlapping conversation bubbles, and Work uses a clipboard. Each shortcut uses its application icon and brings the existing window forward with its current view and draft. The active shortcut has an inset state, and the handle saves the strip's visibility preference. Appearance lives in View and Settings. Preference saves apply only the changed fields and return the current settings for the signed-in user. The menu bar announces Server reachability from its health read and shows text while connecting or offline. Write failures retain their own recovery controls.
 
 ### Inbox
 
