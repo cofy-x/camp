@@ -168,17 +168,19 @@ export function ProjectSettings({
       className="work-item-form project-settings"
       aria-label="My Work defaults"
       onInvalid={(event) => {
-        if (revealingInvalid.current || !(event.target instanceof HTMLElement))
-          return;
-        const section = event.target.closest<HTMLDetailsElement>(
+        const field = event.target;
+        if (revealingInvalid.current || !(field instanceof HTMLElement)) return;
+        const section = field.closest<HTMLDetailsElement>(
           '.project-setting-section',
         );
         if (!section) return;
         revealingInvalid.current = true;
         section.open = true;
-        setTimeout(() => {
+        // WebKit can skip focusing a field that was hidden during validation.
+        requestAnimationFrame(() => {
           revealingInvalid.current = false;
-        }, 0);
+          if (field.isConnected && section.open) field.focus();
+        });
       }}
       onSubmit={(event) => {
         event.preventDefault();

@@ -411,12 +411,21 @@ test('New Work switches between personal defaults and a private one-time overrid
     form.getByText('18 model requests total', { exact: true }),
   ).toBeVisible();
 
+  const record = form.getByRole('button', { name: 'Keep track', exact: true });
+  await allowance.click();
+  await modelRequests.fill('0');
+  await form.getByText('Options', { exact: true }).click();
+  await expect(modelRequests).toBeHidden();
+  await record.click();
+  await expect(modelRequests).toBeFocused();
+  await modelRequests.fill('18');
+
   const posted = page.waitForRequest(
     (request) =>
       request.method() === 'POST' &&
       request.url().endsWith(`/rooms/${room.id}/work-items`),
   );
-  await form.getByRole('button', { name: 'Keep track', exact: true }).click();
+  await record.click();
   const body = (await posted).postDataJSON();
   expect(body).toMatchObject({
     completionMode: 'human',

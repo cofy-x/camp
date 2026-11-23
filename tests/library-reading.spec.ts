@@ -514,13 +514,14 @@ test('Library renders readable Markdown and keeps file actions safe in small win
   } else {
     const edge = (await win.locator('[data-resize="se"]').boundingBox())!;
     const before = (await win.boundingBox())!;
-    await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+    // Drag from inside the triangular handle, away from its clipped edge.
+    const x = edge.x + (3 * edge.width) / 4;
+    const y = edge.y + (3 * edge.height) / 4;
+    await page.mouse.move(x, y);
     await page.mouse.down();
-    await page.mouse.move(
-      edge.x + edge.width / 2 - (before.width - 560),
-      edge.y + edge.height / 2 - (before.height - 360),
-      { steps: 5 },
-    );
+    await page.mouse.move(x - (before.width - 560), y - (before.height - 360), {
+      steps: 5,
+    });
     await page.mouse.up();
   }
   await expectNoHorizontalOverflow(win);

@@ -290,9 +290,9 @@ export function WorkItemForm({
       className="work-item-form new-work-form"
       aria-label="New work"
       onInvalid={(event) => {
-        if (revealingInvalid.current || !(event.target instanceof HTMLElement))
-          return;
-        const section = event.target.closest<HTMLDetailsElement>(
+        const field = event.target;
+        if (revealingInvalid.current || !(field instanceof HTMLElement)) return;
+        const section = field.closest<HTMLDetailsElement>(
           '.work-creation-option-section',
         );
         if (!section) return;
@@ -301,9 +301,10 @@ export function WorkItemForm({
           section.closest<HTMLDetailsElement>('.work-item-options');
         if (options) options.open = true;
         section.open = true;
-        setTimeout(() => {
+        requestAnimationFrame(() => {
           revealingInvalid.current = false;
-        }, 0);
+          if (field.isConnected && section.open && options?.open) field.focus();
+        });
       }}
       onSubmit={(event) => {
         event.preventDefault();
