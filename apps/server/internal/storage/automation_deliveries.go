@@ -158,6 +158,19 @@ func (s *Store) TaskAutomationDeliveries(ctx context.Context, id string) ([]orch
 	return out, nil
 }
 func (s *Store) ClaimAutomationDelivery(ctx context.Context) (out *orchestration.Delivery, err error) {
+	// Check for both queued work and stale deliveries without waking readers
+	// during idle scans. Recheck both under the write transaction before changes.
+	queries := s.queries()
+	stale, err := queries.StaleAutomationDeliveries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(stale) == 0 {
+		pending, err := queries.PendingAutomationDeliveries(ctx)
+		if err != nil || len(pending) == 0 {
+			return nil, err
+		}
+	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
 		stale, e := q.StaleAutomationDeliveries(ctx)

@@ -266,6 +266,7 @@ export function Composer({
     }
   }
 
+  const discussionLabel = threadId ? 'Thread discussion' : 'Room discussion';
   const recipientLabel =
     !membersReady && !postOnly
       ? 'Choose recipients'
@@ -281,7 +282,7 @@ export function Composer({
                     'Unavailable agent',
                 )
                 .join(', ')
-            : 'Room discussion';
+            : discussionLabel;
 
   return (
     <form
@@ -361,7 +362,7 @@ export function Composer({
                   setPicking(false);
                 }}
               >
-                Room discussion
+                {discussionLabel}
               </Button>
               <Button
                 type="button"

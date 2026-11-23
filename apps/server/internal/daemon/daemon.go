@@ -308,10 +308,15 @@ func (d *Daemon) connect(ctx context.Context) error {
 	defer d.recordConnection(false)
 	connection.SetReadLimit(p.MaxFrameBytes)
 	sessionCtx, stop := context.WithCancel(ctx)
-	defer stop()
 	d.mu.Lock()
 	d.connectionCancel = stop
 	d.mu.Unlock()
+	defer func() {
+		stop()
+		d.mu.Lock()
+		d.connectionCancel = nil
+		d.mu.Unlock()
+	}()
 	active, err := d.activeIDs(ctx)
 	if err != nil {
 		return err
@@ -354,8 +359,8 @@ func (d *Daemon) connect(ctx context.Context) error {
 	}
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-sessionCtx.Done():
+			return sessionCtx.Err()
 		case frame := <-incoming:
 			if frame.err != nil {
 				return frame.err

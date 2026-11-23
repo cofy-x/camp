@@ -17,7 +17,6 @@ import type {
 import { CommentCredential, PolicyEditor } from './AutomationPolicy';
 import { FollowEvent } from './FollowEvent';
 import { EvaluationDecision } from './EvaluationDecision';
-import { feishuApi } from '../feishu/api';
 import './automation.css';
 
 const statusLabels: Record<string, string> = {
@@ -101,6 +100,14 @@ function eventStatus(event: AutomationActivityItem) {
       return 'Would start a collaboration';
     if (event.assessmentOutcome === 'ignore') return 'No new work';
   }
+  if (
+    event.sourceId === 'room' &&
+    event.kind === 'room.message' &&
+    event.status === 'context' &&
+    !event.assessmentOutcome &&
+    (!event.reason || event.reason === 'no_enabled_policy')
+  )
+    return '';
   return statusLabels[event.status] ?? event.status;
 }
 
@@ -155,58 +162,68 @@ function EventRecord({
   const attentionReason =
     attention &&
     (attentionReasons[event.reason ?? ''] || event.assessmentReason);
+  const metadata = (
+    <span className="automation-event-meta">
+      <span>
+        {event.repository
+          ? `${event.repository}${event.number ? ` #${event.number}` : ''}`
+          : event.feishu
+            ? `Feishu · ${event.feishu.chatId}`
+            : command
+              ? 'Collaboration'
+              : 'Room discussion'}
+      </span>
+      <span>{event.actorLogin || event.actorId}</span>
+      {event.occurredAt && (
+        <time
+          dateTime={event.occurredAt}
+          title={new Date(event.occurredAt).toLocaleString()}
+        >
+          {new Date(event.occurredAt).toLocaleString(undefined, {
+            dateStyle: 'short',
+            timeStyle: 'short',
+          })}
+        </time>
+      )}
+    </span>
+  );
   return (
     <li
       className={
         event.status === 'needs_attention' ? 'automation-event-attention' : ''
       }
     >
-      <div className="automation-event-meta">
-        <span>
-          {event.repository
-            ? `${event.repository}${event.number ? ` #${event.number}` : ''}`
-            : event.feishu
-              ? `Feishu · ${event.feishu.chatId}`
-              : command
-                ? 'Collaboration'
-                : 'Room discussion'}
-        </span>
-        <span>{event.actorLogin || event.actorId}</span>
-        <time
-          dateTime={event.occurredAt}
-          title={
-            event.occurredAt
-              ? new Date(event.occurredAt).toLocaleString()
-              : undefined
-          }
-        >
-          {event.occurredAt
-            ? new Date(event.occurredAt).toLocaleString(undefined, {
-                dateStyle: 'short',
-                timeStyle: 'short',
-              })
-            : ''}
-        </time>
-      </div>
       {(!command || event.preview) && (
         <p className="automation-event-title">{event.preview || kind}</p>
       )}
-      <div className="automation-heading automation-event-outcome">
-        <strong>{outcome}</strong>
-        {workItemId ? (
-          <Button onClick={() => onOpenWorkItem(workItemId)}>Open Work</Button>
-        ) : (
-          taskId && (
-            <Button onClick={() => onOpenTask(taskId)}>
-              Open Collaboration
+      {(outcome || workItemId || taskId) && (
+        <div className="automation-heading automation-event-outcome">
+          {outcome && <strong>{outcome}</strong>}
+          {workItemId ? (
+            <Button onClick={() => onOpenWorkItem(workItemId)}>
+              Open Work
             </Button>
-          )
-        )}
-      </div>
+          ) : (
+            taskId && (
+              <Button onClick={() => onOpenTask(taskId)}>
+                Open Collaboration
+              </Button>
+            )
+          )}
+        </div>
+      )}
       {attentionReason && <p>{attentionReason}</p>}
-      {!command && (
-        <details onToggle={(toggle) => setOpen(toggle.currentTarget.open)}>
-          <summary>Details</summary>
+      {command ? (
+        metadata
+      ) : (
+        <details
+          className="automation-event-details"
+          onToggle={(toggle) => setOpen(toggle.currentTarget.open)}
+        >
+          <summary>
+            {metadata}
+            <span className="automation-event-details-label">Details</span>
+          </summary>
           {open && <OriginalEvent event={event} />}
           {open && event.evaluationId && (
             <EvaluationDecision
@@ -253,7 +270,10 @@ function EventRecord({
               </a>
             )}
             {event.feishu && (
-              <a href={feishuApi.payloadURL(event.feishu.eventId)} download>
+              <a
+                href={`/api/feishu-events/${encodeURIComponent(event.feishu.eventId)}/payload`}
+                download
+              >
                 Download Original Payload
               </a>
             )}

@@ -100,6 +100,14 @@ export function PixelIcon({
           <path stroke="#fff" d="M7 3h17M5 28h22" />
           <path stroke="#999" d="M8 19h11M24 19h1M7 29h18" />
         </g>
+      ) : name === 'runner' ? (
+        <g {...common}>
+          <path fill="#a6a6a6" d="M4.5 5.5h25v21h-25z" />
+          <path fill="#dedede" d="M2.5 5.5h25v9h-25zM2.5 17.5h25v9h-25z" />
+          <path stroke="#fff" fill="none" d="M4 7h22M4 8v5M4 19h22M4 20v5" />
+          <path stroke="none" fill="#666" d="M7 10h10v2H7zM7 22h10v2H7z" />
+          <path stroke="none" fill="#474785" d="M21 9h4v4h-4zM21 21h4v4h-4z" />
+        </g>
       ) : name === 'terminal' ? (
         <g {...common}>
           <path fill="#aaa" d="M2.5 3.5h27v23h-27z" />
@@ -148,6 +156,36 @@ export function PixelIcon({
           <path stroke="#333399" fill="none" d="m8 12 2 2 4-5m-6 10 2 2 4-5" />
           <path stroke="#777" d="M16 12h7M16 19h7M16 26h7" />
         </g>
+      ) : name === 'clipboard' ? (
+        size <= 16 ? (
+          <g transform="scale(2)">
+            <path fill="#262626" d="M6 0h4v1h2v1h2v13h-1v1H3v-1H2V2h2V1h2z" />
+            <path fill="#aeaccb" d="M3 3h10v12H3z" />
+            <path fill="#fafafa" d="M4 4h8v10H4z" />
+            <path fill="#262626" d="M4 2h8v3H4z" />
+            <path fill="#d6d6ef" d="M5 2h2V1h2v1h2v2H5z" />
+            <path fill="#333399" d="M7 6h1v1H7v1H6v1H5V8H4V7h1v1h1V7h1z" />
+            <path fill="#626262" d="M9 7h2v1H9zm-5 3h3v3H4zm5 1h2v1H9z" />
+            <path fill="#fafafa" d="M5 11h1v1H5z" />
+          </g>
+        ) : (
+          <g {...common}>
+            <path fill="#bdbdd5" d="M7.5 5.5h17l2 2v21l-2 2h-17l-2-2v-21z" />
+            <path fill="#fafafa" stroke="#9292ab" d="M8.5 8.5h15v19h-15z" />
+            <path stroke="#fff" fill="none" d="M7 8v20m1-21h3" />
+            <path stroke="#8b8ba5" fill="none" d="M25 8v20M8 29h16" />
+            <path fill="#d6d6ef" d="M10.5 4.5h3v-3h5v3h3v5h-11z" />
+            <path stroke="#fff" fill="none" d="M12 6h8M15 3h2" />
+            <path
+              stroke="#333399"
+              strokeWidth="2"
+              fill="none"
+              d="m10 15 2 2 4-5"
+            />
+            <path fill="#fafafa" d="M10.5 21.5h4v4h-4z" />
+            <path stroke="#777" d="M18 15h4m-4 8h4" />
+          </g>
+        )
       ) : name === 'settings' ? (
         <g {...common}>
           <path

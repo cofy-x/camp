@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/orchestration"
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
@@ -85,6 +86,33 @@ func TestWorkRecoverySeparatesRuleAndAllowanceFailures(t *testing.T) {
 			assertScalar(t, s, "SELECT count(*) FROM collaboration_tasks", 0)
 			assertScalar(t, s, "SELECT count(*) FROM automation_evaluations", 1)
 		})
+	}
+}
+
+func TestWorkTimerBlockedByAllowanceDoesNotChargeFollowUp(t *testing.T) {
+	s, actor, _, room, _, _ := taskFixture(t)
+	w := createTestWork(t, s, actor, room)
+	w = decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{
+		Kind: "wait", WaitCondition: "Check the recorded review.",
+		ResumeAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano),
+	})
+	budget := w.Budget
+	budget.MaxFollowUps = 0
+	w = decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{Kind: "authorize", Budget: &budget})
+
+	reviewFireWorkTimer(t, s, w)
+	w = assertCurrentWorkRecovery(t, s, actor, w.ID, orchestration.WorkRecoveryIncreaseAllowance)
+	if w.Usage.FollowUps != 0 || len(w.Timers) != 1 || w.Timers[0].Status != "fired" {
+		t.Fatalf("blocked timer must keep its firing receipt without spending allowance: usage %+v, timers %+v", w.Usage, w.Timers)
+	}
+	if candidate, err := s.ClaimAutomationEvaluation(ctx, "model", roomBudget); candidate != nil || err != nil {
+		t.Fatalf("blocked timer became executable: %v, %v", candidate, err)
+	}
+
+	budget.MaxFollowUps = 1
+	w = decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{Kind: "authorize", Budget: &budget})
+	if w.Status != "open" || w.WorkRecovery != nil || w.Usage.FollowUps != 0 {
+		t.Fatalf("one restored slot must settle recovery without replaying the timer: %+v", w)
 	}
 }
 

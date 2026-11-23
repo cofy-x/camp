@@ -8,6 +8,7 @@ import {
   openApp,
   openMessageAction,
   openInboxActivity,
+  settings,
   signIn,
   work,
   openWorkAction,
@@ -41,6 +42,188 @@ async function newMatterInRoom(page: Page, roomId: string, global = false) {
     work(page).getByRole('form', { name: 'New work', exact: true }),
   ).toBeVisible();
 }
+
+test('New Work separates model setup from recording and keeps its draft on return', async ({
+  page,
+}) => {
+  await signIn(page);
+  const room = await createRoom(
+    page,
+    `Record without a model ${randomUUID().slice(0, 8)}`,
+  );
+  await page.route('**/api/workspace/status', (route) =>
+    route.fulfill({
+      json: {
+        available: false,
+        reason: 'Configure a model connection in Settings.',
+        budget: { maxTokens: 4096, maxSteps: 8, timeoutSeconds: 180 },
+        maxConcurrent: 2,
+      },
+    }),
+  );
+  await newMatterInRoom(page, room.id);
+  const form = work(page).getByRole('form', { name: 'New work', exact: true });
+  const goal = form.getByLabel('What needs to happen?', { exact: true });
+  const title = 'Confirm the editorial handoff';
+  await goal.fill(title);
+  const start = form.getByRole('button', { name: 'Start work', exact: true });
+  const record = form.getByRole('button', { name: 'Keep track', exact: true });
+  await expect(start).toBeDisabled();
+  await expect(start).toHaveAccessibleDescription(/Start work unavailable/);
+  await expect(record).toBeEnabled();
+  await expect(record).toHaveAccessibleDescription(
+    'Records this without running Agents.',
+  );
+  await form
+    .getByRole('button', { name: 'Open Getting Ready', exact: true })
+    .click();
+  await expect(settings(page).locator('.p9-window-title')).toHaveText(
+    'Getting Ready — Settings',
+  );
+  await openApp(page, 'Work');
+  await expect(goal).toHaveValue(title);
+  const submitted = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === `/api/rooms/${room.id}/work-items`,
+  );
+  await record.click();
+  const response = await submitted;
+  expect(response.ok()).toBe(true);
+  expect(response.request().postDataJSON().start).toBe(false);
+  await expect(detail(page)).toContainText(title);
+});
+
+test('recording opens the confirmed Work while its detail refreshes', async ({
+  page,
+}, info) => {
+  await signIn(page);
+  const room = await createRoom(
+    page,
+    `Confirmed Work ${randomUUID().slice(0, 8)}`,
+  );
+  const goal = 'Record the editorial handoff';
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let responseStatus = 503;
+  await page.route('**/api/work-items/*', async (route) => {
+    await held;
+    return route.fulfill({
+      status: responseStatus,
+      json: {
+        error: responseStatus === 503 ? 'Detail unavailable' : 'Access revoked',
+      },
+    });
+  });
+  try {
+    await newMatterInRoom(page, room.id);
+    const win = work(page);
+    await win.getByLabel('What needs to happen?', { exact: true }).fill(goal);
+    const firstRead = page.waitForRequest('**/api/work-items/*');
+    await win.getByRole('button', { name: 'Keep track', exact: true }).click();
+    await firstRead;
+    await expect(detail(page)).toContainText(goal);
+    await expect(detail(page)).not.toContainText('Loading work…');
+    await win.screenshot({
+      path: info.outputPath('work-recorded-receipt.png'),
+    });
+
+    release();
+    await expect(detail(page)).toContainText('Detail unavailable');
+    await expect(detail(page)).toContainText(goal);
+
+    responseStatus = 403;
+    await detail(page)
+      .getByRole('button', { name: 'Retry work', exact: true })
+      .click();
+    await expect(detail(page)).toContainText('Access revoked');
+    await expect(detail(page)).not.toContainText(goal);
+  } finally {
+    release();
+  }
+});
+
+test('starting opens queued progress from the confirmed receipt before reading detail', async ({
+  page,
+}, info) => {
+  await signIn(page);
+  const room = await createRoom(
+    page,
+    `Queued Work ${randomUUID().slice(0, 8)}`,
+  );
+  const goal = 'Prepare the draft for the editorial handoff';
+  const recorded = await createMatter(page, room.id, goal);
+  const taskId = randomUUID();
+  const runId = randomUUID();
+  const item: WorkItem = {
+    ...recorded,
+    status: 'running',
+    revision: recorded.revision + 1,
+    activeTaskId: taskId,
+    execution: {
+      taskId,
+      status: 'queued',
+      revision: 1,
+      summary: '',
+      error: '',
+      currentAgentName: 'Assistant',
+      activeRunId: runId,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  let reads = 0;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/workspace/status', (route) =>
+    route.fulfill({ json: { available: true } }),
+  );
+  await page.route(`**/api/rooms/${room.id}/work-execution?*`, (route) =>
+    route.fulfill({ json: {} }),
+  );
+  let posts = 0;
+  await page.route(`**/api/rooms/${room.id}/work-items`, (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({ goal, start: true });
+    posts++;
+    return route.fulfill({ status: 201, json: { item } });
+  });
+  await page.route(`**/api/work-items/${item.id}`, async (route) => {
+    reads++;
+    await held;
+    return route.fulfill({
+      json: {
+        item: {
+          ...item,
+          execution: { ...item.execution, revision: 2, status: 'running' },
+        },
+      },
+    });
+  });
+  try {
+    await newMatterInRoom(page, room.id);
+    const win = work(page);
+    await win.getByLabel('What needs to happen?', { exact: true }).fill(goal);
+    await win.getByRole('button', { name: 'Start work', exact: true }).click();
+    await expect.poll(() => reads).toBeGreaterThan(0);
+    await expect(detail(page)).toContainText(goal);
+    await expect(detail(page)).toContainText(/Queued · Assistant/);
+    await expect(
+      detail(page).getByRole('button', { name: 'View progress', exact: true }),
+    ).toBeVisible();
+    await win.screenshot({
+      path: info.outputPath('work-start-queued-receipt.png'),
+    });
+
+    release();
+    await expect(detail(page)).toContainText('Working · Assistant');
+    expect(posts).toBe(1);
+  } finally {
+    release();
+  }
+});
 
 test('Work prioritizes attention across Rooms and Room and Inbox shortcuts reuse its single window', async ({
   page,

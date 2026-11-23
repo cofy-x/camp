@@ -1,5 +1,5 @@
 import { useAccount } from '../../team/AuthContext';
-import { useId, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   Button,
   Checkbox,
@@ -14,26 +14,37 @@ import type { AgentPreset } from './agentPresets';
 import { agentPresets, suggestAgentHandle } from './agentPresets';
 import { useRunners } from '../runners/useRunners';
 import { useTeam } from '../../team/TeamContext';
+import { registerDraftWriter } from '../../team/draftRegistry';
 import './agents.css';
 import { IdentityAvatar } from '../identity/IdentityAvatar';
 import { AvatarPicker } from '../identity/AvatarPicker';
+
+export function agentEditorBlock(saving: boolean, dirty: boolean) {
+  if (saving) return 'Wait for the Agent update to finish.';
+  if (dirty) return 'Save or cancel your Agent edits before leaving.';
+  return '';
+}
 
 export function AgentEditor({
   agent,
   room,
   agents,
   showHeading = true,
+  navigationError,
   onSave,
   onClose,
   onPending,
+  onDirtyChange,
 }: {
   agent?: Agent;
   room?: Room;
   agents: Agent[];
   showHeading?: boolean;
+  navigationError?: string;
   onSave: (agent: Agent) => void;
   onClose: () => void;
   onPending: (pending: boolean) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const handleHelp = useId();
   const runners = useRunners();
@@ -54,6 +65,11 @@ export function AgentEditor({
   const [enabled, setEnabled] = useState(agent?.enabled ?? true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [blocked, setBlocked] = useState('');
+  const saving = useRef(false);
+  const unsaved = useRef(false);
+  const mounted = useRef(false);
+  const roomId = room?.id;
   const handle =
     customHandle ??
     submittedHandle ??
@@ -61,6 +77,34 @@ export function AgentEditor({
       name,
       agents.filter((item) => item.id !== agent?.id).map((item) => item.handle),
     );
+  const dirty =
+    name !== (agent?.name ?? '') ||
+    handle !== (agent?.handle ?? '') ||
+    icon !== agentIcon(agent?.icon ?? 'agent') ||
+    avatar !== (agent?.avatar ?? '') ||
+    instructions !== (agent?.instructions ?? '') ||
+    access !== (agent?.access ?? 'write') ||
+    enabled !== (agent?.enabled ?? true) ||
+    preferredRunnerId !== (agent?.preferredRunnerId ?? '');
+
+  useLayoutEffect(() => {
+    unsaved.current = dirty;
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!roomId) return;
+    return registerDraftWriter(`room-agent-editor:${handleHelp}`, async () => {
+      const warning = agentEditorBlock(saving.current, unsaved.current);
+      if (warning) setBlocked(warning);
+      return !warning;
+    });
+  }, [roomId, handleHelp]);
 
   function choosePreset(value: AgentPreset) {
     setPreset(value.id);
@@ -72,10 +116,13 @@ export function AgentEditor({
   }
 
   async function save() {
+    if (saving.current) return;
+    saving.current = true;
     setSubmittedHandle(handle);
     setPending(true);
     onPending(true);
     setError('');
+    setBlocked('');
     try {
       const value = {
         ...agent,
@@ -92,15 +139,21 @@ export function AgentEditor({
         agent || !room
           ? await workspaceApi.saveAgent(value)
           : await workspaceApi.createRoomAgent(room.id, value);
-      onSave(saved.agent);
-      onClose();
+      if (mounted.current) {
+        onSave(saved.agent);
+        onClose();
+      }
     } catch (error) {
-      setError(
-        error instanceof Error ? error.message : 'Could not save this agent.',
-      );
+      if (mounted.current)
+        setError(
+          error instanceof Error ? error.message : 'Could not save this agent.',
+        );
     } finally {
-      setPending(false);
-      onPending(false);
+      saving.current = false;
+      if (mounted.current) {
+        setPending(false);
+        onPending(false);
+      }
     }
   }
 
@@ -113,66 +166,15 @@ export function AgentEditor({
         void save();
       }}
     >
-      {(showHeading || agent) && (
-        <div className="workspace-agent-editor-intro">
-          {showHeading && (
-            <h3>
-              {agent
-                ? `Edit ${agent.name}`
-                : room
-                  ? `Add an agent to ${room.name}`
-                  : 'Create your Agent'}
-            </h3>
-          )}
-          {agent && (
-            <p className="workspace-description">
-              Changes apply in every Room this Agent joins.
-            </p>
-          )}
-        </div>
+      {showHeading && (
+        <h3>
+          {agent
+            ? `Edit ${agent.name}`
+            : room
+              ? `Add an agent to ${room.name}`
+              : 'Create your Agent'}
+        </h3>
       )}
-      {!agent && (
-        <fieldset className="workspace-agent-presets" disabled={pending}>
-          <legend>Start with a role</legend>
-          <div>
-            {agentPresets.map((item) => (
-              <Button
-                key={item.id}
-                type="button"
-                aria-label={item.label}
-                aria-pressed={preset === item.id}
-                onClick={() => choosePreset(item)}
-              >
-                <PixelIcon name={agentIcon(item.icon)} size={24} />
-                <span>
-                  <strong>{item.label}</strong>
-                  <small>{item.description}</small>
-                </span>
-              </Button>
-            ))}
-          </div>
-        </fieldset>
-      )}
-      <details
-        className="camp-avatar-disclosure"
-        onToggle={(event) => setChoosingAvatar(event.currentTarget.open)}
-      >
-        <summary>
-          <span>
-            <IdentityAvatar avatar={avatar} kind="agent" size={40} />
-            Avatar
-          </span>
-        </summary>
-        {choosingAvatar && (
-          <AvatarPicker
-            kind="agent"
-            value={avatar}
-            onChange={setAvatar}
-            disabled={pending}
-            automatic={!agent}
-          />
-        )}
-      </details>
       <label>
         Name
         <input
@@ -199,55 +201,103 @@ export function AgentEditor({
           placeholder="What should this agent focus on?"
         />
       </label>
-      <div className="workspace-agent-access">
-        <Select
-          disabled={pending}
-          label="File access"
-          value={access}
-          onChange={(event) => setAccess(event.target.value as Agent['access'])}
-        >
-          <option value="write">Can edit files</option>
-          <option value="read">Read only</option>
-        </Select>
-        {access === 'write' && (
-          <p className="workspace-description">
-            Checked results from ordinary requests are saved to Room files.
-          </p>
-        )}
-      </div>
-      <Select
-        label="Preferred Runner"
-        value={preferredRunnerId}
-        disabled={pending || runners.loading}
-        onChange={(event) => setPreferredRunnerId(event.target.value)}
-      >
-        <option value="">
-          {agent ? 'No preferred Runner' : 'Use your default Runner'}
-        </option>
-        {runners.runners
-          .filter((runner) => !runner.revoked)
-          .map((runner) => (
-            <option
-              key={runner.id}
-              value={runner.id}
-              disabled={!runner.enabled}
-            >
-              {runner.name}
-              {!runner.online ? ' · Offline, work will queue' : ''}
+      {!agent && (
+        <details>
+          <summary>Start with a role</summary>
+          <fieldset
+            className="workspace-agent-presets"
+            disabled={pending}
+            aria-label="Agent roles"
+          >
+            <div>
+              {agentPresets.map((item) => (
+                <Button
+                  key={item.id}
+                  type="button"
+                  aria-label={item.label}
+                  aria-pressed={preset === item.id}
+                  onClick={() => choosePreset(item)}
+                >
+                  <PixelIcon name={agentIcon(item.icon)} size={24} />
+                  <span>
+                    <strong>{item.label}</strong>
+                    <small>{item.description}</small>
+                  </span>
+                </Button>
+              ))}
+            </div>
+          </fieldset>
+        </details>
+      )}
+      <div className="workspace-agent-routing">
+        <div className="workspace-agent-access">
+          <Select
+            disabled={pending}
+            label="File access"
+            value={access}
+            onChange={(event) =>
+              setAccess(event.target.value as Agent['access'])
+            }
+          >
+            <option value="write">Can edit files</option>
+            <option value="read">Read only</option>
+          </Select>
+          {access === 'write' && (
+            <p className="workspace-description">
+              Checked results from ordinary requests are saved to Room files.
+            </p>
+          )}
+        </div>
+        <div>
+          <Select
+            label="Preferred Runner"
+            value={preferredRunnerId}
+            disabled={pending || runners.loading}
+            onChange={(event) => setPreferredRunnerId(event.target.value)}
+          >
+            <option value="">
+              {agent ? 'No preferred Runner' : 'Use your default Runner'}
             </option>
-          ))}
-      </Select>
-      {runners.error && (
-        <p className="app-error" role="alert">
-          {runners.error}
-        </p>
-      )}
-      {room && !agent && (
-        <p className="workspace-description">
-          Adding your Agent shares it with everyone in this Room. They can ask
-          it to work using its selected Runner.
-        </p>
-      )}
+            {runners.runners
+              .filter((runner) => !runner.revoked)
+              .map((runner) => (
+                <option
+                  key={runner.id}
+                  value={runner.id}
+                  disabled={!runner.enabled}
+                >
+                  {runner.name}
+                  {!runner.online ? ' · Offline, work will queue' : ''}
+                </option>
+              ))}
+          </Select>
+          {runners.error && (
+            <p className="app-error" role="alert">
+              {runners.error}
+            </p>
+          )}
+        </div>
+      </div>
+      <details
+        className="camp-avatar-disclosure"
+        onToggle={(event) => setChoosingAvatar(event.currentTarget.open)}
+      >
+        <summary>
+          <span>
+            <IdentityAvatar avatar={avatar} kind="agent" size={32} />
+            Avatar
+          </span>
+        </summary>
+        {choosingAvatar && (
+          <AvatarPicker
+            kind="agent"
+            value={avatar}
+            onChange={setAvatar}
+            disabled={pending}
+            automatic={!agent}
+          />
+        )}
+      </details>
       <details className="workspace-agent-identity">
         <summary>
           Identity options
@@ -293,28 +343,41 @@ export function AgentEditor({
           Disabling this Agent cancels its queued and active work in every Room.
         </p>
       )}
-      {error && (
-        <p className="app-error" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="app-actions">
-        <Button
-          type="submit"
-          disabled={pending || !name.trim() || !handle.trim()}
-        >
-          {pending
-            ? 'Saving…'
-            : agent
-              ? 'Save Agent'
-              : room
-                ? 'Create and Add'
-                : 'Create Agent'}
-        </Button>
-        <Button type="button" disabled={pending} onClick={onClose}>
-          Cancel
-        </Button>
-      </div>
+      <footer className="workspace-agent-editor-actions">
+        {agent ? (
+          <p className="workspace-description">
+            Changes apply in every Room this Agent joins.
+          </p>
+        ) : room ? (
+          <p className="workspace-description">
+            Adding your Agent shares it with everyone in this Room. They can ask
+            it to work using its selected Runner.
+          </p>
+        ) : null}
+        {(error || navigationError || blocked) && (
+          <p className="app-error" role="alert">
+            {error || navigationError || blocked}
+          </p>
+        )}
+        <div className="app-actions">
+          <Button
+            primary
+            type="submit"
+            disabled={pending || !name.trim() || !handle.trim()}
+          >
+            {pending
+              ? 'Saving…'
+              : agent
+                ? 'Save Agent'
+                : room
+                  ? 'Create and Add'
+                  : 'Create Agent'}
+          </Button>
+          <Button type="button" disabled={pending} onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </footer>
     </form>
   );
 }

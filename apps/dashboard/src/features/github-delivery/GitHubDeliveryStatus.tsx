@@ -261,7 +261,7 @@ export function GitHubDeliveryStatus({
                   ? 'Configure execution…'
                   : 'Reconnect repository…'
                 : scopeChanged
-                  ? 'Review project settings…'
+                  ? 'Review My Work defaults…'
                   : 'Review allowance and access…'}
             </Button>
           )}

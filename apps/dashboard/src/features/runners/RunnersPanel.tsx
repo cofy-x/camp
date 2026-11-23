@@ -69,6 +69,7 @@ export function RunnersPanel({
   }, [navigation, loading, runners]);
   const selected =
     runners.find((runner) => runner.id === selectedId) ?? runners[0];
+  const selectedDefaults = selected?.revoked ? null : defaults;
   const location = connecting ? 'Connect Runner' : selected?.name;
   useEffect(() => {
     desktop.setTitle(windowId, location ? `${location} — Runners` : 'Runners');
@@ -85,8 +86,12 @@ export function RunnersPanel({
   const markers = (runner: Runner) =>
     [
       runner.ownerUserId === user.id ? 'Yours' : owner(runner),
-      defaults?.personalRunnerId === runner.id ? 'Your default' : '',
-      defaults?.teamRunnerId === runner.id ? 'Team fallback' : '',
+      !runner.revoked && defaults?.personalRunnerId === runner.id
+        ? 'Your default'
+        : '',
+      !runner.revoked && defaults?.teamRunnerId === runner.id
+        ? 'Team fallback'
+        : '',
     ]
       .filter(Boolean)
       .join(' · ');
@@ -117,7 +122,7 @@ export function RunnersPanel({
     } else if (action === 'revoke') {
       const answer = await desktop.dialog({
         title: 'Revoke Runner Access',
-        message: `Disconnect ${runner.name} and stop accepting its results. Connect it again with a new connection code and a new private data directory to work in Camp.`,
+        message: `Disconnect ${runner.name}, stop accepting its results, and clear any defaults that use it. Connect it again with a new connection code and a new private data directory to work in Camp.`,
         buttons: [
           { label: 'Keep Access', value: 'cancel', cancel: true },
           { label: 'Revoke Access', value: 'revoke', default: true },
@@ -236,7 +241,7 @@ export function RunnersPanel({
                   aria-current={runner.id === selected?.id ? 'page' : undefined}
                   onClick={() => select(runner.id)}
                 >
-                  <PixelIcon name="computer" size={28} />
+                  <PixelIcon name="runner" size={28} />
                   <span>
                     <strong>{runner.name}</strong>
                     <small>
@@ -322,13 +327,13 @@ export function RunnersPanel({
                           ? 'All Agents'
                           : 'Owner and allowed Agents'}
                     </dd>
-                    {defaults?.personalRunnerId === selected.id && (
+                    {selectedDefaults?.personalRunnerId === selected.id && (
                       <>
                         <dt>Your default</dt>
                         <dd>For your new Agents</dd>
                       </>
                     )}
-                    {defaults?.teamRunnerId === selected.id && (
+                    {selectedDefaults?.teamRunnerId === selected.id && (
                       <>
                         <dt>Team fallback</dt>
                         <dd>When no Agent or Room Runner is set</dd>
@@ -340,11 +345,6 @@ export function RunnersPanel({
                       <p>
                         This Runner can no longer accept work or return results.
                       </p>
-                      {manage && (
-                        <Button onClick={() => setConnecting(true)}>
-                          Connect Runner…
-                        </Button>
-                      )}
                     </div>
                   ) : !selected.enabled ? (
                     <div className="camp-runner-next-step">
@@ -383,7 +383,7 @@ export function RunnersPanel({
                 </div>
                 {tab === 'access' && (
                   <>
-                    {defaultsError && (
+                    {!selected.revoked && defaultsError && (
                       <p className="app-error" role="alert">
                         {defaultsError}{' '}
                         <Button onClick={refresh}>Refresh Defaults</Button>
@@ -407,7 +407,7 @@ export function RunnersPanel({
           ) : (
             <div className="camp-runner-empty">
               <div className="camp-empty" role="status">
-                <PixelIcon name="computer" size={32} />
+                <PixelIcon name="runner" size={32} />
                 <h2>
                   {loading
                     ? 'Loading Runners…'

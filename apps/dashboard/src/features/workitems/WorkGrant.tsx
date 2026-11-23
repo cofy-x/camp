@@ -26,6 +26,26 @@ export function suggestedParticipants(
         .map((agent) => agent.id);
 }
 
+interface WorkParticipantsProps {
+  members: Agent[];
+  selected: string[];
+  firstAgentId: string;
+  onChange: (ids: string[]) => void;
+  onFirstChange: (id: string) => void;
+  disabled?: boolean;
+}
+
+export function workAgentSummary(agents: Agent[]) {
+  const labels = agents.map((agent) =>
+    agents.length > 1
+      ? `${agent.name} (${agent.access === 'write' ? 'edit' : 'read'})`
+      : agent.name,
+  );
+  if (agents.length === 1)
+    return `${labels[0]} · ${agents[0].access === 'write' ? 'May edit Room files' : 'Read access'}`;
+  return labels.join(', ') || 'Choose an Agent';
+}
+
 export function WorkGrant({
   members,
   selected,
@@ -35,107 +55,78 @@ export function WorkGrant({
   onChange,
   onFirstChange,
   disabled = false,
+  editable = true,
+  policyScoped = false,
+  showTotalAllowance = false,
   execution,
-}: {
-  members: Agent[];
-  selected: string[];
+  executionNoticeId,
+}: WorkParticipantsProps & {
   defaults: WorkItemDefaults | null;
   maxRequests?: number;
-  firstAgentId: string;
-  onChange: (ids: string[]) => void;
-  onFirstChange: (id: string) => void;
-  disabled?: boolean;
+  editable?: boolean;
+  policyScoped?: boolean;
+  showTotalAllowance?: boolean;
   execution?: ReturnType<typeof useWorkExecution>;
+  executionNoticeId?: string;
 }) {
   const summaryId = useId();
   const agents = selected.flatMap((id) => {
     const agent = members.find((agent) => agent.id === id);
     return agent ? [agent] : [];
   });
-  const requests = Math.min(
-    defaults?.execution.maxModelRequests ?? 24,
-    maxRequests ?? defaults?.budget.maxModelRequests ?? 24,
-  );
+  const requests = maxRequests ?? defaults?.budget.maxModelRequests;
+  const perCollaboration = defaults?.execution.maxModelRequests;
+  const showRequestCap =
+    perCollaboration !== undefined &&
+    requests !== undefined &&
+    perCollaboration < requests &&
+    (policyScoped || !defaults?.project?.enabled);
+  const requestLimit = Math.min(perCollaboration ?? 24, requests ?? 24);
   return (
     <div className="work-grant">
-      <details className="work-grant-agents">
-        <summary aria-label="Change Agents" aria-describedby={summaryId}>
-          <span className="work-grant-summary" id={summaryId}>
-            {agents
-              .map((agent) =>
-                agents.length > 1
-                  ? `${agent.name} (${agent.access === 'write' ? 'edit' : 'read'})`
-                  : agent.name,
-              )
-              .join(', ') || 'Choose an Agent'}
-            {agents.length === 1
-              ? ` · ${agents.some((agent) => agent.access === 'write') ? 'May edit Room files' : 'Read access'}`
-              : ''}
-          </span>
-          <span className="work-grant-change">Change…</span>
-        </summary>
-        <fieldset disabled={disabled} className="work-item-participants">
-          {members
-            .filter((agent) => agent.enabled)
-            .map((agent) => (
-              <Checkbox
-                key={agent.id}
-                label={agent.name}
-                checked={selected.includes(agent.id)}
-                onChange={(event) =>
-                  onChange(
-                    event.target.checked
-                      ? [...selected, agent.id]
-                      : selected.filter((id) => id !== agent.id),
-                  )
-                }
-              />
-            ))}
-          {!members.some((agent) => agent.enabled) && (
-            <p>No available Agents in this Room.</p>
-          )}
-          {selected
-            .filter(
-              (id) =>
-                !members.some((agent) => agent.id === id && agent.enabled),
-            )
-            .map((id) => (
-              <Checkbox
-                key={id}
-                label={`${members.find((agent) => agent.id === id)?.name ?? id} · Unavailable`}
-                checked
-                onChange={() =>
-                  onChange(selected.filter((agentId) => agentId !== id))
-                }
-              />
-            ))}
-          {selected.length > 1 && (
-            <Select
-              label="First Agent"
-              value={firstAgentId}
-              onChange={(event) => onFirstChange(event.target.value)}
-            >
-              {selected.map((id) => (
-                <option key={id} value={id}>
-                  {members.find((agent) => agent.id === id)?.name ?? id}
-                </option>
-              ))}
-            </Select>
-          )}
-        </fieldset>
-      </details>
+      {editable ? (
+        <details className="work-grant-agents">
+          <summary aria-label="Change Agents" aria-describedby={summaryId}>
+            <span className="work-grant-summary" id={summaryId}>
+              {workAgentSummary(agents)}
+            </span>
+            <span className="work-grant-change">Change…</span>
+          </summary>
+          <WorkParticipants
+            members={members}
+            selected={selected}
+            firstAgentId={firstAgentId}
+            onChange={onChange}
+            onFirstChange={onFirstChange}
+            disabled={disabled}
+          />
+        </details>
+      ) : (
+        <div className="work-grant-summary">{workAgentSummary(agents)}</div>
+      )}
       <p className="work-grant-limits">
-        {defaults && (
-          <span>
-            Up to {defaults.execution.maxTurns} turns · {requests} model
-            requests
-          </span>
+        {defaults &&
+          (showTotalAllowance ? (
+            <span>
+              Up to {defaults.execution.maxTurns} turns
+              {showRequestCap && ` · ${perCollaboration} model requests`} per
+              collaboration
+            </span>
+          ) : (
+            <span>
+              Up to {defaults.execution.maxTurns} turns · {requestLimit} model
+              requests
+            </span>
+          ))}
+        {showTotalAllowance && requests !== undefined && (
+          <span>{requests} model requests total</span>
         )}
         <span>Team-visible draft</span>
       </p>
       {execution && (
         <ExecutionNotice
           execution={execution}
+          id={executionNoticeId}
           agentId={agents.length === 1 ? agents[0].id : undefined}
         />
       )}
@@ -148,17 +139,79 @@ export function WorkGrant({
   );
 }
 
+export function WorkParticipants({
+  members,
+  selected,
+  firstAgentId,
+  onChange,
+  onFirstChange,
+  disabled = false,
+}: WorkParticipantsProps) {
+  return (
+    <fieldset disabled={disabled} className="work-item-participants">
+      {members
+        .filter((agent) => agent.enabled)
+        .map((agent) => (
+          <Checkbox
+            key={agent.id}
+            label={agent.name}
+            checked={selected.includes(agent.id)}
+            onChange={(event) =>
+              onChange(
+                event.target.checked
+                  ? [...selected, agent.id]
+                  : selected.filter((id) => id !== agent.id),
+              )
+            }
+          />
+        ))}
+      {!members.some((agent) => agent.enabled) && (
+        <p>No available Agents in this Room.</p>
+      )}
+      {selected
+        .filter(
+          (id) => !members.some((agent) => agent.id === id && agent.enabled),
+        )
+        .map((id) => (
+          <Checkbox
+            key={id}
+            label={`${members.find((agent) => agent.id === id)?.name ?? id} · Unavailable`}
+            checked
+            onChange={() =>
+              onChange(selected.filter((agentId) => agentId !== id))
+            }
+          />
+        ))}
+      {selected.length > 1 && (
+        <Select
+          label="First Agent"
+          value={firstAgentId}
+          onChange={(event) => onFirstChange(event.target.value)}
+        >
+          {selected.map((id) => (
+            <option key={id} value={id}>
+              {members.find((agent) => agent.id === id)?.name ?? id}
+            </option>
+          ))}
+        </Select>
+      )}
+    </fieldset>
+  );
+}
+
 function ExecutionNotice({
   execution,
   agentId,
+  id,
 }: {
   execution: ReturnType<typeof useWorkExecution>;
   agentId?: string;
+  id?: string;
 }) {
   const { navigate } = useTeam();
   if (execution.error)
     return (
-      <p className="work-execution-notice app-error" role="alert">
+      <p className="work-execution-notice app-error" role="alert" id={id}>
         <span>{execution.error}</span>
         <Button onClick={() => void execution.retry()}>
           Retry Runner check
@@ -166,11 +219,10 @@ function ExecutionNotice({
       </p>
     );
   if (execution.issue) {
-    const agents =
-      execution.issue.code === 'runner_required' ||
-      execution.issue.code === 'agent_unavailable';
+    const assign = execution.issue.code === 'runner_required';
+    const agents = assign || execution.issue.code === 'agent_unavailable';
     return (
-      <p className="work-execution-notice app-error" role="status">
+      <p className="work-execution-notice app-error" role="status" id={id}>
         <span>{execution.issue.message}</span>
         <Button
           onClick={() =>
@@ -179,7 +231,7 @@ function ExecutionNotice({
             )
           }
         >
-          {agents ? 'Open Agents' : 'Open Runners'}
+          {assign ? 'Assign Runner…' : agents ? 'Open Agents' : 'Open Runners'}
         </Button>
       </p>
     );

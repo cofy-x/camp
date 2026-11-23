@@ -642,6 +642,50 @@ test('Connect Runner distinguishes the small installer from runtime downloads an
   expect(revoked).toBe(true);
 });
 
+test('revoked Runner stays visible without stale default labels or controls', async ({
+  page,
+}) => {
+  await mockRunners(page);
+  const revoked = { ...runners[0], enabled: false, revoked: true };
+  await page.route('**/api/runners', (route) =>
+    route.fulfill({ json: { runners: [revoked, runners[1]] } }),
+  );
+  await page.route('**/api/execution-defaults', (route) =>
+    route.fulfill({
+      json: {
+        personalRunnerId: revoked.id,
+        personalRevision: 3,
+        teamRunnerId: revoked.id,
+        teamRevision: 4,
+      },
+    }),
+  );
+  await signIn(page);
+  await openApp(page, 'Runners');
+  await selectRunner(page, revoked);
+  await expect(
+    runnerDetail(page).getByText('Access revoked', { exact: false }),
+  ).toBeVisible();
+  await expect(
+    runnerApp(page).getByText('Your default', { exact: false }),
+  ).toHaveCount(0);
+  await expect(
+    runnerApp(page).getByText('Team fallback', { exact: false }),
+  ).toHaveCount(0);
+  await runnerDetail(page)
+    .getByRole('tab', { name: 'Access', exact: true })
+    .click();
+  await expect(
+    runnerDetail(page).getByText('Access has been revoked.', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    runnerDetail(page).getByRole('region', {
+      name: 'Default Runner',
+      exact: true,
+    }),
+  ).toHaveCount(0);
+});
+
 test('personal Runner defaults expose a concurrent revision without overwriting it', async ({
   page,
 }) => {

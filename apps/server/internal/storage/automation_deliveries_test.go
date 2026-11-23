@@ -140,6 +140,19 @@ func TestAutomationOutboxWithdrawsQuestionAnsweredInCampWithoutBlockingSuccessor
 	}
 }
 
+func TestIdleAutomationOutboxDoesNotWakeWorkspaceReaders(t *testing.T) {
+	s := testStore(t)
+	changed := s.WorkspaceEventsChanged()
+	if delivery, err := s.ClaimAutomationDelivery(ctx); err != nil || delivery != nil {
+		t.Fatal(delivery, err)
+	}
+	select {
+	case <-changed:
+		t.Fatal("idle outbox scan woke workspace readers")
+	default:
+	}
+}
+
 func TestAutomationOutboxWithdrawsNewPostsAfterTaskCancellation(t *testing.T) {
 	s, actor, task := queuedQuestionDeliveries(t)
 	if _, err := s.OperateTask(actor, task.ID, "cancel", TaskOperation{InputProtocol: 1, PagedResponse: true, RequestID: newID(), Revision: task.Revision}); err != nil {

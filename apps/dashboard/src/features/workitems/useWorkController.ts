@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AppWindowProps } from '@cofy-x/camp-platinum';
 import { useTeam } from '../../team/TeamContext';
 import { flushPrivateDrafts } from '../../team/draftRegistry';
-import { useRead } from '../../shared/reads/useRead';
+import { useRead, useReadStore } from '../../shared/reads/useRead';
 import { type AttentionItem, type AttentionPage } from '../attention/api';
 import {
   workspaceApi,
@@ -53,6 +53,7 @@ const views: Record<WorkView, Pick<WorkListQuery, 'scope' | 'view'>> = {
 // The mounted Work window owns selection, context, paging and draft-safe moves.
 export function useWorkController({ desktop, window }: AppWindowProps) {
   const team = useTeam();
+  const reads = useReadStore();
   const [view, setView] = useState<WorkView>(
     window.params.view === 'needs_me'
       ? 'needs_me'
@@ -81,7 +82,7 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
     enabled: selection.kind !== 'list' || Boolean(inspection.taskId),
   });
   const availability = statusRead.error
-    ? { available: false, reason: statusRead.error }
+    ? { available: false, reason: statusRead.error, retry: statusRead.refresh }
     : statusRead.data;
   const taskRead = useRead<Awaited<ReturnType<typeof tasksApi.get>>>(
     inspection.taskId
@@ -247,7 +248,7 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
       selection.kind === 'create'
         ? 'New Work'
         : selection.kind === 'project'
-          ? `${location ? location + ' — ' : ''}Project settings`
+          ? `${location ? location + ' — ' : ''}My Work defaults`
           : location
             ? `${location} — Work`
             : 'Work',
@@ -284,6 +285,7 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
   }
 
   function created(item: WorkItem, source: string) {
+    reads.seed(`/work-items/${encodeURIComponent(item.id)}`, { item });
     setSelection((current) =>
       current.kind === 'create' &&
       (current.globalDraft || current.roomId === item.roomId) &&

@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useRef, type ComponentProps } from 'react';
-import { Button, Desktop, PixelIcon } from '@cofy-x/camp-platinum';
+import { Button, Desktop } from '@cofy-x/camp-platinum';
 import type { DesktopAPI } from '@cofy-x/camp-platinum';
 import { PreferencesContext } from '../features/appearance/PreferencesContext';
+import { CampMark } from '../shared/desktop/CampMark';
 import { runCommand } from '../shared/desktop/dialogs';
 import { createAppRegistry } from './registry';
 import { createDesktopIcons, createDesktopMenu } from './desktop-items';
@@ -11,6 +12,8 @@ import { useTeam, TeamProvider } from '../team/TeamContext';
 import { DesktopInbox } from '../team/DesktopInbox';
 import { useAccount } from '../team/AuthContext';
 import { ReadProvider } from '../shared/reads/useRead';
+
+const controlStripApps = ['workspace', 'work', 'library'] as const;
 
 export function App() {
   return (
@@ -50,7 +53,7 @@ function CampDesktop() {
     return (
       <div className="startup-screen">
         <div className="startup-panel">
-          <PixelIcon name="computer" size={64} />
+          <CampMark size={64} />
           <strong>{document.title}</strong>
           {bootError ? (
             <>
@@ -78,10 +81,12 @@ function CampDesktop() {
           <TeamDesktop
             apps={apps}
             icons={icons}
+            systemMenuIcon={<CampMark size={16} />}
             initialLayout={bootstrap.layout || undefined}
             initialWindows={[{ appId: 'workspace' }]}
             wallpaper={preferences.wallpaper}
             controlStrip={preferences.controlStrip}
+            controlStripApps={controlStripApps}
             iconSnap={preferences.iconSnap}
             connectionStatus={connection}
             onReady={(desktop) => {
@@ -89,10 +94,7 @@ function CampDesktop() {
             }}
             onLayoutChange={onLayoutChange}
             onDesktopMenu={(_, desktop) => createDesktopMenu(desktop)}
-            onAppearance={() => getDesktop()?.openApp('appearance')}
             onAbout={() => getDesktop()?.openApp('about')}
-            onHelp={() => getDesktop()?.openApp('settings')}
-            helpLabel="Getting Ready"
             onControlStripChange={(controlStrip) => {
               const desktop = getDesktop();
               if (desktop)
@@ -115,6 +117,7 @@ function CampDesktop() {
 
 function TeamDesktop(props: ComponentProps<typeof Desktop>) {
   const team = useTeam();
+  const { user } = useAccount();
   return (
     <>
       <Desktop
@@ -122,8 +125,12 @@ function TeamDesktop(props: ComponentProps<typeof Desktop>) {
         onAppearance={() =>
           void team.navigate({ app: 'settings', section: 'appearance' })
         }
-        onHelp={() =>
-          void team.navigate({ app: 'settings', section: 'readiness' })
+        helpLabel="Getting Ready"
+        onHelp={
+          user.role === 'admin'
+            ? () =>
+                void team.navigate({ app: 'settings', section: 'readiness' })
+            : undefined
         }
       />
       <DesktopInbox />

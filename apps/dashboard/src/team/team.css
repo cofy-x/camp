@@ -18,9 +18,6 @@
   box-shadow: 0 1px #fff;
   text-align: left;
 }
-.camp-auth-heading svg {
-  flex: 0 0 auto;
-}
 .camp-auth h1 {
   font: bold 16px/1.4 var(--p9-font);
   margin: 0;
@@ -392,6 +389,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.camp-inbox-caption::before {
+  content: '· ';
+}
+@media (max-width: 599px) {
+  .camp-inbox-account {
+    display: none;
+  }
+  .camp-inbox-caption::before {
+    content: none;
+  }
 }
 .camp-inbox > .p9-button > .p9-pixel-icon {
   flex-shrink: 0;

@@ -413,6 +413,10 @@ test('starting Work waits for the selected Runner check while recording stays av
     await expect(form.getByText(/Update the selected Runner/)).toBeVisible();
     await expect(start).toBeDisabled();
     await expect(record).toBeEnabled();
+    await expect(record).toHaveClass(/p9-default/);
+    await expect(record).toHaveAccessibleDescription(
+      'Records this without running Agents.',
+    );
     await form
       .getByRole('button', { name: 'Open Runners', exact: true })
       .click();
@@ -423,6 +427,7 @@ test('starting Work waits for the selected Runner check while recording stays av
     await expect(goal).toHaveValue('Draft a handoff for the next shift');
     await win.screenshot({ path: info.outputPath('work-runner-access.png') });
     await form.locator('.work-item-options > summary').click();
+    await form.getByText('Completion & delivery', { exact: true }).click();
     await form.getByLabel('Completion', { exact: true }).selectOption('human');
     await expect(start).toBeEnabled();
     await expect(form.getByText(/Update the selected Runner/)).toHaveCount(0);
@@ -451,6 +456,7 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
     .getByLabel('What needs to happen?', { exact: true })
     .fill('Confirm the customer’s acceptance');
   await work(page).locator('.work-item-options > summary').click();
+  await work(page).getByText('Completion & delivery', { exact: true }).click();
   await work(page)
     .getByLabel('Completion', { exact: true })
     .selectOption('human');
@@ -1187,9 +1193,12 @@ test('starting work freezes the actual finite grant and recovers the same reques
     work(page).getByText('Writer · May edit Room files', { exact: true }),
   ).toBeVisible();
   await expect(
-    work(page).getByText('Up to 6 turns · 24 model requests', {
-      exact: true,
-    }),
+    work(page).getByText(
+      'Up to 6 turns · 24 model requests per collaboration',
+      {
+        exact: true,
+      },
+    ),
   ).toBeVisible();
   await expect(
     work(page).getByText('Team-visible draft', {
@@ -1197,13 +1206,17 @@ test('starting work freezes the actual finite grant and recovers the same reques
     }),
   ).toBeVisible();
   await work(page).getByText('Options', { exact: true }).click();
+  await work(page).getByText('Work details', { exact: true }).click();
   await work(page)
     .getByLabel('Future follow-up', { exact: true })
     .selectOption(policy.id);
   await expect(
-    work(page).getByText('Up to 6 turns · 24 model requests', {
-      exact: true,
-    }),
+    work(page).getByText(
+      'Up to 6 turns · 24 model requests per collaboration',
+      {
+        exact: true,
+      },
+    ),
   ).toHaveCount(0);
   await expect(
     work(page).getByRole('button', { name: 'Start work', exact: true }),
@@ -1894,6 +1907,35 @@ test('completed work keeps exact files ahead of a lazy full report and retains i
   expect(errors.errors).toEqual([]);
 });
 
+test('a text-only Work result has no file actions', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  const value = await presentation(page, errors.reload, {
+    status: 'completed',
+    result: {
+      taskId: 'text-task',
+      summary: 'Library handoff ready.',
+      resourceId: 'fixture-resource',
+      commit: 'b'.repeat(40),
+      published: true,
+      files: [],
+    },
+  });
+  await value.open();
+  const result = detail(page).getByRole('region', {
+    name: 'Work result',
+    exact: true,
+  });
+  await expect(result).toContainText('Library handoff ready.');
+  await expect(
+    result.getByRole('button', { name: 'Open files', exact: true }),
+  ).toHaveCount(0);
+  await expect(result).not.toContainText('Published to Room');
+  expect(errors.errors).toEqual([]);
+});
+
 test('completion confirmation is explicit and waits for unresolved external action receipts', async ({
   page,
   browserName,
@@ -2046,7 +2088,8 @@ test('open Work offers live allowance recovery @work-loop', async ({
 }) => {
   const errors = watchPageErrors(page, browserName);
   const notify = await fixtureNotifications(page);
-  const pauseReason = 'The work session reached its model request limit.';
+  const pauseReason =
+    'The observed model step limit (24) was exceeded; the next request may already have started';
   const execution = {
     taskId: 'blocked-task',
     status: 'running',
@@ -2161,6 +2204,12 @@ test('open Work offers live allowance recovery @work-loop', async ({
     exact: true,
   });
   await expect(increase).toBeVisible();
+  await expect(
+    detail(page).getByText(
+      'This attempt reached its step limit and used all 24 model requests for this Work.',
+      { exact: true },
+    ),
+  ).toBeVisible();
   await expect(
     detail(page).getByText('Needs attention · Writer', { exact: true }),
   ).toBeVisible();

@@ -45,11 +45,6 @@ export const libraryApi = {
     request<{ resources: LibraryResource[]; rooms: Room[] }>('/library', {
       signal,
     }),
-  history: (resourceId: string, signal?: AbortSignal) =>
-    request<{ publications: Publication[] }>(
-      `/resources/${encodeURIComponent(resourceId)}/history`,
-      { signal },
-    ),
   save: (
     resourceId: string,
     value: {

@@ -1,3 +1,40 @@
+import type { WorkItemInput } from './api';
+
+export type WorkDefaultsFields = Pick<
+  WorkItemInput,
+  | 'completionMode'
+  | 'participantAgentIds'
+  | 'firstAgentId'
+  | 'budget'
+  | 'githubDelivery'
+>;
+
+export function workDefaultsFields({
+  completionMode,
+  participantAgentIds,
+  firstAgentId,
+  budget,
+  githubDelivery,
+}: WorkDefaultsFields): WorkDefaultsFields {
+  return {
+    completionMode,
+    participantAgentIds,
+    firstAgentId,
+    budget,
+    githubDelivery,
+  };
+}
+
+export function matchesWorkDefaults(
+  values: WorkDefaultsFields,
+  defaults: WorkDefaultsFields,
+) {
+  return (
+    canonical(workDefaultsFields(values)) ===
+    canonical(workDefaultsFields(defaults))
+  );
+}
+
 function canonical(value: unknown) {
   return JSON.stringify(value, (_key, entry: unknown) =>
     entry && typeof entry === 'object' && !Array.isArray(entry)

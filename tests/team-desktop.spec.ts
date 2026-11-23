@@ -45,8 +45,14 @@ test('first-run discussion, private drafts, threads and explicit agent requests'
     await page.screenshot({
       path: testInfo.outputPath('workspace-first-run.png'),
     });
+  await expect(
+    workspace(page).getByRole('button', {
+      name: 'Set Up Agent Work…',
+      exact: true,
+    }),
+  ).toHaveCount(0);
   await workspace(page)
-    .getByRole('button', { name: 'Set Up Agent Work…', exact: true })
+    .getByRole('button', { name: 'Set up…', exact: true })
     .click();
   await expect(settings(page).locator('.p9-window-title')).toHaveText(
     'Getting Ready — Settings',

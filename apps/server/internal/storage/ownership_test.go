@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -87,7 +88,135 @@ func TestOwnedRunnerDefaultsAndAgentRoutesStayExplicit(t *testing.T) {
 	if _, err = s.SaveAgent(member, personal); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = s.UpdateRunner(member, b.ID, RunnerUpdate{Enabled: &disabled}); err != nil {
+		t.Fatal(err)
+	}
+	defaults, err = s.GetExecutionDefaults(member)
+	if err != nil || defaults.PersonalRunnerID != b.ID || defaults.TeamRunnerID != b.ID {
+		t.Fatal("temporary disable retired an existing default", defaults, err)
+	}
+	_, err = s.ResolveAgentRunner(member, room.ID, teamAgent.ID)
+	requireCode(t, err, "runner_unavailable")
 }
+
+func TestRevokedRunnerClearsMatchingExecutionDefaults(t *testing.T) {
+	for _, disableOwner := range []bool{false, true} {
+		name := "manual revoke"
+		if disableOwner {
+			name = "owner disable"
+		}
+		t.Run(name, func(t *testing.T) {
+			s, room, teamAgent := roomFixture(t)
+			admin, member := teamUsers(t, s)
+			runner, _ := personalRunner(t, s, member, "alpha")
+			if _, err := s.UpdateRunner(member, runner.ID, RunnerUpdate{TeamShared: new(true)}); err != nil {
+				t.Fatal(err)
+			}
+			other, _ := personalRunner(t, s, admin, "bravo")
+			initial, err := s.SetExecutionDefault(admin, ExecutionDefaultInput{Scope: "team", RunnerID: runner.ID})
+			if err != nil || initial.PersonalRunnerID != other.ID || initial.TeamRunnerID != runner.ID {
+				t.Fatal(initial, err)
+			}
+			agent := ownedAgent(t, s, member, room, "personal")
+			explicitRoom, err := s.CreateRoom(admin, Room{Name: "Explicit route", ResourceID: room.ResourceID, DefaultAgentID: teamAgent.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			explicitRoom, err = s.SetRoomRunner(admin, explicitRoom.ID, runner.ID, explicitRoom.RunnerRevision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			frontier, err := s.queries().WorkspaceEventCursor(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if disableOwner {
+				_, err = s.UpdateUserAccess(admin, actorID(member), nil, new(false))
+			} else {
+				_, err = s.UpdateRunner(member, runner.ID, RunnerUpdate{Revoke: true})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			defaults, err := s.GetExecutionDefaults(admin)
+			if err != nil || defaults.TeamRunnerID != "" || defaults.TeamRevision != initial.TeamRevision+1 ||
+				defaults.PersonalRunnerID != initial.PersonalRunnerID || defaults.PersonalRevision != initial.PersonalRevision {
+				t.Fatal("matching team default or unrelated personal default", defaults, err)
+			}
+			var count int
+			if err := s.db.QueryRow("SELECT COUNT(*) FROM personal_runner_defaults WHERE user_id=? AND runner_id IS NULL AND revision=1", actorID(member)).Scan(&count); err != nil || count != 1 {
+				t.Fatal("matching personal default was not retired with a revision", count, err)
+			}
+			if err := s.db.QueryRow("SELECT COUNT(*) FROM team_runner_defaults WHERE runner_id IS NULL AND revision=?", defaults.TeamRevision).Scan(&count); err != nil || count != 1 {
+				t.Fatal("matching team default was not retired", count, err)
+			}
+			events, err := s.ListWorkspaceEvents(admin, frontier)
+			if err != nil || !slices.ContainsFunc(events, func(event WorkspaceEvent) bool {
+				return event.Type == "runner.updated" && event.EntityID == runner.ID
+			}) {
+				t.Fatal("default readers lack a durable invalidation", events, err)
+			}
+			retained, err := s.GetAgent(admin, agent.ID)
+			if err != nil || retained.PreferredRunnerID != runner.ID {
+				t.Fatal("revocation rewrote the existing Agent assignment", retained, err)
+			}
+			savedRoom, err := s.GetRoom(admin, explicitRoom.ID)
+			if err != nil || savedRoom.RunnerID != runner.ID || savedRoom.RunnerRevision != explicitRoom.RunnerRevision {
+				t.Fatal("revocation rewrote the explicit Room route", savedRoom, err)
+			}
+			_, err = s.ResolveAgentRunner(admin, room.ID, teamAgent.ID)
+			requireCode(t, err, "runner_required")
+			if !disableOwner {
+				_, err = s.ResolveAgentRunner(member, room.ID, agent.ID)
+				requireCode(t, err, "runner_unavailable")
+				defaults, err = s.GetExecutionDefaults(member)
+				if err != nil || defaults.PersonalRunnerID != "" || defaults.PersonalRevision != 1 {
+					t.Fatal(defaults, err)
+				}
+				if created := ownedAgent(t, s, member, room, "after-revoke"); created.PreferredRunnerID != "" {
+					t.Fatal("new Agent inherited a revoked default", created)
+				}
+			}
+			_, err = s.SetExecutionDefault(admin, ExecutionDefaultInput{Scope: "team", Revision: initial.TeamRevision})
+			requireCode(t, err, "revision_conflict")
+		})
+	}
+}
+
+func TestLegacyRevokedRunnerDefaultsAreIgnoredWithTheirRevisions(t *testing.T) {
+	s, room, teamAgent := roomFixture(t)
+	admin, member := teamUsers(t, s)
+	runner, _ := personalRunner(t, s, member, "alpha")
+	// An older Server left default pointers in place. Exercise the resulting
+	// rows without going through the new revocation cleanup.
+	if _, err := s.db.Exec("UPDATE runners SET revoked=1,enabled=0 WHERE id=?", runner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec("UPDATE team_runner_defaults SET runner_id=?,revision=4 WHERE id='default'", runner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec("UPDATE personal_runner_defaults SET revision=3 WHERE user_id=?", actorID(member)); err != nil {
+		t.Fatal(err)
+	}
+	defaults, err := s.GetExecutionDefaults(member)
+	if err != nil || defaults != (ExecutionDefaults{PersonalRevision: 3, TeamRevision: 4}) {
+		t.Fatal(defaults, err)
+	}
+	if agent := ownedAgent(t, s, member, room, "new-agent"); agent.PreferredRunnerID != "" {
+		t.Fatal("new Agent copied a legacy revoked default", agent)
+	}
+	_, err = s.ResolveAgentRunner(admin, room.ID, teamAgent.ID)
+	requireCode(t, err, "runner_required")
+	_, err = s.SetExecutionDefault(member, ExecutionDefaultInput{Scope: "personal", RunnerID: runner.ID, Revision: defaults.PersonalRevision})
+	requireCode(t, err, "runner_unavailable")
+	replacement, _ := personalRunner(t, s, member, "bravo")
+	saved, err := s.SetExecutionDefault(member, ExecutionDefaultInput{Scope: "personal", RunnerID: replacement.ID, Revision: defaults.PersonalRevision})
+	if err != nil || saved.PersonalRunnerID != replacement.ID || saved.PersonalRevision != 4 {
+		t.Fatal(saved, err)
+	}
+}
+
 func TestOwnedAgentSharingDoesNotDelegateRunnerManagement(t *testing.T) {
 	s, room, _ := roomFixture(t)
 	admin, member := teamUsers(t, s)

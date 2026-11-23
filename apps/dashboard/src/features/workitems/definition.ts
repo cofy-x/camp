@@ -10,7 +10,7 @@ const Work = lazyApplication(
 export const workApp: AppDefinition = {
   id: 'work',
   title: 'Work',
-  icon: 'checklist',
+  icon: 'clipboard',
   component: Work,
   windowKey: () => 'main',
   defaultSize: { width: 940, height: 650 },

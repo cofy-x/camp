@@ -77,11 +77,6 @@ export function GettingReady({
     ) ?? [];
   return (
     <section className="camp-getting-ready" aria-label="Getting Ready">
-      {(!readiness || next.destination !== 'workspace') && (
-        <div className="camp-preparation-heading">
-          <Button onClick={onWorkspace}>Open Workspace</Button>
-        </div>
-      )}
       {error && (
         <div className="app-error" role="alert">
           <p>
@@ -118,13 +113,6 @@ export function GettingReady({
                 <p>{model.detail}</p>
               )}
             </dd>
-            {next.destination !== 'models' && (
-              <dd className="camp-preparation-action">
-                <Button onClick={() => onSection('models')}>
-                  Model Settings
-                </Button>
-              </dd>
-            )}
           </div>
           <div>
             <dt>Model connection</dt>
@@ -155,11 +143,6 @@ export function GettingReady({
                 </p>
               )}
             </dd>
-            {next.destination !== 'runners' && (
-              <dd className="camp-preparation-action">
-                <Button onClick={() => onRunners()}>Open Runners</Button>
-              </dd>
-            )}
           </div>
           <div>
             <dt>Native task</dt>
@@ -174,6 +157,9 @@ export function GettingReady({
         </dl>
       )}
       <div className="camp-preparation-check">
+        {(!readiness || next.destination !== 'workspace') && (
+          <Button onClick={onWorkspace}>Open Workspace</Button>
+        )}
         <Button disabled={loading} onClick={onRefresh}>
           {loading
             ? 'Refreshing Status…'

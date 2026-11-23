@@ -94,6 +94,14 @@ export class ReadStore {
     return this.entries.get(path)?.snapshot as ReadSnapshot<T> | undefined;
   }
 
+  seed(path: string, data: unknown) {
+    const entry = this.entry(path);
+    // A write receipt can fill a first read while leaving revalidation and
+    // any existing read or access error authoritative.
+    if (entry.snapshot.data !== undefined || entry.snapshot.error) return;
+    this.publish(entry, { ...entry.snapshot, data, loading: false });
+  }
+
   subscribe(path: string, listener: () => void) {
     const entry = this.entry(path);
     const resumed = entry.listeners.size === 0;
@@ -108,12 +116,20 @@ export class ReadStore {
     return () => {
       entry.listeners.delete(listener);
       queueMicrotask(() => {
-        if (entry.listeners.size || !entry.controller) return;
-        entry.controller.abort();
-        entry.controller = undefined;
-        entry.pending = undefined;
-        entry.stale = true;
-        entry.snapshot = { ...entry.snapshot, refreshing: false };
+        if (entry.listeners.size) return;
+        if (entry.controller) {
+          entry.controller.abort();
+          entry.controller = undefined;
+          entry.pending = undefined;
+          entry.stale = true;
+          entry.snapshot = { ...entry.snapshot, refreshing: false };
+        }
+        if (
+          entry.snapshot.data === undefined &&
+          !entry.snapshot.error &&
+          this.entries.get(path) === entry
+        )
+          this.entries.delete(path);
       });
     };
   }

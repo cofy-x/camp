@@ -48,11 +48,6 @@ const json = (method: string, body: unknown) => ({
   body: JSON.stringify(body),
 });
 export const memoryApi = {
-  list: (room: string, query: string, signal?: AbortSignal) =>
-    request<{ memories: Memory[] }>(
-      `/rooms/${id(room)}/memories?${new URLSearchParams({ q: query, limit: '20' })}`,
-      { signal },
-    ),
   get: (memory: string, revision?: number, signal?: AbortSignal) =>
     request<{ memory: Memory }>(
       `/memories/${id(memory)}${revision ? `?revision=${revision}` : ''}`,

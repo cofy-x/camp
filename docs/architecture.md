@@ -171,6 +171,8 @@ Personal ownership does not create private Rooms or task results.
 
 Personal Agents keep their selected Runner. Team Agents use explicit Agent target, then Room route, then team default. A personal default is copied into new personal Agents, not consulted anew for each Run. Admission freezes the actual target and configuration; offline/busy Runners wait without reassignment. Permission revocation marks queued/active work and waiting tasks durably. Restoring permission cannot revive revoked work. Admission, model access and publication recheck authority.
 
+Permanent Runner revocation, including revocation when its owner is disabled, retires only its defaults. Explicit Agent and Room assignments keep their saved identity and require an explicit change to route work elsewhere.
+
 ## File and publication ownership
 
 Uploaded originals are immutable and require an explicit working copy for edits. Runner imports retain an immutable initial commit and directly create a new working Resource. Later execution never writes back to the source directory. Source aliases are operator-approved, not browser-supplied host paths. Capture checks file identity and two manifests but is not an atomic filesystem snapshot; quiesce a source when that guarantee is required.
@@ -217,7 +219,7 @@ The opt-in [preparation probe](../apps/server/internal/remoteruns/preparation_me
 
 Server persists commands before sending; daemon persists inbox before ACK and journal events/results before transmission. Identical replays return their original receipt; different content conflicts. This supports single publication, not exactly-once provider requests or external effects. Lease grants use the causal request's monotonic send time. Expiry stops execution; delayed grants cannot extend authorization from a newer heartbeat.
 
-Brief WSS loss can preserve an Attempt while an independent model stream continues within its lease. Server restart interrupts a broken in-flight model stream without resending it. Daemon restart cleans incomplete execution and can upload a fully journaled result. Model access ends before the bounded upload phase. Cancellation persists intent and revokes model access first. Confirmed cleanup is Cancelled; uncertain cleanup is Interrupted and suspends the Runner in the same final transaction. Disabled Runners can retrieve terminal receipts; revoked credentials lose machine access.
+Brief WSS loss can preserve an Attempt while an independent model stream continues within its lease. A local failure that suspends Runner execution also closes its current control session so the reconnect can advertise suspended readiness. Server restart interrupts a broken in-flight model stream without resending it. Daemon restart cleans incomplete execution and can upload a fully journaled result. Model access ends before the bounded upload phase. Cancellation persists intent and revokes model access first. Confirmed cleanup is Cancelled; uncertain cleanup is Interrupted and suspends the Runner in the same final transaction. Disabled Runners can retrieve terminal receipts; revoked credentials lose machine access.
 
 [Native session eligibility](../apps/server/internal/nativeexecutor/executor.go) requires completed native work, acknowledged shutdown, normal exit and accepted Camp completion, plus matching Runner/storage/runtime/generation. Cancellation, missing state or uncertain exit invalidates resume. The next explicit request rebuilds bounded visible context and announces it; an uncertain prompt is never replayed automatically. File-version changes are announced without necessarily resetting context; Agent/resource/configuration changes can require a generation.
 
@@ -291,6 +293,15 @@ The boundaries below describe current implementation choices, not permanent requ
 Runner check/output reports assume a trusted machine; they are not remote attestation against a hostile operator. Source/browser/fixture results alone do not establish native isolation, fresh-host portability or real-provider success.
 
 Address shared-data correctness and contradictions in the shipped workflow first, then use measurements to select checkpoint or lifecycle work. The items below own the remaining implementation work; release milestones and completed implementation sequences belong in retained evidence.
+
+### Work, Inbox and Runner read costs
+
+| Owner | Current behavior and completion condition |
+| --- | --- |
+| [Work detail and history](../apps/server/internal/storage/work_items.go) | The initial Work item read includes full delivery action bodies along with decisions, timers and sessions. Identify callers that need those records, then keep the ordinary detail response small and load history on demand. Retain exact receipts and the current recovery state. |
+| [Work deadline sweep](../apps/server/internal/storage/queries/work_deadlines.sql) and [recovery projection](../apps/server/internal/storage/work_recovery.go) | Idle expiry checks scan Work rows, and a matter already requiring attention can retain its prior recovery instruction after authorization expires. Measure the query at retained history sizes and define precedence between expiry and pending task or delivery receipts before changing the sweep. |
+| [Personal Inbox reads](../apps/dashboard/src/team/TeamContext.tsx) | The closed palette reads the full latest Inbox projection to obtain the unread count. Measure the count and feed separately. A bounded feed must preserve direct navigation and mark-read behavior. |
+| [Runner journal](../apps/server/internal/daemon/journal.go) | Each append sums the existing event bytes for that operation. Verify append cost near the journal limit before replacing this with durable accounting that handles retries, acknowledgement, pruning and existing journals. |
 
 ### Checkpoint cost and retention
 

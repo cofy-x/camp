@@ -1,5 +1,5 @@
 import { GitHubRepositories } from '../github-delivery/GitHubRepositories';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useEffectEvent, useId, useState } from 'react';
 import {
   Button,
   StatusBar,
@@ -9,6 +9,7 @@ import {
 import { useAccount } from '../../team/AuthContext';
 import { teamApi, type Invitation, type User } from '../../team/api';
 import { useTeam } from '../../team/TeamContext';
+import { flushPrivateDrafts } from '../../team/draftRegistry';
 import { Appearance } from '../appearance/Appearance';
 import {
   settingsApi,
@@ -23,12 +24,22 @@ import { IdentityAvatar } from '../identity/IdentityAvatar';
 import { AccountAvatar } from '../identity/AccountAvatar';
 import { useRead } from '../../shared/reads/useRead';
 
+const modelFields = [
+  'model',
+  'baseUrl',
+  'reasoningEffort',
+  'maxTokens',
+  'maxSteps',
+  'timeoutSeconds',
+] as const;
+
 function ModelPanel({ onSaved }: { onSaved: () => void }) {
   const fieldId = useId();
   const [saved, setSaved] = useState<ModelSettings | null>(null);
   const [value, setValue] = useState<ModelSettings | null>(null);
   const [apiKey, setAPIKey] = useState('');
   const [error, setError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState('');
   useEffect(() => {
@@ -52,32 +63,28 @@ function ModelPanel({ onSaved }: { onSaved: () => void }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [loadAttempt]);
 
   async function save(clearAPIKey = false) {
     if (!value || !saved) return;
     setPending(true);
     setError('');
     setNotice('');
-    const update: Parameters<typeof settingsApi.saveModel>[0] = {};
-    for (const field of [
-      'model',
-      'baseUrl',
-      'reasoningEffort',
-      'maxTokens',
-      'maxSteps',
-      'timeoutSeconds',
-    ] as const)
+    const edits: Partial<Pick<ModelSettings, (typeof modelFields)[number]>> =
+      {};
+    for (const field of modelFields)
       if (value[field] !== saved[field])
-        Object.assign(update, { [field]: value[field] });
-    if (apiKey) update.apiKey = apiKey;
-    if (clearAPIKey) update.clearApiKey = true;
+        Object.assign(edits, { [field]: value[field] });
     try {
-      const result = await settingsApi.saveModel(update);
+      const result = await settingsApi.saveModel(
+        clearAPIKey
+          ? { clearApiKey: true }
+          : { ...edits, apiKey: apiKey || undefined },
+      );
       setSaved(result);
-      setValue(result);
-      setAPIKey('');
-      setNotice('Model settings saved.');
+      setValue(clearAPIKey ? { ...result, ...edits } : result);
+      if (!clearAPIKey) setAPIKey('');
+      setNotice(clearAPIKey ? 'Saved key cleared.' : 'Model settings saved.');
       onSaved();
     } catch (error) {
       setError(
@@ -92,16 +99,7 @@ function ModelPanel({ onSaved }: { onSaved: () => void }) {
     apiKey ||
     (value &&
       saved &&
-      (
-        [
-          'model',
-          'baseUrl',
-          'reasoningEffort',
-          'maxTokens',
-          'maxSteps',
-          'timeoutSeconds',
-        ] as const
-      ).some((field) => value[field] !== saved[field])),
+      modelFields.some((field) => value[field] !== saved[field])),
   );
   const source = (field: string) => {
     const info = saved?.fields[field];
@@ -306,10 +304,21 @@ function ModelPanel({ onSaved }: { onSaved: () => void }) {
           )}
         </div>
       )}
+      {!value && !error && <p role="status">Loading model settings…</p>}
       {error && (
-        <p className="app-error" role="alert">
-          {error}
-        </p>
+        <div className="app-error" role="alert">
+          {error}{' '}
+          {!value && (
+            <Button
+              onClick={() => {
+                setError('');
+                setLoadAttempt((attempt) => attempt + 1);
+              }}
+            >
+              Retry Model Settings
+            </Button>
+          )}
+        </div>
       )}
       {notice && <p role="status">{notice}</p>}
       {value && (
@@ -565,9 +574,28 @@ function TeamPanel({ desktop }: { desktop: AppWindowProps['desktop'] }) {
   );
 }
 
+const memberSections = [
+  ['github', 'GitHub'],
+  ['appearance', 'Appearance'],
+  ['account', 'Account'],
+];
+const adminSections = [
+  ['readiness', 'Getting Ready'],
+  ['models', 'Models'],
+  ['environments', 'Environments'],
+  ['storage', 'Storage'],
+  ['team', 'Team'],
+  ...memberSections,
+];
+const credentialWarning =
+  'Save or clear the GitHub credential edits before leaving.';
+
 export function Settings(props: AppWindowProps) {
   const { user, signOut } = useAccount();
   const team = useTeam();
+  const { beforeClose } = props.desktop;
+  const windowId = props.window.id;
+  const sections = user.role === 'admin' ? adminSections : memberSections;
   const [githubLocked, setGitHubLocked] = useState(false);
   const [section, setSection] = useState(
     user.role === 'admin' ? 'readiness' : 'account',
@@ -596,28 +624,32 @@ export function Settings(props: AppWindowProps) {
   const [importPath, setImportPath] = useState('');
   const [notice, setNotice] = useState('');
 
+  function selectSection(next: string) {
+    if (next === section || !sections.some(([id]) => id === next)) return;
+    if (githubLocked) {
+      setError(credentialWarning);
+      return;
+    }
+    setSection(next);
+    setError('');
+    setNotice('');
+  }
+
+  const applyNavigation = useEffectEvent(selectSection);
   useEffect(() => {
     const intent = team.navigation;
-    if (intent?.app === 'settings' && intent.section) {
-      setSection(intent.section);
-      setError('');
-      setNotice('');
-    }
+    if (intent?.app === 'settings' && intent.section)
+      applyNavigation(intent.section);
   }, [team.navigation]);
-  const sections = [
-    ...(user.role === 'admin'
-      ? [
-          ['readiness', 'Getting Ready'],
-          ['models', 'Models'],
-          ['environments', 'Environments'],
-          ['storage', 'Storage'],
-          ['team', 'Team'],
-        ]
-      : []),
-    ['github', 'GitHub'],
-    ['appearance', 'Appearance'],
-    ['account', 'Account'],
-  ];
+  useEffect(() => {
+    if (section !== 'github') return;
+    return beforeClose(windowId, () => {
+      if (!githubLocked) return flushPrivateDrafts();
+      setError(credentialWarning);
+      return false;
+    });
+  }, [beforeClose, windowId, section, githubLocked]);
+
   const sectionTitle = sections.find(([id]) => id === section)?.[1];
   useEffect(() => {
     props.desktop.setTitle(
@@ -631,17 +663,7 @@ export function Settings(props: AppWindowProps) {
         <Select
           label="Control panel"
           value={section}
-          onChange={(event) => {
-            if (githubLocked) {
-              setError(
-                'Save or clear the GitHub credential edits before leaving.',
-              );
-              return;
-            }
-            setSection(event.target.value);
-            setError('');
-            setNotice('');
-          }}
+          onChange={(event) => selectSection(event.target.value)}
         >
           {sections.map(([id, title]) => (
             <option key={id} value={id}>
@@ -660,17 +682,7 @@ export function Settings(props: AppWindowProps) {
               key={id}
               className={section === id ? 'selected' : ''}
               aria-current={section === id ? 'page' : undefined}
-              onClick={() => {
-                if (githubLocked) {
-                  setError(
-                    'Save or clear the GitHub credential edits before leaving.',
-                  );
-                  return;
-                }
-                setSection(id);
-                setError('');
-                setNotice('');
-              }}
+              onClick={() => selectSection(id)}
             >
               {title}
             </button>
@@ -697,7 +709,7 @@ export function Settings(props: AppWindowProps) {
             <GettingReady
               {...readiness}
               onRefresh={() => void readiness.refresh()}
-              onSection={setSection}
+              onSection={selectSection}
               onRunners={(connect) =>
                 void team.navigate({ app: 'runners', connect })
               }

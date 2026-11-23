@@ -8,6 +8,7 @@ export function WorkItemResult({ item }: { item: WorkItem }) {
   const result = item.result;
   if (!result) return null;
   const onlyFile = result.files.length === 1 ? result.files[0] : undefined;
+  const hasFiles = result.files.length > 0 || result.filesLimited;
   const directFile =
     onlyFile &&
     onlyFile.status !== 'D' &&
@@ -46,7 +47,7 @@ export function WorkItemResult({ item }: { item: WorkItem }) {
 
   return (
     <section className="work-item-result" aria-label="Work result">
-      {result.commit && (
+      {result.commit && hasFiles && (
         <>
           <div className="work-item-file-heading">
             <span>{result.published ? 'Published to Room' : 'Team draft'}</span>

@@ -52,18 +52,14 @@
   background: transparent;
   gap: 15px;
 }
-.workspace-agent-editor-intro .workspace-description {
-  margin: 5px 0 0;
+.workspace-agent-editor h3 {
+  margin: 0;
 }
 .workspace-agent-presets {
   padding: 0;
-  margin: 0;
+  margin: 7px 0 0;
   min-width: 0;
   border: 0;
-}
-.workspace-agent-presets legend {
-  margin-bottom: 7px;
-  padding: 0;
 }
 .workspace-agent-presets > div {
   display: grid;
@@ -101,8 +97,27 @@
     10px/1.4 Inter,
     sans-serif;
 }
+.workspace-agent-routing {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+}
+.workspace-agent-routing > div {
+  min-width: 0;
+}
 .workspace-agent-access .workspace-description {
   margin: 5px 0 0;
+}
+.workspace-agent-editor-actions {
+  position: sticky;
+  z-index: 1;
+  bottom: 0;
+  padding: 8px 0;
+  border-top: 1px solid #ccc;
+  background: #eee;
+}
+.workspace-agent-editor-actions p {
+  margin: 0 0 7px;
 }
 .workspace-agent-identity {
   border-top: 1px solid #ccc;
@@ -137,6 +152,9 @@
   }
 }
 @container (max-width: 420px) {
+  .workspace-agent-routing {
+    grid-template-columns: 1fr;
+  }
   .workspace-agent-presets .p9-pixel-icon {
     display: none;
   }

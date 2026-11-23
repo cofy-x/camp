@@ -71,7 +71,4 @@ export const settingsApi = {
       method: 'PATCH',
       body: JSON.stringify(value),
     }),
-  readiness: () => request<Readiness>('/settings/readiness'),
-  environments: () => request<EnvironmentSettings>('/settings/environments'),
-  storage: () => request<StorageSettings>('/settings/storage'),
 };

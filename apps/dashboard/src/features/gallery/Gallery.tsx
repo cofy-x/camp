@@ -13,6 +13,8 @@ import {
   Tabs,
 } from '@cofy-x/camp-platinum';
 import type { AppWindowProps } from '@cofy-x/camp-platinum';
+import { CampMark } from '../../shared/desktop/CampMark';
+import './gallery.css';
 
 export function Gallery({ desktop }: AppWindowProps) {
   const [tab, setTab] = useState('controls');
@@ -224,13 +226,19 @@ export function Gallery({ desktop }: AppWindowProps) {
           )}
           {tab === 'icons' && (
             <div className="icon-gallery">
+              <div>
+                <CampMark size={32} />
+                <span>tent</span>
+              </div>
               {(
                 [
                   'computer',
+                  'runner',
                   'disk',
                   'folder',
                   'document',
                   'checklist',
+                  'clipboard',
                   'conversation',
                   'notes',
                   'trash',

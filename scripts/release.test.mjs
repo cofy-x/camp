@@ -26,8 +26,43 @@ import {
   runnerPlatforms,
   validVersion,
   verifyRelease,
+  verifyRunnerDSHRuntime,
   verifyRunnerInstallationReport,
 } from './release.mjs';
+
+test('Runner packaging checks its staged DSH and provider versions against their pins', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'camp-dsh-package-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const dsh = '@deepseek-ai/dsh';
+  const tools = '@deepseek-ai/dsh-tools';
+  const version = '1.2.3';
+  await writeFile(
+    join(directory, 'package.json'),
+    JSON.stringify({ dependencies: { [dsh]: version, [tools]: version } }),
+  );
+
+  async function install(name, version) {
+    const target = join(directory, 'node_modules', name);
+    await mkdir(target, { recursive: true });
+    await writeFile(
+      join(target, 'package.json'),
+      JSON.stringify({ name, version }),
+    );
+  }
+
+  await assert.rejects(
+    verifyRunnerDSHRuntime(directory),
+    /requires @deepseek-ai\/dsh .*make install-dsh/,
+  );
+  await install(dsh, version);
+  await install(tools, '1.2.2');
+  await assert.rejects(
+    verifyRunnerDSHRuntime(directory),
+    /requires @deepseek-ai\/dsh-tools .*make install-dsh/,
+  );
+  await install(tools, version);
+  assert.equal(await verifyRunnerDSHRuntime(directory), version);
+});
 
 test('setup phase evidence retains durations without private diagnostics', () => {
   assert.deepEqual(

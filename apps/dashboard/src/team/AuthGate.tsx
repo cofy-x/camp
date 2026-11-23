@@ -5,9 +5,10 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Button, PixelIcon } from '@cofy-x/camp-platinum';
+import { Button } from '@cofy-x/camp-platinum';
 import { teamApi, type User } from './api';
 import { APIError } from '../shared/api/http';
+import { CampMark } from '../shared/desktop/CampMark';
 import { flushPrivateDrafts } from './draftRegistry';
 import { AuthContext } from './AuthContext';
 import { uploadDrafts } from '../features/workspace/uploadState';
@@ -123,7 +124,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         }}
       >
         <div className="camp-auth-heading">
-          <PixelIcon name="conversation" size={40} />
+          <CampMark size={40} />
           <h1>
             {loading
               ? 'Opening Camp…'

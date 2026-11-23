@@ -63,68 +63,65 @@ export function RunnerPermissions({
 
   return (
     <div className="camp-runner-permissions">
-      <section aria-label="Default Runner">
-        <h3>Your new Agents</h3>
-        <div className="app-actions">
-          {defaults?.personalRunnerId === runner.id ? (
-            <span>Your default</span>
-          ) : (
-            !runner.revoked &&
-            runner.enabled &&
-            (runner.ownerUserId === user.id || runner.teamShared) && (
-              <Button
-                disabled={pending || !defaults}
-                onClick={() =>
-                  void save(() =>
-                    runnersApi.saveDefault(
-                      'personal',
-                      runner.id,
-                      defaults!.personalRevision,
-                    ),
-                  )
-                }
-              >
-                Use as My Default
-              </Button>
-            )
-          )}
-        </div>
-        {!defaults && <p>Defaults are unavailable. Refresh to try again.</p>}
-        {runner.ownerUserId !== user.id && !runner.teamShared && (
-          <p>This private Runner cannot be your default for new Agents.</p>
-        )}
-        {(defaults?.teamRunnerId === runner.id ||
-          (user.role === 'admin' &&
-            runner.teamShared &&
-            !runner.revoked &&
-            runner.enabled)) && (
-          <div className="camp-runner-default-team">
-            <h3>Team fallback</h3>
-            <p>Used when a team Agent and its Room have no Runner set.</p>
-            {defaults?.teamRunnerId === runner.id && <span>Selected</span>}
-            {user.role === 'admin' &&
-              runner.teamShared &&
-              !runner.revoked &&
+      {!runner.revoked && (
+        <section aria-label="Default Runner">
+          <h3>Your new Agents</h3>
+          <div className="app-actions">
+            {defaults?.personalRunnerId === runner.id ? (
+              <span>Your default</span>
+            ) : (
               runner.enabled &&
-              defaults?.teamRunnerId !== runner.id && (
+              (runner.ownerUserId === user.id || runner.teamShared) && (
                 <Button
                   disabled={pending || !defaults}
                   onClick={() =>
                     void save(() =>
                       runnersApi.saveDefault(
-                        'team',
+                        'personal',
                         runner.id,
-                        defaults!.teamRevision,
+                        defaults!.personalRevision,
                       ),
                     )
                   }
                 >
-                  Use as Team Default
+                  Use as My Default
                 </Button>
-              )}
+              )
+            )}
           </div>
-        )}
-      </section>
+          {!defaults && <p>Defaults are unavailable. Refresh to try again.</p>}
+          {runner.ownerUserId !== user.id && !runner.teamShared && (
+            <p>This private Runner cannot be your default for new Agents.</p>
+          )}
+          {(defaults?.teamRunnerId === runner.id ||
+            (user.role === 'admin' && runner.teamShared && runner.enabled)) && (
+            <div className="camp-runner-default-team">
+              <h3>Team fallback</h3>
+              <p>Used when a team Agent and its Room have no Runner set.</p>
+              {defaults?.teamRunnerId === runner.id && <span>Selected</span>}
+              {user.role === 'admin' &&
+                runner.teamShared &&
+                runner.enabled &&
+                defaults?.teamRunnerId !== runner.id && (
+                  <Button
+                    disabled={pending || !defaults}
+                    onClick={() =>
+                      void save(() =>
+                        runnersApi.saveDefault(
+                          'team',
+                          runner.id,
+                          defaults!.teamRevision,
+                        ),
+                      )
+                    }
+                  >
+                    Use as Team Default
+                  </Button>
+                )}
+            </div>
+          )}
+        </section>
+      )}
       <section
         className="camp-runner-section"
         aria-label="Sharing and allowed Agents"

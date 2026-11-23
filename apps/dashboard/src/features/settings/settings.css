@@ -272,14 +272,6 @@
 .camp-getting-ready {
   max-width: 760px;
 }
-.camp-preparation-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-bottom: 16px;
-}
 .camp-preparation-next {
   display: flex;
   flex-wrap: wrap;
@@ -312,7 +304,7 @@
 }
 .camp-preparation-status > div {
   display: grid;
-  grid-template-columns: 124px minmax(0, 1fr) auto;
+  grid-template-columns: 124px minmax(0, 1fr);
   gap: 4px 12px;
   align-items: start;
   padding: 10px;
@@ -370,14 +362,6 @@
   color: #555;
   margin-top: 4px;
 }
-@container (max-width: 760px) {
-  .camp-preparation-status > div {
-    grid-template-columns: 116px minmax(0, 1fr);
-  }
-  .camp-preparation-status .camp-preparation-action {
-    grid-column: 2;
-  }
-}
 @container (max-width: 460px) {
   .camp-preparation-status > div {
     grid-template-columns: minmax(0, 1fr);
@@ -385,10 +369,6 @@
   }
   .camp-preparation-status dd {
     margin: 0;
-  }
-  .camp-preparation-status .camp-preparation-action {
-    grid-column: 1;
-    margin-top: 3px;
   }
 }
 

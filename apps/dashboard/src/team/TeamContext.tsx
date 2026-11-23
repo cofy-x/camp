@@ -67,7 +67,6 @@ interface TeamState {
   attention: AttentionPage | undefined;
   attentionError: string;
   reads: Record<string, number>;
-  revision: number;
   connection: 'connecting' | 'connected' | 'offline';
   navigation: NavigationIntent | null;
   navigate: (value: NavigationTarget) => Promise<boolean>;
@@ -116,7 +115,6 @@ export function TeamProvider({
   const attentionError = responsibility.error;
   const retryInbox = activity.refresh;
   const [reads, setReads] = useState<Record<string, number>>({});
-  const [revision, setRevision] = useState(0);
   const [navigation, setNavigation] = useState<NavigationIntent | null>(null);
   const navigationRequest = useRef(0);
   const [navigationError, setNavigationError] = useState('');
@@ -124,10 +122,7 @@ export function TeamProvider({
     useState<TeamState['connection']>('connecting');
   const cursor = useRef(initialCursor);
   const readPending = useRef(new Map<string, number>());
-  const refresh = useCallback(() => {
-    store.invalidateAll();
-    setRevision((value) => value + 1);
-  }, [store]);
+  const refresh = useCallback(() => store.invalidateAll(), [store]);
   const cancelNavigation = useCallback(() => {
     navigationRequest.current++;
   }, []);
@@ -263,7 +258,6 @@ export function TeamProvider({
       attention,
       attentionError,
       reads,
-      revision,
       connection,
       navigation,
       navigationError,
@@ -284,7 +278,6 @@ export function TeamProvider({
       attention,
       attentionError,
       reads,
-      revision,
       connection,
       navigation,
       navigationError,

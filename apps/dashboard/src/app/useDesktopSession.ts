@@ -8,7 +8,7 @@ import { useLayoutPersistence } from './useLayoutPersistence';
 
 export function useDesktopSession() {
   const [connection, setConnection] = useState<ConnectionStatus>('connecting');
-  const { data: appearance, resetPreferences } = usePreferences(setConnection);
+  const { data: appearance, resetPreferences } = usePreferences();
   const onLoaded = useCallback(
     (result: Bootstrap) => {
       resetPreferences(result.preferences);
@@ -16,7 +16,7 @@ export function useDesktopSession() {
     [resetPreferences],
   );
   const startup = useBootstrap(onLoaded, setConnection);
-  const layout = useLayoutPersistence(setConnection);
+  const layout = useLayoutPersistence();
   const { bootstrap } = startup;
   const { flushLayout } = layout;
   useEffect(() => {

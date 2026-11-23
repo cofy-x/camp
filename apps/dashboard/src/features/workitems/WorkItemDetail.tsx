@@ -60,10 +60,12 @@ export function WorkItemDetail({
   onProjectSettings?: () => void;
 }) {
   const { user } = useAccount();
-  const [acceptedItem, setAcceptedItem] = useState<WorkItem | null>(null);
   const itemRead = useRead<{ item: WorkItem }>(
     `/work-items/${encodeURIComponent(id)}`,
     { enabled: active },
+  );
+  const [acceptedItem, setAcceptedItem] = useState<WorkItem | null>(
+    () => itemRead.data?.item ?? null,
   );
   const error = itemRead.error;
   // A permission failure clears the shared read's accepted data. The
@@ -122,11 +124,14 @@ export function WorkItemDetail({
   ]);
   useEffect(() => {
     const item = itemRead.data?.item;
-    if (!item) return;
+    if (!item) {
+      if (error) setAcceptedItem(null);
+      return;
+    }
     setAcceptedItem((current) =>
       !current || item.revision >= current.revision ? item : current,
     );
-  }, [itemRead.data]);
+  }, [error, itemRead.data]);
   const owner = item?.ownerUserId === user.id;
   const editable = item && (owner || user.role === 'admin');
   const closing =
@@ -258,7 +263,13 @@ export function WorkItemDetail({
     }
   }
 
-  const recoveryMessage = recovery?.message ?? executionError;
+  const recoveryMessage =
+    recovery?.message ??
+    (item &&
+    workAllowanceUsed &&
+    executionError?.startsWith('The observed model step limit (')
+      ? `This attempt reached its step limit and used all ${item.budget.maxModelRequests} model requests for this Work.`
+      : executionError);
   const recoveryControl = recoveryAction();
 
   function more(button: HTMLButtonElement) {

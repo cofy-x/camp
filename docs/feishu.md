@@ -4,7 +4,7 @@ A Room can receive encrypted Feishu event webhooks. Intake preserves a signed or
 
 ## Connect a chat
 
-1. As an administrator, open the Room's **Automation** settings and add a Feishu source with the application's App ID, tenant key and chat ID. Each source is permanently scoped to that app, tenant and chat.
+1. As an administrator, use the [Feishu source API](api.md#feishu-observation) to add a source to the Room with the application's App ID, tenant key and chat ID. Each source is permanently scoped to that app, tenant and chat.
 2. Supply the application's Verification Token and Encrypt Key from Feishu's **Events & Callbacks → Encryption Strategy** settings. Camp requires both credentials and accepts encrypted webhook delivery only.
 3. Configure the application's event request URL as `/api/hooks/feishu/<source-id>` on an externally reachable HTTPS Camp origin. Subscribe to **Receive message** (`im.message.receive_v1`, schema `2.0`). Camp answers an encrypted URL verification challenge after checking its token.
 4. Grant the relevant Feishu message subscription permissions and publish or enable the application through Feishu's own administration controls. Camp does not configure the application, expose a tunnel or start a service.
@@ -29,4 +29,4 @@ The source-scoped Feishu event ID identifies its durable delivery receipt; chang
 
 Private immutable token/key pairs live under `configuration/feishu-webhooks` in the Server data directory with owner-only permissions. Team SQLite stores opaque references and request hashes, never the credential values or decrypted webhook header. Downloaded originals remain encrypted; the normalized event exposes the message text and external identities. Back up the complete stopped Server data directory to preserve both old encrypted originals and their key versions.
 
-Configuration uses actor-scoped request IDs and expected revisions. After an uncertain write, read the saved receipt. If no receipt exists, cancel that unconfirmed operation to fence a delayed write before starting another request. Browser recovery retains the operation ID, never the Verification Token or Encrypt Key. The [Feishu API](api.md#feishu-observation) owns the wire protocol.
+Configuration uses actor-scoped request IDs and expected revisions. After an uncertain write, read the saved receipt. If no receipt exists, cancel that unconfirmed operation to fence a delayed write before starting another request. The [Feishu API](api.md#feishu-observation) owns the wire protocol.

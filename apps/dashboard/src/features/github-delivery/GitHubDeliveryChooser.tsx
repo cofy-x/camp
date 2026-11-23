@@ -16,51 +16,57 @@ export function GitHubDeliveryChooser({
   );
   const items = read.data?.repositories ?? [];
   const selected = items.find((item) => item.id === value?.connectionId);
+  const needsConnection =
+    !value && Boolean(read.data) && !items.some((item) => item.enabled);
   const edit = (change: Partial<GitHubDeliverySpec>) => {
     if (value) onChange({ ...value, ...change });
   };
   return (
     <div className="work-item-form">
-      <Select
-        label="Delivery"
-        value={value?.connectionId ?? ''}
-        onChange={(event) => {
-          const item = items.find((item) => item.id === event.target.value);
-          onChange(
-            item
-              ? {
-                  connectionId: item.id,
-                  connectionRevision: item.revision,
-                  baseBranch: item.defaultBranch,
-                  mode: 'pr',
-                }
-              : undefined,
-          );
-        }}
-      >
-        <option value="">Room files</option>
-        {items
-          .filter((item) => item.enabled || item.id === value?.connectionId)
-          .map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.repository}
-              {item.private ? ' · Private' : ' · Public'}
-              {item.enabled ? '' : ' · Disabled'}
-            </option>
-          ))}
-        {value && !selected && (
-          <option value={value.connectionId}>
-            Saved repository unavailable
+      {!needsConnection && (
+        <Select
+          label="Repository"
+          value={value?.connectionId ?? ''}
+          onChange={(event) => {
+            const item = items.find((item) => item.id === event.target.value);
+            onChange(
+              item
+                ? {
+                    connectionId: item.id,
+                    connectionRevision: item.revision,
+                    baseBranch: item.defaultBranch,
+                    mode: 'pr',
+                  }
+                : undefined,
+            );
+          }}
+        >
+          <option value="" disabled>
+            Choose a repository
           </option>
-        )}
-      </Select>
+          {items
+            .filter((item) => item.enabled || item.id === value?.connectionId)
+            .map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.repository}
+                {item.private ? ' · Private' : ' · Public'}
+                {item.enabled ? '' : ' · Disabled'}
+              </option>
+            ))}
+          {value && !selected && (
+            <option value={value.connectionId}>
+              Saved repository unavailable
+            </option>
+          )}
+        </Select>
+      )}
       {read.loading && !read.data && <p role="status">Loading repositories…</p>}
       {read.error && (
         <p className="app-error" role="alert">
           {read.error}
         </p>
       )}
-      {!value && read.data && items.length === 0 && (
+      {needsConnection && (
         <Button
           onClick={() =>
             void team.navigate({ app: 'settings', section: 'github' })
@@ -92,6 +98,7 @@ export function GitHubDeliveryChooser({
             Target branch
             <input
               className="p9-field"
+              required
               value={value.baseBranch}
               onChange={(event) => edit({ baseBranch: event.target.value })}
             />

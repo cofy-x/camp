@@ -1,3 +1,13 @@
+.gallery-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.gallery-app > .app-pad {
+  overflow: auto;
+  flex: 1;
+}
 .gallery-controls {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

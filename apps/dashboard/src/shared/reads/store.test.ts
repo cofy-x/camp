@@ -107,6 +107,34 @@ describe('shared read ownership', () => {
     store.dispose();
   });
 
+  it('revalidates a seeded receipt and never seeds over accepted data or denied access', async () => {
+    const path = '/work-items/one';
+    const read = pending();
+    let nextRead = read.promise;
+    const store = new ReadStore(() => nextRead);
+    store.seed(path, { revision: 1 });
+    store.subscribe(path, () => {});
+    expect(store.snapshot(path)).toMatchObject({
+      data: { revision: 1 },
+      loading: false,
+      refreshing: true,
+    });
+
+    read.resolve({ revision: 2 });
+    await tick();
+    store.seed(path, { revision: 1 });
+    expect(store.snapshot(path).data).toEqual({ revision: 2 });
+
+    nextRead = Promise.reject(new APIError('Forbidden', 403, 'forbidden'));
+    await store.refresh(path);
+    store.seed(path, { revision: 2 });
+    expect(store.snapshot(path)).toMatchObject({
+      data: undefined,
+      error: 'Forbidden',
+    });
+    store.dispose();
+  });
+
   it('cancels abandoned reads but keeps a pending read adopted during immediate resubscription', async () => {
     const signals: AbortSignal[] = [];
     const store = new ReadStore((_path, signal) => {
@@ -122,8 +150,21 @@ describe('shared read ownership', () => {
     adopted();
     await tick();
     expect(signals[0].aborted).toBe(true);
+    expect(store.peek('/runs/one')).toBeUndefined();
     store.subscribe('/runs/one', () => {});
     expect(signals).toHaveLength(2);
+    store.dispose();
+  });
+
+  it('discards an abandoned initial read already aborted by page hiding', async () => {
+    const read = pending();
+    const store = new ReadStore(() => read.promise);
+    const close = store.subscribe('/runs/one', () => {});
+    store.setActive(false);
+    close();
+    read.resolve({ id: 'one' });
+    await tick();
+    expect(store.peek('/runs/one')).toBeUndefined();
     store.dispose();
   });
 

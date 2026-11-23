@@ -23,6 +23,7 @@ import {
   releaseIdentity,
   installationNotes,
   mergeRunnerReleases,
+  verifyRunnerDSHRuntime,
 } from './release.mjs';
 
 const linux = process.platform === 'linux' && process.arch === 'x64';
@@ -72,7 +73,6 @@ try {
       if (
         entry.name === 'node_modules' ||
         entry.name === 'camp-tools' ||
-        entry.name === 'extract.mjs' ||
         [
           'package.json',
           'pnpm-lock.yaml',
@@ -86,6 +86,9 @@ try {
         );
     }
   }
+  const dsh = await verifyRunnerDSHRuntime(
+    path.join(staging, 'runtime/dsh-runtime'),
+  );
   // Only the current native prebuild can be selected by node-pty's loader.
   const ptyPrebuilds = path.join(
     staging,
@@ -261,9 +264,7 @@ try {
     pnpm: '12.11.2',
     ...licenses,
     ...linuxMetadata,
-    dsh: JSON.parse(
-      await readFile(path.join(root, 'tools/dsh-runtime/package.json'), 'utf8'),
-    ).dependencies['@deepseek-ai/dsh'],
+    dsh,
     prerequisites: linux
       ? [
           'Docker Engine with local Unix API and volumes',

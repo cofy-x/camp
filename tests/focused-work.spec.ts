@@ -91,7 +91,7 @@ test('global creation preserves the goal and isolates Room settings without repl
       'Team-visible draft',
     );
     await expect(goal).toBeFocused();
-    await work(page).getByText('Options', { exact: true }).click();
+    await work(page).locator('.work-item-options > summary').click();
     await work(page).getByText('Allowance and access', { exact: true }).click();
     const requests = work(page).getByLabel('Model requests', { exact: true });
     await requests.fill('7');
