@@ -123,14 +123,11 @@ export function DocumentEditor({
       submittedContent ??
       (matching ? current?.content : undefined) ??
       (await readTextFile(resource.id, path, commit));
-    if (
-      current &&
-      draft.getValue() === current &&
-      current.baseCommit === input.expectedCommit
-    ) {
-      if (matching) draft.setValue(null, { keepSavedOnConflict: true });
-      else if (submittedContent !== undefined)
-        draft.setValue({ ...current, baseCommit: commit });
+    const latestDraft = draft.getValue();
+    if (latestDraft?.baseCommit === input.expectedCommit) {
+      if (latestDraft.content === savedContent)
+        draft.setValue(null, { keepSavedOnConflict: true });
+      else draft.setValue({ ...latestDraft, baseCommit: commit });
     }
     setPublished({ content: savedContent, commit });
     setLatest(null);

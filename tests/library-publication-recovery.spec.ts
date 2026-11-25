@@ -212,7 +212,11 @@ test('an uncertain document publish retries its frozen text after reload and pre
   const subsequent = 'Newer text stays private';
   await newDocument(page, path, submitted);
   const win = library(page);
-  const writes: { requestId: string; content: string }[] = [];
+  const writes: {
+    requestId: string;
+    expectedCommit: string;
+    content: string;
+  }[] = [];
   await page.route('**/api/resources/*/files', async (route) => {
     if (route.request().method() !== 'PUT') return route.continue();
     writes.push(route.request().postDataJSON());
@@ -267,6 +271,20 @@ test('an uncertain document publish retries its frozen text after reload and pre
     )
   ).json();
   expect(draft.value).toBeNull();
+  const { resource } = await (
+    await page.request.get(`/api/resources/${room.resourceId}`)
+  ).json();
+  await win
+    .getByRole('button', { name: 'Publish Changes', exact: true })
+    .click();
+  await expect(
+    win.getByText('Published to shared files.', { exact: true }),
+  ).toBeVisible();
+  expect(writes[2]).toMatchObject({
+    expectedCommit: resource.currentCommit,
+    content: subsequent,
+  });
+  expect(writes[2].requestId).not.toBe(writes[0].requestId);
 });
 
 test('an absent publication snapshot can be fenced without losing later text', async ({
