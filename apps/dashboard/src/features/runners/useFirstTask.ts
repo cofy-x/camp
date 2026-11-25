@@ -240,7 +240,7 @@ export function useFirstTask(
         setError(
           failure instanceof Error
             ? failure.message
-            : 'The first task could not be started.',
+            : 'The sample task could not be started.',
         );
     } finally {
       // Releasing the local busy flag never changes a retained operation.

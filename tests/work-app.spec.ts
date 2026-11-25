@@ -190,18 +190,21 @@ test('starting opens queued progress from the confirmed receipt before reading d
     posts++;
     return route.fulfill({ status: 201, json: { item } });
   });
-  await page.route(`**/api/work-items/${item.id}`, async (route) => {
-    reads++;
-    await held;
-    return route.fulfill({
-      json: {
-        item: {
-          ...item,
-          execution: { ...item.execution, revision: 2, status: 'running' },
+  await page.route(
+    `**/api/work-items/${item.id}?view=current`,
+    async (route) => {
+      reads++;
+      await held;
+      return route.fulfill({
+        json: {
+          item: {
+            ...item,
+            execution: { ...item.execution, revision: 2, status: 'running' },
+          },
         },
-      },
-    });
-  });
+      });
+    },
+  );
   try {
     await newMatterInRoom(page, room.id);
     const win = work(page);
@@ -236,8 +239,7 @@ for (const recover of [false, true]) {
     const goal = 'Prepare the Room handoff';
     const win = work(page);
     await newMatterInRoom(page, selected.id, true);
-    await win.getByText('Options', { exact: true }).click();
-    await win.getByText('Work details', { exact: true }).click();
+    await win.getByText('Details', { exact: true }).click();
     await win.getByLabel('Due date', { exact: true }).fill('2030-03-05');
     await roomFilter(page).selectOption(original.id);
     await win.getByLabel('What needs to happen?', { exact: true }).fill(goal);
@@ -435,6 +437,95 @@ test('Work prioritizes attention across Rooms and Room and Inbox shortcuts reuse
   await expect(detail(page)).toContainText(needsMe.goal);
   await expect(detail(page)).toContainText(question);
   expect(errors.errors).toEqual([]);
+});
+
+test('Work list aligns state beside short titles across desktop and narrow views', async ({
+  page,
+}, info) => {
+  await signIn(page);
+  const room = await createRoom(page, `Work list ${randomUUID().slice(0, 8)}`);
+  const first = await createMatter(
+    page,
+    room.id,
+    '# Prepare a supplier packet\n\nInclude all requirements and keep the supporting notes alongside the original outline.',
+  );
+  const second = await createMatter(
+    page,
+    room.id,
+    'Check the delivery contact',
+  );
+  const question = 'Which contact should receive the confirmed delivery?';
+  await page.route('**/api/work-items?*', (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            ...first,
+            roomName: room.name,
+            dueAt: '2026-12-03',
+            needsYou: false,
+          },
+          {
+            ...second,
+            roomName: room.name,
+            status: 'waiting_for_person',
+            currentDecision: { kind: 'judgment', text: question },
+            needsYou: true,
+          },
+        ],
+        nextCursor: '',
+        hasMore: false,
+      },
+    }),
+  );
+  await openApp(page, 'Work');
+  const window = work(page);
+  const list = window.locator('.work-list');
+  const rows = list.getByRole('button');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toHaveAccessibleName(
+    'Prepare a supplier packet Open',
+  );
+  await expect(rows.first()).toHaveAccessibleDescription(
+    `${room.name} · Due 2026-12-03`,
+  );
+  await expect(rows.first()).not.toContainText('Include all requirements');
+  await expect(rows.nth(1)).toHaveAccessibleName(
+    `Check the delivery contact Needs your judgment ${question}`,
+  );
+
+  for (const [scene, width, height, frameWidth] of [
+    ['757', 765, 900, 757],
+    ['390', 390, 844, 382],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await expect
+      .poll(async () => (await window.boundingBox())?.width)
+      .toBe(frameWidth);
+    const titles = await list.locator('.work-item-row-title').all();
+    const statuses = await list.locator('.work-list-status').all();
+    const rightEdges: number[] = [];
+    for (const [index, status] of statuses.entries()) {
+      const title = (await titles[index].boundingBox())!;
+      const bounds = (await status.boundingBox())!;
+      expect(bounds.x).toBeGreaterThanOrEqual(title.x + title.width);
+      expect(Math.abs(bounds.y - title.y)).toBeLessThanOrEqual(1);
+      rightEdges.push(bounds.x + bounds.width);
+    }
+    expect(
+      Math.max(...rightEdges) - Math.min(...rightEdges),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      await list.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true);
+    await window.screenshot({
+      path: info.outputPath(`work-list-${scene}.png`),
+    });
+  }
+  await rows.first().press('Enter');
+  await expect(detail(page)).toBeVisible();
 });
 
 test('Work keeps a paged frontier during background updates and explicitly refreshes to newest work', async ({

@@ -39,6 +39,7 @@ type browserRunner struct {
 	FirstTaskSucceededAt   string                 `json:"firstTaskSucceededAt"`
 	ModelConfigured        bool                   `json:"modelConfigured"`
 	ModelCheckedAt         string                 `json:"modelCheckedAt"`
+	ModelUpgradeRequired   bool                   `json:"modelUpgradeRequired,omitempty"`
 	OwnerUserID            string                 `json:"ownerUserId"`
 	TeamShared             bool                   `json:"teamShared"`
 	ID                     string                 `json:"id"`
@@ -123,6 +124,7 @@ func (a *API) remoteRoutes(mux *http.ServeMux) {
 			view.FirstTaskSucceededAt = runner.FirstTaskSucceededAt
 			view.ModelConfigured = runner.ModelConfigured
 			view.ModelCheckedAt = runner.ModelCheckedAt
+			view.ModelUpgradeRequired = runner.ModelUpgradeRequired
 			out = append(out, view)
 		}
 		a.respond(w, r, map[string]any{"runners": out}, err)

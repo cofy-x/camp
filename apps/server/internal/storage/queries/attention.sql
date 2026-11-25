@@ -25,8 +25,18 @@ SELECT CAST(page.id AS TEXT) AS id,page.source,page.entity_id,page.room_id,page.
  CAST(coalesce(json_extract(w.value,'$.deadline'),'') AS TEXT) AS work_deadline,
  CAST(coalesce(d.value,'') AS TEXT) AS legacy_recovery_decision,
  CAST(coalesce(t.status,'') AS TEXT) AS legacy_recovery_task_status,
- CAST(coalesce(p.source_id,'') AS TEXT) AS legacy_recovery_source_id
+ CAST(coalesce(p.source_id,'') AS TEXT) AS legacy_recovery_source_id,
+ CAST(coalesce(json_extract(j.value,'$.question'),'') AS TEXT) AS decision_question,
+ CAST(coalesce(json_extract(j.value,'$.questionKind'),'') AS TEXT) AS decision_question_kind,
+ CAST(coalesce(json_extract(j.value,'$.activeTaskId'),'') AS TEXT) AS decision_active_task_id,
+ CAST(CASE WHEN current_task.id IS NULL THEN '' ELSE json_object(
+  'taskId',current_task.id,'status',current_task.status,'revision',current_task.revision,
+  'activeRunId',coalesce(json_extract(current_task.snapshot,'$.activeRunId'),''),
+  'question',json_extract(current_task.snapshot,'$.question')
+ ) END AS TEXT) AS decision_execution
 FROM page
+LEFT JOIN work_items j ON page.source='work_item' AND page.kind='judgment' AND page.entity_id=j.id
+LEFT JOIN collaboration_tasks current_task ON current_task.id=json_extract(j.value,'$.activeTaskId')
 LEFT JOIN work_items w ON page.source='work_item' AND page.kind='exception' AND page.entity_id=w.id
  AND w.status='needs_attention' AND coalesce(json_extract(w.value,'$.activeTaskId'),'')=''
  AND coalesce(json_extract(w.value,'$.stopRequested'),0)=0

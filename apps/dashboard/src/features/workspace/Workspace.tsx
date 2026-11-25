@@ -28,6 +28,10 @@ import { TaskDetail } from '../collaboration/TaskDetail';
 import { Automation } from '../automation/Automation';
 import type { SourceEvent } from '../automation/api';
 import { RoomMemory } from '../memory/RoomMemory';
+import {
+  useRoomNameOperation,
+  type RoomNameEdit,
+} from './useRoomNameOperation';
 
 export function Workspace({ window, desktop }: AppWindowProps) {
   const team = useTeam();
@@ -56,6 +60,9 @@ export function Workspace({ window, desktop }: AppWindowProps) {
     taskId,
     setTaskId,
     reviewId,
+    reviewEntry,
+    reviewRevision,
+    reviewCommit,
     setReviewId,
   } = useWorkspaceView();
   const [managementView, setManagementView] = useState<'settings' | 'activity'>(
@@ -68,10 +75,13 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   const [sourceId, setSourceId] = useState('');
   const [sourceRequest, setSourceRequest] = useState(0);
   const [actionError, setActionError] = useState('');
+  const roomNameBusy = useRef(false);
   const focused =
     visible && desktop.activeWindowId === window.id && !window.shaded;
 
   const workspace = useWorkspace();
+  const roomName = useRoomNameOperation(user.id, workspace.refresh);
+  const canCloseRoomName = !roomName.busy && !roomName.edit;
   const { room, rooms, roomId, threadId, members, agents, runs } = workspace;
   const collaborations = useTasks(
     roomId,
@@ -79,8 +89,12 @@ export function Workspace({ window, desktop }: AppWindowProps) {
   );
   const attention = useTasks(roomId, panel === 'chat' && !inspect, true);
   useEffect(
-    () => desktop.beforeClose(window.id, flushPrivateDrafts),
-    [desktop, window.id],
+    () =>
+      desktop.beforeClose(
+        window.id,
+        () => !roomNameBusy.current && canCloseRoomName && flushPrivateDrafts(),
+      ),
+    [desktop, window.id, canCloseRoomName],
   );
   const location = inspect
     ? 'Work details'
@@ -139,7 +153,14 @@ export function Workspace({ window, desktop }: AppWindowProps) {
       setPanel(intent.taskId ? 'tasks' : intent.reviewId ? 'reviews' : 'chat');
     }
     setTaskId(intent.taskId ?? '');
-    setReviewId(intent.reviewId ?? '');
+    setReviewId(
+      intent.reviewId ?? '',
+      intent.reviewRevision === undefined && intent.reviewCommit === undefined
+        ? undefined
+        : intent.revision,
+      intent.reviewRevision,
+      intent.reviewCommit,
+    );
     setInspect(intent.taskId ? '' : (intent.runId ?? ''));
     if (intent.handoff) {
       try {
@@ -251,47 +272,65 @@ export function Workspace({ window, desktop }: AppWindowProps) {
     });
   }
 
-  async function newRoom() {
-    const result = await desktop.dialog({
-      title: 'New Room',
-      message: `Visible to everyone in ${team.name}.`,
-      input: { label: 'Room name' },
-      buttons: [
-        { label: 'Cancel', value: 'cancel', cancel: true },
-        { label: 'Create Room', value: 'create', default: true },
-      ],
-    });
-    if (result?.button !== 'create' || !result.value.trim()) return;
+  async function editRoomName(
+    target?: RoomNameEdit['target'],
+    initial = target?.name ?? '',
+  ) {
+    if (roomNameBusy.current) return;
+    roomNameBusy.current = true;
     try {
-      const response = await workspaceApi.createRoom(result.value.trim());
-      workspace.refresh();
-      await showRoom(response.room.id);
-    } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : 'Could not create this room.',
-      );
+      const result = await desktop.dialog({
+        title: target ? 'Rename Room' : 'New Room',
+        message: target
+          ? `Rename ${target.name}.`
+          : `Visible to everyone in ${team.name}.`,
+        input: { label: 'Room name', value: initial },
+        buttons: [
+          { label: 'Cancel', value: 'cancel', cancel: true, default: true },
+          {
+            label: target ? 'Save' : 'Create Room',
+            value: 'save',
+            default: true,
+          },
+        ],
+      });
+      const name = result?.value.trim();
+      if (result?.button !== 'save' || !name) return;
+      const navigation = navigationRequest.current;
+      const teamNavigation = team.getNavigationRevision();
+      const activation = desktop.getActivationRevision();
+      const saved = await roomName.submit({
+        name,
+        target: target && {
+          id: target.id,
+          name: target.name,
+          updatedAt: target.updatedAt,
+        },
+      });
+      if (
+        saved &&
+        !target &&
+        navigation === navigationRequest.current &&
+        teamNavigation === team.getNavigationRevision() &&
+        activation === desktop.getActivationRevision()
+      )
+        await showRoom(saved.id).catch(() =>
+          setActionError('Room saved. Open it from Rooms.'),
+        );
+    } finally {
+      roomNameBusy.current = false;
     }
   }
 
-  async function renameRoom() {
-    if (!room) return;
-    const result = await desktop.dialog({
-      title: 'Rename Room',
-      input: { label: 'Room name', value: room.name },
-      buttons: [
-        { label: 'Cancel', value: 'cancel', cancel: true },
-        { label: 'Save', value: 'save', default: true },
-      ],
-    });
-    if (result?.button !== 'save' || !result.value.trim()) return;
-    try {
-      await workspaceApi.updateRoom(room.id, { name: result.value.trim() });
-      workspace.refresh();
-    } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : 'Could not rename this room.',
-      );
-    }
+  const roomNameBlocked =
+    roomName.busy || Boolean(roomName.pending || roomName.edit);
+
+  function newRoom() {
+    if (!roomNameBlocked) void editRoomName();
+  }
+
+  function renameRoom() {
+    if (room && !roomNameBlocked) void editRoomName(room);
   }
 
   function openRoomActions(button: HTMLButtonElement) {
@@ -365,10 +404,10 @@ export function Workspace({ window, desktop }: AppWindowProps) {
         },
         {
           label: 'Rename Room…',
-          disabled: !room,
-          action: () => void renameRoom(),
+          disabled: !room || roomNameBlocked,
+          action: renameRoom,
         },
-        { label: 'New Room…', action: () => void newRoom() },
+        { label: 'New Room…', disabled: roomNameBlocked, action: newRoom },
         { label: 'Refresh', action: workspace.refresh },
       ],
       { x: rect.left, y: rect.bottom },
@@ -531,7 +570,11 @@ export function Workspace({ window, desktop }: AppWindowProps) {
         <aside className="workspace-sidebar" aria-label="Workspace navigation">
           <div className="workspace-sidebar-heading">
             <strong>Rooms</strong>
-            <Button aria-label="New Room" onClick={() => void newRoom()}>
+            <Button
+              aria-label="New Room"
+              disabled={roomNameBlocked}
+              onClick={newRoom}
+            >
               +
             </Button>
           </div>
@@ -627,6 +670,53 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 More
               </Button>
             </div>
+            {room &&
+              panel === 'chat' &&
+              !inspect &&
+              (!workspace.membersReady || members.length > 0) && (
+                <div className="workspace-members" aria-label="Room members">
+                  {!workspace.membersReady ? (
+                    <span>
+                      {workspace.membersFailed
+                        ? 'Room members unavailable'
+                        : 'Loading members…'}
+                    </span>
+                  ) : (
+                    members.map((agent) => {
+                      const work = active.find(
+                        (run) => run.agentId === agent.id,
+                      );
+                      const state =
+                        workspace.status?.agentStates?.[agent.id] ??
+                        work?.status;
+                      return (
+                        <button
+                          key={agent.id}
+                          onClick={() =>
+                            void team.navigate({
+                              app: 'agents',
+                              agentId: agent.id,
+                            })
+                          }
+                          title={`@${agent.handle} · ${agent.access === 'write' ? 'Can edit files' : 'Read only'}`}
+                        >
+                          <IdentityAvatar
+                            avatar={agent.avatar}
+                            kind="agent"
+                            size={20}
+                          />
+                          <strong>{agent.name}</strong>
+                          {!agent.enabled ? (
+                            <span>Disabled</span>
+                          ) : state ? (
+                            <span>{statusLabel[state]}</span>
+                          ) : null}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
           </div>
           {room && panel === 'chat' && !inspect && (
             <TaskAttention
@@ -653,61 +743,64 @@ export function Workspace({ window, desktop }: AppWindowProps) {
               }}
             />
           )}
-          {room && panel === 'chat' && !inspect && (
-            <div className="workspace-members" aria-label="Room members">
-              {!workspace.membersReady ? (
-                <span>
-                  {workspace.membersFailed
-                    ? 'Room members unavailable'
-                    : 'Loading members…'}
-                </span>
-              ) : members.length ? (
-                members.map((agent) => {
-                  const work = active.find((run) => run.agentId === agent.id);
-                  const state =
-                    workspace.status?.agentStates?.[agent.id] ?? work?.status;
-                  return (
-                    <button
-                      key={agent.id}
-                      onClick={() =>
-                        void team.navigate({ app: 'agents', agentId: agent.id })
-                      }
-                      title={`@${agent.handle} · ${agent.access === 'write' ? 'Can edit files' : 'Read only'}`}
-                    >
-                      <IdentityAvatar
-                        avatar={agent.avatar}
-                        kind="agent"
-                        size={24}
-                      />
-                      <strong>{agent.name}</strong>
-                      <span>
-                        {!agent.enabled
-                          ? 'Disabled'
-                          : state
-                            ? statusLabel[state]
-                            : 'Idle'}
-                      </span>
-                    </button>
-                  );
-                })
-              ) : (
-                <span>No Agents in this Room</span>
+          {workspace.error && (
+            <div role="alert" className="app-error workspace-feedback">
+              {workspace.error}
+              <Button onClick={workspace.refresh}>Retry</Button>
+            </div>
+          )}
+          {actionError && (
+            <div role="alert" className="app-error workspace-feedback">
+              {actionError}
+              <Button onClick={() => setActionError('')}>Dismiss</Button>
+            </div>
+          )}
+          {roomName.busy ? (
+            <div role="status" className="workspace-feedback">
+              {roomName.pending ? 'Confirming Room name…' : 'Saving Room name…'}
+            </div>
+          ) : roomName.pending ? (
+            <div role="alert" className="app-error workspace-feedback">
+              <span>
+                Save not confirmed for “{roomName.pending.name}”.{' '}
+                {roomName.error}
+              </span>
+              <Button onClick={() => void roomName.check()}>
+                Check Saved Room
+              </Button>
+              {roomName.missing && (
+                <Button onClick={() => void roomName.retry()}>
+                  Retry Original Request
+                </Button>
               )}
             </div>
-          )}
-          {(workspace.error || actionError) && (
+          ) : roomName.edit ? (
             <div role="alert" className="app-error workspace-feedback">
-              {actionError || workspace.error}
+              {roomName.error}
               <Button
                 onClick={() => {
-                  setActionError('');
-                  workspace.refresh();
+                  const edit = roomName.edit;
+                  if (!edit) return;
+                  const target =
+                    rooms.find(
+                      (candidate) => candidate.id === edit.target?.id,
+                    ) ?? edit.target;
+                  void editRoomName(target, edit.name);
                 }}
               >
-                Retry
+                Edit Room Name…
               </Button>
+              <Button onClick={roomName.discardEdit}>Discard Edit</Button>
             </div>
-          )}
+          ) : roomName.confirmed ? (
+            <div role="status" className="workspace-feedback">
+              <span>Saved “{roomName.confirmed.name}”.</span>
+              <Button onClick={() => void showRoom(roomName.confirmed!.id)}>
+                Open Saved Room
+              </Button>
+              <Button onClick={roomName.dismissConfirmation}>Dismiss</Button>
+            </div>
+          ) : null}
           {panel === 'chat' &&
             !inspect &&
             workspace.status &&
@@ -739,8 +832,10 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                 />
                 {reviewId && (
                   <ReviewPanel
-                    key={reviewId}
+                    key={`${reviewId}:${reviewEntry ?? ''}`}
                     id={reviewId}
+                    minimumRevision={reviewRevision}
+                    expectedCommit={reviewCommit}
                     desktop={desktop}
                     onClose={() => void navigate(() => setReviewId(''))}
                   />
@@ -925,7 +1020,9 @@ export function Workspace({ window, desktop }: AppWindowProps) {
                   : 'No rooms are available.'}
               </p>
               {!workspace.loading && (
-                <Button onClick={() => void newRoom()}>New Room…</Button>
+                <Button disabled={roomNameBlocked} onClick={newRoom}>
+                  New Room…
+                </Button>
               )}
             </div>
           )}

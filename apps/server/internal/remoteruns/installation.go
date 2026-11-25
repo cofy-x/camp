@@ -173,9 +173,6 @@ func platformPackageView(artifact releaseArtifact, platform string, offline bool
 	return packageView(artifact, query)
 }
 
-func (m *Manager) RunnerPackagePath(offline bool) (string, RunnerPackage, error) {
-	return m.RunnerPackageFor(releaseinfo.LinuxAMD64, offline)
-}
 func (m *Manager) RunnerPackageFor(platform string, offline bool) (string, RunnerPackage, error) {
 	release, err := m.runnerRelease()
 	if err != nil {

@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { library, openApp, signIn, workspace } from './team-helpers';
+import {
+  library,
+  mockMemberRole,
+  openApp,
+  signIn,
+  workspace,
+} from './team-helpers';
 import { fixtureNotifications } from './fixture-notifications';
 import type { Runner } from '../apps/dashboard/src/features/runners/api';
 
@@ -7,16 +13,11 @@ test('a member can import from owned Runners while shared execution does not gra
   page,
 }) => {
   await signIn(page);
-  const status = await (await page.request.get('/api/auth/status')).json();
-  await page.route('**/api/auth/status', (route) =>
-    route.fulfill({
-      json: { ...status, user: { ...status.user, role: 'member' } },
-    }),
-  );
+  const user = await mockMemberRole(page);
   const owned: Runner = {
     id: 'owned-runner',
     name: 'My Linux Runner',
-    ownerUserId: status.user.id,
+    ownerUserId: user.id,
     enabled: true,
     revoked: false,
     online: true,

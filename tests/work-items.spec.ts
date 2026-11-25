@@ -17,6 +17,7 @@ import {
 import { watchPageErrors } from './page-errors';
 import { fixtureNotifications } from './fixture-notifications';
 import { timelineFixture } from './run-timeline-fixture';
+import { goalTitle } from '../apps/dashboard/src/shared/content/goal-title';
 import type {
   WorkItem,
   WorkItemInput,
@@ -246,8 +247,15 @@ async function presentation(
       },
     }),
   );
-  await page.route(`**/api/work-items/${item.id}`, (route) =>
+  await page.route(`**/api/work-items/${item.id}?view=current`, (route) =>
     route.fulfill({ json: { item } }),
+  );
+  await page.route(
+    `**/api/rooms/${room.id}/work-items/${item.id}/result-reviews?*`,
+    (route) =>
+      route.fulfill({
+        json: { currentVersion: true, canRequest: false, reviews: {} },
+      }),
   );
   await page.route(`**/api/work-items/${item.id}/history/*?*`, (route) => {
     const kind = new URL(route.request().url()).pathname.split('/').at(-1) as
@@ -268,12 +276,136 @@ async function presentation(
       await openItems(page);
       await work(page)
         .getByRole('button')
-        .filter({ hasText: item.goal })
+        .filter({ hasText: goalTitle(item.goal) })
         .click();
       await expect(detail(page)).toBeVisible();
     },
   };
 }
+
+test('Work Records opens only the selected category and preserves reading state @work-loop', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  const date = '2026-11-22T09:00:00Z';
+  const evidenceId = `room:${randomUUID()}`;
+  const contextText =
+    'The owner approved the sample.\nCheck the operations log.';
+  const value = await presentation(page, errors.reload, {
+    evidence: [{ eventId: evidenceId, kind: 'room.message', createdAt: date }],
+    tasks: [
+      {
+        id: 'session',
+        status: 'completed',
+        summary: 'Prepared the sample.',
+        createdAt: date,
+      },
+    ],
+    timers: [
+      {
+        id: 'reminder',
+        status: 'pending',
+        condition: 'Check the operations log.',
+        dueAt: date,
+      },
+    ],
+    actions: [
+      {
+        id: 'notification',
+        kind: 'inbox',
+        status: 'delivered',
+        body: 'The list is ready.',
+        createdAt: date,
+      },
+    ],
+  });
+  const historyKinds = new Set<string>();
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.startsWith(`/api/work-items/${value.item.id}/history/`))
+      historyKinds.add(path.split('/').at(-1)!);
+  });
+  let originalReads = 0;
+  await page.route(
+    `**/api/automation-events/${encodeURIComponent(evidenceId)}`,
+    (route) => {
+      originalReads++;
+      if (originalReads === 1)
+        return route.fulfill({
+          status: 503,
+          json: { error: 'Original unavailable.' },
+        });
+      return route.fulfill({
+        json: {
+          event: {
+            content: contextText,
+            actorLogin: 'Fixture owner',
+            occurredAt: date,
+          },
+        },
+      });
+    },
+  );
+  await value.open();
+  expect([...historyKinds]).toEqual([]);
+  await openWorkAction(page, 'Records');
+  const records = detail(page).getByRole('region', { name: 'Work records' });
+  const tab = (name: string) => records.getByRole('tab', { name, exact: true });
+  const panel = (name: string) =>
+    records.getByRole('tabpanel', { name, exact: true });
+  await expect(panel('Decisions')).toContainText('No decisions recorded.');
+  expect([...historyKinds]).toEqual(['decisions']);
+
+  await tab('Decisions').focus();
+  await tab('Decisions').press('ArrowRight');
+  await expect(tab('Context')).toBeFocused();
+  await expect(tab('Context')).toHaveAttribute('aria-selected', 'true');
+  const context = panel('Context');
+  const source = context.locator('summary').filter({ hasText: 'Room message' });
+  const originalNote = source.locator('..').locator('.work-record-text');
+  await expect(source).toBeVisible();
+  expect([...historyKinds]).toEqual(['decisions', 'evidence']);
+  expect(originalReads).toBe(0);
+  await tab('Context').press('Tab');
+  await expect(context).toBeFocused();
+  await source.press('Enter');
+  await expect(context.getByRole('alert')).toContainText(
+    'Original unavailable.',
+  );
+  await context.getByRole('button', { name: 'Retry Original' }).click();
+  await expect(
+    context.getByText('Fixture owner', { exact: false }),
+  ).toBeVisible();
+  await expect(originalNote).toHaveText(contextText);
+  await expect(source).toContainText('Room message');
+
+  await tab('Sessions').click();
+  await expect(panel('Sessions')).toContainText('Work completed');
+  await expect(panel('Sessions')).toContainText('Prepared the sample.');
+  await tab('Reminders').click();
+  await expect(panel('Reminders')).toContainText('Scheduled');
+  await expect(panel('Reminders').locator('time:visible')).toHaveAttribute(
+    'datetime',
+    date,
+  );
+  await tab('Actions').click();
+  await expect(panel('Actions')).toContainText('Inbox notification');
+  await expect(panel('Actions')).toContainText('Delivered');
+  await tab('Actions').press('ArrowRight');
+  await expect(tab('Decisions')).toBeFocused();
+  await tab('Decisions').press('ArrowRight');
+  await expect(source.locator('..')).toHaveAttribute('open');
+  await expect(originalNote).toBeVisible();
+  expect([...historyKinds]).toEqual([
+    'decisions',
+    'evidence',
+    'tasks',
+    'timers',
+    'actions',
+  ]);
+  expect(errors.errors).toEqual([]);
+});
 
 test('Work scheduling shows the linked rule’s authority @work-loop', async ({
   page,
@@ -426,8 +558,7 @@ test('starting Work waits for the selected Runner check while recording stays av
     await openApp(page, 'Work');
     await expect(goal).toHaveValue('Draft a handoff for the next shift');
     await win.screenshot({ path: info.outputPath('work-runner-access.png') });
-    await form.locator('.work-item-options > summary').click();
-    await form.getByText('Completion & delivery', { exact: true }).click();
+    await form.getByText('Delivery', { exact: true }).click();
     await form.getByLabel('Completion', { exact: true }).selectOption('human');
     await expect(start).toBeEnabled();
     await expect(form.getByText(/Update the selected Runner/)).toHaveCount(0);
@@ -455,8 +586,7 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
   await work(page)
     .getByLabel('What needs to happen?', { exact: true })
     .fill('Confirm the customer’s acceptance');
-  await work(page).locator('.work-item-options > summary').click();
-  await work(page).getByText('Completion & delivery', { exact: true }).click();
+  await work(page).getByText('Delivery', { exact: true }).click();
   await work(page)
     .getByLabel('Completion', { exact: true })
     .selectOption('human');
@@ -595,10 +725,10 @@ test('a recorded matter recovers uncertain writes, answers judgment and closes w
     },
   );
   try {
-    await openWorkAction(page, 'Records…');
+    await openWorkAction(page, 'Records');
     await expect(
-      detail(page).getByLabel('Show records', { exact: true }),
-    ).toHaveValue('decisions');
+      detail(page).getByRole('tab', { name: 'Decisions', exact: true }),
+    ).toHaveAttribute('aria-selected', 'true');
     await expect(
       detail(page)
         .getByRole('region', { name: 'Decisions', exact: true })
@@ -773,7 +903,7 @@ test('message follow-up links the original and future replies in one recorded ma
   await Promise.all([
     page.waitForResponse(
       (response) =>
-        response.url().endsWith(`/api/work-items/${item.id}`) &&
+        response.url().endsWith(`/api/work-items/${item.id}?view=current`) &&
         response.request().method() === 'GET',
     ),
     openWorkAction(page, 'Refresh'),
@@ -944,7 +1074,7 @@ test('message follow-up links the original and future replies in one recorded ma
   await Promise.all([
     page.waitForResponse(
       (response) =>
-        response.url().endsWith(`/api/work-items/${item.id}`) &&
+        response.url().endsWith(`/api/work-items/${item.id}?view=current`) &&
         response.request().method() === 'GET',
     ),
     openWorkAction(page, 'Refresh'),
@@ -1205,8 +1335,7 @@ test('starting work freezes the actual finite grant and recovers the same reques
       exact: true,
     }),
   ).toBeVisible();
-  await work(page).getByText('Options', { exact: true }).click();
-  await work(page).getByText('Work details', { exact: true }).click();
+  await work(page).getByText('Details', { exact: true }).click();
   await work(page)
     .getByLabel('Future follow-up', { exact: true })
     .selectOption(policy.id);
@@ -1357,7 +1486,7 @@ test('the current task question answers in place with task revision and an exact
     detail(page).getByLabel('Manage work', { exact: true }),
   ).toBeHidden();
   await expect(
-    detail(page).getByLabel('Show records', { exact: true }),
+    detail(page).getByRole('tablist', { name: 'Record categories' }),
   ).toBeHidden();
   await expect(
     detail(page).getByRole('button', { name: 'Cancel', exact: true }),
@@ -1371,16 +1500,16 @@ test('the current task question answers in place with task revision and an exact
   await expect(
     detail(page).getByLabel('Your answer', { exact: true }),
   ).toHaveValue('New customers');
-  await openWorkAction(page, 'Records…');
+  await openWorkAction(page, 'Records');
   await detail(page)
-    .getByLabel('Show records', { exact: true })
-    .selectOption('tasks');
+    .getByRole('tab', { name: 'Sessions', exact: true })
+    .click();
   await expect(
-    detail(page).getByRole('region', { name: 'Work sessions', exact: true }),
+    detail(page).getByRole('region', { name: 'Sessions', exact: true }),
   ).toBeVisible();
   await expect(
     detail(page)
-      .getByRole('region', { name: 'Work sessions', exact: true })
+      .getByRole('region', { name: 'Sessions', exact: true })
       .locator('summary'),
   ).toHaveCount(0);
   await detail(page).getByText('Complete when', { exact: true }).click();
@@ -1545,6 +1674,118 @@ test('a stopped task retains its files and private reply without asking an old q
   expect(errors.errors).toEqual([]);
 });
 
+test('a projected human decision leads the Work list and result while retaining an older answer', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  const priorReply = 'Keep this unsent answer for later.';
+  const question = 'Which audience should the proposal address?';
+  const confirmation = 'Confirm that the saved proposal is ready.';
+  const value = await presentation(page, errors.reload, {
+    status: 'running',
+    activeTaskId: 'decision-task',
+    execution: {
+      taskId: 'decision-task',
+      status: 'running',
+      revision: 2,
+      summary: '',
+      error: 'Old Runner failure',
+      currentAgentName: 'Writer',
+      activeRunId: 'earlier-run',
+      updatedAt: '2026-11-17T08:00:00Z',
+    },
+    currentDecision: {
+      kind: 'task',
+      id: 'current-question',
+      text: question,
+      options: [],
+      taskId: 'decision-task',
+      taskRevision: 3,
+    },
+  });
+  await openItems(page);
+  const row = work(page)
+    .getByRole('button')
+    .filter({ hasText: value.item.goal });
+  await expect(row.locator('.work-item-row-decision')).toHaveText(question);
+  await expect(row).not.toContainText('Working');
+  await row.click();
+  const panel = detail(page);
+  await expect(
+    panel.getByRole('heading', { name: question, exact: true }),
+  ).toBeVisible();
+  await expect(
+    panel.getByRole('button', { name: 'View progress', exact: true }),
+  ).toHaveCount(0);
+  await expect(panel.getByText('Old Runner failure')).toHaveCount(0);
+  await panel.getByLabel('Your answer', { exact: true }).fill(priorReply);
+
+  value.setItem({
+    status: 'waiting_for_person',
+    revision: 2,
+    activeTaskId: undefined,
+    currentDecision: { kind: 'completion', text: confirmation },
+    question: 'Retained older question',
+    execution: {
+      ...value.item.execution!,
+      status: 'completed',
+      activeRunId: '',
+    },
+    result: {
+      taskId: 'decision-task',
+      summary: 'The proposal is prepared.',
+      resourceId: 'proposal-files',
+      commit: 'saved-proposal',
+      published: true,
+      files: [{ path: 'proposal.md', status: 'added' }],
+    },
+  });
+  await openWorkAction(page, 'Refresh');
+  const decision = panel.getByRole('region', {
+    name: 'Completion confirmation',
+  });
+  const result = panel.getByRole('region', {
+    name: 'Work result',
+    exact: true,
+  });
+  const preserved = panel.getByRole('region', { name: 'Your saved input' });
+  await expect(decision).toContainText(confirmation);
+  await expect(result).toBeVisible();
+  await expect(preserved).toContainText(priorReply);
+  await expect(panel.getByLabel('Your answer', { exact: true })).toHaveCount(0);
+  await expect(panel.getByText('Retained older question')).toHaveCount(0);
+  const decisionTop = (await decision.boundingBox())!.y;
+  expect(decisionTop).toBeLessThan((await result.boundingBox())!.y);
+  expect(decisionTop).toBeLessThan(
+    (await panel.getByRole('heading', { name: value.item.goal }).boundingBox())!
+      .y,
+  );
+  await capture(page, 'projected-human-decision');
+
+  const confirms: WorkActionInput[] = [];
+  await page.route(
+    `**/api/work-items/${value.item.id}/actions/complete`,
+    (route) => {
+      confirms.push(route.request().postDataJSON());
+      value.setItem({
+        status: 'completed',
+        revision: 3,
+        currentDecision: null,
+      });
+      return route.fulfill({ json: { item: value.item } });
+    },
+  );
+  await decision
+    .getByRole('button', { name: 'Confirm done', exact: true })
+    .click();
+  await expect(panel.getByText('Completed', { exact: true })).toBeVisible();
+  await expect(decision).toHaveCount(0);
+  await expect(preserved).toContainText(priorReply);
+  expect(confirms).toEqual([{ revision: 2, requestId: expect.any(String) }]);
+  expect(errors.errors).toEqual([]);
+});
+
 test('settled Work keeps the result and moves an earlier execution error to Records @work-loop', async ({
   page,
   browserName,
@@ -1598,7 +1839,7 @@ test('settled Work keeps the result and moves an earlier execution error to Reco
   await expect(
     panel.getByRole('button', { name: 'proposal.md', exact: true }),
   ).toBeVisible();
-  await openWorkAction(page, 'Records…');
+  await openWorkAction(page, 'Records');
   await expect(
     panel.getByRole('region', { name: 'Work records' }).getByText(formerError),
   ).toBeVisible();
@@ -1617,15 +1858,18 @@ test('a Work detail retains a temporary read failure and clears revoked content 
     question,
   });
   let status = 0;
-  await page.route(`**/api/work-items/${value.item.id}`, (route) =>
-    status
-      ? route.fulfill({
-          status,
-          json: {
-            error: status === 403 ? 'Access changed.' : 'Work is unavailable.',
-          },
-        })
-      : route.fallback(),
+  await page.route(
+    `**/api/work-items/${value.item.id}?view=current`,
+    (route) =>
+      status
+        ? route.fulfill({
+            status,
+            json: {
+              error:
+                status === 403 ? 'Access changed.' : 'Work is unavailable.',
+            },
+          })
+        : route.fallback(),
   );
   await value.open();
   const panel = detail(page);
@@ -1859,7 +2103,7 @@ test('completed work keeps exact files ahead of a lazy full report and retains i
     'EXACT_FINAL_REPORT_RECOMMENDATION',
   ].join('\n\n');
   const value = await presentation(page, errors.reload, {
-    goal: 'Prepare the reviewed notes release',
+    goal: 'Prepare the reviewed notes release.\n\n# Release checklist\n\nConfirm the public notes.',
     status: 'completed',
     result: {
       taskId: 'report-task',
@@ -1875,9 +2119,27 @@ test('completed work keeps exact files ahead of a lazy full report and retains i
     name: 'Work result',
     exact: true,
   });
+  const file = result.getByRole('button', {
+    name: 'release-notes.md',
+    exact: true,
+  });
+  await expect(file).toBeVisible();
+  await expect(file).toHaveCSS('border-top-style', 'none');
+  const original = detail(page).locator('details.goal-disclosure');
+  await expect(original.locator('summary')).toHaveCSS(
+    'font-family',
+    /Chicago Kare/,
+  );
+  const topInPane = (element: Element) =>
+    element.getBoundingClientRect().top +
+    (element.closest('.work-app-body')?.scrollTop ?? 0);
+  const resultTop = await result.evaluate(topInPane);
+  await original.locator('summary').click();
   await expect(
-    result.getByRole('button', { name: 'release-notes.md', exact: true }),
+    original.getByRole('heading', { name: 'Release checklist' }),
   ).toBeVisible();
+  expect(await result.evaluate(topInPane)).toBe(resultTop);
+  await original.locator('summary').click();
   await expect(result).toContainText('Published to Room');
   await expect(result).toContainText('The reviewed notes release is ready.');
   await expect(
@@ -1887,20 +2149,22 @@ test('completed work keeps exact files ahead of a lazy full report and retains i
   await capture(page, 'compact-result-report');
   const disclosure = result
     .locator('summary')
-    .filter({ hasText: 'Read full report' });
+    .filter({ hasText: 'Full report' });
   await disclosure.focus();
   await disclosure.press('Enter');
   await expect(result).toContainText('EXACT_FINAL_REPORT_RECOMMENDATION');
-  await openWorkAction(page, 'Records…');
+  await openWorkAction(page, 'Records');
   await detail(page)
     .getByRole('button', { name: 'Back to item', exact: true })
     .click();
   await expect(result.locator('details')).toHaveAttribute('open', '');
   await expect(result).toContainText('EXACT_FINAL_REPORT_RECOMMENDATION');
-  await result
-    .getByRole('button', { name: 'Collapse report', exact: true })
-    .click();
-  await expect(result.locator('summary')).toBeFocused();
+  await expect(
+    result.getByRole('button', { name: 'Collapse report', exact: true }),
+  ).toHaveCount(0);
+  await disclosure.press('Space');
+  await expect(result.locator('details')).not.toHaveAttribute('open');
+  await expect(disclosure).toBeFocused();
   await expect(
     result.getByRole('button', { name: 'release-notes.md', exact: true }),
   ).toBeVisible();
@@ -2510,10 +2774,10 @@ test('linked task and run inspection stay inside Work and return to the same mat
     }),
   );
   await value.open();
-  await openWorkAction(page, 'Records…');
+  await openWorkAction(page, 'Records');
   await detail(page)
-    .getByLabel('Show records', { exact: true })
-    .selectOption('tasks');
+    .getByRole('tab', { name: 'Sessions', exact: true })
+    .click();
   await detail(page)
     .getByRole('button', { name: 'Open execution', exact: true })
     .click();
@@ -2832,13 +3096,27 @@ test('Activity retains its accepted page, local retry and private answer through
   let failed = true;
   let newerProgress = false;
   const requestedCursors: string[] = [];
-  const entry = (seq: number, content: string) => ({
+  const timestamp = (seq: number) =>
+    new Date(Date.parse(value.item.createdAt) + seq * 1000).toISOString();
+  const report = [
+    '# Complete result from the saved document',
+    '',
+    'The reviewed proposal identifies the launch day and responsible owner.',
+    '',
+    'The report preserves the reviewer’s exact note.',
+    '',
+    'Keep the timeline’s latest page available while reading an earlier entry.',
+  ].join('\n');
+  const originalGoal =
+    'Original request with the final launch-day instructions.';
+  const completionNote = 'I confirmed the trial scope with the requester.';
+  const entry = (seq: number, content: string, kind = 'wait', taskId = '') => ({
     id: `progress-${seq}`,
     seq,
-    kind: 'wait',
+    kind,
     content,
-    taskId: '',
-    createdAt: value.item.createdAt,
+    taskId,
+    createdAt: timestamp(seq),
   });
   await page.route(
     `**/api/work-items/${value.item.id}/history/timeline?*`,
@@ -2855,7 +3133,10 @@ test('Activity retains its accepted page, local retry and private answer through
         await gate;
         return route.fulfill({
           json: {
-            items: [entry(1, 'Earlier progress retained')],
+            items: [
+              entry(2, 'Earlier progress retained'),
+              entry(1, originalGoal, 'create'),
+            ],
             cursor: 'earlier',
             nextCursor: '',
           },
@@ -2864,13 +3145,15 @@ test('Activity retains its accepted page, local retry and private answer through
       return route.fulfill({
         json: {
           items: [
+            entry(6, completionNote, 'complete'),
+            entry(5, report, 'result', 'saved-execution'),
             entry(
-              3,
+              4,
               !cursor && newerProgress
                 ? 'A new customer reply arrived'
                 : 'The document was saved',
             ),
-            entry(2, 'Waiting for the customer'),
+            entry(3, 'Waiting for the customer'),
           ],
           cursor: cursor || 'original-first',
           nextCursor: 'earlier',
@@ -2891,7 +3174,46 @@ test('Activity retains its accepted page, local retry and private answer through
   });
   await expect(activity).toContainText('The document was saved');
   await expect(
-    detail(page).getByLabel('Show records', { exact: true }),
+    detail(page).getByRole('heading', { name: 'Activity' }),
+  ).toBeVisible();
+  await expect(activity.locator('time').first()).toHaveAttribute(
+    'datetime',
+    timestamp(6),
+  );
+  await expect(
+    activity.getByRole('button', {
+      name: 'Result saved · View execution',
+      exact: true,
+    }),
+  ).toBeVisible();
+  const reportDisclosure = activity
+    .locator('summary')
+    .filter({ hasText: /^Result report$/ });
+  const reportHeading = activity.getByRole('heading', {
+    name: 'Complete result from the saved document',
+  });
+  await expect(reportHeading).toHaveCount(0);
+  const readsBeforeExpansion = requestedCursors.length;
+  await reportDisclosure.press('Enter');
+  await expect(reportHeading).toBeVisible();
+  await expect(activity).toContainText(
+    'The report preserves the reviewer’s exact note.',
+  );
+  await expect(
+    activity.getByRole('button', { name: /^Collapse / }),
+  ).toHaveCount(0);
+  await reportDisclosure.press('Space');
+  await expect(reportDisclosure).toBeFocused();
+  await expect(reportHeading).not.toBeVisible();
+  await expect(
+    activity.locator('summary').filter({ hasText: /^Completion note$/ }),
+  ).toHaveCount(0);
+  await expect(
+    activity.getByText(completionNote, { exact: true }),
+  ).toBeVisible();
+  expect(requestedCursors).toHaveLength(readsBeforeExpansion);
+  await expect(
+    detail(page).getByRole('tablist', { name: 'Record categories' }),
   ).toBeHidden();
   await activity.getByRole('button', { name: 'Earlier', exact: true }).click();
   await expect(activity.getByRole('alert')).toContainText(
@@ -2908,6 +3230,14 @@ test('Activity retains its accepted page, local retry and private answer through
   await expect(activity).toContainText('Earlier progress retained');
   await expect(activity.getByRole('alert')).toHaveCount(0);
   await expect(activity.locator('[data-history-record]').first()).toBeFocused();
+  await expect(activity.getByText(originalGoal, { exact: true })).toHaveCount(
+    0,
+  );
+  await activity
+    .locator('summary')
+    .filter({ hasText: /^Original goal$/ })
+    .click();
+  await expect(activity.getByText(originalGoal, { exact: true })).toBeVisible();
   newerProgress = true;
   await activity.getByRole('button', { name: 'Newer', exact: true }).click();
   await expect(activity).toContainText('The document was saved');

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Select } from '@cofy-x/camp-platinum';
 import { useAccount } from '../../team/AuthContext';
 import { useTeam } from '../../team/TeamContext';
@@ -20,23 +20,28 @@ export function RunnerReadiness({
   const { user } = useAccount();
   const task = useFirstTask(runner, active, getActivationRevision);
   const [open, setOpen] = useState(false);
+  const verificationAction = useRef<HTMLButtonElement>(null);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomId, setRoomId] = useState(task.receipt.roomId);
   const [roomsError, setRoomsError] = useState('');
   const { pending, error: taskError } = task;
   const error = taskError || roomsError;
   const lockedRoomId = task.receipt.roomId;
+  const admitted = task.receipt.phase === 'admitted';
+  const verified = Boolean(runner.firstTaskSucceededAt);
   const readiness = runner.capabilities.readiness;
   const native =
     runner.runtime === 'native' && runner.capabilities.executor !== 'fixture';
   const own = runner.ownerUserId === user.id;
+  const needsUpgrade = runner.modelUpgradeRequired && !lockedRoomId;
   const canTest =
     own &&
     runner.enabled &&
     !runner.revoked &&
     native &&
     runner.capabilities.ready &&
-    runner.modelConfigured;
+    runner.modelConfigured &&
+    !needsUpgrade;
   useEffect(() => {
     if (!open || !active) return;
     const controller = new AbortController();
@@ -104,58 +109,55 @@ export function RunnerReadiness({
                 </Button>
               )}
             </div>
-          ) : canTest && !runner.firstTaskSucceededAt ? (
+          ) : needsUpgrade ? (
             <div className="camp-runner-next-step">
-              <h3>
-                {lockedRoomId
-                  ? 'Continue your first task'
-                  : 'Try your first task'}
-              </h3>
-              {lockedRoomId ? (
-                <p>Continue the same task without starting another.</p>
-              ) : (
-                !open && <p>Create and check a sample file in a Room.</p>
-              )}
-              {!runner.online && (
-                <p>The task will wait for this Runner to reconnect.</p>
-              )}
-              {!open && (
+              <p>Update this Runner to use the Server’s reasoning setting.</p>
+            </div>
+          ) : (
+            <div className="camp-runner-next-step">
+              <h3>Verification</h3>
+              <p>
+                {verified
+                  ? 'Verified by completed native work.'
+                  : 'No verified native work recorded for this Runner.'}
+              </p>
+              {canTest && (!verified || lockedRoomId) ? (
                 <Button
-                  primary
+                  ref={verificationAction}
+                  variant="text"
+                  hidden={open}
                   onClick={() => {
                     task.resume();
                     setOpen(true);
                   }}
                 >
-                  Run First Task…
+                  {lockedRoomId ? 'Resume Verification…' : 'Verify Runner…'}
+                </Button>
+              ) : (
+                <Button
+                  variant="text"
+                  onClick={() => void team.navigate({ app: 'agents' })}
+                >
+                  Open Agents
                 </Button>
               )}
-            </div>
-          ) : (
-            <div className="camp-runner-next-step">
-              <p>
-                {runner.online
-                  ? 'Ready for Agent work. Choose this Runner in an Agent’s settings.'
-                  : 'Assigned work will wait until this Runner reconnects.'}
-              </p>
-              <Button onClick={() => void team.navigate({ app: 'agents' })}>
-                Open Agents
-              </Button>
             </div>
           )}
         </>
       )}
       {open && (
         <form
-          className="camp-runner-first-task"
+          className="camp-runner-verification"
+          aria-label="Runner verification"
           onSubmit={(event) => {
             event.preventDefault();
-            void task.start(roomId);
+            if (admitted || canTest) void task.start(roomId);
           }}
         >
           <Select
             label="Room"
             value={roomId}
+            autoFocus={!lockedRoomId}
             disabled={pending || Boolean(lockedRoomId)}
             onChange={(event) => setRoomId(event.target.value)}
           >
@@ -169,9 +171,13 @@ export function RunnerReadiness({
             ))}
           </Select>
           <p>
-            Creates an Assistant shared with this Room. Uses the Server model to
-            create and check a sample file.
+            {admitted
+              ? 'Open the saved sample task to see its result.'
+              : 'Creates an Assistant shared with this Room. Uses the Server model to create and check a sample file.'}
           </p>
+          {!admitted && !runner.online && (
+            <p>The sample will wait for this Runner to reconnect.</p>
+          )}
           {!rooms.length && (
             <Button
               type="button"
@@ -186,19 +192,16 @@ export function RunnerReadiness({
             <Button
               primary
               type="submit"
-              disabled={
-                pending ||
-                !roomId ||
-                (task.receipt.phase !== 'admitted' && !canTest)
-              }
+              autoFocus={Boolean(lockedRoomId)}
+              disabled={pending || !roomId || (!admitted && !canTest)}
             >
               {pending
                 ? 'Starting…'
-                : task.receipt.phase === 'admitted'
+                : admitted
                   ? 'Open Task'
                   : lockedRoomId
-                    ? 'Retry First Task'
-                    : 'Run First Task'}
+                    ? 'Retry Sample'
+                    : 'Run Sample'}
             </Button>
             {task.receipt.runId && !task.finished && (
               <Button
@@ -225,6 +228,9 @@ export function RunnerReadiness({
               onClick={() => {
                 task.dismiss();
                 setOpen(false);
+                requestAnimationFrame(() =>
+                  verificationAction.current?.focus(),
+                );
               }}
             >
               Back

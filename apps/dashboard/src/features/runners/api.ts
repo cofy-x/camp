@@ -27,6 +27,7 @@ export interface Runner {
   earlierTaskSucceededAt?: string;
   modelConfigured?: boolean;
   modelCheckedAt?: string;
+  modelUpgradeRequired?: boolean;
   slots?: number;
   runtime: 'native' | 'fixture' | '';
   capabilities: {

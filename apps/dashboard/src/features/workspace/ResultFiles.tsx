@@ -66,6 +66,7 @@ export function ResultFiles({
                 {run.published && (
                   <div className="workspace-result-file-actions">
                     <Button
+                      variant="text"
                       onClick={() =>
                         void team.navigate({
                           app: 'library',
@@ -91,7 +92,7 @@ export function ResultFiles({
         );
       })}
       {files.length > 3 && (
-        <Button onClick={() => setAll(!all)}>
+        <Button variant="text" onClick={() => setAll(!all)}>
           {all
             ? 'Show fewer files'
             : `Show ${run.filesLimited ? '' : 'all '}${files.length} files`}

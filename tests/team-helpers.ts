@@ -1,5 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { User } from '../apps/dashboard/src/team/api';
 import {
   expect,
   type Page,
@@ -133,6 +134,31 @@ export async function signIn(page: Page) {
   await writeFile(manifestPath, JSON.stringify({ ...manifest, ownerCookies }), {
     mode: 0o600,
   });
+}
+
+export async function mockMemberRole(page: Page) {
+  const { user } = await (await page.request.get('/api/auth/status')).json();
+  await page.route('**/api/auth/status', async (route) => {
+    const response = await route.fetch();
+    const status = await response.json();
+    return route.fulfill({
+      response,
+      json: { ...status, user: { ...status.user, role: 'member' } },
+    });
+  });
+  await page.route('**/api/team/members', async (route) => {
+    const response = await route.fetch();
+    const result: { members: User[] } = await response.json();
+    return route.fulfill({
+      response,
+      json: {
+        members: result.members.map((member) =>
+          member.id === user.id ? { ...member, role: 'member' } : member,
+        ),
+      },
+    });
+  });
+  return user as User;
 }
 
 export async function openApp(page: Page, name: string) {

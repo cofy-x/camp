@@ -49,7 +49,9 @@ function PolicySelection({
     <fieldset className="automation-policy-selection">
       <legend>{label}</legend>
       <details className="automation-policy-picker">
-        <summary>{summary || prompt}</summary>
+        <summary className={summary ? 'p9-body-text' : undefined}>
+          {summary || prompt}
+        </summary>
         <div className="automation-policy-choice-list">
           {available.map((choice) => (
             <Checkbox
@@ -117,14 +119,12 @@ export function PolicyEditor({
   policy,
   members,
   onSaved,
-  sourceKind = 'github',
 }: {
   roomId: string;
   sourceId: string;
   policy?: AutomationPolicy;
   members: Agent[];
   onSaved: (policy: AutomationPolicy) => void;
-  sourceKind?: 'github' | 'feishu';
 }) {
   const team = useTeam();
   const rulesId = useId();
@@ -315,20 +315,14 @@ export function PolicyEditor({
           />
         ) : (
           <div className="automation-input">
-            <label htmlFor={actorsId}>
-              Allowed {sourceKind === 'feishu' ? 'Feishu' : 'GitHub'} actor IDs
-            </label>
+            <label htmlFor={actorsId}>Allowed GitHub actor IDs</label>
             <textarea
               id={actorsId}
               className="p9-field"
               rows={2}
               required={values.enabled}
               value={actors}
-              placeholder={
-                sourceKind === 'feishu'
-                  ? 'One tenantKey:openId per line'
-                  : 'One numeric GitHub user ID per line'
-              }
+              placeholder="One numeric GitHub user ID per line"
               onChange={(event) => edit({}, event.target.value)}
             />
           </div>
@@ -468,7 +462,7 @@ export function PolicyEditor({
           caps.
         </small>
       </fieldset>
-      {sourceId !== 'room' && sourceKind !== 'feishu' && (
+      {sourceId !== 'room' && (
         <fieldset disabled={disabled}>
           <legend>GitHub conversation</legend>
           <Checkbox

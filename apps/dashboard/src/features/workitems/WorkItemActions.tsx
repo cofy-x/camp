@@ -133,10 +133,39 @@ export function WorkItemActions({
           value?.content ?? value?.comment ?? value?.reason ?? ''
         }
       />
-      {!readOnly && view === 'overview' && question && (
-        <section className="work-item-question" aria-label="Question for you">
+      {view === 'overview' && question && (
+        <section
+          className="work-item-question"
+          aria-label={
+            readOnly
+              ? 'Current decision'
+              : completionQuestion
+                ? 'Completion confirmation'
+                : 'Question for you'
+          }
+        >
           <h4 id={questionTextId}>{question.text}</h4>
-          {question.kind === 'task' && question.options.length ? (
+          {!readOnly && completionQuestion && (
+            <div className="app-actions">
+              <Button
+                primary
+                disabled={disabled}
+                onClick={() =>
+                  void operation.act(item.id, 'complete', {
+                    revision: item.revision,
+                  })
+                }
+              >
+                Confirm done
+              </Button>
+              {!active && availability?.available !== false && (
+                <Button disabled={disabled} onClick={() => onManage('changes')}>
+                  Request changes…
+                </Button>
+              )}
+            </div>
+          )}
+          {!readOnly && question.kind === 'task' && question.options.length ? (
             <div className="app-actions">
               {question.options.map((option) => (
                 <Button
@@ -149,7 +178,8 @@ export function WorkItemActions({
               ))}
             </div>
           ) : null}
-          {!completionQuestion &&
+          {!readOnly &&
+            !completionQuestion &&
             intent !== 'answer' &&
             intent !== 'answer_continue' && (
               <Button disabled={disabled} onClick={() => choose('answer')}>
@@ -162,53 +192,27 @@ export function WorkItemActions({
         view === 'overview' &&
         !recoveryActive &&
         !intent &&
-        (!hasQuestion || completionQuestion) &&
+        !hasQuestion &&
         item.status !== 'stopping' && (
           <div className="app-actions">
-            {completionQuestion && (
+            {!active && !item.result && !workDeliveryActive(item) && (
               <Button
                 primary
                 disabled={disabled}
-                onClick={() =>
-                  void operation.act(item.id, 'complete', {
-                    revision: item.revision,
-                  })
-                }
+                onClick={() => choose('start')}
               >
-                Confirm done
+                Start work…
               </Button>
             )}
-            {completionQuestion &&
-              !active &&
-              availability?.available !== false && (
-                <Button disabled={disabled} onClick={() => choose('start')}>
-                  Request changes…
-                </Button>
-              )}
-            {!active &&
-              !hasQuestion &&
-              !item.result &&
-              !workDeliveryActive(item) && (
-                <Button
-                  primary
-                  disabled={disabled}
-                  onClick={() => choose('start')}
-                >
-                  Start work…
-                </Button>
-              )}
-            {!active &&
-              !hasQuestion &&
-              item.result &&
-              item.completionMode === 'human' && (
-                <Button
-                  primary
-                  disabled={disabled}
-                  onClick={() => choose('complete')}
-                >
-                  Mark done…
-                </Button>
-              )}
+            {!active && item.result && item.completionMode === 'human' && (
+              <Button
+                primary
+                disabled={disabled}
+                onClick={() => choose('complete')}
+              >
+                Mark done…
+              </Button>
+            )}
           </div>
         )}
       {!readOnly && intent && (
@@ -550,7 +554,7 @@ export function WorkItemActions({
       {draft.value &&
         (readOnly ||
           (view === 'overview' &&
-            !hasQuestion &&
+            (!hasQuestion || completionQuestion) &&
             content &&
             (savedIntent === 'answer' ||
               savedIntent === 'answer_continue'))) && (

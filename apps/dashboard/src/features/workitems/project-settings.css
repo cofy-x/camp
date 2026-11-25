@@ -1,0 +1,219 @@
+.work-app-body.work-defaults-body {
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+  container: work-defaults / size;
+}
+.work-defaults-body > .work-items {
+  display: flex;
+  flex-direction: column;
+  max-inline-size: none;
+  min-block-size: 0;
+}
+.work-defaults-body > .work-items > :is(.app-error, [role='status']) {
+  margin-inline: 18px;
+}
+.work-item-form.project-settings {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0;
+  min-block-size: 0;
+  min-inline-size: 0;
+  max-inline-size: none;
+  margin: 0;
+}
+.project-settings-content {
+  flex: 1;
+  min-block-size: 0;
+  overflow: auto;
+  padding: 18px 20px;
+}
+.project-settings-sheet {
+  max-inline-size: 680px;
+  margin-inline: auto;
+}
+.project-settings-placeholder {
+  margin: 0;
+  padding: 18px 20px;
+  color: var(--p9-text-muted, #555);
+}
+.project-settings-fields {
+  display: grid;
+  gap: 12px;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.project-settings-fields > .p9-checkbox {
+  justify-self: start;
+  min-block-size: 24px;
+}
+.project-settings-sections {
+  min-inline-size: 0;
+  border: 1px solid var(--p9-mid);
+  background: white;
+}
+.project-setting-section ~ .project-setting-section {
+  border-block-start: 1px solid var(--p9-mid);
+}
+.project-settings-delivery-issues:empty {
+  display: none;
+}
+.project-settings-delivery-issues:not(:empty) {
+  padding: 6px 14px;
+  border-block-start: 1px solid var(--p9-mid);
+}
+.project-setting-section > summary {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 116px) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 2px 8px;
+  min-block-size: 40px;
+  padding: 10px 14px;
+  list-style: none;
+  cursor: pointer;
+}
+.project-setting-section > summary::-webkit-details-marker {
+  display: none;
+}
+.project-setting-section > summary::before {
+  content: '';
+  inline-size: 0;
+  border-block: 4px solid transparent;
+  border-inline-start: 6px solid var(--p9-highlight);
+}
+.project-setting-section > summary:hover {
+  background: #f6f6f6;
+}
+.project-setting-section > summary:focus-visible {
+  outline-offset: -3px;
+}
+.project-setting-section[open] > summary {
+  background: #f1f0f7;
+}
+.project-setting-section[open] > summary::before {
+  transform: rotate(90deg);
+}
+.project-setting-title {
+  color: var(--p9-highlight);
+  font: 600 13px/1.5 var(--p9-font);
+  overflow-wrap: anywhere;
+}
+.project-setting-value {
+  display: grid;
+  gap: 1px;
+  min-inline-size: 0;
+  font-family: var(--p9-body-font);
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.project-setting-context,
+.project-settings-muted {
+  color: var(--p9-text-muted, #555);
+  font-size: 11px;
+}
+.project-setting-section[open][data-keep-value='false']
+  > summary
+  .project-setting-value {
+  display: none;
+}
+.project-setting-controls {
+  display: grid;
+  align-items: start;
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+.project-setting-controls > .p9-field-label {
+  max-inline-size: 420px;
+}
+.project-settings-completion-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(215px, 100%), 1fr));
+  gap: 10px 14px;
+}
+.project-settings-completion-fields .p9-select {
+  min-inline-size: 0;
+}
+.project-setting-controls > .work-item-form {
+  gap: 8px;
+  max-inline-size: 460px;
+  margin: 0;
+}
+.project-setting-controls > .work-item-form > .p9-button {
+  justify-self: start;
+}
+.project-setting-controls > fieldset {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.project-setting-controls > fieldset > legend {
+  margin-block-end: 8px;
+  padding: 0;
+  font: 600 12px/1.5 var(--p9-font);
+}
+.project-setting-controls .work-item-limits {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 14px;
+  max-inline-size: 520px;
+}
+.project-settings-footer {
+  flex-shrink: 0;
+  padding: 10px 20px;
+  border-block-start: 1px solid var(--p9-mid);
+  background: var(--p9-light);
+}
+.project-settings-footer .app-error {
+  overflow-wrap: anywhere;
+}
+.project-settings-footer .app-actions {
+  margin-block: 8px;
+}
+.project-settings-save-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  min-block-size: 26px;
+}
+.project-settings-save-row .project-settings-muted {
+  margin: 0;
+}
+.project-settings-save-row .project-settings-muted:empty {
+  position: absolute;
+}
+.project-settings-save-row > .p9-button {
+  margin-inline-start: auto;
+}
+@container work-defaults (max-width: 520px) {
+  .project-settings-content,
+  .project-settings-footer,
+  .project-settings-placeholder {
+    padding-inline: 14px;
+  }
+  .project-setting-section > summary {
+    grid-template-columns: 8px minmax(0, 1fr);
+  }
+  .project-setting-value {
+    grid-column: 2;
+  }
+  .project-setting-controls .work-item-limits {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container work-defaults (max-height: 420px) {
+  .work-defaults-body > .work-items {
+    display: block;
+    overflow: auto;
+  }
+  .work-item-form.project-settings {
+    display: block;
+  }
+  .project-settings-content {
+    overflow: visible;
+  }
+}

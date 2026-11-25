@@ -32,10 +32,11 @@ export function Library({ desktop, window }: AppWindowProps) {
     user,
     resources,
     drafts,
+    draftsError,
+    retryDrafts,
     rooms,
     resourceId,
     path,
-    setPath,
     files,
     commit,
     publications,
@@ -59,7 +60,7 @@ export function Library({ desktop, window }: AppWindowProps) {
     historyError,
     retryHistory,
     pending,
-    invalidateEditorRequest,
+    publicationOperation,
     refresh,
     openLibraryActions,
     resource,
@@ -76,6 +77,7 @@ export function Library({ desktop, window }: AppWindowProps) {
     compareVersion,
     restore,
   } = useLibraryController({ desktop, window });
+  const configuring = environmentOpen && Boolean(resource);
   return (
     <div className="camp-library">
       <div
@@ -88,7 +90,7 @@ export function Library({ desktop, window }: AppWindowProps) {
           }
         }}
       >
-        {sourcesOpen && !importOpen && (
+        {sourcesOpen && !importOpen && !configuring && (
           <button
             className="camp-library-nav-backdrop"
             aria-label="Close Library sources"
@@ -98,7 +100,7 @@ export function Library({ desktop, window }: AppWindowProps) {
           />
         )}
         <aside
-          hidden={importOpen}
+          hidden={importOpen || configuring}
           className={`camp-resource-nav app-control-nav ${sourcesOpen ? 'is-open' : ''}`}
           aria-label="Library resources"
           id={sourcesId}
@@ -149,7 +151,11 @@ export function Library({ desktop, window }: AppWindowProps) {
                         />
                         <span>
                           {item.name}
-                          {room && <small>{room.name}</small>}
+                          {room &&
+                            item.name.toLowerCase() !==
+                              `${room.name} files`.toLowerCase() && (
+                              <small>{room.name}</small>
+                            )}
                         </span>
                       </button>
                     );
@@ -167,6 +173,12 @@ export function Library({ desktop, window }: AppWindowProps) {
                   </button>
                 ))}
               </section>
+            )}
+            {draftsError && (
+              <p className="app-error" role="alert">
+                {draftsError}{' '}
+                <Button onClick={() => void retryDrafts()}>Retry Drafts</Button>
+              </p>
             )}
           </div>
           <footer className="camp-library-sources-footer">
@@ -191,7 +203,10 @@ export function Library({ desktop, window }: AppWindowProps) {
         <main className="camp-library-main">
           {!importOpen && (
             <>
-              <div className="app-toolbar camp-library-toolbar">
+              <div
+                className="app-toolbar camp-library-toolbar"
+                hidden={configuring}
+              >
                 <Button
                   className="camp-library-sources-toggle"
                   ref={sourcesToggle}
@@ -266,6 +281,62 @@ export function Library({ desktop, window }: AppWindowProps) {
                   </Button>
                 </div>
               </div>
+              {(publicationOperation.pending || publicationOperation.error) && (
+                <div className="app-actions">
+                  <span role={publicationOperation.busy ? 'status' : 'alert'}>
+                    {publicationOperation.pending &&
+                      (publicationOperation.busy
+                        ? 'Confirming publication… '
+                        : publicationOperation.pending.kind === 'copy'
+                          ? 'Working copy save unconfirmed. '
+                          : 'Restore unconfirmed. ')}
+                    {publicationOperation.error}
+                  </span>
+                  {publicationOperation.pending && (
+                    <Button
+                      disabled={publicationOperation.busy}
+                      onClick={() => void publicationOperation.check()}
+                    >
+                      Check Saved Publication
+                    </Button>
+                  )}
+                  {publicationOperation.missing && (
+                    <Button
+                      disabled={publicationOperation.busy}
+                      onClick={() => void publicationOperation.retry()}
+                    >
+                      Retry Original Request
+                    </Button>
+                  )}
+                </div>
+              )}
+              {publicationOperation.confirmed && (
+                <div className="app-actions">
+                  <span role="status">
+                    {publicationOperation.confirmed.kind === 'copy'
+                      ? 'Working copy saved.'
+                      : 'Shared files restored.'}
+                  </span>
+                  <Button
+                    onClick={() => {
+                      const saved = publicationOperation.confirmed?.publication;
+                      if (!saved) return;
+                      void team
+                        .navigate({
+                          app: 'library',
+                          resourceId: saved.resourceId,
+                          commit: saved.commit,
+                          path: saved.path,
+                        })
+                        .then((opened) => {
+                          if (opened) publicationOperation.dismiss();
+                        });
+                    }}
+                  >
+                    View Saved Version
+                  </Button>
+                </div>
+              )}
               {version && !history && !environmentOpen && (
                 <div className="camp-version-banner" role="status">
                   <span>
@@ -317,13 +388,13 @@ export function Library({ desktop, window }: AppWindowProps) {
           ) : requestReview ? (
             <div className="camp-library-review-request">
               <RequestReview
-                key={`${requestReview.roomId}:${requestReview.resourceId}:${requestReview.path}`}
+                key={`${requestReview.roomId}:${requestReview.resourceId}:${requestReview.path}:${requestReview.commit}`}
                 {...requestReview}
                 desktop={desktop}
                 showHeading={false}
                 currentCommit={
                   resources.find((item) => item.id === requestReview.resourceId)
-                    ?.currentCommit ?? requestReview.commit
+                    ?.currentCommit
                 }
                 onClose={() => void closeReview()}
                 onCreated={(review) => {
@@ -342,7 +413,12 @@ export function Library({ desktop, window }: AppWindowProps) {
                 key={resource.id}
                 resource={resource}
                 onChange={refresh}
-                onClose={() => setEnvironmentOpen(false)}
+                onClose={() => {
+                  setEnvironmentOpen(false);
+                  requestAnimationFrame(() =>
+                    libraryActions.current?.focus({ preventScroll: true }),
+                  );
+                }}
               />
             ) : editor?.resourceId === resource.id ? (
               <DocumentEditor
@@ -370,7 +446,7 @@ export function Library({ desktop, window }: AppWindowProps) {
                 roomId={
                   rooms.find((room) => room.resourceId === resource.id)?.id
                 }
-                pending={pending}
+                pending={pending || Boolean(publicationOperation.pending)}
                 error={historyError}
                 loading={historyLoading}
                 onRetry={retryHistory}
@@ -390,10 +466,12 @@ export function Library({ desktop, window }: AppWindowProps) {
               </div>
             ) : (
               <div className="camp-library-content">
-                <nav className="camp-file-list" aria-label="Resource files">
-                  <h2>
-                    Files <span>{files.length}</span>
-                  </h2>
+                <nav
+                  className="camp-file-list"
+                  aria-label="Resource files"
+                  hidden={!files.length}
+                >
+                  <h2>Files</h2>
                   {files.map((file) => (
                     <button
                       key={file}
@@ -420,10 +498,9 @@ export function Library({ desktop, window }: AppWindowProps) {
                         <Select
                           aria-label="File"
                           value={path}
-                          onChange={(event) => {
-                            invalidateEditorRequest();
-                            setPath(event.target.value);
-                          }}
+                          onChange={(event) =>
+                            void selectFile(event.target.value)
+                          }
                         >
                           {files.map((file) => (
                             <option key={file} value={file}>
@@ -446,7 +523,7 @@ export function Library({ desktop, window }: AppWindowProps) {
           )}
         </main>
       </div>
-      {!importOpen && (
+      {!importOpen && !configuring && (
         <StatusBar>
           <span>Team Library</span>
           <span>

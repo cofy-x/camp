@@ -191,16 +191,48 @@ func finishTaskRound(ctx context.Context, q *sqlgen.Queries, r Run) error {
 	return nil
 }
 
+func taskCanReconcile(t CollaborationTask) bool {
+	switch t.Status {
+	case "completed", "cancelled", "interrupted", "cancelling":
+		return false
+	default:
+		return true
+	}
+}
+
+func taskNeedsAuthorityRecovery(t CollaborationTask) bool {
+	return t.ActiveRunID != "" || t.Status != "needs_attention" || t.Error == ""
+}
+
 // ReconcileTask is safe after a server restart. Publication requires only a
 // durable checkpoint; it never requires the runner to reconnect or reexecute.
 func (s *Store) ReconcileTask(ctx context.Context, id string) error {
+	// Observe stable Tasks without a writer transaction or a live-reader wakeup.
+	// Publication and authority recovery re-read the current Task at commit.
+	var needsWrite bool
+	err := s.readTransaction(ctx, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		t, err := getTask(ctx, q, id)
+		if err != nil || !taskCanReconcile(t) {
+			return err
+		}
+		if authorizeTask(ctx, q, t) != nil {
+			needsWrite = taskNeedsAuthorityRecovery(t)
+		} else {
+			needsWrite = t.Status == "publishing"
+		}
+		return nil
+	})
+	if err != nil || !needsWrite {
+		return err
+	}
 	return s.transaction(ctx, func(tx *sql.Tx) (txErr error) {
 		q := sqlgen.New(tx)
 		t, e := getTask(ctx, q, id)
 		if e != nil {
 			return e
 		}
-		if t.Status == "completed" || t.Status == "cancelled" || t.Status == "interrupted" || t.Status == "cancelling" {
+		if !taskCanReconcile(t) {
 			return nil
 		}
 		authority := authorizeTask(ctx, q, t)
@@ -214,7 +246,7 @@ func (s *Store) ReconcileTask(ctx context.Context, id string) error {
 				_, e = cancelRemoteRun(ctx, q, r, authority.Error())
 				return e
 			}
-			if t.Status != "needs_attention" || t.Error == "" {
+			if taskNeedsAuthorityRecovery(t) {
 				t.Status = "needs_attention"
 				t.Error = authority.Error()
 				if e = saveTask(ctx, q, &t); e != nil {
@@ -281,6 +313,9 @@ func (s *Store) ReconcileTask(ctx context.Context, id string) error {
 				return e
 			}
 			if e = q.SetPublicationTask(ctx, sqlgen.SetPublicationTaskParams{ID: publicationID, TaskID: t.ID}); e != nil {
+				return e
+			}
+			if e = event(ctx, q, "resource.updated", "", t.ResourceID); e != nil {
 				return e
 			}
 			r.Published = true

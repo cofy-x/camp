@@ -181,11 +181,11 @@ const json = (method: string, value: unknown) => ({
   body: JSON.stringify(value),
 });
 
+export function sourceEventPath(eventId: string) {
+  return `/automation-events/${id(eventId)}`;
+}
+
 export const automationApi = {
-  event: (eventId: string, signal?: AbortSignal) =>
-    request<{ event: SourceEvent }>(`/automation-events/${id(eventId)}`, {
-      signal,
-    }),
   policies: (room: string, signal?: AbortSignal) =>
     request<{ policies: AutomationPolicy[] }>(
       `/rooms/${id(room)}/automation-policies`,

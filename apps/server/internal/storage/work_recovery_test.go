@@ -116,6 +116,76 @@ func TestWorkTimerBlockedByAllowanceDoesNotChargeFollowUp(t *testing.T) {
 	}
 }
 
+func TestWorkExpiryTakesPrecedenceAndPreservesUnresolvedAllowance(t *testing.T) {
+	s, actor, _, room, _, _ := taskFixture(t)
+	w := createTestWork(t, s, actor, room)
+	w = decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{
+		Kind: "wait", WaitCondition: "Check the recorded review.",
+		ResumeAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano),
+	})
+	budget := w.Budget
+	budget.MaxFollowUps = 0
+	w = decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{Kind: "authorize", Budget: &budget})
+	reviewFireWorkTimer(t, s, w)
+	w = assertCurrentWorkRecovery(t, s, actor, w.ID, orchestration.WorkRecoveryIncreaseAllowance)
+	if _, err := s.db.Exec("UPDATE work_items SET value=json_set(value,'$.deadline','2020-01-01T00:00:00Z','$.expiresAt','2020-01-01T00:00:00Z') WHERE id=?", w.ID); err != nil {
+		t.Fatal(err)
+	}
+	assertCurrentWorkRecovery(t, s, actor, w.ID, orchestration.WorkRecoveryRenewAuthorization)
+	for range 2 {
+		if err := s.FireWorkItemTimers(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertScalar(t, s, "SELECT count(*) FROM automation_events WHERE kind='workitem.deadline'", 1)
+	current := assertCurrentWorkRecovery(t, s, actor, w.ID, orchestration.WorkRecoveryRenewAuthorization)
+	if current.Revision != w.Revision+1 || len(current.Timers) != 1 || current.Timers[0] != w.Timers[0] {
+		t.Fatal("expiry changed the prior timer receipt or committed twice", current.Timers)
+	}
+	renewed := decideTestWork(t, s, actor, current, orchestration.WorkItemOperation{
+		Kind: "authorize", ExpiresAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano), Budget: &budget,
+	})
+	if renewed.WorkRecovery == nil || renewed.WorkRecovery.Kind != orchestration.WorkRecoveryIncreaseAllowance {
+		t.Fatal("renewal receipt lost the outstanding allowance recovery", renewed.WorkRecovery)
+	}
+	w = assertCurrentWorkRecovery(t, s, actor, w.ID, orchestration.WorkRecoveryIncreaseAllowance)
+	budget.MaxFollowUps++
+	w = decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{Kind: "authorize", Budget: &budget})
+	if w.Status != "open" || w.WorkRecovery != nil || w.Usage.FollowUps != 0 {
+		t.Fatal("separately restoring the original allowance should settle it", w.Status, w.WorkRecovery)
+	}
+}
+
+func TestStableTaskReconciliationDoesNotWakeReadersButExpiryDoes(t *testing.T) {
+	s, actor, _, room, writer, _ := taskFixture(t)
+	w := createTestWork(t, s, actor, room)
+	w = decideTestWork(t, s, actor, w, orchestration.WorkItemOperation{Kind: "execute", ParticipantAgentIDs: []string{writer.ID}, FirstAgentID: writer.ID})
+	changed := s.WorkspaceEventsChanged()
+	if err := s.ReconcileTask(ctx, w.ActiveTaskID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-changed:
+		t.Fatal("an unchanged task woke live readers")
+	default:
+	}
+	if _, err := s.db.Exec("UPDATE work_items SET value=json_set(value,'$.deadline','2020-01-01T00:00:00Z','$.expiresAt','2020-01-01T00:00:00Z') WHERE id=?", w.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReconcileTask(ctx, w.ActiveTaskID); err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.GetTaskState(ctx, w.ActiveTaskID)
+	if err != nil || task.ActiveRunID != "" || task.Status == "queued" {
+		t.Fatal("expired Task retained its execution", task.Status, err)
+	}
+	select {
+	case <-changed:
+	default:
+		t.Fatal("committed revocation did not wake live readers")
+	}
+}
+
 func TestRetainedWorkRecoveryUsesMatchingSystemDecisionAndKeepsReceipts(t *testing.T) {
 	s, actor, _, room, writer, _ := taskFixture(t)
 	w, _ := reviewWaitingWork(t, s, actor, room, writer, true)

@@ -23,7 +23,7 @@ export function AgentResult({
         <div className="workspace-result-facts">
           <strong>{runFilesLabel(result)}</strong>
           <span>Checks: {runChecksLabel(result)}</span>
-          <Button onClick={() => onInspect(result.id)}>
+          <Button variant="text" onClick={() => onInspect(result.id)}>
             Details
             {(result.fileCount ?? result.files?.length)
               ? ` · ${result.fileCount ?? result.files.length} ${(result.fileCount ?? result.files.length) === 1 ? 'file' : 'files'}`
@@ -32,7 +32,9 @@ export function AgentResult({
         </div>
       )}
       {!run && message.runId && (
-        <Button onClick={() => onInspect(message.runId)}>Details</Button>
+        <Button variant="text" onClick={() => onInspect(message.runId)}>
+          Details
+        </Button>
       )}
       {run?.error && <p className="app-error">{run.error}</p>}
       {result && <ResultFiles run={result} onReference={onReference} />}

@@ -38,12 +38,28 @@ export interface InboxItem {
   readAt: string;
 }
 
+export interface InboxPage {
+  items: InboxItem[];
+  nextCursor: string;
+  hasMore: boolean;
+}
+
 export interface PrivateDraft<T = unknown> {
   kind: string;
   key: string;
   value: T | null;
   revision: number;
   updatedAt: string;
+}
+
+export interface PrivateDraftSummary {
+  kind: string;
+  key: string;
+  revision: number;
+  updatedAt: string;
+  title: string;
+  resourceId: string;
+  path: string;
 }
 
 export interface Invitation {
@@ -123,16 +139,4 @@ export const teamApi = {
       `/me/drafts/${kind}`,
       json('DELETE', { key, revision }),
     ),
-  drafts: (kind: string, signal?: AbortSignal) =>
-    request<{
-      drafts: {
-        kind: string;
-        key: string;
-        revision: number;
-        updatedAt: string;
-        title: string;
-        resourceId: string;
-        path: string;
-      }[];
-    }>(`/me/drafts?kind=${kind}`, { signal }),
 };

@@ -1,0 +1,185 @@
+.work-app-body.work-create-body {
+  container: new-work / size;
+  scroll-padding-block-end: 64px;
+}
+.work-create > .new-work-form {
+  max-inline-size: 680px;
+  margin-block: 0;
+  margin-inline: auto;
+}
+.new-work-goal {
+  display: grid;
+  gap: 6px;
+  min-inline-size: 0;
+}
+.new-work-form .work-item-limit > label {
+  font-size: 11px;
+}
+.new-work-form .work-item-evidence-options .p9-checkbox {
+  font-family: var(--p9-body-font);
+  font-weight: 400;
+}
+.new-work-goal textarea.p9-field {
+  padding: 6px 8px;
+  font: 13px/1.5 var(--p9-body-font);
+}
+.new-work-form .work-proposal {
+  gap: 8px;
+  margin: 0;
+  padding: 8px 12px 10px;
+  border: 1px solid var(--p9-mid);
+  background: white;
+}
+.work-proposal > legend {
+  padding-inline: 4px;
+}
+.new-work-form .work-default-mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  margin: 0;
+  padding: 0 0 6px;
+  border: 0;
+  border-block-end: 1px solid var(--p9-mid);
+}
+.new-work-form .work-default-mode > .p9-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 24px;
+}
+.new-work-form .work-grant-summary {
+  font-weight: 600;
+}
+.new-work-form .work-grant-change {
+  color: var(--p9-highlight);
+  font-weight: 600;
+}
+.new-work-form .work-grant-limits {
+  color: var(--p9-text-muted, #555);
+  font-size: 11px;
+}
+.new-work-form > .work-creation-options {
+  gap: 0;
+  border: 1px solid var(--p9-mid);
+  background: white;
+}
+.work-creation-option-section + .work-creation-option-section {
+  border-block-start: 1px solid var(--p9-mid);
+}
+.work-creation-option-section > summary {
+  display: grid;
+  grid-template-columns: 8px max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 2px 8px;
+  min-block-size: 32px;
+  padding: 7px 12px;
+  list-style: none;
+  color: var(--p9-highlight);
+  cursor: pointer;
+}
+.work-creation-option-section > summary::-webkit-details-marker {
+  display: none;
+}
+.work-creation-option-section > summary::before {
+  content: '';
+  inline-size: 0;
+  border-block: 4px solid transparent;
+  border-inline-start: 6px solid currentColor;
+}
+.work-creation-option-section > summary:hover {
+  background: #f6f6f6;
+}
+.work-creation-option-section > summary:focus-visible {
+  outline-offset: -3px;
+}
+.work-creation-option-section[open] > summary {
+  background: #f1f0f7;
+}
+.work-creation-option-section[open] > summary::before {
+  transform: rotate(90deg);
+}
+.work-creation-option-current {
+  justify-self: end;
+  min-inline-size: 0;
+  color: var(--p9-text-muted, #555);
+  font: 11px/1.45 var(--p9-body-font);
+  text-align: end;
+}
+.work-creation-option-section[open] .work-creation-option-current {
+  display: none;
+}
+.work-creation-option-fields {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+.work-creation-option-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  gap: 8px 12px;
+}
+.work-creation-option-date {
+  max-inline-size: 250px;
+}
+.work-creation-option-fields > .p9-field-label,
+.work-creation-option-fields > .work-item-form > .p9-field-label {
+  max-inline-size: 340px;
+}
+.work-creation-option-fields > .work-item-form {
+  gap: 8px;
+  margin: 0;
+}
+.work-creation-option-fields > .work-item-form > .p9-button {
+  justify-self: start;
+}
+.work-creation-option-fields > fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.work-creation-option-fields .work-item-limits {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 100px), 1fr));
+}
+.work-create-actions {
+  position: sticky;
+  z-index: 1;
+  inset-block-end: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding-block: 6px;
+  border-block-start: 1px solid var(--p9-mid);
+  background: #f8f8f8;
+}
+.work-create-actions > span {
+  color: var(--p9-text-muted, #555);
+  font-size: 11px;
+}
+.work-create-actions > .app-actions {
+  justify-content: end;
+  margin-inline-start: auto;
+}
+@container new-work (max-width: 440px) {
+  .new-work-form .work-grant-limits {
+    flex-direction: column;
+  }
+  .new-work-form .work-grant-limits > span + span::before {
+    content: none;
+  }
+}
+@container new-work (max-height: 320px) {
+  .work-create-actions {
+    position: static;
+  }
+}
+@media (pointer: coarse) {
+  .work-creation-option-section > summary {
+    min-block-size: 36px;
+    padding-block: 8px;
+  }
+  .new-work-form .work-default-mode > .p9-radio {
+    min-block-size: 36px;
+  }
+}

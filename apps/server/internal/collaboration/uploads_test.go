@@ -9,9 +9,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
 
-	"github.com/cofy-x/camp/apps/server/internal/runs"
+	"github.com/cofy-x/camp/apps/server/internal/remoteruns"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -24,7 +23,7 @@ func uploadService(t *testing.T) (*Service, string, storage.Room) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
-	manager, err := runs.New(ctx, store, dir, runs.Config{MaxTokens: 32, MaxSteps: 2, Timeout: time.Second}, nil)
+	manager, err := remoteruns.New(ctx, store, remoteruns.Config{DataDir: dir}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

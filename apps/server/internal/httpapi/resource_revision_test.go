@@ -4,10 +4,68 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
+
+func TestPublicationReceiptIsActorAndResourceScoped(t *testing.T) {
+	f := newTeamFixture(t)
+	ctx := storage.WithUser(context.Background(), f.admin)
+	resource, err := f.store.GetResource(ctx, f.room.ResourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshotKey := "library-publication:" + resource.ID + ":copy-original"
+	if _, err := f.store.SaveDraft(ctx, "document", snapshotKey, json.RawMessage(`{"content":"original publication"}`), 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.SaveDraft(ctx, "document", resource.ID+":copy.md", json.RawMessage(`{"path":"copy.md","content":"newer draft"}`), 0); err != nil {
+		t.Fatal(err)
+	}
+	if drafts, err := f.store.ListDrafts(ctx, "document"); err != nil || len(drafts) != 1 || drafts[0].Path != "copy.md" {
+		t.Fatalf("frozen publication must stay out of editable drafts: %+v %v", drafts, err)
+	}
+	first, err := f.store.Publish(ctx, storage.PublishInput{
+		ResourceID: resource.ID, ExpectedCommit: resource.CurrentCommit, Commit: strings.Repeat("b", 40),
+		RequestID: "copy-original", RequestHash: strings.Repeat("a", 64), Kind: "edit", Path: "copy.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot, err := f.store.GetDraft(ctx, "document", snapshotKey); err != nil || string(snapshot.Value) != "null" || snapshot.Revision != 2 {
+		t.Fatalf("committing publication did not retire its snapshot: %+v %v", snapshot, err)
+	}
+	if editable, err := f.store.GetDraft(ctx, "document", resource.ID+":copy.md"); err != nil || !strings.Contains(string(editable.Value), "newer draft") {
+		t.Fatalf("committing publication changed the editable draft: %+v %v", editable, err)
+	}
+	unsentKey := "library-publication:" + resource.ID + ":unsubmitted"
+	if tombstone, err := f.store.DeleteDraft(ctx, "document", unsentKey, 0); err != nil || tombstone.Revision != 1 || string(tombstone.Value) != "null" {
+		t.Fatalf("absent snapshot was not fenced: %+v %v", tombstone, err)
+	}
+	if _, err := f.store.SaveDraft(ctx, "document", unsentKey, json.RawMessage(`{"content":"delayed text"}`), 0); err == nil {
+		t.Fatal("late preparation revived an unpublished snapshot tombstone")
+	}
+	if _, err = f.store.Publish(ctx, storage.PublishInput{
+		ResourceID: resource.ID, ExpectedCommit: first.Commit, Commit: strings.Repeat("c", 40),
+		RequestID: "restore-earlier", RequestHash: strings.Repeat("b", 64), Kind: "restore",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/resources/" + resource.ID + "/publication-requests/copy-original"
+	requireHTTP(t, teamRequest(t, f, nil, "GET", path, nil), 401)
+	requireHTTP(t, teamRequest(t, f, f.memberCookie, "GET", path, nil), 404)
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "GET", "/api/resources/other/publication-requests/copy-original", nil), 404)
+	response := teamRequest(t, f, f.adminCookie, "GET", path, nil)
+	requireHTTP(t, response, 200)
+	var result struct {
+		Publication storage.Publication `json:"publication"`
+	}
+	if err = json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.Publication != first {
+		t.Fatalf("receipt should refer to the original save: %s %v", response.Body.String(), err)
+	}
+}
 
 func TestResourceConfigurationRequiresRevisionAndRejectsStaleAdministrators(t *testing.T) {
 	f := newTeamFixture(t)

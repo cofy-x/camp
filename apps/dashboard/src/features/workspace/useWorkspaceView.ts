@@ -3,7 +3,13 @@ import { useCallback, useState } from 'react';
 type Screen =
   | { kind: 'chat' | 'agents' | 'start-task' | 'automation' | 'memory' }
   | { kind: 'tasks'; id: string }
-  | { kind: 'reviews'; id: string };
+  | {
+      kind: 'reviews';
+      id: string;
+      entry?: number;
+      revision?: number;
+      commit?: string;
+    };
 
 type State = { screen: Screen; inspect: string };
 
@@ -37,10 +43,13 @@ export function useWorkspaceView() {
     [],
   );
   const setReviewId = useCallback(
-    (id: string) =>
+    (id: string, entry?: number, revision?: number, commit?: string) =>
       setView((current) =>
         id
-          ? { screen: { kind: 'reviews', id }, inspect: '' }
+          ? {
+              screen: { kind: 'reviews', id, entry, revision, commit },
+              inspect: '',
+            }
           : current.screen.kind === 'reviews'
             ? { ...current, screen: { kind: 'reviews', id: '' } }
             : current,
@@ -55,6 +64,11 @@ export function useWorkspaceView() {
     panel: view.screen.kind,
     taskId: view.screen.kind === 'tasks' ? view.screen.id : '',
     reviewId: view.screen.kind === 'reviews' ? view.screen.id : '',
+    reviewEntry: view.screen.kind === 'reviews' ? view.screen.entry : undefined,
+    reviewRevision:
+      view.screen.kind === 'reviews' ? view.screen.revision : undefined,
+    reviewCommit:
+      view.screen.kind === 'reviews' ? view.screen.commit : undefined,
     inspect: view.inspect,
     setPanel,
     setTaskId,

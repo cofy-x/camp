@@ -75,8 +75,8 @@ func (s *Store) ListRoomTaskStates(ctx context.Context, room string) ([]Collabor
 	}
 	return taskRows(s.queries().ListRoomTasks(ctx, room))
 }
-func (s *Store) ListOpenTasks(ctx context.Context) ([]CollaborationTask, error) {
-	return taskRows(s.queries().ListOpenTasks(ctx))
+func (s *Store) ListReconcileTaskIDs(ctx context.Context) ([]string, error) {
+	return s.queries().ListReconcileTaskIDs(ctx)
 }
 func (s *Store) ListTaskRuns(ctx context.Context, id string) ([]Run, error) {
 	if _, err := s.GetTaskState(ctx, id); err != nil {

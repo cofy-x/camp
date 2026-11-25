@@ -1,0 +1,9 @@
+.app-reading-disclosure,
+.app-reading-content {
+  min-inline-size: 0;
+}
+.app-reading-content {
+  margin-block: 4px;
+  padding-inline-start: 12px;
+  border-inline-start: 1px solid var(--p9-mid);
+}

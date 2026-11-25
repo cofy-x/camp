@@ -26,6 +26,17 @@ export interface WorkRecovery {
   taskId?: string;
 }
 
+export type CurrentWorkDecision =
+  | {
+      kind: 'task';
+      id: string;
+      text: string;
+      options: string[];
+      taskId: string;
+      taskRevision: number;
+    }
+  | { kind: 'judgment' | 'completion'; text: string };
+
 export interface WorkItem {
   projectRevision?: number;
   githubDelivery?: GitHubDelivery;
@@ -43,6 +54,7 @@ export interface WorkItem {
   activeTaskId?: string;
   question?: string;
   questionKind?: string;
+  currentDecision?: CurrentWorkDecision | null;
   waitCondition?: string;
   deadline: string;
   expiresAt?: string;
@@ -216,6 +228,7 @@ export type WorkItemSummary = Pick<
   | 'activeTaskId'
   | 'waitCondition'
   | 'question'
+  | 'currentDecision'
   | 'budget'
   | 'usage'
   | 'deadline'
@@ -279,6 +292,10 @@ export interface WorkListQuery {
 }
 
 const id = encodeURIComponent;
+
+export const workItemDetailPath = (itemId: string) =>
+  `/work-items/${id(itemId)}?view=current`;
+
 const post = (value: unknown) => ({
   method: 'POST',
   body: JSON.stringify(value),

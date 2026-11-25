@@ -4,6 +4,7 @@ import {
   type DesktopAPI,
   type MenuItem,
 } from '@cofy-x/camp-platinum';
+import { goalTitle } from '../../shared/content/goal-title';
 import type { Message, Resource } from './api';
 import { References } from './References';
 
@@ -103,7 +104,7 @@ export function SystemMessage({
                 {' · '}
               </>
             )}
-            {message.content}
+            {workOrigin ? goalTitle(message.content) : message.content}
           </p>
           <div className="workspace-system-event-actions">
             <time

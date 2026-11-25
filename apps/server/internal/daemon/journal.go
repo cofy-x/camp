@@ -60,18 +60,47 @@ func openJournal(directory string) (*journal, error) {
 	}
 	// Connection settings belong in the DSN so database/sql also applies them
 	// after replacing a connection. Encode the path as data, not URI options.
-	params := url.Values{"_pragma": {"busy_timeout(5000)", "foreign_keys(1)", "journal_mode(WAL)", "synchronous(FULL)"}}
+	params := url.Values{"_pragma": {"busy_timeout(5000)", "foreign_keys(1)", "journal_mode(WAL)", "synchronous(FULL)"}, "_txlock": {"immediate"}}
 	target := url.URL{Scheme: "file", Path: filepath.ToSlash(name), RawQuery: params.Encode()}
 	db, err := sql.Open("sqlite", target.String())
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if _, err = db.Exec(journalSchema); err != nil {
+	current, err := currentJournalSchema(db)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	if current {
+		return &journal{db}, nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err = tx.Exec(journalSchema); err != nil {
+		tx.Rollback()
+		db.Close()
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return &journal{db}, nil
+}
+
+// Opening a journal for inspection while the daemon owns it needs only a read
+// once the schema is current. The first upgrade uses a writer transaction.
+func currentJournalSchema(db *sql.DB) (bool, error) {
+	var present bool
+	if err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='metadata')").Scan(&present); err != nil || !present {
+		return false, err
+	}
+	err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM metadata WHERE key='event-usage-v1')").Scan(&present)
+	return present, err
 }
 
 func (j *journal) accept(ctx context.Context, command p.Command) (bool, error) {
@@ -211,7 +240,14 @@ func (j *journal) appendEvent(ctx context.Context, id, kind, text string) error 
 	}
 	defer tx.Rollback()
 	var count, total int64
-	if err = tx.QueryRowContext(ctx, "SELECT COUNT(*),COALESCE(SUM(length(CAST(text AS BLOB))),0) FROM events WHERE operation_id=?", id).Scan(&count, &total); err != nil {
+	err = tx.QueryRowContext(ctx, `
+		SELECT COALESCE(event_usage.event_count,0), COALESCE(event_usage.text_bytes,0)
+		FROM commands LEFT JOIN event_usage USING(operation_id)
+		WHERE commands.operation_id=? AND commands.state<>'terminal'`, id).Scan(&count, &total)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errors.New("This operation cannot retain more events")
+	}
+	if err != nil {
 		return err
 	}
 	// Log pressure stops the execution instead of losing lifecycle observations.
@@ -245,9 +281,9 @@ func (j *journal) acknowledge(ctx context.Context, id string, sequence int64) er
 	return err
 }
 func (j *journal) pendingEvents(ctx context.Context, id string) (bool, error) {
-	var count int
-	err := j.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM events WHERE operation_id=? AND acknowledged=0", id).Scan(&count)
-	return count > 0, err
+	var pending bool
+	err := j.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM events WHERE operation_id=? AND acknowledged=0)", id).Scan(&pending)
+	return pending, err
 }
 
 // saveIntent is called before the runtime tool acknowledges a scheduling choice.

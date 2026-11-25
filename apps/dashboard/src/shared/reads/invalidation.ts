@@ -12,7 +12,11 @@ export function affectedRead(path: string, event: WorkspaceEvent): boolean {
   const work = family === 'work-items' ? entity : undefined;
   const review = family === 'reviews' ? entity : undefined;
   if (type === 'personal_read.updated')
-    return route === '/me/inbox' || route === '/me/room-reads';
+    return (
+      route === '/me/inbox' ||
+      route === '/me/inbox/unread' ||
+      route === '/me/room-reads'
+    );
   if (type === 'team.changed' || type === 'management.updated') return true;
   if (type === 'run.activity')
     return Boolean(
@@ -35,7 +39,11 @@ export function affectedRead(path: string, event: WorkspaceEvent): boolean {
     route === '/me/room-reads'
   )
     return false;
-  if (route === '/me/inbox' || route === '/attention')
+  if (
+    route === '/me/inbox' ||
+    route === '/me/inbox/unread' ||
+    route === '/attention'
+  )
     return (
       type === 'room.updated' ||
       (route === '/attention' && type === 'resource.updated') ||
@@ -126,6 +134,13 @@ export function affectedRead(path: string, event: WorkspaceEvent): boolean {
         (type === 'resource.updated' &&
           (!url.searchParams.get('resourceId') ||
             url.searchParams.get('resourceId') === event.entityId)))
+    );
+  if (room && route.endsWith('/result-reviews'))
+    return (
+      ((type === 'review.updated' || type === 'room.updated') &&
+        room === event.roomId) ||
+      (type === 'resource.updated' &&
+        url.searchParams.get('resourceId') === event.entityId)
     );
   if (room && route.endsWith('/work-item-defaults'))
     return (

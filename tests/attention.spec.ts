@@ -512,11 +512,9 @@ test('reading Activity never resolves current questions or reviews, while actual
   const page = member.page;
   const errors = watchPageErrors(page, browserName);
   try {
-    const matter = await question(
-      page,
-      first.id,
-      'Confirm the customer launch',
-    );
+    const title = 'Confirm the customer launch.';
+    const instructions = 'Use the signed launch proposal for evidence.';
+    const matter = await question(page, first.id, `${title} ${instructions}`);
     const { user } = await (await page.request.get('/api/auth/status')).json();
     const approved = await requestReview(
       ownerPage,
@@ -551,8 +549,14 @@ test('reading Activity never resolves current questions or reviews, while actual
     await expect(
       palette(page).getByRole('tab', { name: 'Needs me', exact: true }),
     ).toHaveAttribute('aria-selected', 'true');
+    const pendingQuestion = queue(page)
+      .getByRole('button')
+      .filter({ hasText: title });
     await expect(
-      queue(page).getByRole('button').filter({ hasText: matter.goal }),
+      pendingQuestion.getByText(title, { exact: true }),
+    ).toBeVisible();
+    await expect(
+      pendingQuestion.getByText(matter.question, { exact: true }),
     ).toBeVisible();
     await expect(
       queue(page).getByRole('button').filter({ hasText: approved.title }),
@@ -563,14 +567,16 @@ test('reading Activity never resolves current questions or reviews, while actual
       .click();
     await openWorkPending(page);
     await expect(
-      workQueue(page).getByRole('button').filter({ hasText: matter.goal }),
+      workQueue(page).getByRole('button').filter({ hasText: title }),
     ).toBeVisible();
     await expect(
       workQueue(page).getByRole('button').filter({ hasText: approved.title }),
     ).toBeVisible();
 
     const activity = await openInboxActivity(page);
-    await activity.getByRole('button').filter({ hasText: matter.goal }).click();
+    const notice = activity.getByRole('button').filter({ hasText: title });
+    await expect(notice.getByText(title, { exact: true })).toBeVisible();
+    await notice.click();
     await expect(work(page)).toHaveClass(/is-active/);
     await expect(workDetail(page)).toContainText(matter.question);
     await expect
@@ -582,9 +588,7 @@ test('reading Activity never resolves current questions or reviews, while actual
       )
       .toBe(true);
     await openPending(page);
-    await expect(
-      queue(page).getByRole('button').filter({ hasText: matter.goal }),
-    ).toBeVisible();
+    await expect(pendingQuestion).toBeVisible();
     await palette(page)
       .getByRole('button', { name: 'Close inbox', exact: true })
       .click();
@@ -603,9 +607,7 @@ test('reading Activity never resolves current questions or reviews, while actual
       .toBe(false);
 
     await openPending(page);
-    await expect(
-      queue(page).getByRole('button').filter({ hasText: matter.goal }),
-    ).toHaveCount(0);
+    await expect(pendingQuestion).toHaveCount(0);
     await queue(page)
       .getByRole('button')
       .filter({ hasText: approved.title })

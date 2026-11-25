@@ -83,6 +83,9 @@ func TestAttentionWorkReadIsNotResolutionAndReadsHaveNoEffects(t *testing.T) {
 	if first.Total != 1 || first.Counts.Judgment != 1 || len(first.Items) != 1 || first.Items[0].ID != "work:"+w.ID || first.Items[0].Target.WorkItemID != w.ID || first.Items[0].Target.App != "work" {
 		t.Fatal(first)
 	}
+	if decision := first.Items[0].CurrentDecision; decision == nil || decision.Kind != "judgment" || decision.Text != w.Question || decision.TaskID != "" {
+		t.Fatal("Needs me lost the Work-owned judgment", decision)
+	}
 	if other := attentionFor(t, s, teammate); other.Total != 0 {
 		t.Fatal("team visibility assigned someone else's judgment", other)
 	}

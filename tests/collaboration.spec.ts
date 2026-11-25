@@ -10,6 +10,7 @@ import {
   openRoomMore,
   createRoom,
   library,
+  mockMemberRole,
   mutate,
   openApp,
   signIn,
@@ -268,9 +269,7 @@ test('collaboration is explicit, previews finite grants and keeps inputs separat
   ).toBeDisabled();
   await form.getByRole('button', { name: 'Retry Start', exact: true }).click();
   await expect(detail(page)).toContainText('Waiting for Runner');
-  await expect(
-    detail(page).getByRole('button', { name: 'Show full goal', exact: true }),
-  ).toHaveCount(0);
+  await expect(detail(page).locator('details.goal-disclosure')).toHaveCount(0);
   expect(created).toHaveLength(2);
   expect(created[1]).toEqual(created[0]);
   expect(created[0]).toMatchObject({
@@ -569,14 +568,7 @@ test('team members can answer while only the requester or admin can continue or 
       answeredByUserId: '',
     },
   });
-  await page.route('**/api/auth/status', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    return route.fulfill({
-      response,
-      json: { ...body, user: { ...body.user, role: 'member' } },
-    });
-  });
+  await mockMemberRole(page);
   await page.reload();
   await value.open();
   await expect(
@@ -715,7 +707,10 @@ test('completed collaboration puts its fixed result before a long summary and ke
   await expect(
     summary.getByRole('heading', { name: 'What changed', exact: true }),
   ).toHaveCount(0);
-  await summary.getByText('Read full report', { exact: true }).click();
+  await summary
+    .locator('summary')
+    .filter({ hasText: /^Full report$/ })
+    .click();
   await expect(
     summary.getByRole('heading', { name: 'What changed', exact: true }),
   ).toBeVisible();
@@ -740,30 +735,24 @@ test('completed collaboration puts its fixed result before a long summary and ke
       path: info.outputPath('collaboration-result.png'),
     });
   const goal = panel.getByRole('heading', {
-    name: value.task.goal,
+    name: 'Prepare the onboarding guide with clear responsibilities.',
     exact: true,
   });
-  const collapsedHeight = (await goal.boundingBox())!.height;
-  await panel
-    .getByRole('button', { name: 'Show full goal', exact: true })
-    .click();
-  await expect(
-    panel.getByRole('button', { name: 'Show less', exact: true }),
-  ).toHaveAttribute('aria-expanded', 'true');
-  await expect
-    .poll(async () => (await goal.boundingBox())!.height)
-    .toBeGreaterThan(collapsedHeight);
+  const original = panel.locator('details.goal-disclosure');
+  const goalToggle = original.locator('summary');
+  const originalText = original.getByText(/Preserve the original sources/);
+  await expect(goal).toBeVisible();
+  await expect(originalText).not.toBeVisible();
+  await goalToggle.click();
+  await expect(original).toHaveAttribute('open', '');
+  await expect(originalText).toBeVisible();
   await panel.getByRole('tab', { name: 'Task setup', exact: true }).click();
-  await expect(
-    panel.getByRole('heading', { name: value.task.goal, exact: true }),
-  ).toBeVisible();
-  await panel.getByRole('button', { name: 'Show less', exact: true }).click();
-  await expect(
-    panel.getByRole('button', { name: 'Show full goal', exact: true }),
-  ).toHaveAttribute('aria-expanded', 'false');
-  await expect
-    .poll(async () => (await goal.boundingBox())!.height)
-    .toBeCloseTo(collapsedHeight, 0);
+  await expect(goal).toBeVisible();
+  await expect(original).toHaveAttribute('open', '');
+  await goalToggle.press('Space');
+  await expect(original).not.toHaveAttribute('open');
+  await expect(goalToggle).toBeFocused();
+  await expect(originalText).not.toBeVisible();
   await expect(
     panel.getByRole('region', {
       name: 'Collaboration participants',

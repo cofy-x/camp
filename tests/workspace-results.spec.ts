@@ -471,7 +471,7 @@ test('a long completed reply keeps its files and checks ahead of expandable, int
   ).toBeVisible();
   const disclosure = message.locator('.workspace-agent-reply');
   const toggle = disclosure.locator(':scope > summary');
-  await expect(toggle).toHaveText('Read full reply');
+  await expect(toggle).toHaveText('Full reply');
   await expect(disclosure).not.toHaveAttribute('open');
   await expect(
     message.getByText(
@@ -493,10 +493,9 @@ test('a long completed reply keeps its files and checks ahead of expandable, int
 
   await toggle.focus();
   await toggle.press('Enter');
-  const collapse = message.getByRole('button', {
-    name: 'Collapse reply',
-    exact: true,
-  });
+  await expect(
+    message.getByRole('button', { name: 'Collapse reply', exact: true }),
+  ).toHaveCount(0);
   await expect(disclosure).toHaveAttribute('open');
   await expect(toggle).toHaveText('Full reply');
   await expect(message.getByRole('table')).toContainText('Morgan');
@@ -536,8 +535,7 @@ test('a long completed reply keeps its files and checks ahead of expandable, int
   await expect(linked).toHaveURL('https://example.com/review-guide');
   await linked.close();
   await page.bringToFront();
-  await collapse.focus();
-  await collapse.press('Space');
+  await toggle.press('Space');
   await expect(toggle).toBeFocused();
   await expect(disclosure).not.toHaveAttribute('open');
 
@@ -569,7 +567,7 @@ test('a long completed reply keeps its files and checks ahead of expandable, int
   await expect(disclosure).not.toHaveAttribute('open');
   await reload();
   await expect(disclosure).not.toHaveAttribute('open');
-  await expect(toggle).toHaveText('Read full reply');
+  await expect(toggle).toHaveText('Full reply');
   expect(
     (await (await page.request.get(`/api/rooms/${room.id}/runs`)).json()).runs,
   ).toEqual([]);

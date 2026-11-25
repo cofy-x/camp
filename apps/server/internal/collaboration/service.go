@@ -1,5 +1,5 @@
 // Package collaboration connects room membership and messages to managed files
-// and execution. Storage owns validation and transactions; runs owns processes.
+// and execution. Storage owns transactions, and the remote manager owns execution.
 package collaboration
 
 import (
@@ -8,12 +8,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"github.com/cofy-x/camp/apps/server/internal/projectenv"
 	"github.com/cofy-x/camp/apps/server/internal/resources"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
@@ -31,8 +31,9 @@ type RunManager interface {
 	AgentStates(context.Context) (map[string]string, error)
 	Send(context.Context, string, storage.SendMessageInput) (storage.SendResult, error)
 	Get(context.Context, string) (storage.Run, error)
+	ListRoomRuns(context.Context, string) ([]storage.Run, error)
 	Cancel(context.Context, string) (storage.Run, error)
-	CancelMatching(context.Context, string, string) error
+	Wake()
 }
 
 func New(ctx context.Context, store *storage.Store, manager RunManager, dataDir string) (*Service, error) {
@@ -87,29 +88,50 @@ func (s *Service) maxConcurrent() int {
 }
 
 func (s *Service) CreateRoom(ctx context.Context, name, description string) (storage.Room, error) {
+	return s.CreateRoomWithRequest(ctx, storage.RoomCreateInput{Name: name, Description: description})
+}
+
+func (s *Service) CreateRoomWithRequest(ctx context.Context, input storage.RoomCreateInput) (storage.Room, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if input.RequestID != "" {
+		if room, found, err := s.store.FindCreateRoomRequest(ctx, input); found || err != nil {
+			return room, err
+		}
+	}
 	id := newID()
 	created, err := s.files.Create(ctx, id)
 	if err != nil {
 		return storage.Room{}, err
 	}
-	resource := storage.Resource{ID: id, Name: name + " files", CurrentCommit: created.Commit}
+	resource := storage.Resource{ID: id, Name: input.Name + " files", CurrentCommit: created.Commit}
 	agents, err := s.store.ListAgents(ctx)
 	if err != nil {
 		_ = s.files.DiscardImported(id)
 		return storage.Room{}, err
 	}
-	room := storage.Room{Name: name, Description: description, ResourceID: resource.ID}
+	room := storage.Room{Name: input.Name, Description: input.Description, ResourceID: resource.ID}
 	for _, agent := range agents {
 		if agent.Handle == "assistant" && agent.Enabled && agent.OwnerUserID == "" {
 			room.DefaultAgentID = agent.ID
 			break
 		}
 	}
-	saved, err := s.store.CreateRoomWithResource(ctx, room, resource)
-	if err != nil {
-		_ = s.files.DiscardImported(id)
+	var saved storage.Room
+	if input.RequestID == "" {
+		saved, err = s.store.CreateRoomWithResource(ctx, room, resource)
+	} else {
+		saved, err = s.store.CreateRoomWithResourceRequest(ctx, room, resource, input)
+	}
+	if err != nil || saved.ResourceID != id {
+		// Discard only after confirming no persisted Resource owns this Git
+		// directory. The original request context may have been cancelled.
+		readback, stop := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer stop()
+		var missing *storage.Error
+		if _, lookupErr := s.store.GetResource(readback, id); errors.As(lookupErr, &missing) && missing.Code == "not_found" {
+			_ = s.files.DiscardImported(id)
+		}
 	}
 	return saved, err
 }
@@ -147,33 +169,29 @@ func (s *Service) Get(ctx context.Context, id string) (storage.Run, error) {
 	return s.runs.Get(ctx, id)
 }
 func (s *Service) ListRoomRuns(ctx context.Context, room string) ([]storage.Run, error) {
-	items, err := s.store.ListRoomRuns(ctx, room)
-	if err != nil {
-		return nil, err
+	if s.runs == nil {
+		return s.store.ListRoomRuns(ctx, room)
 	}
-	for i := range items {
-		items[i], err = s.runs.Get(ctx, items[i].ID)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return items, nil
+	return s.runs.ListRoomRuns(ctx, room)
 }
 func (s *Service) Cancel(ctx context.Context, id string) (storage.Run, error) {
 	return s.runs.Cancel(ctx, id)
 }
 
 func (s *Service) Leave(ctx context.Context, room, agent string) error {
-	if err := s.store.LeaveRoom(ctx, room, agent); err != nil {
-		return err
+	err := s.store.LeaveRoom(ctx, room, agent)
+	if err == nil && s.runs != nil {
+		s.runs.Wake()
 	}
-	return s.runs.CancelMatching(ctx, room, agent)
+	return err
 }
 
 func (s *Service) SaveAgent(ctx context.Context, agent storage.Agent) (storage.Agent, error) {
 	saved, err := s.store.SaveAgent(ctx, agent)
-	if err == nil && !saved.Enabled {
-		err = s.runs.CancelMatching(ctx, "", saved.ID)
+	// Storage has already revoked the affected Runs and Tasks. Wake their
+	// scheduler to deliver the committed cancellation and stop local workers.
+	if err == nil && s.runs != nil && agent.ID != "" && (!saved.Enabled || saved.Access != "write") {
+		s.runs.Wake()
 	}
 	return saved, err
 }

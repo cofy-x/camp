@@ -39,6 +39,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
     setConversationOwner(nextOwner);
     setUser(next);
   }, []);
+  const updateMemberRole = useCallback((member: User) => {
+    setUser((current) =>
+      current?.id === member.id &&
+      member.enabled &&
+      member.role !== current.role
+        ? { ...current, role: member.role }
+        : current,
+    );
+  }, []);
   const refresh = useCallback(async () => {
     setError('');
     setConnectionError(false);
@@ -108,7 +117,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (user)
     return (
-      <AuthContext.Provider value={{ user, signOut }}>
+      <AuthContext.Provider value={{ user, signOut, updateMemberRole }}>
         <div key={user.id} className="camp-session">
           {children}
         </div>

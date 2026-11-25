@@ -91,8 +91,7 @@ test('global creation preserves the goal and isolates Room settings without repl
       'Team-visible draft',
     );
     await expect(goal).toBeFocused();
-    await work(page).locator('.work-item-options > summary').click();
-    await work(page).getByText('Allowance and access', { exact: true }).click();
+    await work(page).getByText('Allowance', { exact: true }).click();
     const requests = work(page).getByLabel('Model requests', { exact: true });
     await requests.fill('7');
     await expect(work(page).locator('.work-grant-limits')).toContainText(
@@ -121,9 +120,15 @@ test('global creation preserves the goal and isolates Room settings without repl
     await work(page)
       .getByRole('button', { name: 'Keep track', exact: true })
       .click();
+    const detail = work(page).getByRole('region', {
+      name: 'Work item detail',
+      exact: true,
+    });
+    await expect(detail.getByRole('heading', { name: request })).toBeVisible();
+    await detail.getByText('Full goal', { exact: true }).click();
     await expect(
-      work(page).getByRole('region', { name: 'Work item detail', exact: true }),
-    ).toContainText(`${request} Include the checklist.`);
+      detail.getByText(`${request} Include the checklist.`, { exact: true }),
+    ).toBeVisible();
     expect(
       (await (await page.request.get(draftUrl)).json()).draft.value,
     ).toBeNull();
@@ -155,11 +160,16 @@ test('a long matter goal keeps the current question reachable and retains full-t
     page,
     `Readable goal ${randomUUID().slice(0, 8)}`,
   );
-  const goal =
-    'Prepare the customer release brief. ' +
-    'Use the existing requirements, confirm the launch date and verify the saved document before completion. '.repeat(
-      15,
-    );
+  const goal = [
+    'Prepare the customer release brief.',
+    '',
+    '# Release checklist',
+    '',
+    'Owner: Operations',
+    'Next action: Verify the saved document.',
+    '',
+    'Use the existing requirements and confirm the launch date. '.repeat(15),
+  ].join('\n');
   const created = await mutate(page, `/rooms/${room.id}/work-items`, {
     requestId: randomUUID(),
     goal,
@@ -191,28 +201,45 @@ test('a long matter goal keeps the current question reachable and retains full-t
     exact: true,
   });
   await expect(
-    detail.getByRole('heading', { name: goal, exact: true }),
+    detail.getByRole('heading', {
+      name: 'Prepare the customer release brief.',
+      exact: true,
+    }),
   ).toBeVisible();
+  const original = detail.locator('details.goal-disclosure');
+  const toggle = original.locator('summary');
+  const checklist = original.getByRole('heading', {
+    name: 'Release checklist',
+    exact: true,
+  });
+  await expect(toggle).toHaveText('Full goal');
+  await expect(original).not.toHaveAttribute('open');
+  await expect(checklist).toHaveCount(0);
   await expect(
     detail.getByRole('heading', { name: question, exact: true }),
   ).toBeInViewport();
-  const expand = detail.getByRole('button', {
-    name: 'Show full goal',
-    exact: true,
-  });
-  await expand.click();
-  const collapse = detail.getByRole('button', {
-    name: 'Show less',
-    exact: true,
-  });
-  await expect(collapse).toHaveAttribute('aria-expanded', 'true');
+  await toggle.press('Enter');
+  await expect(original).toHaveAttribute('open', '');
+  await expect(checklist).toBeVisible();
+  expect(
+    await original
+      .locator('p')
+      .filter({ hasText: 'Owner: Operations' })
+      .innerText(),
+  ).toBe('Owner: Operations\nNext action: Verify the saved document.');
   await detail.getByRole('button', { name: 'Activity', exact: true }).click();
-  await expect(collapse).toHaveAttribute('aria-expanded', 'true');
-  await detail
-    .getByRole('button', { name: 'Back to item', exact: true })
-    .click();
-  await collapse.click();
-  await expect(expand).toBeFocused();
+  const back = detail.getByRole('button', {
+    name: 'Back to item',
+    exact: true,
+  });
+  await expect(back).toBeFocused();
+  await expect(original).toBeHidden();
+  await back.click();
+  await expect(original).toHaveAttribute('open', '');
+  await expect(checklist).toBeVisible();
+  await toggle.press('Space');
+  await expect(original).not.toHaveAttribute('open');
+  await expect(toggle).toBeFocused();
   await expect(
     detail.getByRole('heading', { name: question, exact: true }),
   ).toBeInViewport();

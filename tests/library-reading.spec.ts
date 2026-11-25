@@ -126,20 +126,50 @@ test('an empty resource can configure its environment without starting agent wor
     .getByRole('menuitem', { name: 'Environment…', exact: true })
     .click();
   const environment = win.getByRole('region', {
-    name: 'Environment and checks',
+    name: 'Environment',
+    exact: true,
   });
-  await expect(
-    environment.getByRole('combobox', { name: 'Environment', exact: true }),
-  ).toHaveValue('none');
-  await environment
-    .getByRole('combobox', { name: 'Environment', exact: true })
-    .selectOption('node');
-  await environment
-    .getByRole('combobox', { name: 'Package manager', exact: true })
-    .selectOption('pnpm@12.11.2');
-  await environment
-    .getByRole('button', { name: 'Save Environment', exact: true })
-    .click();
+  const backToFiles = environment.getByRole('button', {
+    name: 'Back to Files',
+    exact: true,
+  });
+  const title = win.locator('.p9-window-title');
+  const runtime = environment.getByRole('combobox', {
+    name: 'Runtime',
+    exact: true,
+  });
+  const packageManager = environment.getByRole('combobox', {
+    name: 'Package manager',
+    exact: true,
+  });
+  const scope = environment.getByText('Applies to new work only.', {
+    exact: true,
+  });
+  const save = environment.getByRole('button', { name: 'Save', exact: true });
+  await expect(backToFiles).toBeFocused();
+  await expect(title).toHaveText(`${room.name} — Environment`);
+  await expect(actions).toBeHidden();
+  await expect(scope).toHaveCount(0);
+  await expect(save).toBeDisabled();
+  await expect(packageManager).toHaveCount(0);
+  await expect(runtime).toHaveValue('none');
+  await expect
+    .poll(() =>
+      runtime.evaluate((select) => {
+        const label = select.closest('label')?.firstElementChild;
+        if (!label) throw new Error('Missing Runtime label');
+        const text = label.getBoundingClientRect();
+        const field = select.getBoundingClientRect();
+        return Math.abs(
+          text.top + text.height / 2 - field.top - field.height / 2,
+        );
+      }),
+    )
+    .toBeLessThanOrEqual(2);
+  await runtime.selectOption('node');
+  await expect(save).toHaveAccessibleDescription('Applies to new work only.');
+  await packageManager.selectOption('pnpm@12.11.2');
+  await save.click();
   await expect(
     environment.getByText('Environment saved.', { exact: true }),
   ).toBeVisible();
@@ -174,14 +204,12 @@ test('an empty resource can configure its environment without starting agent wor
       exact: true,
     }),
   ).toBeVisible();
-  await expect(
-    environment.getByRole('combobox', { name: 'Environment', exact: true }),
-  ).toHaveValue('node');
+  await expect(runtime).toHaveValue('node');
   await expect(
     environment.getByRole('combobox', { name: 'Package manager', exact: true }),
   ).toHaveValue('node');
   await expect(
-    environment.getByRole('button', { name: 'Save Environment', exact: true }),
+    environment.getByRole('button', { name: 'Save', exact: true }),
   ).toBeDisabled();
   await page.screenshot({
     path: testInfo.outputPath('library-environment-conflict.png'),
@@ -189,23 +217,17 @@ test('an empty resource can configure its environment without starting agent wor
   await environment
     .getByRole('button', { name: 'Reload Saved Settings', exact: true })
     .click();
-  await expect(
-    environment.getByRole('combobox', { name: 'Environment', exact: true }),
-  ).toHaveValue('command');
+  await expect(runtime).toHaveValue('command');
 
-  await environment
-    .getByRole('combobox', { name: 'Environment', exact: true })
-    .selectOption('none');
-  await environment
-    .getByRole('button', { name: 'Save Environment', exact: true })
-    .click();
+  await runtime.selectOption('none');
+  await environment.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(
     environment.getByText('Environment saved.', { exact: true }),
   ).toBeVisible();
-  await environment
-    .getByRole('button', { name: 'Back to Files', exact: true })
-    .click();
+  await backToFiles.click();
+  await expect(title).toHaveText(`${room.name} — Library`);
   await expect(win.getByText('No files yet', { exact: true })).toBeVisible();
+  await expect(actions).toBeFocused();
   expect(
     (await (await page.request.get(`/api/rooms/${room.id}/runs`)).json()).runs,
   ).toEqual([]);

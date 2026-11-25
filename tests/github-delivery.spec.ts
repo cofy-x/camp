@@ -167,11 +167,10 @@ test('optional delivery stays quiet until opened and keeps public merge and rele
     .fill('Improve the release notes');
   await expect(work(page).locator('.work-grant-limits').first()).toBeVisible();
   expect(reads).toBe(0);
-  await work(page).locator('.work-item-options > summary').click();
-  await work(page).getByText('Completion & delivery', { exact: true }).click();
+  await work(page).getByText('Delivery', { exact: true }).click();
   expect(reads).toBe(0);
   await work(page)
-    .getByRole('combobox', { name: 'Delivery', exact: true })
+    .getByRole('combobox', { name: 'Destination', exact: true })
     .selectOption({ label: 'GitHub' });
   await work(page)
     .getByRole('combobox', { name: 'Repository', exact: true })
@@ -180,7 +179,7 @@ test('optional delivery stays quiet until opened and keeps public merge and rele
     .getByRole('combobox', { name: 'After the goal is met', exact: true })
     .selectOption('release');
   await work(page).getByLabel('Release tag', { exact: true }).fill('v0.1.1');
-  await work(page).locator('.work-item-options > summary').click();
+  await work(page).getByText('Delivery', { exact: true }).click();
   await expect(
     work(page).getByText(
       'Public example/notes · main · Merge and release v0.1.1 after CI',
@@ -247,7 +246,7 @@ test('Needs me opens uncertain GitHub delivery for receipt recovery @work-loop',
     reconcile: true,
   };
   value.status = 'needs_attention';
-  await page.route(`**/api/work-items/${value.id}`, (route) =>
+  await page.route(`**/api/work-items/${value.id}?view=current`, (route) =>
     route.fulfill({ json: { item: value } }),
   );
   let checks = 0;
@@ -418,16 +417,15 @@ async function deliveryInterruption(page: Page, roomName: string) {
     pullRequestUrl: 'https://github.com/example/notes/pull/12',
     checkUrl: 'https://github.com/example/notes/actions/runs/19/attempts/2',
   };
-  await page.route(`**/api/work-items/${item.id}`, (route) =>
+  await page.route(`**/api/work-items/${item.id}?view=current`, (route) =>
     route.fulfill({ json: { item } }),
   );
 
   async function open() {
     await openApp(page, 'Work');
     await work(page)
-      .getByRole('button', {
-        name: new RegExp(`Prepare a release brief.*${room.name}`),
-      })
+      .getByRole('button', { name: /^Prepare a release brief/ })
+      .filter({ hasText: room.name })
       .click();
     return work(page).getByRole('region', { name: 'GitHub delivery' });
   }

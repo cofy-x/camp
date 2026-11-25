@@ -18,19 +18,3 @@ export async function runCommand(
     await reportError(desktop, error);
   }
 }
-
-export async function nameDialog(
-  desktop: DesktopAPI,
-  title: string,
-  value: string,
-) {
-  const answer = await desktop.dialog({
-    title,
-    input: { label: 'Name', value },
-    buttons: [
-      { label: 'Cancel', value: 'cancel', cancel: true },
-      { label: 'OK', value: 'ok', default: true },
-    ],
-  });
-  return answer?.button === 'ok' ? answer.value.trim() : null;
-}

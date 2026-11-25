@@ -1,31 +1,72 @@
-import { Report } from '../workspace/Report';
+import { Button } from '@cofy-x/camp-platinum';
+import { MarkdownContent } from '../../shared/content/MarkdownContent';
+import { ReadingDisclosure } from '../../shared/content/ReadingDisclosure';
+import { readStored, writeStored } from '../workspace/conversationState';
 import { WorkItemHistory } from './WorkItemHistory';
+import type { WorkActivity } from './api';
+import { workActivityLabel } from './presentation';
+import './work-activity.css';
 
-const labels: Record<string, string> = {
-  create: 'Work created',
-  execute: 'Work started',
-  start: 'Work started',
-  result: 'Result saved',
-  complete: 'Completed',
-  completion_pending: 'Waiting for delivery',
-  completion: 'Completion settings changed',
-  answer: 'Answer received',
-  answer_continue: 'Work continued',
-  wait: 'Waiting',
-  request_judgment: 'Decision needed',
-  stop: 'Work stopped',
-  cancel: 'Work stopped',
-  authorize: 'Allowance updated',
-  allowance_released: 'Unused allowance released',
-  delegate: 'Follow-up changed',
-  evidence: 'Context added',
-  attach: 'Context added',
-  follow: 'Following conversation',
-  unfollow: 'Stopped following',
-  action_result: 'Delivery updated',
-  superseded: 'New context received',
-  ignore: 'Observation recorded',
+const documentLabels: Record<string, string> = {
+  create: 'Original goal',
+  result: 'Result report',
+  complete: 'Completion note',
+  completion_pending: 'Completion note',
 };
+
+function ActivityEntry({
+  entry,
+  itemId,
+  onOpenTask,
+}: {
+  entry: WorkActivity;
+  itemId: string;
+  onOpenTask: (id: string) => void;
+}) {
+  const title = workActivityLabel(entry.kind);
+  const date = new Date(entry.createdAt);
+  const long =
+    entry.content.length > 260 || entry.content.split('\n', 5).length > 4;
+  const stateKey = `work-activity:${itemId}:${entry.id}`;
+  const disclosure = entry.kind === 'create' || long;
+  return (
+    <article className="work-activity-event">
+      <header className="work-activity-event-heading">
+        {entry.taskId ? (
+          <Button
+            variant="text"
+            aria-label={`${title} · View execution`}
+            onClick={() => onOpenTask(entry.taskId)}
+          >
+            {title}
+          </Button>
+        ) : (
+          <strong>{title}</strong>
+        )}
+        <time dateTime={entry.createdAt} title={date.toLocaleString()}>
+          {date.toLocaleString(undefined, {
+            dateStyle: 'medium',
+            timeStyle: 'medium',
+          })}
+        </time>
+      </header>
+      {entry.content.trim() &&
+        (disclosure ? (
+          <ReadingDisclosure
+            label={documentLabels[entry.kind] ?? 'Full note'}
+            defaultOpen={readStored(stateKey) === 'true'}
+            onOpenChange={(open) => writeStored(stateKey, open ? 'true' : '')}
+          >
+            <div className={entry.kind === 'create' ? 'goal-prose' : undefined}>
+              <MarkdownContent content={entry.content} />
+            </div>
+          </ReadingDisclosure>
+        ) : (
+          <MarkdownContent content={entry.content} />
+        ))}
+    </article>
+  );
+}
 
 export function WorkItemActivity({
   itemId,
@@ -40,41 +81,19 @@ export function WorkItemActivity({
 }) {
   return (
     <div className="work-item-activity" hidden={!active}>
+      <h3 className="work-section-title work-activity-title">Activity</h3>
       <WorkItemHistory
         itemId={itemId}
         kind="timeline"
         title="Activity"
-        initial={[]}
         active={active}
         refreshKey={refreshKey}
         render={(entry) => (
-          <article className="work-activity-entry" key={entry.id}>
-            {entry.taskId ? (
-              <button
-                type="button"
-                className="work-activity-heading"
-                onClick={() => onOpenTask(entry.taskId)}
-              >
-                <strong>{labels[entry.kind] ?? 'Work updated'}</strong>
-                <time dateTime={entry.createdAt}>
-                  {new Date(entry.createdAt).toLocaleString()}
-                </time>
-              </button>
-            ) : (
-              <div className="work-activity-heading">
-                <strong>{labels[entry.kind] ?? 'Work updated'}</strong>
-                <time dateTime={entry.createdAt}>
-                  {new Date(entry.createdAt).toLocaleString()}
-                </time>
-              </div>
-            )}
-            {entry.content && (
-              <Report
-                content={entry.content}
-                stateKey={`work-activity:${itemId}:${entry.id}`}
-              />
-            )}
-          </article>
+          <ActivityEntry
+            entry={entry}
+            itemId={itemId}
+            onOpenTask={onOpenTask}
+          />
         )}
       />
     </div>

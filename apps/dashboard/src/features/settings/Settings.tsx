@@ -1,5 +1,5 @@
 import { GitHubRepositories } from '../github-delivery/GitHubRepositories';
-import { useEffect, useEffectEvent, useId, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useId, useState } from 'react';
 import {
   Button,
   StatusBar,
@@ -33,7 +33,16 @@ const modelFields = [
   'timeoutSeconds',
 ] as const;
 
-function ModelPanel({ onSaved }: { onSaved: () => void }) {
+const modelEditsWarning = 'Save or discard the model edits before leaving.';
+const modelSavingWarning = 'Wait for model settings to finish saving.';
+
+function ModelPanel({
+  onSaved,
+  onExitBlock,
+}: {
+  onSaved: () => void;
+  onExitBlock: (reason: string) => void;
+}) {
   const fieldId = useId();
   const [saved, setSaved] = useState<ModelSettings | null>(null);
   const [value, setValue] = useState<ModelSettings | null>(null);
@@ -66,7 +75,7 @@ function ModelPanel({ onSaved }: { onSaved: () => void }) {
   }, [loadAttempt]);
 
   async function save(clearAPIKey = false) {
-    if (!value || !saved) return;
+    if (!value || !saved || pending) return;
     setPending(true);
     setError('');
     setNotice('');
@@ -101,6 +110,13 @@ function ModelPanel({ onSaved }: { onSaved: () => void }) {
       saved &&
       modelFields.some((field) => value[field] !== saved[field])),
   );
+  useEffect(() => {
+    onExitBlock(
+      pending ? modelSavingWarning : changed ? modelEditsWarning : '',
+    );
+  }, [changed, onExitBlock, pending]);
+  useEffect(() => () => onExitBlock(''), [onExitBlock]);
+
   const source = (field: string) => {
     const info = saved?.fields[field];
     const names = {
@@ -293,6 +309,19 @@ function ModelPanel({ onSaved }: { onSaved: () => void }) {
           <Button primary type="submit" disabled={pending || !changed}>
             {pending ? 'Saving…' : 'Save Model Settings'}
           </Button>
+          {changed && (
+            <Button
+              disabled={pending}
+              onClick={() => {
+                setValue(saved);
+                setAPIKey('');
+                setError('');
+                setNotice('');
+              }}
+            >
+              Discard Edits
+            </Button>
+          )}
           {value.apiKeyConfigured && !saved?.fields.apiKey?.overridden && (
             <Button
               type="button"
@@ -597,9 +626,13 @@ export function Settings(props: AppWindowProps) {
   const windowId = props.window.id;
   const sections = user.role === 'admin' ? adminSections : memberSections;
   const [githubLocked, setGitHubLocked] = useState(false);
-  const [section, setSection] = useState(
+  const [modelBlock, setModelBlock] = useState('');
+  const [selectedSection, setSection] = useState(
     user.role === 'admin' ? 'readiness' : 'account',
   );
+  const section = sections.some(([id]) => id === selectedSection)
+    ? selectedSection
+    : 'account';
   const readiness = useReadiness(
     user.role === 'admin' &&
       section === 'readiness' &&
@@ -623,11 +656,25 @@ export function Settings(props: AppWindowProps) {
   const [importName, setImportName] = useState('');
   const [importPath, setImportPath] = useState('');
   const [notice, setNotice] = useState('');
+  const exitBlock =
+    section === 'models'
+      ? modelBlock
+      : section === 'github' && githubLocked
+        ? credentialWarning
+        : '';
+  const applyModelBlock = useCallback((reason: string) => {
+    setModelBlock(reason);
+    setError((current) =>
+      current === modelEditsWarning || current === modelSavingWarning
+        ? reason
+        : current,
+    );
+  }, []);
 
   function selectSection(next: string) {
     if (next === section || !sections.some(([id]) => id === next)) return;
-    if (githubLocked) {
-      setError(credentialWarning);
+    if (exitBlock) {
+      setError(exitBlock);
       return;
     }
     setSection(next);
@@ -642,13 +689,13 @@ export function Settings(props: AppWindowProps) {
       applyNavigation(intent.section);
   }, [team.navigation]);
   useEffect(() => {
-    if (section !== 'github') return;
+    if (section !== 'github' && section !== 'models') return;
     return beforeClose(windowId, () => {
-      if (!githubLocked) return flushPrivateDrafts();
-      setError(credentialWarning);
+      if (!exitBlock) return section !== 'github' || flushPrivateDrafts();
+      setError(exitBlock);
       return false;
     });
-  }, [beforeClose, windowId, section, githubLocked]);
+  }, [beforeClose, windowId, section, exitBlock]);
 
   const sectionTitle = sections.find(([id]) => id === section)?.[1];
   useEffect(() => {
@@ -716,29 +763,28 @@ export function Settings(props: AppWindowProps) {
               onWorkspace={() => props.desktop.openApp('workspace')}
             />
           )}
-          {section === 'models' && <ModelPanel onSaved={team.refresh} />}
-          {section === 'environments' && (
-            <>
-              {environment && (
-                <>
-                  <dl>
-                    <dt>Execution</dt>
-                    <dd>{environment.platform}</dd>
-                    <dt>Server concurrency</dt>
-                    <dd>{environment.concurrency}</dd>
-                  </dl>
-                  <p>Execution tools and readiness belong to each Runner.</p>
-                  <Button onClick={() => props.desktop.openApp('runners')}>
-                    Open Runners
-                  </Button>
-                  <details className="camp-settings-details">
-                    <summary>Checks and tools</summary>
-                    <p>{environment.checks}</p>
-                    <p>Configure checks for each resource in Library.</p>
-                  </details>
-                </>
-              )}
-            </>
+          {section === 'models' && (
+            <ModelPanel onSaved={team.refresh} onExitBlock={applyModelBlock} />
+          )}
+          {section === 'environments' && environment && (
+            <section
+              className="camp-settings-environment"
+              aria-label="Execution environment"
+            >
+              <dl>
+                <dt>Execution</dt>
+                <dd>{environment.platform}</dd>
+                <dt>Server concurrency</dt>
+                <dd>{environment.concurrency}</dd>
+              </dl>
+              <Button
+                variant="text"
+                onClick={() => props.desktop.openApp('runners')}
+              >
+                Open Runners
+              </Button>
+              <p>Configure Room checks in Library under Environment.</p>
+            </section>
           )}
           {section === 'storage' && (
             <>

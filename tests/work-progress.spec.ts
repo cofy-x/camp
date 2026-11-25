@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
+import { goalTitle } from '../apps/dashboard/src/shared/content/goal-title';
 import type { WorkItem } from '../apps/dashboard/src/features/workitems/api';
 import type { Task } from '../apps/dashboard/src/features/collaboration/api';
 import type { Run } from '../apps/dashboard/src/features/workspace/api';
@@ -150,7 +151,7 @@ async function fixture(page: Page) {
   await page.route(`**/api/rooms/${room.id}/members`, (route) =>
     route.fulfill({ json: { members: [agent] } }),
   );
-  await page.route(`**/api/work-items/${item.id}`, (route) =>
+  await page.route(`**/api/work-items/${item.id}?view=current`, (route) =>
     route.fulfill({ json: { item } }),
   );
   await page.route(`**/api/work-items/${item.id}/history/tasks?*`, (route) =>
@@ -196,7 +197,7 @@ async function fixture(page: Page) {
   await work(page)
     .locator('.work-item-list')
     .getByRole('button')
-    .filter({ hasText: goal })
+    .filter({ hasText: goalTitle(goal) })
     .click();
   await expect(
     detail(page).getByRole('button', { name: 'View progress', exact: true }),
@@ -295,7 +296,10 @@ test('current progress opens directly and returns to the matter while task inspe
     .getByRole('button', { name: 'Back to Work Item', exact: true })
     .click();
   await expect(
-    detail(page).getByRole('heading', { name: value.item.goal, exact: true }),
+    detail(page).getByRole('heading', {
+      name: goalTitle(value.item.goal),
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(inspector(page)).toHaveCount(0);
   await detail(page)

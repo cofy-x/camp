@@ -500,6 +500,13 @@ type RoomRead struct {
 	Seq    int64
 }
 
+type RoomRequest struct {
+	UserID      string
+	RequestID   string
+	RequestHash string
+	Result      string
+}
+
 type RoomUpload struct {
 	RoomID           string
 	UploadedByUserID string

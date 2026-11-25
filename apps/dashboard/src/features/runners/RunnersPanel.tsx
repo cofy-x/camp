@@ -183,28 +183,7 @@ export function RunnersPanel({
   return (
     <>
       <div className="app-toolbar camp-runners-toolbar">
-        {connecting ? (
-          <Button onClick={() => setConnecting(false)}>Back to Runners</Button>
-        ) : (
-          <Button primary onClick={() => setConnecting(true)}>
-            Connect Runner…
-          </Button>
-        )}
-        <Button disabled={Boolean(pending)} onClick={refresh}>
-          Refresh
-        </Button>
-      </div>
-      <div className="camp-runners-connect-view" hidden={!connecting}>
-        <ConnectRunner
-          onConnected={(id) => {
-            select(id);
-            setConnecting(false);
-            refresh();
-          }}
-        />
-      </div>
-      <div className="camp-runners-main" hidden={connecting}>
-        {runners.length > 0 && (
+        {!connecting && runners.length > 0 && (
           <div className="camp-runners-chooser">
             <Select
               label="Runner"
@@ -220,6 +199,31 @@ export function RunnersPanel({
             </Select>
           </div>
         )}
+        {connecting ? (
+          <Button onClick={() => setConnecting(false)}>Back to Runners</Button>
+        ) : (
+          <Button
+            primary={runners.length === 0}
+            onClick={() => setConnecting(true)}
+          >
+            Connect Runner…
+          </Button>
+        )}
+        <Button disabled={Boolean(pending)} onClick={refresh}>
+          Refresh
+        </Button>
+      </div>
+      <div className="camp-runners-connect-view" hidden={!connecting}>
+        <ConnectRunner
+          active={connecting}
+          onConnected={(id) => {
+            select(id);
+            setConnecting(false);
+            refresh();
+          }}
+        />
+      </div>
+      <div className="camp-runners-main" hidden={connecting}>
         {loadError && (
           <p className="app-error camp-runners-error" role="alert">
             {loadError}
@@ -304,14 +308,18 @@ export function RunnersPanel({
                   <dl className="camp-runner-facts camp-runner-overview-facts">
                     <dt>Execution</dt>
                     <dd>
-                      {selected.runtime === 'fixture' ||
-                      selected.capabilities.executor === 'fixture'
-                        ? 'Test executor'
-                        : selected.capabilities.ready
-                          ? selected.online
-                            ? 'Ready'
-                            : 'Last check passed'
-                          : 'Needs attention'}
+                      {selected.revoked || !selected.enabled
+                        ? 'Unavailable'
+                        : selected.modelUpgradeRequired
+                          ? 'Update required'
+                          : selected.runtime === 'fixture' ||
+                              selected.capabilities.executor === 'fixture'
+                            ? 'Test executor'
+                            : selected.capabilities.ready
+                              ? selected.online
+                                ? 'Ready'
+                                : 'Last check passed'
+                              : 'Needs attention'}
                     </dd>
                     <dt>Model</dt>
                     <dd>

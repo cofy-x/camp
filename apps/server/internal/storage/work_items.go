@@ -14,13 +14,18 @@ import (
 
 type workItemRecord struct {
 	*orchestration.WorkItem
-	RecoveryLimit string `json:"recoveryLimit,omitempty"`
+	// The projected decision is returned to readers and receipts. The Work and
+	// its active Task retain the underlying business facts in their own records.
+	CurrentDecision             *orchestration.WorkCurrentDecision `json:"currentDecision,omitempty"`
+	RecoveryLimit               string                             `json:"recoveryLimit,omitempty"`
+	ObservedAuthorizationExpiry string                             `json:"observedAuthorizationExpiry,omitempty"`
 }
 
 func workItemRow(row sqlgen.WorkItem) (w orchestration.WorkItem, err error) {
 	record := workItemRecord{WorkItem: &w}
 	err = json.Unmarshal([]byte(row.Value), &record)
 	w.RecoveryLimit = record.RecoveryLimit
+	w.ObservedAuthorizationExpiry = record.ObservedAuthorizationExpiry
 	w.ID, w.Seq, w.RoomID, w.OwnerUserID, w.PolicyID = row.ID, row.Seq, row.RoomID, row.OwnerUserID, row.PolicyID
 	w.Status, w.Revision, w.CreatedAt, w.UpdatedAt = row.Status, row.Revision, row.CreatedAt, row.UpdatedAt
 	normalizeWorkItem(&w)
@@ -40,7 +45,7 @@ func workItemSnapshot(w orchestration.WorkItem) ([]byte, error) {
 	w.HistoryLimited = false
 	w.Execution, w.Result, w.GitHubDelivery = nil, nil, nil
 	normalizeWorkItem(&w)
-	return json.Marshal(workItemRecord{WorkItem: &w, RecoveryLimit: w.RecoveryLimit})
+	return json.Marshal(workItemRecord{WorkItem: &w, RecoveryLimit: w.RecoveryLimit, ObservedAuthorizationExpiry: w.ObservedAuthorizationExpiry})
 }
 
 func saveWorkItem(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem) error {
@@ -127,20 +132,33 @@ func workItemDetails(ctx context.Context, q *sqlgen.Queries, w orchestration.Wor
 		}
 		w.Actions = append(w.Actions, orchestration.WorkAction{ID: a.ID, Kind: a.Kind, Status: a.CurrentStatus, TaskID: a.TaskID, DeliveryID: a.DeliveryID, Body: a.Body, CreatedAt: a.CreatedAt})
 	}
+	if err = populateWorkWatches(ctx, q, &w); err != nil {
+		return w, err
+	}
+	err = populateWorkView(ctx, q, &w)
+	return w, err
+}
+
+func populateWorkWatches(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem) error {
 	watches, err := q.WorkWatches(ctx, w.ID)
 	if err != nil {
-		return w, err
+		return err
 	}
 	for _, v := range watches {
 		w.Watches = append(w.Watches, orchestration.WorkWatch{SourceID: v.SourceID, ThreadKey: v.ThreadKey, Enabled: v.Enabled != 0})
 	}
-	if err = populateWorkView(ctx, q, &w); err != nil {
-		return w, err
-	}
-	return w, nil
+	return nil
 }
 
-func (s *Store) GetWorkItem(ctx context.Context, id string) (out orchestration.WorkItem, err error) {
+func (s *Store) GetWorkItem(ctx context.Context, id string) (orchestration.WorkItem, error) {
+	return s.readWorkItem(ctx, id, workItemDetails)
+}
+
+func (s *Store) GetCurrentWorkItem(ctx context.Context, id string) (orchestration.WorkItem, error) {
+	return s.readWorkItem(ctx, id, currentWorkItemDetails)
+}
+
+func (s *Store) readWorkItem(ctx context.Context, id string, project func(context.Context, *sqlgen.Queries, orchestration.WorkItem) (orchestration.WorkItem, error)) (out orchestration.WorkItem, err error) {
 	err = s.readTransaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
 		if e := requireActor(ctx, q, false); e != nil {
@@ -150,8 +168,23 @@ func (s *Store) GetWorkItem(ctx context.Context, id string) (out orchestration.W
 		if e != nil {
 			return e
 		}
-		out, e = workItemDetails(ctx, q, w)
+		out, e = project(ctx, q, w)
 		return e
+	})
+	return
+}
+
+// WorkItemActiveTask reads the active collaboration identity for admission
+// preflight. The operation still checks the revision and grant when it commits.
+func (s *Store) WorkItemActiveTask(ctx context.Context, id string) (taskID string, err error) {
+	err = s.readTransaction(ctx, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		if err := requireActor(ctx, q, false); err != nil {
+			return err
+		}
+		var lookupErr error
+		taskID, lookupErr = q.WorkItemActiveTask(ctx, id)
+		return missing(lookupErr, "The work item")
 	})
 	return
 }
@@ -184,6 +217,21 @@ func (s *Store) WorkItems(ctx context.Context, room string, after int64, limit i
 			w, e := workItemRow(r)
 			if e != nil {
 				return e
+			}
+			if !workTerminal(w) && (w.ActiveTaskID != "" || w.Question != "") {
+				view := w
+				if w.ActiveTaskID != "" {
+					view.Execution, e = readWorkExecution(ctx, q, w)
+					if e != nil {
+						return e
+					}
+				}
+				if currentWorkDecision(view) != nil {
+					if e = populateGitHubDelivery(ctx, q, &view); e != nil {
+						return e
+					}
+					w.CurrentDecision = currentWorkDecision(view)
+				}
 			}
 			out.Items = append(out.Items, w)
 			out.NextAfter = w.Seq
@@ -242,10 +290,22 @@ func workReceipt(ctx context.Context, q *sqlgen.Queries, request string, in any)
 	if r.RequestHash != hash {
 		return orchestration.WorkItem{}, false, hash, problem("request_conflict", "This request ID belongs to another work item operation.")
 	}
-	var w orchestration.WorkItem
-	e = json.Unmarshal([]byte(r.Result), &w)
+	w, e := readWorkReceipt(r.Result)
 	return w, true, hash, e
 }
+
+func readWorkReceipt(raw string) (w orchestration.WorkItem, err error) {
+	if err = json.Unmarshal([]byte(raw), &w); err != nil {
+		return w, err
+	}
+	if w.CurrentDecision == nil {
+		// Older receipts lack the additive projection. Their frozen execution
+		// and question metadata are sufficient without loading present state.
+		w.CurrentDecision = currentWorkDecision(w)
+	}
+	return w, nil
+}
+
 func saveWorkReceipt(ctx context.Context, q *sqlgen.Queries, request, hash string, w orchestration.WorkItem) error {
 	raw, e := json.Marshal(w)
 	if e != nil {
@@ -266,7 +326,8 @@ func (s *Store) WorkItemRequest(ctx context.Context, id string) (out orchestrati
 		if r.Cancelled != 0 {
 			return problem("request_cancelled", "This request was cancelled.")
 		}
-		return json.Unmarshal([]byte(r.Result), &out)
+		out, e = readWorkReceipt(r.Result)
+		return e
 	})
 	return
 }
@@ -549,7 +610,7 @@ func (s *Store) OperateWorkItem(ctx context.Context, id string, in orchestration
 			if next.MaxEvaluations < w.Usage.Evaluations || next.MaxTasks < w.Usage.Tasks || next.MaxModelRequests < w.Usage.ReservedModelRequests || next.MaxActions < w.Usage.Actions || next.MaxFollowUps < w.Usage.FollowUps {
 				return problem("invalid_work_item", "The new allowance must cover all work already reserved or consumed.")
 			}
-			recovery, limit, e := currentWorkRecovery(ctx, q, w)
+			recovery, limit, e := retainedWorkRecovery(ctx, q, w)
 			if e != nil {
 				return e
 			}

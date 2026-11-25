@@ -8,10 +8,9 @@ import (
 	"sync"
 )
 
-// Ownership fences service startup, migrations, and run execution with the same
-// lock inherited by sandbox processes. NewWithOwnership consumes it exactly once.
+// Ownership holds the Server data-directory lock until service shutdown or
+// stopped maintenance completes.
 type Ownership struct {
-	dir      string
 	mu       sync.Mutex
 	lock     *os.File
 	released bool
@@ -32,10 +31,10 @@ func Acquire(dataDir string) (*Ownership, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Ownership{dir: dir, lock: lock}, nil
+	return &Ownership{lock: lock}, nil
 }
 
-// Close releases ownership before transfer. After transfer the manager owns it.
+// Close releases ownership at most once.
 func (o *Ownership) Close() error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -47,19 +46,6 @@ func (o *Ownership) Close() error {
 		return o.lock.Close()
 	}
 	return nil
-}
-
-func (o *Ownership) Take() (string, *os.File, error) {
-	if o == nil {
-		return "", nil, errors.New("Execution ownership is required")
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.released || o.dir == "" {
-		return "", nil, errors.New("Execution ownership was already released or transferred")
-	}
-	o.released = true
-	return o.dir, o.lock, nil
 }
 
 // AcquireExisting fences offline inspection without creating a directory or lock.
@@ -75,7 +61,7 @@ func AcquireExisting(dataDir string) (*Ownership, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Ownership{dir: dir, lock: lock}, nil
+	return &Ownership{lock: lock}, nil
 }
 
 func validateOwnershipDirectory(dir string) error {

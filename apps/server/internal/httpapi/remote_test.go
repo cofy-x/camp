@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cofy-x/camp/apps/server/internal/configuration"
 	"github.com/cofy-x/camp/apps/server/internal/remoteruns"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
@@ -71,6 +72,13 @@ func TestRemoteManagementAuthorityAndSafeRunnerView(t *testing.T) {
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &list); err != nil || len(list.Runners) != 1 || list.Runners[0].Online || list.Runners[0].Capabilities.Executor != "fixture" {
 		t.Fatalf("runner view was not accurate: %s, %v", response.Body.String(), err)
+	}
+	f.api.EnableSettings(f.api.remote, configuration.ImportPolicy{})
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "PATCH", "/api/settings/models", map[string]any{"reasoningEffort": "high"}), http.StatusOK)
+	response = teamRequest(t, f, f.memberCookie, "GET", "/api/runners", nil)
+	requireHTTP(t, response, http.StatusOK)
+	if err := json.Unmarshal(response.Body.Bytes(), &list); err != nil || len(list.Runners) != 1 || !list.Runners[0].ModelUpgradeRequired {
+		t.Fatalf("runner compatibility did not reach the browser: %s, %v", response.Body.String(), err)
 	}
 	response = teamRequest(t, f, f.adminCookie, "GET", "/api/runner-enrollments", nil)
 	requireHTTP(t, response, http.StatusOK)

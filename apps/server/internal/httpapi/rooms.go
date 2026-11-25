@@ -38,6 +38,9 @@ type roomRunsReader interface {
 type resourceUpdater interface {
 	UpdateResource(context.Context, storage.Resource) (storage.Resource, error)
 }
+type roomRequestCreator interface {
+	CreateRoomWithRequest(context.Context, storage.RoomCreateInput) (storage.Room, error)
+}
 
 func localRoomRequest(r *http.Request) bool {
 	host, _, e := net.SplitHostPort(r.RemoteAddr)
@@ -100,14 +103,25 @@ func (a *API) roomRoutes(mux *http.ServeMux) {
 		a.respond(w, r, map[string]any{"rooms": v}, e)
 	})
 	register("POST /api/rooms", func(w http.ResponseWriter, r *http.Request) {
-		var in struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
-		}
+		var in storage.RoomCreateInput
 		if !decode(w, r, &in, 8192) || !a.runtime(w) {
 			return
 		}
+		if in.RequestID != "" {
+			creator, ok := a.rooms.(roomRequestCreator)
+			if !ok {
+				writeError(w, http.StatusServiceUnavailable, "execution_unavailable", "Recoverable Room creation is unavailable.")
+				return
+			}
+			v, e := creator.CreateRoomWithRequest(r.Context(), in)
+			a.respond(w, r, map[string]any{"room": v}, e)
+			return
+		}
 		v, e := a.rooms.CreateRoom(r.Context(), in.Name, in.Description)
+		a.respond(w, r, map[string]any{"room": v}, e)
+	})
+	register("GET /api/room-requests/{requestId}", func(w http.ResponseWriter, r *http.Request) {
+		v, e := a.store.RoomRequest(r.Context(), r.PathValue("requestId"))
 		a.respond(w, r, map[string]any{"room": v}, e)
 	})
 	register("PATCH /api/rooms/{id}", a.updateRoom)
@@ -185,23 +199,11 @@ func (a *API) roomRoutes(mux *http.ServeMux) {
 			a.roomRunTimeline(w, r)
 			return
 		}
-		var v []storage.Run
-		var e error
+		read := a.store.ListRoomRuns
 		if reader, ok := a.rooms.(roomRunsReader); ok {
-			v, e = reader.ListRoomRuns(r.Context(), r.PathValue("id"))
-		} else {
-			v, e = a.store.ListRoomRuns(r.Context(), r.PathValue("id"))
-			if e == nil {
-				if reader, ok := a.rooms.(runReader); ok {
-					for i := range v {
-						v[i], e = reader.Get(r.Context(), v[i].ID)
-						if e != nil {
-							break
-						}
-					}
-				}
-			}
+			read = reader.ListRoomRuns
 		}
+		v, e := read(r.Context(), r.PathValue("id"))
 		a.respond(w, r, map[string]any{"runs": v}, e)
 	})
 	register("GET /api/resources", func(w http.ResponseWriter, r *http.Request) {
@@ -311,32 +313,25 @@ func (a *API) roomRoutes(mux *http.ServeMux) {
 }
 func (a *API) updateRoom(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name           *string `json:"name"`
-		Description    *string `json:"description"`
-		ResourceID     *string `json:"resourceId"`
-		DefaultAgentID *string `json:"defaultAgentId"`
+		storage.RoomPatch
+		RequestID         *string `json:"requestId"`
+		ExpectedUpdatedAt *string `json:"expectedUpdatedAt"`
 	}
 	if !decode(w, r, &in, 8192) {
 		return
 	}
-	v, e := a.store.GetRoom(r.Context(), r.PathValue("id"))
-	if e != nil {
-		a.fail(w, r, e)
+	if in.RequestID != nil || in.ExpectedUpdatedAt != nil {
+		if in.RequestID == nil || in.ExpectedUpdatedAt == nil || in.Name == nil || in.Description != nil || in.ResourceID != nil || in.DefaultAgentID != nil {
+			writeError(w, http.StatusBadRequest, "invalid_room", "Provide the Room name, request ID and saved version to rename it.")
+			return
+		}
+		v, e := a.store.RenameRoom(r.Context(), r.PathValue("id"), storage.RoomRenameInput{
+			RequestID: *in.RequestID, Name: *in.Name, ExpectedUpdatedAt: *in.ExpectedUpdatedAt,
+		})
+		a.respond(w, r, map[string]any{"room": v}, e)
 		return
 	}
-	if in.Name != nil {
-		v.Name = *in.Name
-	}
-	if in.Description != nil {
-		v.Description = *in.Description
-	}
-	if in.ResourceID != nil {
-		v.ResourceID = *in.ResourceID
-	}
-	if in.DefaultAgentID != nil {
-		v.DefaultAgentID = *in.DefaultAgentID
-	}
-	v, e = a.store.UpdateRoom(r.Context(), v)
+	v, e := a.store.PatchRoom(r.Context(), r.PathValue("id"), in.RoomPatch)
 	a.respond(w, r, map[string]any{"room": v}, e)
 }
 

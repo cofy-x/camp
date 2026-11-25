@@ -152,18 +152,18 @@ export function RunnerDiagnostics({
       {runner.runtime === 'native' && (
         <section
           className="camp-runner-section"
-          aria-label="First task verification"
+          aria-label="Runner verification"
         >
-          <h3>First task</h3>
+          <h3>Verification</h3>
           <p>
             {runner.firstTaskSucceededAt
-              ? `Native execution verified by completed work · ${observedAt(runner.firstTaskSucceededAt)}`
+              ? `Verified by completed native work · ${observedAt(runner.firstTaskSucceededAt)}`
               : runner.earlierTaskRunId
                 ? `Earlier success · runtime not recorded · ${observedAt(runner.earlierTaskSucceededAt)}`
-                : 'Not yet verified by completed work.'}
+                : 'No verified native work recorded for this Runner.'}
           </p>
           {observedRunId && (
-            <Button onClick={() => void openObservedTask()}>
+            <Button variant="text" onClick={() => void openObservedTask()}>
               {runner.firstTaskRunId
                 ? 'View Successful Task'
                 : 'View Earlier Task'}

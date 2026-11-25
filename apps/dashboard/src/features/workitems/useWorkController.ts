@@ -17,6 +17,7 @@ import { findRunReply } from '../workspace/runMessages';
 import type { tasksApi } from '../collaboration/api';
 import { type AutomationPolicy, type SourceEvent } from '../automation/api';
 import {
+  workItemDetailPath,
   type WorkItem,
   type WorkListItem,
   type WorkListPage,
@@ -228,7 +229,7 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
   const unresolvedItem =
     selection.kind === 'item' && !selection.roomId ? selection.id : '';
   const itemRead = useRead<{ item: WorkItem }>(
-    unresolvedItem ? `/work-items/${encodeURIComponent(unresolvedItem)}` : null,
+    unresolvedItem ? workItemDetailPath(unresolvedItem) : null,
   );
   useEffect(() => {
     const item = itemRead.data?.item;
@@ -285,7 +286,7 @@ export function useWorkController({ desktop, window }: AppWindowProps) {
   }
 
   function created(item: WorkItem, source: string, fromRoom: string) {
-    reads.seed(`/work-items/${encodeURIComponent(item.id)}`, { item });
+    reads.seed(workItemDetailPath(item.id), { item });
     setSelection((current) =>
       current.kind === 'create' &&
       current.roomId === fromRoom &&

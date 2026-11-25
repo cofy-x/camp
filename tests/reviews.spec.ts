@@ -574,6 +574,152 @@ test('reopening a cached review loads the current decision before offering actio
   }
 });
 
+test('an exact Work review link guards a newer submitted file until explicitly opened', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  await signIn(page);
+  const value = await reviewFixture(page, 'Exact review link');
+  await openReview(page, value.title);
+  const comment = 'Keep this prior private review comment.';
+  await detail(page)
+    .getByLabel('Review comment', { exact: true })
+    .fill(comment);
+  await detail(page)
+    .getByRole('button', { name: 'Back to Reviews', exact: true })
+    .click();
+
+  const goal = 'Review the saved exact proposal';
+  const created = await mutate(page, `/rooms/${value.room.id}/work-items`, {
+    requestId: randomUUID(),
+    goal,
+  });
+  expect(created.ok()).toBe(true);
+  const { item } = await created.json();
+  const file = 'review.md';
+  const originalCommit = value.review.submittedCommit;
+  await page.route(`**/api/work-items/${item.id}?view=current`, (route) =>
+    route.fulfill({
+      json: {
+        item: {
+          ...item,
+          result: {
+            taskId: 'saved-exact-review',
+            resourceId: value.room.resourceId,
+            commit: originalCommit,
+            published: true,
+            summary: '',
+            files: [{ path: file, status: 'saved' }],
+          },
+        },
+      },
+    }),
+  );
+  // Hold the clicked Work snapshot at the original file and review revision
+  // while real requests advance the Review independently.
+  await page.route(
+    `**/api/rooms/${value.room.id}/work-items/${item.id}/result-reviews?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          canRequest: false,
+          currentVersion: true,
+          reviews: {
+            [file]: {
+              id: value.review.id,
+              revision: value.review.revision,
+              status: 'in_review',
+              nextAction: 'review',
+            },
+          },
+        },
+      }),
+  );
+  const decision = await mutate(page, `/reviews/${value.review.id}/actions`, {
+    requestId: randomUUID(),
+    revision: value.review.revision,
+    action: 'request_changes',
+    comment: 'Clarify the exact proposal.',
+  });
+  expect(decision.ok()).toBe(true);
+  const sameVersion = (await decision.json()).review as Review;
+  expect(sameVersion.submittedCommit).toBe(originalCommit);
+
+  await openApp(page, 'Work');
+  await work(page)
+    .getByRole('combobox', { name: 'Room', exact: true })
+    .selectOption(value.room.id);
+  await work(page).getByRole('button').filter({ hasText: goal }).click();
+  const reviewLink = work(page).getByRole('button', {
+    name: `Review File… for ${file}`,
+    exact: true,
+  });
+  await reviewLink.click();
+  await expect(detail(page).locator('.camp-review-state')).toHaveText(
+    'Changes Requested',
+  );
+  await expect(
+    detail(page).getByLabel('Review comment', { exact: true }),
+  ).toHaveValue(comment);
+  await expect(
+    detail(page).getByRole('button', { name: 'Read current review' }),
+  ).toHaveCount(0);
+
+  await openApp(page, 'Work');
+  const newerText = 'A newer version served after the exact link was prepared.';
+  const saved = await mutate(
+    page,
+    `/resources/${value.room.resourceId}/files`,
+    {
+      requestId: randomUUID(),
+      expectedCommit: originalCommit,
+      path: file,
+      content: newerText,
+    },
+    'PUT',
+  );
+  expect(saved.ok()).toBe(true);
+  const newerCommit = (await saved.json()).resource.currentCommit as string;
+  expect(newerCommit).not.toBe(originalCommit);
+  const resubmitted = await mutate(
+    page,
+    `/reviews/${value.review.id}/actions`,
+    {
+      requestId: randomUUID(),
+      revision: sameVersion.revision,
+      action: 'resubmit',
+      commit: newerCommit,
+    },
+  );
+  expect(resubmitted.ok()).toBe(true);
+  await reviewLink.click();
+  const panel = detail(page);
+  const readCurrent = panel.getByRole('button', {
+    name: 'Read current review',
+    exact: true,
+  });
+  await expect(readCurrent).toBeVisible();
+  await expect(panel).toContainText(
+    'This review now covers a different file version.',
+  );
+  await expect(
+    panel.getByRole('group', { name: 'Review actions' }),
+  ).toHaveCount(0);
+  await expect(panel.getByText(newerText, { exact: true })).toHaveCount(0);
+
+  await readCurrent.click();
+  await expect(panel.getByRole('heading', { name: value.title })).toBeFocused();
+  await expect(
+    panel.getByRole('button', { name: 'Approve', exact: true }),
+  ).toBeEnabled();
+  await expect(panel.getByLabel('Review comment', { exact: true })).toHaveValue(
+    comment,
+  );
+  await expect(panel.getByText(newerText, { exact: true })).toBeVisible();
+  expect(errors.errors).toEqual([]);
+});
+
 test('two people review, revise and deliver an exact document version', async ({
   page,
   browser,

@@ -107,18 +107,51 @@ func (q *Queries) GetResourcePublication(ctx context.Context, id string) (Resour
 }
 
 const listLibraryResources = `-- name: ListLibraryResources :many
-SELECT id, name, source_path, current_commit, environment, created_at, updated_at, revision FROM resources ORDER BY updated_at DESC,id
+SELECT r.id, r.name, r.source_path, r.current_commit, r.environment, r.created_at, r.updated_at, r.revision,
+ CAST(COALESCE(u.name,'') AS TEXT) AS upload_name,
+ CAST(COALESCE(u.uploaded_by_user_id,'') AS TEXT) AS uploaded_by_user_id,
+ CAST(COALESCE(u.size,0) AS INTEGER) AS upload_size,
+ CAST(COALESCE(u.created_at,'') AS TEXT) AS uploaded_at,
+ CAST(COALESCE(i.id,'') AS TEXT) AS import_id,
+ CAST(COALESCE(i.runner_id,'') AS TEXT) AS import_runner_id,
+ CAST(COALESCE(i.commit_id,'') AS TEXT) AS import_commit,
+ CAST(COALESCE(i.source_alias,'') AS TEXT) AS import_alias,
+ CAST(COALESCE(i.created_at,'') AS TEXT) AS import_created_at
+FROM resources r
+LEFT JOIN room_uploads u ON u.resource_id=r.id
+LEFT JOIN source_imports i ON i.resource_id=r.id AND i.status='succeeded'
+ORDER BY r.updated_at DESC,r.id
 `
 
-func (q *Queries) ListLibraryResources(ctx context.Context) ([]Resource, error) {
+type ListLibraryResourcesRow struct {
+	ID               string
+	Name             string
+	SourcePath       string
+	CurrentCommit    string
+	Environment      string
+	CreatedAt        string
+	UpdatedAt        string
+	Revision         int64
+	UploadName       string
+	UploadedByUserID string
+	UploadSize       int64
+	UploadedAt       string
+	ImportID         string
+	ImportRunnerID   string
+	ImportCommit     string
+	ImportAlias      string
+	ImportCreatedAt  string
+}
+
+func (q *Queries) ListLibraryResources(ctx context.Context) ([]ListLibraryResourcesRow, error) {
 	rows, err := q.db.QueryContext(ctx, listLibraryResources)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Resource{}
+	items := []ListLibraryResourcesRow{}
 	for rows.Next() {
-		var i Resource
+		var i ListLibraryResourcesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -128,6 +161,15 @@ func (q *Queries) ListLibraryResources(ctx context.Context) ([]Resource, error) 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Revision,
+			&i.UploadName,
+			&i.UploadedByUserID,
+			&i.UploadSize,
+			&i.UploadedAt,
+			&i.ImportID,
+			&i.ImportRunnerID,
+			&i.ImportCommit,
+			&i.ImportAlias,
+			&i.ImportCreatedAt,
 		); err != nil {
 			return nil, err
 		}

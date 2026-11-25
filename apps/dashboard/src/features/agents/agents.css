@@ -10,6 +10,7 @@
   display: flex;
   flex: 1;
   min-height: 0;
+  container: agents-pane / size;
 }
 .camp-agents-app > .app-toolbar {
   justify-content: space-between;
@@ -21,8 +22,46 @@
   padding: 16px;
   background: var(--p9-face);
 }
-.camp-agent-editing {
-  scroll-padding-block-end: 78px;
+.camp-agent-detail.camp-agent-editing {
+  --agent-editor-inset: 16px;
+  --agent-editor-gutter: max(
+    var(--agent-editor-inset),
+    calc((100% - 680px) / 2)
+  );
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  background: #f8f8f8;
+}
+.camp-agent-editing > .workspace-agent-editor {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0;
+  min-block-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.camp-agent-editing > .app-error {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.camp-agent-editing .workspace-agent-editor-fields {
+  flex: 1;
+  gap: 11px;
+  min-block-size: 0;
+  overflow: auto;
+  padding: var(--agent-editor-inset) var(--agent-editor-gutter);
+  scroll-padding-block: 10px;
+}
+.camp-agent-editing .workspace-agent-editor-actions {
+  flex-shrink: 0;
+  border-block-start: 1px solid var(--p9-mid);
+  background: var(--p9-light);
+  padding: 10px var(--agent-editor-gutter);
 }
 .camp-agent-empty {
   display: flex;
@@ -81,6 +120,9 @@
   .camp-agent-detail {
     padding: 12px;
   }
+  .camp-agent-detail.camp-agent-editing {
+    --agent-editor-inset: 12px;
+  }
   .camp-agents-body > .app-control-nav {
     display: none;
   }
@@ -92,6 +134,18 @@
   .camp-agents-chooser .p9-select {
     margin: 0;
     width: 100%;
+  }
+}
+@container agents-pane (max-height: 220px) {
+  .camp-agent-detail.camp-agent-editing {
+    display: block;
+    overflow: auto;
+  }
+  .camp-agent-editing > .workspace-agent-editor {
+    display: block;
+  }
+  .camp-agent-editing .workspace-agent-editor-fields {
+    overflow: visible;
   }
 }
 .camp-agent-detail .panel-heading > div {

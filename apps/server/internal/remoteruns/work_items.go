@@ -16,9 +16,11 @@ func (m *Manager) OperateWorkItem(ctx context.Context, id string, in orchestrati
 	var budget storage.Budget
 	needsGrant := in.Kind == "execute" || in.Kind == "answer_continue" || in.Kind == "repair_delivery"
 	if in.Kind == "answer_continue" {
-		if current, e := m.store.GetWorkItem(ctx, id); e == nil && current.ActiveTaskID != "" {
-			needsGrant = false
+		taskID, err := m.store.WorkItemActiveTask(ctx, id)
+		if err != nil {
+			return orchestration.WorkItem{}, err
 		}
+		needsGrant = taskID == ""
 	}
 	if needsGrant {
 		if ready, reason, _ := m.Availability(); !ready {

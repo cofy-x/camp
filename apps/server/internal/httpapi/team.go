@@ -120,9 +120,27 @@ func (a *API) teamRoutes(mux *http.ServeMux) {
 		}
 		a.respond(w, r, map[string]bool{"ok": true}, a.store.SaveRoomRead(r.Context(), r.PathValue("roomId"), in.Seq))
 	})
+	mux.HandleFunc("GET /api/me/inbox/unread", func(w http.ResponseWriter, r *http.Request) {
+		count, err := a.store.CountUnreadInbox(r.Context())
+		a.respond(w, r, map[string]int64{"unread": count}, err)
+	})
 	mux.HandleFunc("GET /api/me/inbox", func(w http.ResponseWriter, r *http.Request) {
-		v, e := a.store.ListInbox(r.Context())
-		a.respond(w, r, map[string]any{"items": v}, e)
+		query := r.URL.Query()
+		for key, values := range query {
+			if (key != "cursor" && key != "limit") || len(values) != 1 {
+				writeError(w, 400, "invalid_page", "Provide one value for each supported Activity parameter.")
+				return
+			}
+		}
+		limit, present, ok := pageNumber(w, r, "limit")
+		if !ok {
+			return
+		}
+		if !present {
+			limit = storage.InboxPageLimit
+		}
+		page, err := a.store.Inbox(r.Context(), query.Get("cursor"), int(limit))
+		a.respond(w, r, page, err)
 	})
 	mux.HandleFunc("POST /api/me/inbox/{id}/read", func(w http.ResponseWriter, r *http.Request) {
 		var in struct{}

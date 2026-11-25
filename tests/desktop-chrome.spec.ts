@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import type { Preferences } from '../apps/dashboard/src/features/appearance/preferences';
 import {
@@ -181,51 +182,94 @@ test('The menu bar reports Server health without opening a menu', async ({
   await expect(status).toHaveText('Server connected');
 });
 
-test('Help offers Getting Ready only to administrators', async ({ page }) => {
+test('Getting Ready and administrator panels follow the active account role', async ({
+  page,
+  browser,
+  baseURL,
+}) => {
   await signIn(page);
-  const help = page
-    .getByRole('menubar')
-    .getByRole('menuitem', { name: 'Help', exact: true });
-  const gettingReady = page.getByRole('menuitem', {
-    name: 'Getting Ready',
-    exact: true,
+  const invitation = await mutate(page, '/team/invites', {});
+  expect(invitation.ok()).toBe(true);
+  const { token } = await invitation.json();
+  const context = await browser.newContext({
+    baseURL,
+    viewport: page.viewportSize() ?? undefined,
   });
-  await help.click();
-  await expect(gettingReady).toBeVisible();
-  await gettingReady.click();
-  await expect(settings(page).locator('.p9-window-title')).toHaveText(
-    'Getting Ready — Settings',
-  );
+  try {
+    const member = await context.newPage();
+    await member.goto('/');
+    const accepted = await mutate(member, '/auth/accept-invite', {
+      token,
+      username: `readiness-${randomUUID().slice(0, 8)}`,
+      name: 'Readiness teammate',
+      password: 'A synthetic readiness browser password',
+    });
+    expect(accepted.ok()).toBe(true);
+    const { user } = await accepted.json();
+    await member.reload();
+    await expect(workspace(member)).toBeVisible();
+    const help = member.getByRole('menubar').getByRole('menuitem', {
+      name: 'Help',
+      exact: true,
+    });
+    const gettingReady = member.getByRole('menuitem', {
+      name: 'Getting Ready',
+      exact: true,
+    });
+    await help.click();
+    await expect(gettingReady).toHaveCount(0);
+    await member.keyboard.press('Escape');
 
-  const status = await (await page.request.get('/api/auth/status')).json();
-  await page.route('**/api/auth/status', (route) =>
-    route.fulfill({
-      json: { ...status, user: { ...status.user, role: 'member' } },
-    }),
-  );
-  await page.reload();
-  await help.click();
-  await expect(gettingReady).toHaveCount(0);
-  await page
-    .getByRole('menuitem', { name: 'About This Desktop…', exact: true })
-    .click();
+    const changeRole = async (role: 'admin' | 'member') => {
+      expect(
+        (
+          await mutate(page, `/team/members/${user.id}`, { role }, 'PATCH')
+        ).ok(),
+      ).toBe(true);
+    };
+    await changeRole('admin');
+    await expect
+      .poll(async () => {
+        await help.click();
+        const visible = await gettingReady.isVisible();
+        await member.keyboard.press('Escape');
+        return visible;
+      })
+      .toBe(true);
+    await help.click();
+    await gettingReady.click();
+    await expect(settings(member).locator('.p9-window-title')).toHaveText(
+      'Getting Ready — Settings',
+    );
 
-  const about = page.getByRole('region', {
-    name: 'About This Desktop',
-    exact: true,
-  });
-  const favicon = await page
-    .locator('link[rel="icon"]')
-    .evaluate((link: HTMLLinkElement) => link.href);
-  await expect
-    .poll(() =>
-      about
-        .locator('img')
-        .evaluate((image: HTMLImageElement) =>
-          image.naturalWidth > 0 ? image.currentSrc : null,
-        ),
-    )
-    .toBe(favicon);
+    await changeRole('member');
+    await expect(settings(member).locator('.p9-window-title')).toHaveText(
+      'Account — Settings',
+    );
+    await help.click();
+    await expect(gettingReady).toHaveCount(0);
+    await member
+      .getByRole('menuitem', { name: 'About This Desktop…', exact: true })
+      .click();
+    const about = member.getByRole('region', {
+      name: 'About This Desktop',
+      exact: true,
+    });
+    const favicon = await member
+      .locator('link[rel="icon"]')
+      .evaluate((link: HTMLLinkElement) => link.href);
+    await expect
+      .poll(() =>
+        about
+          .locator('img')
+          .evaluate((image: HTMLImageElement) =>
+            image.naturalWidth > 0 ? image.currentSrc : null,
+          ),
+      )
+      .toBe(favicon);
+  } finally {
+    await context.close();
+  }
 });
 
 test('Inbox palette restores focus and File names the selected desktop application', async ({

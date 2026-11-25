@@ -406,6 +406,24 @@ describe('notification routing', () => {
     expect(affectedRead('/attention', change)).toBe(true);
   });
 
+  it('refreshes exact Work result review status for its Room and Resource', () => {
+    const path =
+      '/rooms/one/work-items/work-one/result-reviews?resourceId=resource-one&commit=exact';
+    for (const change of [
+      event('review.updated', 'one', 'review-one'),
+      event('room.updated', 'one', 'one'),
+      event('resource.updated', '', 'resource-one'),
+    ])
+      expect(affectedRead(path, change), change.type).toBe(true);
+    for (const change of [
+      event('review.updated', 'other', 'review-one'),
+      event('resource.updated', '', 'resource-other'),
+      event('work_item.updated', 'one', 'work-one'),
+      event('run.activity', 'one', 'run-one'),
+    ])
+      expect(affectedRead(path, change), change.type).toBe(false);
+  });
+
   it('keeps review audit pages frozen while current decision facts revalidate', () => {
     for (const change of [
       event('review.updated', '', 'review-one'),

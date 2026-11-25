@@ -3,6 +3,7 @@ package configuration
 type ReadinessComponent struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
+	Issue string `json:"issue,omitempty"`
 	Diagnostic
 }
 type Readiness struct {

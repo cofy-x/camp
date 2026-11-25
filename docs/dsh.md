@@ -98,7 +98,7 @@ make test-layerfs test-dsh test-project-env
 make test-remote-native
 ```
 
-These checks use real native processes with deterministic local providers, not a paid model key. Missing prerequisites can skip gated Go tests; inspect skips rather than treating a zero exit as native acceptance. See [contribution checks](../CONTRIBUTING.md#checks) for source/browser checks and [remote validation](../tools/remote-dev/README.md) for Compose Fixture scope.
+`test-dsh` exercises the production remote Runner, including pinned references, prepared dependencies, rollback and recovery. These checks use real native processes with deterministic local providers, not a paid model key. Missing prerequisites can skip gated Go tests; inspect skips rather than treating a zero exit as native acceptance. See [contribution checks](../CONTRIBUTING.md#checks) for source/browser checks and [remote validation](../tools/remote-dev/README.md) for Compose Fixture scope.
 
 ## Collaboration decisions
 
@@ -177,4 +177,4 @@ The registered source must contain a nonempty `brief.md` and no `onboarding.md`.
 
 Two subsequent UI sends create and revise the document around human review. Before each send, the demo rechecks model limits/revision, current membership, Agent revision and explicit route. The dispatch guard journals the exact message before forwarding it, rejects unexpected recipients/references and other work admission, and never re-arms an uncertain or unsuccessful request. The existing exclusive private report claim, screenshots/video, original-source checks, native session resume and immutable human delivery remain required.
 
-[Model-free browser qualification](../tests/paid-ui-demo.spec.ts) uses the same setup/composer/dispatch driver with a real Server and Fixture Runners. It covers imports with and without a legacy default Agent, a different personal Runner default, no work during setup, and an uncertain response without resubmission. This establishes UI setup and dispatch behavior; native execution and real-provider acceptance require their own explicitly authorized checks. The older `verify-rooms-real`, `verify-handoff-real` and `verify-team-real` scripts target retired local workflows and are not current remote acceptance commands. Keeping those source files does not establish compatibility.
+[Model-free browser qualification](../tests/paid-ui-demo.spec.ts) uses the same setup/composer/dispatch driver with a real Server and Fixture Runners. It covers imports with and without a legacy default Agent, a different personal Runner default, no work during setup, and an uncertain response without resubmission. This establishes UI setup and dispatch behavior. Native execution and real-provider acceptance require their own explicitly authorized checks.

@@ -346,6 +346,26 @@ func (q *Queries) LegacyWorkRecovery(ctx context.Context, workItemID string) (Le
 	return i, err
 }
 
+const pendingWorkTimer = `-- name: PendingWorkTimer :one
+SELECT seq, id, work_item_id, due_at, condition, status, event_id, created_at FROM work_item_timers WHERE work_item_id=? AND status='pending' ORDER BY due_at,id LIMIT 1
+`
+
+func (q *Queries) PendingWorkTimer(ctx context.Context, workItemID string) (WorkItemTimer, error) {
+	row := q.db.QueryRowContext(ctx, pendingWorkTimer, workItemID)
+	var i WorkItemTimer
+	err := row.Scan(
+		&i.Seq,
+		&i.ID,
+		&i.WorkItemID,
+		&i.DueAt,
+		&i.Condition,
+		&i.Status,
+		&i.EventID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const releaseWorkTaskReservation = `-- name: ReleaseWorkTaskReservation :execrows
 UPDATE work_item_tasks SET reservation_released=1 WHERE task_id=? AND reservation_released=0
 `
@@ -591,6 +611,30 @@ func (q *Queries) WorkActions(ctx context.Context, workItemID string) ([]WorkAct
 	return items, nil
 }
 
+const workClosingDecision = `-- name: WorkClosingDecision :one
+SELECT seq, id, work_item_id, value FROM work_item_decisions WHERE work_item_id=?1
+ AND ((?2='completed' AND json_extract(value,'$.kind')='complete')
+ OR (?2='cancelled' AND json_extract(value,'$.kind') IN ('stop','cancel')))
+ORDER BY seq DESC LIMIT 1
+`
+
+type WorkClosingDecisionParams struct {
+	WorkItemID string
+	Status     interface{}
+}
+
+func (q *Queries) WorkClosingDecision(ctx context.Context, arg WorkClosingDecisionParams) (WorkItemDecision, error) {
+	row := q.db.QueryRowContext(ctx, workClosingDecision, arg.WorkItemID, arg.Status)
+	var i WorkItemDecision
+	err := row.Scan(
+		&i.Seq,
+		&i.ID,
+		&i.WorkItemID,
+		&i.Value,
+	)
+	return i, err
+}
+
 const workDecisions = `-- name: WorkDecisions :many
 SELECT seq, id, work_item_id, value FROM work_item_decisions WHERE work_item_id=? AND seq>? ORDER BY seq DESC LIMIT ?
 `
@@ -738,6 +782,17 @@ WHERE e.id=? AND (
 func (q *Queries) WorkInternalEvent(ctx context.Context, id string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, workInternalEvent, id)
 	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const workItemActiveTask = `-- name: WorkItemActiveTask :one
+SELECT CAST(coalesce(json_extract(value,'$.activeTaskId'),'') AS TEXT) FROM work_items WHERE id=?
+`
+
+func (q *Queries) WorkItemActiveTask(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, workItemActiveTask, id)
+	var column_1 string
 	err := row.Scan(&column_1)
 	return column_1, err
 }

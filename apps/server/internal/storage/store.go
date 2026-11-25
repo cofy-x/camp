@@ -133,10 +133,15 @@ func (s *Store) withTransaction(ctx context.Context, opts *sql.TxOptions, fn fun
 		return err
 	}
 	defer tx.Rollback()
-	if err = fn(tx); err != nil {
-		return err
+	if err = fn(tx); err == nil {
+		err = tx.Commit()
 	}
-	if err = tx.Commit(); err != nil {
+	if err != nil {
+		// database/sql can roll back a cancelled transaction before this
+		// goroutine tries its next operation or commit.
+		if errors.Is(err, sql.ErrTxDone) && ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return err
 	}
 	if opts == nil || !opts.ReadOnly {

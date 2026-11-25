@@ -1,0 +1,123 @@
+.work-records {
+  display: grid;
+  gap: 6px;
+  min-inline-size: 0;
+  container: work-records / inline-size;
+}
+
+.work-records
+  [role='tabpanel']
+  > section
+  > :is([role='status'], [role='alert'], p:only-child) {
+  padding-block: 12px;
+}
+
+.work-records [role='tabpanel'] > section > p:only-child:not([role='alert']) {
+  color: var(--p9-text-muted, #555);
+}
+
+.work-records [data-history-record] + [data-history-record] {
+  border-block-start: 1px solid var(--p9-mid);
+}
+
+.work-record {
+  display: grid;
+  gap: 4px;
+  padding-block: 10px;
+}
+
+.work-record-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+  min-inline-size: 0;
+}
+
+.work-record-heading h4 {
+  margin: 0;
+  font: 600 12px/1.5 var(--p9-font);
+}
+
+.work-record-heading h4 > .p9-text-action {
+  font: inherit;
+}
+
+.work-record-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0 4px;
+  color: var(--p9-text-muted, #555);
+  font: 400 0.75rem/1.5 var(--p9-body-font);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.work-record-text {
+  max-inline-size: 66ch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.work-record > .p9-text-action {
+  justify-self: start;
+}
+
+.work-record-source > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  inline-size: 100%;
+  padding-block: 9px;
+  list-style: none;
+}
+
+.work-record-source > summary::-webkit-details-marker {
+  display: none;
+}
+
+.work-record-source > summary::before {
+  content: '';
+  flex: none;
+  border-block: 4px solid transparent;
+  border-inline-start: 6px solid currentColor;
+}
+
+.work-record-source[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.work-record-source > summary > .work-record-heading {
+  flex: 1;
+}
+
+.work-record-source > summary:hover {
+  text-decoration: none;
+  background: var(--p9-light);
+}
+
+.work-record-source > .app-reading-content {
+  margin: 0 0 10px 12px;
+}
+
+.work-record-supplement {
+  display: grid;
+  padding-block-start: 6px;
+  border-block-start: 1px solid var(--p9-mid);
+}
+
+@container work-records (width < 380px) {
+  .work-records .p9-tab-list {
+    column-gap: 2px;
+  }
+
+  .work-records .p9-tabs-flat .p9-tab-list > button {
+    padding-inline: 3px;
+  }
+
+  .work-record-source > summary > .work-record-heading {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

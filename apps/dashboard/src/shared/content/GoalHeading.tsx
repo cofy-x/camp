@@ -1,6 +1,30 @@
-import { useId, useLayoutEffect, useRef, useState } from 'react';
-import { Button } from '@cofy-x/camp-platinum';
+import { goalTitle } from './goal-title';
+import { MarkdownContent } from './MarkdownContent';
+import { ReadingDisclosure } from './ReadingDisclosure';
 import './goal-heading.css';
+
+export function GoalDisclosure({
+  goal,
+  title,
+  hidden,
+}: {
+  goal: string;
+  title: string;
+  hidden?: boolean;
+}) {
+  if (goal.trim() === title) return null;
+  return (
+    <ReadingDisclosure
+      label="Full goal"
+      className="goal-disclosure"
+      hidden={hidden}
+    >
+      <div className="goal-prose">
+        <MarkdownContent content={goal} />
+      </div>
+    </ReadingDisclosure>
+  );
+}
 
 export function GoalHeading({
   goal,
@@ -9,46 +33,12 @@ export function GoalHeading({
   goal: string;
   level?: 2 | 3;
 }) {
-  const id = useId();
-  const heading = useRef<HTMLHeadingElement>(null);
-  const [expanded, setExpanded] = useState(false);
-  const [overflow, setOverflow] = useState(false);
-  useLayoutEffect(() => {
-    const node = heading.current;
-    if (!node || expanded) return;
-    let active = true;
-    const measure = () => {
-      if (active) setOverflow(node.scrollHeight > node.clientHeight + 1);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    void document.fonts.ready.then(measure);
-    return () => {
-      active = false;
-      observer.disconnect();
-    };
-  }, [goal, expanded]);
   const Heading = level === 2 ? 'h2' : 'h3';
-
+  const title = goalTitle(goal);
   return (
     <div className="app-goal">
-      <Heading
-        ref={heading}
-        id={id}
-        className={`app-goal-heading${expanded ? ' is-expanded' : ''}`}
-      >
-        {goal}
-      </Heading>
-      {(overflow || expanded) && (
-        <Button
-          aria-controls={id}
-          aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded ? 'Show less' : 'Show full goal'}
-        </Button>
-      )}
+      <Heading className="app-goal-heading">{title}</Heading>
+      <GoalDisclosure goal={goal} title={title} />
     </div>
   );
 }

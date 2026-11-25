@@ -34,9 +34,9 @@ The executable embeds Web/API; development and ordinary Go tests do not need gen
 
 [The change policy](scripts/change-policy.mjs) classifies actual Git base/head changes, including deletions and both rename paths. CI loads the policy from the trusted base; missing policy, mixed/unknown paths and workflow/policy changes select complete validation. README changes inside runtime/code directories remain documentation. `AGENTS.md` and process-rule edits require review of behavioral effects in addition to automated checks.
 
-Locally, run affected checks first. Documentation needs `make check-docs`, changed-Markdown formatting and content review against its owning implementation. Workflow-policy changes need classifier/gate tests and pinned actionlint; workspace orchestration changes need tests on affected hosts. Use an enclosing workspace's automatic planning/check command when available. These commands describe checks, not completed evidence.
+Locally, run affected checks first. For Markdown changes, use the [documentation checks](#documentation). For workflow-policy changes, run the classifier and gate tests and the pinned actionlint. Test workspace orchestration on affected hosts. Use the enclosing workspace's automatic planning or check command when available. Record which checks ran and their results.
 
-For UI and UX work, start with the [product principles](docs/design.md#product-principles), then the affected interaction section and [review checklist](docs/design.md#review-checklist). Explain the user goal and necessary action before adding a screen, tab or confirmation. For reads, live events, histories and streamed writes, follow the [performance contract](docs/performance.md), including its source/regression map and measurement procedure. Update the owning contract and focused checks with intentional behavior changes. Existing fixture coverage is a starting point, not evidence that a new change has passed.
+For UI changes, use the affected section of the [design contract](docs/design.md) and its [review checklist](docs/design.md#review-checklist). Follow the [performance contract](docs/performance.md) for reads, live events, histories and streamed writes. Update the owning contract and focused checks with intentional behavior changes.
 
 Branch pushes preserve identity, cleanliness, fixed target/branch and fast-forward history; full dual-host regression is not a push gate. Merge CI always resolves protected **Source**, **Browser** and **Fixture** checks, with explicit scope-based skips inside the graph. Uncertain classification fails closed or selects complete checks; cancelled/skipped required work never counts as successful validation. Main protection remains enabled. Formal releases run complete Linux and portable Mac source regression, browser/fixture checks and [native/package/public acceptance](docs/releasing.md), even after documentation-only main CI.
 
@@ -117,7 +117,7 @@ Keep each rule or procedure in its owning contract/tool README and link to it el
 
 Current guides describe implemented behavior and repeatable procedures. Record unresolved mismatches with an owner and completion condition in [implementation limits](docs/architecture.md#current-implementation-limits). Remove completed plans and superseded instructions; retain dated outcomes through [release evidence](docs/releasing.md#release-evidence).
 
-`make check-docs` checks new/unignored Markdown, local links/anchors and documented Go/Node/pnpm/DSH versions against their pins. Historical `docs/decisions/` receive link checks only. External URLs, behavior and unlabelled versions need source comparison. Run the pinned formatter on changed Markdown; documentation-only work needs no new native or paid-provider campaign.
+`make check-docs` checks new and unignored Markdown, local links and anchors, and documented Go, Node, pnpm and DSH pins. Historical `docs/decisions/` receive link checks only. Verify described behavior against its implementation and check external URLs and unlabelled versions against their sources. Run the pinned formatter on changed Markdown. Documentation-only changes use these checks and source review.
 
 ## Pull requests
 
@@ -127,7 +127,7 @@ Use Conventional Commits for PR titles and new commit messages: `type(scope): su
 
 Camp uses squash merges with the PR title as the commit subject. Verify the PR title and final squash subject before merging. Correct merged PR titles through GitHub metadata; do not rewrite published main history just to normalize old messages. Preserve release tags and their recorded commit identities.
 
-Visible UI changes require reviewed before/after images using synthetic data and the interactions in the [design review checklist](docs/design.md#review-checklist), which owns image placement and provenance. Keep secrets, personal team data and generated runtime files out of patches and public attachments. Retain formal acceptance under the [release evidence policy](docs/releasing.md#release-evidence).
+For visible UI changes, follow the [design review checklist](docs/design.md#review-checklist) for before/after evidence. Keep secrets, personal team data and generated runtime files out of patches and public attachments. Retain formal acceptance under the [release evidence policy](docs/releasing.md#release-evidence).
 
 The [CI workflow](.github/workflows/ci.yml) owns the current source/browser/fixture and Mac Server job matrix. [Native Mac qualification](.github/workflows/native-mac.yml), [Linux checkpoint qualification](.github/workflows/checkpoint-proof.yml) and [release verification](docs/releasing.md) establish separate guarantees. CI uses fresh test data without model credentials; source or fixture success does not establish native isolation, public installation or real-provider success.
 

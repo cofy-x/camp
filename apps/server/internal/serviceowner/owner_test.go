@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestOwnershipKeepsTheExistingLockAndTransfersOnlyOnce(t *testing.T) {
+func TestOwnershipKeepsTheExistingLockUntilClosed(t *testing.T) {
 	root := t.TempDir()
 	owner, err := Acquire(root)
 	if err != nil {
@@ -23,23 +23,10 @@ func TestOwnershipKeepsTheExistingLockAndTransfersOnlyOnce(t *testing.T) {
 	} else if !errors.Is(err, ErrDirectoryInUse) {
 		t.Fatal(err)
 	}
-	_, fd, err := owner.Take()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer fd.Close()
-	if _, _, err = owner.Take(); err == nil {
-		t.Fatal("Transferred ownership twice")
-	}
-	if err = owner.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if other, err := Acquire(root); err == nil {
-		other.Close()
-		t.Fatal("Closing transferred ownership released the FD")
-	}
-	if err = fd.Close(); err != nil {
-		t.Fatal(err)
+	for range 2 {
+		if err = owner.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	other, err := Acquire(root)
 	if err != nil {

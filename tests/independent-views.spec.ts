@@ -275,12 +275,14 @@ async function matter(page: Page, name: string, question = true) {
   });
   expect(response.ok()).toBe(true);
   const body = await response.json();
+  const questionText = 'Should we release on Tuesday or Thursday?';
   const item: WorkItem = {
     ...body.item,
     ...(question
       ? {
           status: 'waiting_for_person',
-          question: 'Should we release on Tuesday or Thursday?',
+          question: questionText,
+          currentDecision: { kind: 'judgment', text: questionText },
         }
       : {}),
   };
@@ -331,7 +333,7 @@ async function matter(page: Page, name: string, question = true) {
       json: { items: [listItem], nextCursor: '', hasMore: false },
     }),
   );
-  await page.route(`**/api/work-items/${item.id}`, (route) => {
+  await page.route(`**/api/work-items/${item.id}?view=current`, (route) => {
     reads.detail++;
     return route.fulfill({ json: { item } });
   });
@@ -716,8 +718,10 @@ test('Activity has an honest initial loading state and accepts rows while unrela
   try {
     await errors.get(page)!.reload();
     await expect.poll(() => membersHeld).toBeGreaterThan(0);
-    await expect.poll(() => activityHeld).toBeGreaterThan(0);
+    await expect(inboxToggle(page)).toBeVisible();
+    expect(activityHeld).toBe(0);
     const panel = await openInboxActivity(page);
+    await expect.poll(() => activityHeld).toBeGreaterThan(0);
     await expect(
       panel.getByText('Loading activity…', { exact: true }),
     ).toBeVisible();
@@ -857,4 +861,58 @@ test('failed Activity refresh retains rows and the discussion draft through loca
     retryGate.release();
     await page.unrouteAll({ behavior: 'wait' });
   }
+});
+
+test('Activity opens earlier notices on demand while the unread count covers all pages', async ({
+  page,
+}, info) => {
+  const room = await createRoom(page, `inbox-pages-${info.project.name}`);
+  const newest = {
+    ...activity(room),
+    title: 'Latest activity',
+    readAt: '2026-11-07T08:01:00Z',
+  };
+  const earlier = { ...activity(room), title: 'Earlier unread activity' };
+  let pageReads = 0;
+  let fail = true;
+  await page.route('**/api/me/inbox/unread', (route) =>
+    route.fulfill({ json: { unread: 1 } }),
+  );
+  await page.route('**/api/me/inbox', (route) => {
+    pageReads++;
+    return route.fulfill({
+      json: { items: [newest], nextCursor: 'earlier-token', hasMore: true },
+    });
+  });
+  await page.route('**/api/me/inbox?cursor=earlier-token', (route) =>
+    fail
+      ? route.fulfill({
+          status: 503,
+          json: { error: 'Earlier page temporarily unavailable.' },
+        })
+      : route.fulfill({
+          json: { items: [earlier], nextCursor: '', hasMore: false },
+        }),
+  );
+  await errors.get(page)!.reload();
+  await expect(inboxToggle(page)).toHaveAccessibleName(/1 unread activity/);
+  expect(pageReads).toBe(0);
+  const panel = await openInboxActivity(page);
+  await expect(
+    panel.getByRole('tab', { name: 'Activity (1)', exact: true }),
+  ).toBeVisible();
+  await expect(panel.getByText(newest.title, { exact: true })).toBeVisible();
+  await panel.getByRole('button', { name: 'Earlier', exact: true }).click();
+  await expect(panel.getByRole('alert')).toContainText(
+    'Earlier page temporarily unavailable.',
+  );
+  await expect(panel.getByText(newest.title, { exact: true })).toBeVisible();
+  fail = false;
+  await panel
+    .getByRole('button', { name: 'Retry Activity', exact: true })
+    .click();
+  await expect(panel.getByText(earlier.title, { exact: true })).toBeVisible();
+  await expect(panel.getByText(newest.title, { exact: true })).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Newer', exact: true }).click();
+  await expect(panel.getByText(newest.title, { exact: true })).toBeVisible();
 });

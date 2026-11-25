@@ -235,6 +235,9 @@
 .camp-settings-chooser {
   display: none;
 }
+.camp-settings-environment dl {
+  margin-top: 0;
+}
 @container (max-width: 600px) {
   .camp-settings-chooser {
     display: flex;
@@ -260,6 +263,13 @@
   }
   .camp-settings dd {
     margin-bottom: 8px;
+  }
+  .camp-settings-environment dl {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px 14px;
+  }
+  .camp-settings-environment dd {
+    margin-bottom: 0;
   }
 }
 .camp-settings-content h2,
@@ -307,7 +317,7 @@
   grid-template-columns: 124px minmax(0, 1fr);
   gap: 4px 12px;
   align-items: start;
-  padding: 10px;
+  padding: 6px 10px;
   border-bottom: 1px solid #ddd;
 }
 .camp-preparation-status > div:last-child {

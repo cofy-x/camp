@@ -94,7 +94,18 @@ func (a *API) workItemRoutes(mux *http.ServeMux) {
 		a.respond(w, r, map[string]any{"item": item}, err)
 	})
 	register("GET /api/work-items/{id}", func(w http.ResponseWriter, r *http.Request) {
-		item, err := a.store.GetWorkItem(r.Context(), r.PathValue("id"))
+		var item orchestration.WorkItem
+		var err error
+		views, present := r.URL.Query()["view"]
+		switch {
+		case !present:
+			item, err = a.store.GetWorkItem(r.Context(), r.PathValue("id"))
+		case len(views) == 1 && views[0] == "current":
+			item, err = a.store.GetCurrentWorkItem(r.Context(), r.PathValue("id"))
+		default:
+			writeError(w, http.StatusBadRequest, "invalid_page", "Choose the current Work view or omit view for its detail preview.")
+			return
+		}
 		a.respond(w, r, map[string]any{"item": item}, err)
 	})
 	register("GET /api/rooms/{id}/work-item-defaults", func(w http.ResponseWriter, r *http.Request) {

@@ -281,10 +281,23 @@ export const workspaceApi = {
     request<{ rooms: Room[] }>('/rooms', { signal }),
   agents: (signal?: AbortSignal) =>
     request<{ agents: Agent[] }>('/agents', { signal }),
-  createRoom: (name: string) =>
-    request<{ room: Room }>('/rooms', json('POST', { name, description: '' })),
-  updateRoom: (roomId: string, value: Partial<Room>) =>
-    request<{ room: Room }>(`/rooms/${id(roomId)}`, json('PATCH', value)),
+  createRoom: (name: string, requestId: string) =>
+    request<{ room: Room }>(
+      '/rooms',
+      json('POST', { name, description: '', requestId }),
+    ),
+  renameRoom: (
+    roomId: string,
+    name: string,
+    expectedUpdatedAt: string,
+    requestId: string,
+  ) =>
+    request<{ room: Room }>(
+      `/rooms/${id(roomId)}`,
+      json('PATCH', { name, expectedUpdatedAt, requestId }),
+    ),
+  roomNameReceipt: (requestId: string) =>
+    request<{ room: Room }>(`/room-requests/${id(requestId)}`),
   membership: (roomId: string, agentId: string, join: boolean) =>
     request<{ ok: boolean }>(
       `/rooms/${id(roomId)}/members/${id(agentId)}`,

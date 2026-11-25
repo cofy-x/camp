@@ -4,7 +4,12 @@ import { teamApi, type PrivateDraft } from './api';
 import { useAccount } from './AuthContext';
 import { registerDraftWriter } from './draftRegistry';
 
-export function usePrivateDraft<T>(kind: string, key: string, initial: T) {
+export function usePrivateDraft<T>(
+  kind: string,
+  key: string,
+  initial: T,
+  canSave?: (value: T) => boolean,
+) {
   const { user } = useAccount();
   const storageKey = `camp:private:${user.id}:${kind}:${key}`;
   const [value, setValueState] = useState(initial);
@@ -108,11 +113,14 @@ export function usePrivateDraft<T>(kind: string, key: string, initial: T) {
       return Promise.resolve(current.serial === current.saved);
     if (!current.mounted || current.blocked) return Promise.resolve(false);
     if (current.serial === current.saved) return Promise.resolve(true);
+    // Leave an invalid local draft recoverable without failing an autosave.
+    if (canSave && !canSave(current.value)) return Promise.resolve(false);
     setSaving(true);
     const task = (async () => {
       try {
         while (current.mounted && current.serial > current.saved) {
           const snapshot = { value: current.value, serial: current.serial };
+          if (canSave && !canSave(snapshot.value)) return false;
           const result =
             snapshot.value === null
               ? await teamApi.deleteDraft(kind, key, current.revision)
@@ -154,7 +162,7 @@ export function usePrivateDraft<T>(kind: string, key: string, initial: T) {
     })();
     active.current = task;
     return task;
-  }, [kind, key, backup, keepSavedDraft]);
+  }, [kind, key, backup, keepSavedDraft, canSave]);
   const getValue = useCallback(() => state.current.value, []);
   const setValue = useCallback(
     (next: T, { keepSavedOnConflict = false } = {}) => {
