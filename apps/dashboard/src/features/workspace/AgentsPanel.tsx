@@ -47,6 +47,7 @@ export function AgentEditor({
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const handleHelp = useId();
+  const scopeId = useId();
   const runners = useRunners();
   const [preferredRunnerId, setPreferredRunnerId] = useState(
     agent?.preferredRunnerId ?? '',
@@ -78,14 +79,19 @@ export function AgentEditor({
       agents.filter((item) => item.id !== agent?.id).map((item) => item.handle),
     );
   const dirty =
-    name !== (agent?.name ?? '') ||
-    handle !== (agent?.handle ?? '') ||
+    name.trim() !== (agent?.name ?? '') ||
+    handle.trim() !== (agent?.handle ?? '') ||
     icon !== agentIcon(agent?.icon ?? 'agent') ||
     avatar !== (agent?.avatar ?? '') ||
     instructions !== (agent?.instructions ?? '') ||
     access !== (agent?.access ?? 'write') ||
     enabled !== (agent?.enabled ?? true) ||
     preferredRunnerId !== (agent?.preferredRunnerId ?? '');
+  const canSave = (!agent || dirty) && Boolean(name.trim() && handle.trim());
+  const saveScope = agent
+    ? dirty && 'Changes apply in every Room this Agent joins.'
+    : room &&
+      'Adding your Agent shares it with everyone in this Room. They can ask it to work using its selected Runner.';
 
   useLayoutEffect(() => {
     unsaved.current = dirty;
@@ -116,7 +122,7 @@ export function AgentEditor({
   }
 
   async function save() {
-    if (saving.current) return;
+    if (!canSave || saving.current) return;
     saving.current = true;
     setSubmittedHandle(handle);
     setPending(true);
@@ -166,216 +172,207 @@ export function AgentEditor({
         void save();
       }}
     >
-      {showHeading && (
-        <h3>
-          {agent
-            ? `Edit ${agent.name}`
-            : room
-              ? `Add an agent to ${room.name}`
-              : 'Create your Agent'}
-        </h3>
-      )}
-      <label>
-        Name
-        <input
-          autoFocus
-          required
-          disabled={pending}
-          maxLength={120}
-          placeholder="For example, Product Writer"
-          value={name}
-          onChange={(event) => {
-            setName(event.target.value);
-            setSubmittedHandle(null);
-          }}
-        />
-      </label>
-      <label>
-        Responsibilities
-        <textarea
-          disabled={pending}
-          rows={4}
-          maxLength={8192}
-          value={instructions}
-          onChange={(event) => setInstructions(event.target.value)}
-          placeholder="What should this agent focus on?"
-        />
-      </label>
-      {!agent && (
-        <details>
-          <summary>Start with a role</summary>
-          <fieldset
-            className="workspace-agent-presets"
-            disabled={pending}
-            aria-label="Agent roles"
-          >
-            <div>
-              {agentPresets.map((item) => (
-                <Button
-                  key={item.id}
-                  type="button"
-                  aria-label={item.label}
-                  aria-pressed={preset === item.id}
-                  onClick={() => choosePreset(item)}
-                >
-                  <PixelIcon name={agentIcon(item.icon)} size={24} />
-                  <span>
-                    <strong>{item.label}</strong>
-                    <small>{item.description}</small>
-                  </span>
-                </Button>
-              ))}
-            </div>
-          </fieldset>
-        </details>
-      )}
-      <div className="workspace-agent-routing">
-        <div className="workspace-agent-access">
-          <Select
-            disabled={pending}
-            label="File access"
-            value={access}
-            onChange={(event) =>
-              setAccess(event.target.value as Agent['access'])
-            }
-          >
-            <option value="write">Can edit files</option>
-            <option value="read">Read only</option>
-          </Select>
-          {access === 'write' && (
-            <p className="workspace-description">
-              Checked results from ordinary requests are saved to Room files.
-            </p>
-          )}
-        </div>
-        <div>
-          <Select
-            label="Preferred Runner"
-            value={preferredRunnerId}
-            disabled={pending || runners.loading}
-            onChange={(event) => setPreferredRunnerId(event.target.value)}
-          >
-            <option value="">
-              {agent ? 'No preferred Runner' : 'Use your default Runner'}
-            </option>
-            {runners.runners
-              .filter((runner) => !runner.revoked)
-              .map((runner) => (
-                <option
-                  key={runner.id}
-                  value={runner.id}
-                  disabled={!runner.enabled}
-                >
-                  {runner.name}
-                  {!runner.online ? ' · Offline, work will queue' : ''}
-                </option>
-              ))}
-          </Select>
-          {runners.error && (
-            <p className="app-error" role="alert">
-              {runners.error}
-            </p>
-          )}
-        </div>
-      </div>
-      <details
-        className="camp-avatar-disclosure"
-        onToggle={(event) => setChoosingAvatar(event.currentTarget.open)}
-      >
-        <summary>
-          <span>
-            <IdentityAvatar avatar={avatar} kind="agent" size={32} />
-            Avatar
-          </span>
-        </summary>
-        {choosingAvatar && (
-          <AvatarPicker
-            kind="agent"
-            value={avatar}
-            onChange={setAvatar}
-            disabled={pending}
-            automatic={!agent}
-          />
+      <div className="workspace-agent-editor-fields">
+        {showHeading && (
+          <h3>
+            {agent
+              ? `Edit ${agent.name}`
+              : room
+                ? `Add an agent to ${room.name}`
+                : 'Create your Agent'}
+          </h3>
         )}
-      </details>
-      <details className="workspace-agent-identity">
-        <summary>
-          Identity options
-          {handle && <span>@{handle}</span>}
-        </summary>
-        <div>
+        <div className="workspace-agent-identity">
           <label>
-            Handle
+            Name
             <input
+              autoFocus
               required
               disabled={pending}
-              aria-label="Handle"
-              aria-describedby={handleHelp}
-              pattern="[a-z]([a-z0-9_]|-){0,47}"
-              maxLength={48}
-              value={handle}
-              onInvalid={(event) => {
-                event.currentTarget
-                  .closest('details')
-                  ?.setAttribute('open', '');
+              maxLength={120}
+              placeholder="For example, Product Writer"
+              value={name}
+              onChange={(event) => {
+                setName(event.target.value);
+                setSubmittedHandle(null);
               }}
-              onChange={(event) =>
-                setCustomHandle(event.target.value.toLowerCase())
-              }
             />
-            <small id={handleHelp}>
-              Start with a letter; use lowercase letters, numbers, hyphens or
-              underscores.
-            </small>
           </label>
+          <div>
+            <label>
+              Handle
+              <input
+                required
+                disabled={pending}
+                aria-describedby={handleHelp}
+                pattern="[a-z]([a-z0-9_]|-){0,47}"
+                maxLength={48}
+                value={handle}
+                onChange={(event) =>
+                  setCustomHandle(event.target.value.toLowerCase())
+                }
+              />
+            </label>
+            <p id={handleHelp} className="workspace-description">
+              Start with a letter. Use lowercase letters, numbers, hyphens or
+              underscores.
+            </p>
+          </div>
         </div>
-      </details>
-      {agent && (
-        <Checkbox
-          disabled={pending}
-          label="Enabled"
-          checked={enabled}
-          onChange={(event) => setEnabled(event.target.checked)}
-        />
-      )}
-      {!enabled && (
-        <p className="workspace-description">
-          Disabling this Agent cancels its queued and active work in every Room.
-        </p>
-      )}
+        <label>
+          Responsibilities
+          <textarea
+            disabled={pending}
+            rows={4}
+            maxLength={8192}
+            value={instructions}
+            onChange={(event) => setInstructions(event.target.value)}
+            placeholder="What should this agent focus on?"
+          />
+        </label>
+        {!agent && (
+          <details>
+            <summary>Start with a role</summary>
+            <fieldset
+              className="workspace-agent-presets"
+              disabled={pending}
+              aria-label="Agent roles"
+            >
+              <div>
+                {agentPresets.map((item) => (
+                  <Button
+                    key={item.id}
+                    type="button"
+                    aria-label={item.label}
+                    aria-pressed={preset === item.id}
+                    onClick={() => choosePreset(item)}
+                  >
+                    <PixelIcon name={agentIcon(item.icon)} size={24} />
+                    <span>
+                      <strong>{item.label}</strong>
+                      <small>{item.description}</small>
+                    </span>
+                  </Button>
+                ))}
+              </div>
+            </fieldset>
+          </details>
+        )}
+        <div className="workspace-agent-routing">
+          <div className="workspace-agent-access">
+            <Select
+              disabled={pending}
+              label="File access"
+              value={access}
+              onChange={(event) =>
+                setAccess(event.target.value as Agent['access'])
+              }
+            >
+              <option value="write">Can edit files</option>
+              <option value="read">Read only</option>
+            </Select>
+            {access === 'write' && (
+              <p className="workspace-description">
+                Checked results from ordinary requests are saved to Room files.
+              </p>
+            )}
+          </div>
+          <div>
+            <Select
+              label="Preferred Runner"
+              value={preferredRunnerId}
+              disabled={pending || runners.loading}
+              onChange={(event) => setPreferredRunnerId(event.target.value)}
+            >
+              <option value="">
+                {agent ? 'No preferred Runner' : 'Use your default Runner'}
+              </option>
+              {runners.runners
+                .filter((runner) => !runner.revoked)
+                .map((runner) => (
+                  <option
+                    key={runner.id}
+                    value={runner.id}
+                    disabled={!runner.enabled}
+                  >
+                    {runner.name}
+                    {!runner.online ? ' · Offline, work will queue' : ''}
+                  </option>
+                ))}
+            </Select>
+            {runners.error && (
+              <p className="app-error" role="alert">
+                {runners.error}
+              </p>
+            )}
+          </div>
+        </div>
+        <details
+          className="camp-avatar-disclosure"
+          onToggle={(event) => setChoosingAvatar(event.currentTarget.open)}
+        >
+          <summary>
+            <span>
+              <IdentityAvatar avatar={avatar} kind="agent" size={32} />
+              Avatar
+            </span>
+          </summary>
+          {choosingAvatar && (
+            <AvatarPicker
+              kind="agent"
+              value={avatar}
+              onChange={setAvatar}
+              disabled={pending}
+              automatic={!agent}
+            />
+          )}
+        </details>
+        {agent && (
+          <Checkbox
+            disabled={pending}
+            label="Enabled"
+            checked={enabled}
+            onChange={(event) => setEnabled(event.target.checked)}
+          />
+        )}
+        {agent?.enabled && !enabled && (
+          <p className="workspace-description">
+            Disabling this Agent cancels its queued and active work in every
+            Room.
+          </p>
+        )}
+      </div>
       <footer className="workspace-agent-editor-actions">
-        {agent ? (
-          <p className="workspace-description">
-            Changes apply in every Room this Agent joins.
-          </p>
-        ) : room ? (
-          <p className="workspace-description">
-            Adding your Agent shares it with everyone in this Room. They can ask
-            it to work using its selected Runner.
-          </p>
-        ) : null}
         {(error || navigationError || blocked) && (
           <p className="app-error" role="alert">
             {error || navigationError || blocked}
           </p>
         )}
-        <div className="app-actions">
-          <Button
-            primary
-            type="submit"
-            disabled={pending || !name.trim() || !handle.trim()}
-          >
-            {pending
-              ? 'Saving…'
-              : agent
-                ? 'Save Agent'
-                : room
-                  ? 'Create and Add'
-                  : 'Create Agent'}
-          </Button>
-          <Button type="button" disabled={pending} onClick={onClose}>
-            Cancel
-          </Button>
+        <div className="workspace-agent-editor-save-row">
+          {saveScope && (
+            <p id={scopeId} className="workspace-description">
+              {saveScope}
+            </p>
+          )}
+          <div className="app-actions">
+            <Button type="button" disabled={pending} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              primary
+              type="submit"
+              disabled={pending || !canSave}
+              aria-describedby={saveScope ? scopeId : undefined}
+            >
+              {pending
+                ? 'Saving…'
+                : agent
+                  ? 'Save Agent'
+                  : room
+                    ? 'Create and Add'
+                    : 'Create Agent'}
+            </Button>
+          </div>
         </div>
       </footer>
     </form>

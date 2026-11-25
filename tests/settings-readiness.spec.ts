@@ -219,6 +219,75 @@ test('clearing a saved model key preserves other unsaved settings', async ({
   expect(writes).toEqual([{ clearApiKey: true }]);
 });
 
+test('failed model saves preserve edits until save or discard', async ({
+  page,
+}) => {
+  await signIn(page);
+  const saved: ModelSettings = {
+    model: 'saved-model',
+    baseUrl: 'https://provider.example/v1',
+    maxTokens: 4096,
+    maxSteps: 8,
+    timeoutSeconds: 180,
+    apiKeyConfigured: false,
+    revision: 'review-model',
+    fields: {},
+  };
+  let writes = 0;
+  await page.route('**/api/settings/models', (route) => {
+    if (route.request().method() === 'GET')
+      return route.fulfill({ json: saved });
+    writes++;
+    return route.fulfill({
+      status: 503,
+      json: { error: 'Could not save the model.' },
+    });
+  });
+  await openApp(page, 'Settings');
+  await selectPanel(page, 'models', 'Models');
+  const app = settings(page);
+  const name = app.getByLabel('Model', { exact: true });
+  const key = app.getByLabel('API key', { exact: true });
+  await name.fill('updated-model');
+  await key.fill('synthetic-unsaved-key');
+  await app
+    .getByRole('button', { name: 'Save Model Settings', exact: true })
+    .click();
+  await expect(app.getByRole('alert')).toContainText(
+    'Could not save the model.',
+  );
+  const chooser = app.getByLabel('Control panel', { exact: true });
+  if (await chooser.isVisible()) await chooser.selectOption('readiness');
+  else
+    await app
+      .getByRole('navigation', { name: 'Settings sections' })
+      .getByRole('button', { name: 'Getting Ready', exact: true })
+      .click();
+  await expect(app.locator('.p9-window-title')).toHaveText('Models — Settings');
+  await expect(
+    app.getByText('Save or discard the model edits before leaving.'),
+  ).toBeVisible();
+  const close = app.getByRole('button', {
+    name: 'Close Models — Settings',
+    exact: true,
+  });
+  await close.click();
+  await expect(name).toHaveValue('updated-model');
+  await expect(key).toHaveValue('synthetic-unsaved-key');
+  expect(
+    await page.evaluate(() =>
+      JSON.stringify({ ...localStorage, ...sessionStorage }),
+    ),
+  ).not.toContain('synthetic-unsaved-key');
+  await app.getByRole('button', { name: 'Discard Edits', exact: true }).click();
+  await expect(name).toHaveValue('saved-model');
+  await expect(key).toHaveValue('');
+  await expect(app.getByRole('alert')).toHaveCount(0);
+  await close.click();
+  await expect(app).toHaveCount(0);
+  expect(writes).toBe(1);
+});
+
 test('remote environment settings show Server concurrency without inventing Runner limits', async ({
   page,
 }) => {
@@ -259,11 +328,14 @@ test('remote environment settings show Server concurrency without inventing Runn
   await expect(app.getByText('Runner capability', { exact: true })).toHaveCount(
     0,
   );
+  await expect(
+    app.getByText('Configure Room checks in Library under Environment.'),
+  ).toBeVisible();
   await app.getByRole('button', { name: 'Open Runners', exact: true }).click();
   await expect(page.locator('[data-window-id="runners:main"]')).toBeVisible();
 });
 
-test('Getting Ready guides model, Runner and task setup without starting work', async ({
+test('Getting Ready offers Workspace as soon as Agent work is available', async ({
   page,
 }) => {
   await signIn(page);
@@ -285,6 +357,13 @@ test('Getting Ready guides model, Runner and task setup without starting work', 
         ready: ['task', 'done'].includes(stage),
         components: observation.components.map((component) => ({
           ...component,
+          ...(component.id === 'execution' && stage === 'upgrade'
+            ? {
+                issue: 'runner_upgrade_required',
+                detail:
+                  'Update a connected Runner to use the configured reasoning setting.',
+              }
+            : {}),
           status:
             component.id === 'model'
               ? stage === 'model'
@@ -347,20 +426,29 @@ test('Getting Ready guides model, Runner and task setup without starting work', 
   await expect(
     page.getByRole('region', { name: 'Connect Runner', exact: true }),
   ).toBeVisible();
+  stage = 'upgrade';
+  await openApp(page, 'Settings');
+  await expect(next.getByRole('heading')).toHaveText('Update a Runner');
+  await expect(statusRow(page, 'Agent work')).toContainText(
+    'configured reasoning setting',
+  );
+  await next.getByRole('button', { name: 'Open Runners', exact: true }).click();
+  await expect(
+    page.getByRole('region', { name: 'Connect Runner', exact: true }),
+  ).not.toBeVisible();
   stage = 'task';
   await openApp(page, 'Settings');
-  await expect(next.getByRole('heading')).toHaveText(
-    'Try your first Agent task',
+  await expect(next.getByRole('heading')).toHaveText('Start working');
+  await expect(statusRow(page, 'Native task')).toContainText(
+    'Not yet verified',
   );
-  await expect(next).toContainText('This makes a model request.');
-  await expect(
-    preparation(page).getByRole('button', {
-      name: 'Open Runners',
-      exact: true,
-    }),
-  ).toHaveCount(0);
-  await next
-    .getByRole('button', { name: 'Choose Runner…', exact: true })
+  const start = next.getByRole('button', {
+    name: 'Open Workspace',
+    exact: true,
+  });
+  await expect(start).toBeEnabled();
+  await preparation(page)
+    .getByRole('button', { name: 'Open Runners', exact: true })
     .click();
   await expect(
     page.getByRole('region', { name: 'Connect Runner', exact: true }),
@@ -368,15 +456,17 @@ test('Getting Ready guides model, Runner and task setup without starting work', 
   stage = 'done';
   await openApp(page, 'Settings');
   await expect(next.getByRole('heading')).toHaveText('Start working');
+  await expect(statusRow(page, 'Native task')).toContainText(
+    'Succeeded previously',
+  );
   await expect(
     preparation(page).getByRole('button', {
       name: 'Open Workspace',
       exact: true,
     }),
-  ).toHaveCount(0);
-  await expect(
-    next.getByRole('button', { name: 'Start Working', exact: true }),
-  ).toBeEnabled();
+  ).toHaveCount(1);
+  await start.click();
+  await expect(workspace(page)).toHaveClass(/is-active/);
   expect(mutations).toEqual([]);
 });
 

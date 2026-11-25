@@ -32,11 +32,20 @@ function CheckEditor({
   const editorId = useId();
   const [editing, setEditing] = useState(!check.name);
   const row = useRef<HTMLFieldSetElement>(null);
+  const nameField = useRef<HTMLInputElement>(null);
+  const focusOnOpen = useRef(false);
   const argumentsGroup = useRef<HTMLDivElement>(null);
   const argumentFields = useRef(new Map<number, HTMLTextAreaElement>());
   const addArgument = useRef<HTMLButtonElement>(null);
   const argumentFocus = useRef<number | null | undefined>(undefined);
   const command = checkCommandSummary(check, kind, manager);
+
+  useLayoutEffect(() => {
+    if (editing && focusOnOpen.current) {
+      focusOnOpen.current = false;
+      nameField.current?.focus();
+    }
+  }, [editing]);
 
   useLayoutEffect(() => {
     if (!editing) return;
@@ -70,7 +79,7 @@ function CheckEditor({
         HTMLInputElement | HTMLTextAreaElement
       >('input, textarea');
       for (const field of fields ?? []) if (!field.reportValidity()) return;
-    }
+    } else focusOnOpen.current = true;
     setEditing(!editing);
   }
 
@@ -78,51 +87,32 @@ function CheckEditor({
     <fieldset
       ref={row}
       className="library-environment-check"
+      data-editing={editing}
       aria-label={`Check ${index + 1}`}
-      onInvalidCapture={(event) => {
+      onInvalidCapture={() => {
         // Reveal fields before native form validation attempts to focus them.
         if (!editing) flushSync(() => setEditing(true));
-        const details = (event.target as HTMLElement).closest('details');
-        if (details) details.open = true;
       }}
     >
-      <div className="library-check-heading">
+      {!editing && <strong className="library-check-name">{check.name}</strong>}
+      {!editing && (command || check.directory) && (
         <div className="library-check-overview">
-          <strong>{check.name || 'New check'}</strong>
-          {!editing && command && (
+          {command && (
             <code className="library-check-command" title={command}>
               {command}
             </code>
           )}
-          {!editing && check.directory && (
+          {check.directory && (
             <span className="library-check-location">{check.directory}</span>
           )}
         </div>
-        <div className="library-check-controls">
-          <Button
-            ref={onControl}
-            type="button"
-            aria-label={editing ? undefined : `Edit check ${index + 1}`}
-            aria-expanded={editing}
-            aria-controls={editorId}
-            onClick={toggleEditing}
-          >
-            {editing ? 'Done' : 'Edit'}
-          </Button>
-          <Button
-            type="button"
-            aria-label={`Remove check ${index + 1}`}
-            onClick={onRemove}
-          >
-            Remove check
-          </Button>
-        </div>
-      </div>
+      )}
       <div id={editorId} className="library-check-editor" hidden={!editing}>
         <div className="library-check-fields">
           <label>
             Name
             <input
+              ref={nameField}
               className="p9-field"
               autoFocus={!check.name}
               required
@@ -223,6 +213,7 @@ function CheckEditor({
             <Button
               ref={addArgument}
               type="button"
+              variant="text"
               disabled={check.arguments.length >= 64}
               onClick={() => {
                 argumentFocus.current = Math.max(0, check.arguments.length - 1);
@@ -240,27 +231,47 @@ function CheckEditor({
         ) : manager !== 'pnpm@12.11.2' && !check.script ? (
           <code>node --test</code>
         ) : null}
-        <details className="library-check-directory">
-          <summary>
-            Working directory
-            {check.directory && <span>{check.directory}</span>}
-          </summary>
+        <label className="library-check-directory">
+          Working directory
           <input
             className="p9-field"
-            aria-label="Working directory"
             placeholder="Project root"
             maxLength={512}
             value={check.directory}
             onChange={(event) => onChange({ directory: event.target.value })}
           />
-        </details>
-        <p className="library-environment-hint">
-          {kind === 'command'
-            ? 'Arguments are passed as entered, without shell parsing.'
-            : manager === 'pnpm@12.11.2'
+        </label>
+        {kind === 'node' && (
+          <p className="library-environment-hint">
+            {manager === 'pnpm@12.11.2'
               ? 'An empty package script runs node --test.'
               : 'Checks run node --test without installing dependencies.'}
-        </p>
+          </p>
+        )}
+      </div>
+      <div className="library-check-controls">
+        {editing && (
+          <Button
+            type="button"
+            variant="text"
+            className="library-check-remove"
+            aria-label={`Remove check ${index + 1}`}
+            onClick={onRemove}
+          >
+            Remove check
+          </Button>
+        )}
+        <Button
+          ref={onControl}
+          type="button"
+          variant="text"
+          aria-label={editing ? undefined : `Edit check ${index + 1}`}
+          aria-expanded={editing}
+          aria-controls={editorId}
+          onClick={toggleEditing}
+        >
+          {editing ? 'Done' : 'Edit'}
+        </Button>
       </div>
     </fieldset>
   );
@@ -293,43 +304,49 @@ export function EnvironmentChecks({
 
   return (
     <section className="library-environment-checks" aria-label="Checks">
-      <h3>Checks</h3>
-      {!checks.length && <p>No checks configured.</p>}
-      {checks.map((check, index) => (
-        <CheckEditor
-          key={check.id}
-          check={check}
-          index={index}
-          kind={kind}
-          manager={manager}
-          onControl={(control) => {
-            if (control) controls.current.set(check.id, control);
-            else controls.current.delete(check.id);
-          }}
-          onChange={(value) =>
-            onChange(
-              checks.map((item) =>
-                item.id === check.id ? { ...item, ...value } : item,
-              ),
-            )
-          }
-          onRemove={() => {
-            focusAfterRemoval.current =
-              checks[index + 1]?.id ?? checks[index - 1]?.id ?? null;
-            onChange(checks.filter((item) => item.id !== check.id));
-          }}
-        />
-      ))}
-      <div className="app-actions">
+      <header className="library-checks-heading">
+        <h3>Checks</h3>
         <Button
           ref={addCheck}
           type="button"
+          variant="text"
           disabled={checks.length >= 8}
           onClick={() => onChange([...checks, editableCheck()])}
         >
           Add check
         </Button>
-      </div>
+      </header>
+      {checks.length === 0 ? (
+        <p className="library-check-empty">No checks configured.</p>
+      ) : (
+        <div className="library-check-list">
+          {checks.map((check, index) => (
+            <CheckEditor
+              key={check.id}
+              check={check}
+              index={index}
+              kind={kind}
+              manager={manager}
+              onControl={(control) => {
+                if (control) controls.current.set(check.id, control);
+                else controls.current.delete(check.id);
+              }}
+              onChange={(value) =>
+                onChange(
+                  checks.map((item) =>
+                    item.id === check.id ? { ...item, ...value } : item,
+                  ),
+                )
+              }
+              onRemove={() => {
+                focusAfterRemoval.current =
+                  checks[index + 1]?.id ?? checks[index - 1]?.id ?? null;
+                onChange(checks.filter((item) => item.id !== check.id));
+              }}
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
 }

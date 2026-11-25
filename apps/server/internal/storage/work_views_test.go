@@ -12,6 +12,104 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
 
+func TestWorkCurrentDecisionSharesQuestionAndCompletionAcrossReads(t *testing.T) {
+	s, owner, teammate, room, writer, _ := taskFixture(t)
+	work, err := s.CreateWorkItem(owner, room.ID, orchestration.WorkItemInput{
+		RequestID: newID(), Goal: "Prepare the reviewed brief.", CompletionMode: "human",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	work = decideTestWork(t, s, owner, work, orchestration.WorkItemOperation{
+		Kind: "execute", ParticipantAgentIDs: []string{writer.ID}, FirstAgentID: writer.ID,
+	})
+	task, err := s.GetTaskState(owner, work.ActiveTaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enableTaskInputs(t, s, task.Participants[0].RunnerID)
+	finishTaskTestRound(t, s, task, "", CoordinationIntent{
+		CallID: newID(), Kind: "ask_person", Question: "Which scope?", Options: []string{"Small", "Large"},
+	})
+	task, err = s.GetTaskState(owner, task.ID)
+	if err != nil || task.Question == nil {
+		t.Fatal("collaboration lost its current question", err)
+	}
+	assertDecision := func(want *orchestration.WorkCurrentDecision) orchestration.WorkItem {
+		t.Helper()
+		current, err := s.GetCurrentWorkItem(owner, work.ID)
+		if err != nil || !reflect.DeepEqual(current.CurrentDecision, want) {
+			t.Fatalf("current Work decision = %+v, want %+v, err = %v", current.CurrentDecision, want, err)
+		}
+		full, err := s.GetWorkItem(owner, work.ID)
+		if err != nil || full.Status != current.Status || !reflect.DeepEqual(full.CurrentDecision, want) {
+			t.Fatal("full Work detail disagreed with current", full.CurrentDecision, err)
+		}
+		list, err := s.ListWorkItems(owner, WorkListOptions{View: "all", RoomID: room.ID})
+		if err != nil || len(list.Items) != 1 || list.Items[0].Status != current.Status || !reflect.DeepEqual(list.Items[0].CurrentDecision, want) {
+			t.Fatal("Work list disagreed with current", list, err)
+		}
+		legacyList, err := s.WorkItems(owner, room.ID, 0, 1)
+		if err != nil || len(legacyList.Items) != 1 || !reflect.DeepEqual(legacyList.Items[0].CurrentDecision, want) {
+			t.Fatal("Room Work list disagreed with current", legacyList, err)
+		}
+		attention := attentionFor(t, s, owner, AttentionOptions{RoomID: room.ID, Kind: "judgment"})
+		if want != nil && (len(attention.Items) != 1 || attention.Items[0].Summary != want.Text || !reflect.DeepEqual(attention.Items[0].CurrentDecision, want)) {
+			t.Fatal("personal attention disagreed with current", attention)
+		}
+		if want == nil && len(attention.Items) != 0 {
+			t.Fatal("settled question remained in personal attention", attention)
+		}
+		return current
+	}
+	work = assertDecision(&orchestration.WorkCurrentDecision{
+		Kind: "task", ID: task.Question.ID, Text: task.Question.Text, Options: task.Question.Options,
+		TaskID: task.ID, TaskRevision: task.Revision,
+	})
+	if work.Status != "running" {
+		t.Fatal("projection changed the durable Work lifecycle", work.Status)
+	}
+	other := attentionFor(t, s, teammate, AttentionOptions{RoomID: room.ID, Kind: "judgment"})
+	if len(other.Items) != 0 {
+		t.Fatal("projection reassigned someone else's decision", other.Items)
+	}
+	raw, err := s.queries().GetWorkItem(owner, work.ID)
+	if err != nil || strings.Contains(raw.Value, `"currentDecision"`) {
+		t.Fatal("a read projection entered durable Work state", err)
+	}
+	answer := orchestration.WorkItemOperation{
+		Kind: "answer", RequestID: newID(), Revision: work.Revision, TaskID: task.ID, TaskRevision: task.Revision,
+		QuestionID: task.Question.ID, Content: "Choose Small.",
+	}
+	answered, err := s.OperateWorkItem(owner, work.ID, answer, roomBudget)
+	if err != nil || answered.CurrentDecision != nil {
+		t.Fatal("answer left a stale decision on its receipt", answered.CurrentDecision, err)
+	}
+	assertDecision(nil)
+	task, err = s.GetTaskState(owner, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishTaskTestRound(t, s, task, strings.Repeat("b", 40), CoordinationIntent{CallID: newID(), Kind: "finish", Summary: "Saved the brief."})
+	if err = s.ReconcileTask(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	work = assertDecision(&orchestration.WorkCurrentDecision{Kind: "completion", Text: "Is this work complete?", Options: []string{}})
+	if work.ActiveTaskID != "" || work.Execution == nil || work.Execution.Status != "completed" {
+		t.Fatal("completed execution and human confirmation were conflated", work.Execution)
+	}
+	receipt, err := s.WorkItemRequest(owner, answer.RequestID)
+	if err != nil || receipt.Revision != answered.Revision || receipt.CurrentDecision != nil {
+		t.Fatal("answer receipt was rewritten to the later completion decision", receipt.CurrentDecision, err)
+	}
+	decideTestWork(t, s, owner, work, orchestration.WorkItemOperation{Kind: "complete"})
+	completed := assertDecision(nil)
+	encoded, err := json.Marshal(completed)
+	if err != nil || !strings.Contains(string(encoded), `"currentDecision":null`) {
+		t.Fatal("absent pending decisions must be explicit on current reads", err)
+	}
+}
+
 func TestWorkViewReadsMetadataWithoutFrozenContentAndKeepsExactFacts(t *testing.T) {
 	s, actor, _, room, writer, _ := taskFixture(t)
 	w := createTestWork(t, s, actor, room)

@@ -1,3 +1,4 @@
+import { goalTitle } from '../../shared/content/goal-title';
 import type { AttentionItem } from './api';
 import './attention.css';
 
@@ -19,12 +20,14 @@ export function AttentionList({
   return (
     <ul className="attention-list" aria-label="Needs me">
       {items.map((item) => {
+        const title =
+          item.source === 'review' ? item.title : goalTitle(item.title);
         const summary = item.workRecovery?.message || item.summary;
         return (
           <li key={item.id}>
             <button type="button" onClick={() => onOpen(item)}>
-              <span className="attention-title">{item.title}</span>
-              {summary && summary !== item.title && (
+              <span className="attention-title">{title}</span>
+              {summary && summary !== item.title && summary !== title && (
                 <span className="attention-summary">{summary}</span>
               )}
               {item.workRecovery ? (

@@ -365,26 +365,53 @@ func (s *Store) CreateRoom(ctx context.Context, r Room) (Room, error) {
 	})
 	return r, e
 }
+
+type RoomPatch struct {
+	Name           *string `json:"name"`
+	Description    *string `json:"description"`
+	ResourceID     *string `json:"resourceId"`
+	DefaultAgentID *string `json:"defaultAgentId"`
+}
+
 func (s *Store) UpdateRoom(ctx context.Context, r Room) (Room, error) {
-	e := s.transaction(ctx, func(tx *sql.Tx) error {
+	return s.PatchRoom(ctx, r.ID, RoomPatch{Name: &r.Name, Description: &r.Description, ResourceID: &r.ResourceID, DefaultAgentID: &r.DefaultAgentID})
+}
+
+func (s *Store) PatchRoom(ctx context.Context, id string, patch RoomPatch) (Room, error) {
+	var room Room
+	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
-		old, e := q.GetRoom(ctx, r.ID)
-		if e != nil {
-			return missing(e, "The room")
+		current, err := q.GetRoom(ctx, id)
+		if err != nil {
+			return missing(err, "The room")
 		}
-		r.CreatedAt = old.CreatedAt
-		r.ActivitySeq = old.ActivitySeq
-		r.RunnerID, r.RunnerRevision = old.RunnerID.String, old.RunnerRevision
-		r.UpdatedAt = now()
-		if e := validateRoom(ctx, q, &r, false); e != nil {
-			return e
+		room = roomRow(current)
+		if patch.Name != nil {
+			room.Name = *patch.Name
 		}
-		if e := q.UpdateRoom(ctx, sqlgen.UpdateRoomParams{ID: r.ID, Name: r.Name, Description: r.Description, ResourceID: r.ResourceID, DefaultAgentID: nullableParent(r.DefaultAgentID), UpdatedAt: r.UpdatedAt}); e != nil {
-			return e
+		if patch.Description != nil {
+			room.Description = *patch.Description
 		}
-		return event(ctx, q, "room.updated", r.ID, r.ID)
+		if patch.ResourceID != nil {
+			room.ResourceID = *patch.ResourceID
+		}
+		if patch.DefaultAgentID != nil {
+			room.DefaultAgentID = *patch.DefaultAgentID
+		}
+		room.UpdatedAt = now()
+		return updateRoom(ctx, q, &room)
 	})
-	return r, e
+	return room, err
+}
+
+func updateRoom(ctx context.Context, q *sqlgen.Queries, r *Room) error {
+	if err := validateRoom(ctx, q, r, false); err != nil {
+		return err
+	}
+	if err := q.UpdateRoom(ctx, sqlgen.UpdateRoomParams{ID: r.ID, Name: r.Name, Description: r.Description, ResourceID: r.ResourceID, DefaultAgentID: nullableParent(r.DefaultAgentID), UpdatedAt: r.UpdatedAt}); err != nil {
+		return err
+	}
+	return event(ctx, q, "room.updated", r.ID, r.ID)
 }
 func (s *Store) ListMembers(ctx context.Context, room string) ([]Agent, error) {
 	if _, e := s.GetRoom(ctx, room); e != nil {
@@ -466,6 +493,18 @@ func (s *Store) ListWorkspaceEvents(ctx context.Context, after int64) ([]Workspa
 // CreateRoomWithResource publishes the empty directory metadata and its room
 // atomically. The caller owns removal of filesystem artifacts after failure.
 func (s *Store) CreateRoomWithResource(ctx context.Context, room Room, resource Resource) (Room, error) {
+	return s.createRoomWithResource(ctx, room, resource, "", "")
+}
+
+func (s *Store) CreateRoomWithResourceRequest(ctx context.Context, room Room, resource Resource, input RoomCreateInput) (Room, error) {
+	if input.RequestID == "" {
+		return Room{}, problem("invalid_room", "Provide a stable Room request ID.")
+	}
+	room.Name, room.Description = input.Name, input.Description
+	return s.createRoomWithResource(ctx, room, resource, input.RequestID, roomRequestHash("create", "", input))
+}
+
+func (s *Store) createRoomWithResource(ctx context.Context, room Room, resource Resource, requestID, hash string) (Room, error) {
 	if resource.ID == "" {
 		resource.ID = newID()
 	}
@@ -485,10 +524,29 @@ func (s *Store) CreateRoomWithResource(ctx context.Context, room Room, resource 
 	room.UpdatedAt = room.CreatedAt
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		q := sqlgen.New(tx)
+		if requestID != "" {
+			previous, found, err := findRoomRequest(ctx, q, requestID, hash)
+			if found || err != nil {
+				room = previous
+				return err
+			}
+		}
 		if err := createResource(ctx, q, resource); err != nil {
 			return err
 		}
-		return insertRoom(ctx, q, &room)
+		if err := insertRoom(ctx, q, &room); err != nil {
+			return err
+		}
+		// Joining the default Agent may have updated the Room after insertion.
+		current, err := q.GetRoom(ctx, room.ID)
+		if err != nil {
+			return err
+		}
+		room = roomRow(current)
+		if requestID != "" {
+			return saveRoomRequest(ctx, q, requestID, hash, room)
+		}
+		return nil
 	})
 	return room, err
 }

@@ -11,14 +11,20 @@ import {
   type AppWindowProps,
   type MenuItem,
 } from '@cofy-x/camp-platinum';
-import { libraryApi, type LibraryResource, type Publication } from './api';
+import {
+  libraryApi,
+  type LibraryListing,
+  type LibraryResource,
+  type Publication,
+} from './api';
 import type { Reference, Room } from '../workspace/api';
 import { useTeam } from '../../team/TeamContext';
 import { useRead } from '../../shared/reads/useRead';
 import { useAccount } from '../../team/AuthContext';
 import { flushPrivateDrafts } from '../../team/draftRegistry';
-import { teamApi } from '../../team/api';
+import type { PrivateDraftSummary } from '../../team/api';
 import { readTextFile } from './textFile';
+import { useLibraryPublication } from './useLibraryPublication';
 import { useLibraryView } from './useLibraryView';
 
 // Owns reads, mutations and recovery for this mounted view.
@@ -65,9 +71,6 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   const selectedResource = useRef(window.params.resourceId ?? '');
   const { user } = useAccount();
   const [resources, setResources] = useState<LibraryResource[]>([]);
-  const [drafts, setDrafts] = useState<
-    Awaited<ReturnType<typeof teamApi.drafts>>['drafts']
-  >([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [resourceId, setResourceId] = useState(window.params.resourceId ?? '');
   const [requestedPath, setPath] = useState('');
@@ -88,8 +91,12 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     path: string;
   } | null>(null);
   const [error, setError] = useState('');
-  const libraryRead =
-    useRead<Awaited<ReturnType<typeof libraryApi.list>>>('/library');
+  const libraryRead = useRead<LibraryListing>('/library');
+  const draftsRead = useRead<{ drafts: PrivateDraftSummary[] }>(
+    '/me/drafts?kind=document',
+    { enabled: Boolean(libraryRead.data) && !importOpen && !editor },
+  );
+  const drafts = draftsRead.data?.drafts ?? [];
   const libraryError = libraryRead.error;
   const loading = libraryRead.loading;
   const filesRead = useRead<{ files: string[]; commit: string }>(
@@ -104,7 +111,6 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   const path = files.includes(requestedPath) ? requestedPath : (files[0] ?? '');
   useEffect(() => setReviewScope(null), [resourceId, path]);
   const [pending, setPending] = useState(false);
-  const [revision, setRevision] = useState(0);
   const editorRequest = useRef(0);
   const editorController = useRef<AbortController | null>(null);
   const invalidateEditorRequest = useCallback(() => {
@@ -122,10 +128,8 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     },
     [],
   );
-  const refresh = () => {
-    setRevision((value) => value + 1);
-    team.refresh();
-  };
+  const refresh = team.refresh;
+  const publicationOperation = useLibraryPublication(user.id, refresh);
 
   async function flushTransition() {
     team.cancelNavigation();
@@ -169,7 +173,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
       if (resource.immutable) {
         items.push({
           label: 'Create Working Copy…',
-          disabled: !rooms.length,
+          disabled: !rooms.length || Boolean(publicationOperation.pending),
           action: () => void handoff(selected, true),
         });
       } else {
@@ -240,6 +244,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
           action: () =>
             void flushTransition().then((saved) => {
               if (!saved) return;
+              setSourcesOpen(false);
               setEnvironmentOpen(true);
             }),
         },
@@ -254,16 +259,6 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     () => desktop.beforeClose(window.id, flushPrivateDrafts),
     [desktop, window.id],
   );
-  useEffect(() => {
-    const controller = new AbortController();
-    void teamApi
-      .drafts('document', controller.signal)
-      .then((result) => {
-        if (!controller.signal.aborted) setDrafts(result.drafts);
-      })
-      .catch(() => {});
-    return () => controller.abort();
-  }, [revision]);
   useEffect(() => {
     const result = libraryRead.data;
     if (!result) return;
@@ -309,7 +304,6 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     setRequestReview(null);
     setImportOpen(false);
     setEnvironmentOpen(false);
-    setRevision((value) => value + 1);
     setVersion(intent.commit ? { commit: intent.commit } : null);
     setComparison(null);
     if (intent.resourceId) {
@@ -318,6 +312,20 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
       setHistory(false);
     }
     if (intent.path) setPath(intent.path);
+    if (
+      intent.requestReview &&
+      intent.contextRoomId &&
+      intent.resourceId &&
+      intent.path &&
+      intent.commit
+    ) {
+      setRequestReview({
+        roomId: intent.contextRoomId,
+        resourceId: intent.resourceId,
+        path: intent.path,
+        commit: intent.commit,
+      });
+    }
   }, [
     team.navigation,
     rooms,
@@ -347,10 +355,17 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
         : requestReview
           ? ['Request Review', location, 'Library'].filter(Boolean).join(' — ')
           : location
-            ? `${location} — Library`
+            ? `${location} — ${environmentOpen ? 'Environment' : 'Library'}`
             : 'Library',
     );
-  }, [desktop, window.id, location, importOpen, requestReview]);
+  }, [
+    desktop,
+    window.id,
+    location,
+    importOpen,
+    requestReview,
+    environmentOpen,
+  ]);
   useEffect(() => {
     selectedResource.current = resourceId;
   }, [resourceId]);
@@ -381,7 +396,6 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     if (id === resourceId) {
       setEditor(null);
       setHistory(false);
-      setRevision((value) => value + 1);
       return;
     }
     setResourceId(id);
@@ -525,29 +539,30 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     }
     const room = rooms.find((item) => item.id === roomId);
     const target = resources.find((item) => item.id === room?.resourceId);
-    if (!target) return;
-    setPending(true);
+    const targetPath = result.value.trim();
+    if (!target || !targetPath) return;
     setError('');
-    try {
-      await libraryApi.copy(target.id, {
-        requestId: crypto.randomUUID(),
+    const navigation = team.getNavigationRevision();
+    const interaction = editorRequest.current;
+    const activation = desktop.getActivationRevision();
+    const saved = await publicationOperation.submit({
+      kind: 'copy',
+      resourceId: target.id,
+      input: {
         expectedCommit: target.currentCommit,
-        path: result.value.trim(),
+        path: targetPath,
         sourceResourceId: source.resourceId,
         sourceCommit: source.commit,
         sourcePath: source.path,
-      });
+      },
+    });
+    if (
+      saved &&
+      navigation === team.getNavigationRevision() &&
+      interaction === editorRequest.current &&
+      activation === desktop.getActivationRevision()
+    )
       await selectResource(target.id);
-      refresh();
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : 'The working copy could not be saved.',
-      );
-    } finally {
-      setPending(false);
-    }
   }
 
   function viewVersion(publication: Publication, sourceId: string) {
@@ -570,7 +585,8 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     if (
       source.immutable ||
       source.currentCommit === publication.commit ||
-      pending
+      pending ||
+      publicationOperation.pending
     )
       return;
     const target = {
@@ -588,25 +604,12 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
       ],
     });
     if (answer?.button !== 'restore') return;
-    setPending(true);
     setError('');
-    try {
-      await libraryApi.restore(
-        target.id,
-        target.expectedCommit,
-        target.commit,
-        crypto.randomUUID(),
-      );
-      refresh();
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : 'Could not restore this version.',
-      );
-    } finally {
-      setPending(false);
-    }
+    await publicationOperation.submit({
+      kind: 'restore',
+      resourceId: target.id,
+      input: { expectedCommit: target.expectedCommit, commit: target.commit },
+    });
   }
 
   async function openDraft(item: (typeof drafts)[number]) {
@@ -651,7 +654,6 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
   async function closeEditor() {
     if (!(await flushTransition())) return;
     setEditor(null);
-    setRevision((value) => value + 1);
   }
 
   async function selectFile(file: string) {
@@ -682,10 +684,11 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     user,
     resources,
     drafts,
+    draftsError: draftsRead.error,
+    retryDrafts: draftsRead.refresh,
     rooms,
     resourceId,
     path,
-    setPath,
     files,
     commit,
     publications,
@@ -716,7 +719,7 @@ export function useLibraryController({ desktop, window }: AppWindowProps) {
     historyError,
     retryHistory: () => void historyRead.refresh(),
     pending,
-    invalidateEditorRequest,
+    publicationOperation,
     refresh,
     openLibraryActions,
     resource,

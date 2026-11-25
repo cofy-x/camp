@@ -35,7 +35,7 @@ function ReferenceCard({
         open={open}
         onToggle={(event) => setOpen(event.currentTarget.open)}
       >
-        <summary>
+        <summary className="p9-body-text">
           <PixelIcon name={file ? 'document' : 'conversation'} size={16} />
           <span>{reference.title || reference.path || 'Message'}</span>
           {reference.author && <small>{reference.author}</small>}

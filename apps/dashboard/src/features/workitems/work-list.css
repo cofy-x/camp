@@ -1,0 +1,41 @@
+.work-items:has(> .work-item-index:not([hidden]) > .work-list-empty) {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 100%;
+}
+.work-item-index > .work-list-empty {
+  font: 600 12px/1.5 var(--p9-font);
+}
+.work-item-list.work-list {
+  margin-block: 0 10px;
+  border: 0;
+  border-block: 1px solid var(--p9-mid);
+  box-shadow: none;
+}
+.work-list > li > button {
+  grid-template-columns: minmax(0, 1fr) min(30%, 9rem);
+  align-items: start;
+  column-gap: 12px;
+  min-block-size: 38px;
+  padding: 7px 10px;
+}
+.work-list-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.work-list .work-item-row-decision,
+.work-list .work-item-row-context {
+  overflow-wrap: anywhere;
+  font: 11px/1.45 var(--p9-body-font);
+}
+.work-list-status {
+  color: var(--p9-text-muted, #555);
+  font: 500 11px/1.45 var(--p9-body-font);
+  text-align: end;
+  overflow-wrap: anywhere;
+}
+.work-list > li > button.needs-you .work-list-status {
+  color: inherit;
+  font-weight: 600;
+}

@@ -33,7 +33,7 @@ export function RequestReview({
   resourceId: string;
   path: string;
   commit: string;
-  currentCommit: string;
+  currentCommit?: string;
   onClose: () => void;
   onCreated: (review: Review) => void;
   showHeading?: boolean;
@@ -55,7 +55,7 @@ export function RequestReview({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const submitting = useRef(false);
-  const outdated = currentCommit !== commit;
+  const outdated = Boolean(currentCommit && currentCommit !== commit);
   useEffect(
     () =>
       registerDraftWriter(`request-review:${resourceId}:${path}`, () =>
@@ -74,6 +74,7 @@ export function RequestReview({
     setError('');
     try {
       const value = draft.getValue();
+      if (!value.receipt && (!currentCommit || outdated)) return;
       const input = value.receipt ?? {
         requestId: crypto.randomUUID(),
         title: value.title,
@@ -235,7 +236,7 @@ export function RequestReview({
               disabled={
                 !draft.value.title.trim() ||
                 Boolean(draft.error) ||
-                (outdated && !draft.value.receipt)
+                ((!currentCommit || outdated) && !draft.value.receipt)
               }
             >
               {draft.value.receipt ? 'Retry Request' : 'Request Review'}

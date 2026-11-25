@@ -210,6 +210,33 @@ func (q *Queries) ListOpenTasks(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const listReconcileTaskIDs = `-- name: ListReconcileTaskIDs :many
+SELECT id FROM collaboration_tasks WHERE status NOT IN ('completed','cancelled','interrupted','cancelling') ORDER BY created_at,id
+`
+
+func (q *Queries) ListReconcileTaskIDs(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listReconcileTaskIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRoomTasks = `-- name: ListRoomTasks :many
 SELECT snapshot FROM collaboration_tasks WHERE room_id=? ORDER BY created_at,id
 `

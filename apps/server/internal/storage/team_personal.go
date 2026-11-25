@@ -166,53 +166,6 @@ func (s *Store) SaveRoomRead(ctx context.Context, room string, seq int64) error 
 	})
 }
 
-type InboxItem struct {
-	Title       string `json:"title"`
-	Question    string `json:"question"`
-	Summary     string `json:"summary"`
-	WorkItemID  string `json:"workItemId,omitempty"`
-	TaskID      string `json:"taskId,omitempty"`
-	RoomName    string `json:"roomName"`
-	ReviewTitle string `json:"reviewTitle"`
-	ReviewID    string `json:"reviewId,omitempty"`
-	ID          string `json:"id"`
-	Kind        string `json:"kind"`
-	RoomID      string `json:"roomId"`
-	MessageID   string `json:"messageId"`
-	RunID       string `json:"runId"`
-	CreatedAt   string `json:"createdAt"`
-	ReadAt      string `json:"readAt"`
-}
-
-func (s *Store) ListInbox(ctx context.Context) ([]InboxItem, error) {
-	rows, e := s.queries().ListInbox(ctx, actorID(ctx))
-	out := make([]InboxItem, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, InboxItem{Title: r.Title, Question: r.Question, Summary: r.Summary, WorkItemID: r.ResolvedWorkItemID, TaskID: r.TaskID, RoomName: r.RoomName, ReviewTitle: r.ReviewTitle, ReviewID: r.ReviewID, ID: r.ID, Kind: r.Kind, RoomID: r.RoomID, MessageID: r.MessageID, RunID: r.RunID, CreatedAt: r.CreatedAt, ReadAt: r.ReadAt})
-	}
-	return out, e
-}
-func (s *Store) ReadInboxItem(ctx context.Context, id string) error {
-	return s.transaction(ctx, func(tx *sql.Tx) error {
-		q := sqlgen.New(tx)
-		if err := requireActor(ctx, q, false); err != nil {
-			return err
-		}
-		readAt, err := q.GetInboxReadState(ctx, sqlgen.GetInboxReadStateParams{ID: id, UserID: actorID(ctx)})
-		if err != nil {
-			return missing(err, "The notification")
-		}
-		if readAt != "" {
-			return nil
-		}
-		n, err := q.ReadInboxItem(ctx, sqlgen.ReadInboxItemParams{ID: id, UserID: actorID(ctx), ReadAt: now()})
-		if err != nil || n == 0 {
-			return err
-		}
-		return event(ctx, q, "personal_read.updated", "", actorID(ctx))
-	})
-}
-
 type DraftSummary struct {
 	Kind       string `json:"kind"`
 	Key        string `json:"key"`

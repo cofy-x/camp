@@ -8,12 +8,14 @@ import { githubApi, type GitHubSource } from '../github/api';
 import { GitHubEvents } from '../github/GitHubEvents';
 import { GitHubSources } from '../github/GitHubSources';
 import { GitHubVerification } from '../github/GitHubSourceVerification';
-import type {
-  AutomationActivityItem,
-  AutomationPolicy,
-  SourceEventPage,
-  SourceEvent,
+import {
+  sourceEventPath,
+  type AutomationActivityItem,
+  type AutomationPolicy,
+  type SourceEventPage,
+  type SourceEvent,
 } from './api';
+import { sourceEventLabels as eventLabels } from './event-labels';
 import { CommentCredential, PolicyEditor } from './AutomationPolicy';
 import { FollowEvent } from './FollowEvent';
 import { EvaluationDecision } from './EvaluationDecision';
@@ -47,26 +49,6 @@ const attentionReasons: Record<string, string> = {
   daily_task_limit: 'Daily collaboration allowance reached.',
   stale_assessment:
     'The policy or collaboration changed during assessment. Review this event.',
-};
-
-const eventLabels: Record<string, string> = {
-  'room.message': 'Discussion',
-  'task.start': 'Collaboration started',
-  'task.inputs': 'Input added',
-  'task.answers': 'Question answered',
-  'task.continue': 'Collaboration continued',
-  'task.cancel': 'Collaboration stopped',
-  'issues.opened': 'Issue opened',
-  'issues.reopened': 'Issue reopened',
-  'issues.edited': 'Issue edited',
-  'issue_comment.created': 'Comment added',
-  'issue_comment.edited': 'Comment edited',
-  'pull_request.opened': 'Pull request opened',
-  'pull_request.reopened': 'Pull request reopened',
-  'pull_request.edited': 'Pull request edited',
-  'pull_request.synchronize': 'Pull request updated',
-  'pull_request.ready_for_review': 'Pull request ready for review',
-  'pull_request.closed': 'Pull request closed',
 };
 
 type Cursor = { before?: number; through?: number };
@@ -112,10 +94,9 @@ function eventStatus(event: AutomationActivityItem) {
 }
 
 function OriginalEvent({ event }: { event: SourceEvent }) {
-  const read = useRead<{ event: SourceEvent }>(
-    `/automation-events/${encodeURIComponent(event.id)}`,
-    { enabled: !event.content },
-  );
+  const read = useRead<{ event: SourceEvent }>(sourceEventPath(event.id), {
+    enabled: !event.content,
+  });
   const content =
     event.content ||
     (read.data ? read.data.event.content || 'This event has no text.' : '');
@@ -163,7 +144,7 @@ function EventRecord({
     attention &&
     (attentionReasons[event.reason ?? ''] || event.assessmentReason);
   const metadata = (
-    <span className="automation-event-meta">
+    <span className="automation-event-meta p9-body-text">
       <span>
         {event.repository
           ? `${event.repository}${event.number ? ` #${event.number}` : ''}`

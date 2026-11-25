@@ -24,6 +24,8 @@ export interface Readiness {
   components: {
     id: string;
     label: string;
+    issue?:
+      'runner_not_connected' | 'runner_unavailable' | 'runner_upgrade_required';
     status: 'ready' | 'missing' | 'error' | 'unknown';
     checkedAt?: string;
     lastSuccessAt?: string;

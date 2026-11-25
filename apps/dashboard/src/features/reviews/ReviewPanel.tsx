@@ -8,12 +8,20 @@ import { ReviewActions } from './ReviewActions';
 import { reviewLabels, reviewPath, type ReviewResult } from './api';
 import { ReviewHistory } from './ReviewHistory';
 
+function changedCommit(value: ReviewResult, expected?: string) {
+  return Boolean(expected && value.review.submittedCommit !== expected);
+}
+
 export function ReviewPanel({
   id,
+  minimumRevision = 0,
+  expectedCommit,
   desktop,
   onClose,
 }: {
   id: string;
+  minimumRevision?: number;
+  expectedCommit?: string;
   desktop: DesktopAPI;
   onClose: () => void;
 }) {
@@ -24,6 +32,7 @@ export function ReviewPanel({
   const read = useRead<ReviewResult>(path);
   const error = read.error;
   const [incoming, setIncoming] = useState<ReviewResult | null>(null);
+  const [pinnedCommit, setPinnedCommit] = useState(expectedCommit);
   const [historyOpen, setHistoryOpen] = useState(false);
   const displayed = useRef<ReviewResult | null>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -32,6 +41,7 @@ export function ReviewPanel({
   const focusDecision = useRef(false);
   const navigation = useRef(0);
   const incomingRef = useRef(incoming);
+  const requestedBaseline = useRef(false);
   incomingRef.current = incoming;
   useEffect(() => {
     navigation.current++;
@@ -60,6 +70,10 @@ export function ReviewPanel({
       displayed.current.review.revision > value.review.revision
     )
       return;
+    if (changedCommit(value, pinnedCommit)) {
+      setIncoming(value);
+      return;
+    }
     focusDecision.current = true;
     applyResult(value);
   }
@@ -79,13 +93,61 @@ export function ReviewPanel({
     // Reopening establishes a current baseline before offering actions;
     // later changes still require explicit inspection in the mounted view.
     if (!value || (!current && (accepted.refreshing || accepted.error))) return;
+    if (!current && value.review.revision < minimumRevision) {
+      if (!requestedBaseline.current) {
+        requestedBaseline.current = true;
+        void store.refresh(path);
+      }
+      return;
+    }
+    if (changedCommit(value, pinnedCommit)) {
+      if (!current || value.review.revision >= current.review.revision)
+        setIncoming(value);
+      return;
+    }
     if (!current || current.review.revision === value.review.revision) {
       displayed.current = value;
       setResult(value);
     } else if (value.review.revision > current.review.revision) {
       setIncoming(value);
     }
-  }, [path, read.data, read.error, read.refreshing, store]);
+  }, [
+    minimumRevision,
+    path,
+    pinnedCommit,
+    read.data,
+    read.error,
+    read.refreshing,
+    store,
+  ]);
+  const obsoleteLink = Boolean(
+    incoming && changedCommit(incoming, pinnedCommit),
+  );
+
+  function inspectIncoming(acceptCurrentVersion: boolean) {
+    team.cancelNavigation();
+    const globalNavigation = team.getNavigationRevision();
+    const expected = ++navigation.current;
+    const activation = desktop.getActivationRevision();
+    void flushPrivateDrafts().then((saved) => {
+      const next = incomingRef.current;
+      if (
+        !saved ||
+        globalNavigation !== team.getNavigationRevision() ||
+        expected !== navigation.current ||
+        activation !== desktop.getActivationRevision() ||
+        !next ||
+        (changedCommit(next, pinnedCommit) && !acceptCurrentVersion)
+      )
+        return;
+      if (acceptCurrentVersion) {
+        setPinnedCommit(undefined);
+        focusDecision.current = true;
+      }
+      applyResult(next);
+    });
+  }
+
   const review = result?.review;
   const feedback = result?.feedback;
   return (
@@ -101,32 +163,28 @@ export function ReviewPanel({
               <Button onClick={() => void read.refresh()}>Retry Review</Button>
             </div>
           )}
-          {!review && !error && <p role="status">Loading review…</p>}
+          {!review &&
+            !error &&
+            !obsoleteLink &&
+            (read.data &&
+            read.data.review.revision < minimumRevision &&
+            !read.refreshing ? (
+              <p role="status">
+                Waiting for the current review.{' '}
+                <Button onClick={() => void read.refresh()}>
+                  Retry Review
+                </Button>
+              </p>
+            ) : (
+              <p role="status">Loading review…</p>
+            ))}
           {incoming && (
             <div className="camp-review-notice" role="status">
-              This review changed in another session. Inspect the latest
-              decision and version before acting. Your unfinished comment is
-              preserved.{' '}
-              <Button
-                onClick={() => {
-                  team.cancelNavigation();
-                  const globalNavigation = team.getNavigationRevision();
-                  const expected = ++navigation.current;
-                  const activation = desktop.getActivationRevision();
-                  void flushPrivateDrafts().then((saved) => {
-                    if (
-                      saved &&
-                      globalNavigation === team.getNavigationRevision() &&
-                      expected === navigation.current &&
-                      activation === desktop.getActivationRevision() &&
-                      incomingRef.current
-                    ) {
-                      applyResult(incomingRef.current);
-                    }
-                  });
-                }}
-              >
-                Refresh Review
+              {obsoleteLink
+                ? 'This review now covers a different file version. Read the current review before acting.'
+                : 'This review changed in another session. Inspect the latest decision and version before acting. Your unfinished comment is preserved.'}{' '}
+              <Button onClick={() => inspectIncoming(obsoleteLink)}>
+                {obsoleteLink ? 'Read current review' : 'Refresh Review'}
               </Button>
             </div>
           )}
@@ -153,7 +211,7 @@ export function ReviewPanel({
               </dl>
               <div className="app-actions">
                 <Button
-                  primary={review.status === 'delivered'}
+                  variant="text"
                   onClick={() =>
                     void team.navigate({
                       app: 'library',
@@ -167,6 +225,7 @@ export function ReviewPanel({
                   Open Document
                 </Button>
                 <Button
+                  variant="text"
                   onClick={() =>
                     void team.navigate({
                       roomId: review.roomId,
@@ -178,6 +237,7 @@ export function ReviewPanel({
                 </Button>
                 {(review.outdated || review.status === 'changes_requested') && (
                   <Button
+                    variant="text"
                     onClick={() =>
                       void team.navigate({
                         app: 'library',

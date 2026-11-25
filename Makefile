@@ -45,7 +45,7 @@ test-project-env:
 	CAMP_PROJECT_ENV_TEST=1 $(GO) test -race ./apps/server/internal/projectenv ./apps/server/internal/execution ./apps/server/internal/resources
 
 test-dsh: build-sandbox
-	CAMP_TEST_LAYERFS_RUNTIME="$(CURDIR)/tools/layerfs-runtime" CAMP_TEST_SANDBOX_HELPER="$(CURDIR)/dist/camp-sandbox" CAMP_TEST_DSH_RUNTIME="$(CURDIR)/tools/dsh-runtime" $(GO) test -race ./apps/server/internal/runs -run Integration -count=1 -v
+	CAMP_TEST_LAYERFS_RUNTIME="$(CURDIR)/tools/layerfs-runtime" CAMP_TEST_SANDBOX_HELPER="$(CURDIR)/dist/camp-sandbox" CAMP_TEST_DSH_RUNTIME="$(CURDIR)/tools/dsh-runtime" $(GO) test -race ./apps/server/internal/remoteruns -run "^TestRemoteNative" -count=1 -v
 
 dev:
 	$(PNPM) run dev

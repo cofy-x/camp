@@ -103,7 +103,7 @@ Reuse the upstream SDK and worker route without adopting their launcher defaults
 
 The upstream wire format authenticates a bounded first frame, then buffers complete frames and represents binary values as base64. Authenticated payloads have no equivalent configured frame bound. Treat that behavior as a measured comparison arm in private fixtures, not as an already bounded production transport. A production adapter needs explicit aggregate/per-entry limits, bounded chunks and in-flight work, backpressure, timeouts and pre-mutation validation. Keep credentials in private configuration and out of command arguments, URLs, Agent environments and reports. A checkpoint-only adapter may call public LayerFS operations inside Linux; it must not add a Store encoder or expose a general command endpoint to Agents.
 
-Report actual workspace, sandbox, checkpoint and worker provenance through existing diagnostics. An unopened or failed adapter must not report a fabricated ready worker. UI changes require direct inline before/after PR images.
+Report actual workspace, sandbox, checkpoint and worker provenance through existing diagnostics. An unopened or failed adapter must not report a fabricated ready worker. Follow the [design review checklist](design.md#review-checklist) for diagnostic UI changes.
 
 ### Linux environment provisioning
 

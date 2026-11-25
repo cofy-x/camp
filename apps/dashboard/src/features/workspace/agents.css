@@ -29,15 +29,6 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.workspace-agent-default {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 0 5px;
-  border: 1px solid #c6c6d3;
-  background: #efeff6;
-  font-size: 10px;
-  font-weight: normal;
-}
 .workspace-agent-notice {
   padding: 8px 10px;
   border: 1px solid #b7b7cc;
@@ -54,6 +45,12 @@
 }
 .workspace-agent-editor h3 {
   margin: 0;
+}
+.workspace-agent-editor-fields {
+  display: grid;
+  align-content: start;
+  gap: inherit;
+  min-inline-size: 0;
 }
 .workspace-agent-presets {
   padding: 0;
@@ -97,43 +94,43 @@
     10px/1.4 Inter,
     sans-serif;
 }
+.workspace-agent-identity,
 .workspace-agent-routing {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px 14px;
 }
+.workspace-agent-identity > *,
 .workspace-agent-routing > div {
-  min-width: 0;
+  min-inline-size: 0;
 }
+.workspace-agent-identity .workspace-description,
 .workspace-agent-access .workspace-description {
   margin: 5px 0 0;
 }
 .workspace-agent-editor-actions {
-  position: sticky;
-  z-index: 1;
-  bottom: 0;
-  padding: 8px 0;
   border-top: 1px solid #ccc;
-  background: #eee;
+  padding-block-start: 10px;
 }
-.workspace-agent-editor-actions p {
-  margin: 0 0 7px;
+.workspace-agent-editor-actions > .app-error {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
 }
-.workspace-agent-identity {
-  border-top: 1px solid #ccc;
-  padding-top: 10px;
+.workspace-agent-editor-save-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  min-block-size: 26px;
 }
-.workspace-agent-identity summary {
-  font-size: 11px;
+.workspace-agent-editor-save-row .workspace-description {
+  flex: 1 1 240px;
+  min-inline-size: 0;
+  margin: 0;
 }
-.workspace-agent-identity summary > span {
-  margin-left: 10px;
-  color: #666;
-}
-.workspace-agent-identity > div {
-  display: grid;
-  gap: 12px;
-  padding-top: 12px;
+.workspace-editor .workspace-agent-editor-save-row > .app-actions {
+  justify-content: flex-end;
+  margin-inline-start: auto;
 }
 @container (max-width: 800px) {
   .workspace-agent-presets > div {
@@ -152,6 +149,7 @@
   }
 }
 @container (max-width: 420px) {
+  .workspace-agent-identity,
   .workspace-agent-routing {
     grid-template-columns: 1fr;
   }

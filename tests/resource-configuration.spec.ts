@@ -34,9 +34,9 @@ async function editor(page: Page, name: string) {
   await page
     .getByRole('menuitem', { name: 'Environment…', exact: true })
     .click();
-  const panel = win.getByRole('region', { name: 'Environment and checks' });
+  const panel = win.getByRole('region', { name: 'Environment', exact: true });
   await panel
-    .getByRole('combobox', { name: 'Environment', exact: true })
+    .getByRole('combobox', { name: 'Runtime', exact: true })
     .selectOption('command');
   return { room, panel };
 }
@@ -117,9 +117,7 @@ test('a stale configuration save preserves edits and requires an explicit confli
         response.request().method() === 'PATCH' &&
         response.url().endsWith(`/resources/${room.resourceId}`),
     );
-    await panel
-      .getByRole('button', { name: 'Save Environment', exact: true })
-      .click();
+    await panel.getByRole('button', { name: 'Save', exact: true }).click();
     expect((await conflict).status()).toBe(409);
     await expect(
       panel.getByRole('button', { name: 'Keep My Edits', exact: true }),
@@ -127,7 +125,7 @@ test('a stale configuration save preserves edits and requires an explicit confli
     await expect(panel.locator('pre')).toContainText('other-admin');
     await expect(checks).toHaveValue(draft[0].name);
     await expect(
-      panel.getByRole('button', { name: 'Save Environment', exact: true }),
+      panel.getByRole('button', { name: 'Save', exact: true }),
     ).toBeDisabled();
     await page.screenshot({
       path: info.outputPath('configuration-conflict.png'),
@@ -136,9 +134,7 @@ test('a stale configuration save preserves edits and requires an explicit confli
       .getByRole('button', { name: 'Keep My Edits', exact: true })
       .click();
     await expect(checks).toHaveValue(draft[0].name);
-    await panel
-      .getByRole('button', { name: 'Save Environment', exact: true })
-      .click();
+    await panel.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(
       panel.getByText('Environment saved.', { exact: true }),
     ).toBeVisible();
@@ -190,9 +186,7 @@ test('a committed save with a lost response is read back without another write',
     }
   });
   try {
-    await panel
-      .getByRole('button', { name: 'Save Environment', exact: true })
-      .click();
+    await panel.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(
       panel.getByText('Environment saved.', { exact: true }),
     ).toBeVisible();
@@ -242,9 +236,7 @@ test('an uncertain save keeps its payload until the user can verify saved settin
     else await route.continue();
   });
   try {
-    await panel
-      .getByRole('button', { name: 'Save Environment', exact: true })
-      .click();
+    await panel.getByRole('button', { name: 'Save', exact: true }).click();
     const check = panel.getByRole('button', {
       name: 'Check Saved Settings',
       exact: true,
@@ -254,12 +246,12 @@ test('an uncertain save keeps its payload until the user can verify saved settin
       panel.getByText('Environment saved.', { exact: true }),
     ).toHaveCount(0);
     await expect(
-      panel.getByText('Unsaved changes', { exact: true }),
+      panel.getByText('Applies to new work only.', { exact: true }),
     ).toHaveCount(0);
     await expect(checks).toHaveValue(draft[0].name);
     await expect(checks).toBeDisabled();
     await expect(
-      panel.getByRole('button', { name: 'Save Environment', exact: true }),
+      panel.getByRole('button', { name: 'Save', exact: true }),
     ).toBeDisabled();
     // The successful write emits a background Library refresh even though its
     // response and the direct readback are lost. Replacing the frozen draft
@@ -323,6 +315,7 @@ test('structured command checks retain literal arguments through editing and rem
     .getByRole('button', { name: 'Reload Saved Settings', exact: true })
     .click();
   const first = panel.getByRole('group', { name: 'Check 1', exact: true });
+  await expect(first.getByText('packages/web', { exact: true })).toBeVisible();
   await expect(
     first.getByRole('textbox', { name: 'Name', exact: true }),
   ).toHaveCount(0);
@@ -378,20 +371,26 @@ test('structured command checks retain literal arguments through editing and rem
   expect(addArgumentBounds!.y).toBeGreaterThanOrEqual(
     previousArgument!.y + previousArgument!.height - 1,
   );
-  await expect(first.locator('summary')).toContainText('packages/web');
-  await first.locator('summary').click();
-  await expect(
-    first.getByRole('textbox', { name: 'Working directory', exact: true }),
-  ).toHaveValue('packages/web');
+  const directory = first.getByRole('textbox', {
+    name: 'Working directory',
+    exact: true,
+  });
+  await expect(directory).toBeVisible();
+  await expect(directory).toHaveValue('packages/web');
+  await expect(directory).toHaveAttribute('placeholder', 'Project root');
+  await panel
+    .getByRole('button', { name: 'Edit check 2', exact: true })
+    .click();
   await panel
     .getByRole('button', { name: 'Remove check 2', exact: true })
     .click();
   await first
     .getByRole('textbox', { name: 'Name', exact: true })
     .fill('retained');
-  await panel
-    .getByRole('button', { name: 'Save Environment', exact: true })
-    .click();
+  await expect(
+    panel.getByRole('button', { name: 'Save', exact: true }),
+  ).toBeInViewport();
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(
     panel.getByText('Environment saved.', { exact: true }),
   ).toBeVisible();
@@ -425,7 +424,7 @@ test('Node checks keep named package scripts separate from default node tests', 
     `node-checks-${info.project.name}`,
   );
   await panel
-    .getByRole('combobox', { name: 'Environment', exact: true })
+    .getByRole('combobox', { name: 'Runtime', exact: true })
     .selectOption('node');
   await panel
     .getByRole('combobox', { name: 'Package manager', exact: true })
@@ -443,7 +442,6 @@ test('Node checks keep named package scripts separate from default node tests', 
   await unit
     .getByRole('textbox', { name: 'Package script', exact: true })
     .fill('test:unit');
-  await unit.locator('summary').click();
   await unit
     .getByRole('textbox', { name: 'Working directory', exact: true })
     .fill('web');
@@ -461,9 +459,7 @@ test('Node checks keep named package scripts separate from default node tests', 
     .getByRole('group', { name: 'Check 2', exact: true })
     .getByRole('textbox', { name: 'Name', exact: true })
     .fill('default-tests');
-  await panel
-    .getByRole('button', { name: 'Save Environment', exact: true })
-    .click();
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(
     panel.getByText('Environment saved.', { exact: true }),
   ).toBeVisible();
@@ -523,9 +519,12 @@ test('saved checks collapse to literal summaries and editing stays local until S
   await expect(
     panel.getByText('Saved environment', { exact: true }),
   ).toHaveCount(0);
-  await expect(panel.getByText('Unsaved changes', { exact: true })).toHaveCount(
-    0,
-  );
+  await expect(
+    panel.getByText('Applies to new work only.', { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    panel.getByRole('button', { name: 'Save', exact: true }),
+  ).toBeDisabled();
   const writes = apiWrites(page);
   await edit.click();
   await expect(
@@ -533,18 +532,28 @@ test('saved checks collapse to literal summaries and editing stays local until S
   ).toHaveAttribute('aria-expanded', 'true');
   await name.fill('changed-unit');
   await expect(
-    panel.getByText('Unsaved changes', { exact: true }),
+    panel.getByText('Applies to new work only.', { exact: true }),
   ).toBeVisible();
   await name.fill('unit');
-  await expect(panel.getByText('Unsaved changes', { exact: true })).toHaveCount(
-    0,
-  );
+  await expect(
+    panel.getByText('Applies to new work only.', { exact: true }),
+  ).toHaveCount(0);
   await name.fill('changed-unit');
   await first.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(name).toHaveCount(0);
   await expect(edit).toBeFocused();
   await expect(first).toContainText('changed-unit');
   expect(writes).toEqual([]);
+  const mode = panel.getByRole('combobox', {
+    name: 'Runtime',
+    exact: true,
+  });
+  await mode.selectOption('node');
+  await expect(
+    panel.getByText('No checks configured.', { exact: true }),
+  ).toBeVisible();
+  await mode.selectOption('command');
+  await expect(first).toContainText('changed-unit');
   await edit.click();
   await expect(name).toHaveValue('changed-unit');
   for (let index = 1; index < args.length; index++)
@@ -556,13 +565,15 @@ test('saved checks collapse to literal summaries and editing stays local until S
     name: 'Remove check 2',
     exact: true,
   });
+  await expect(remove).toHaveCount(0);
+  await panel
+    .getByRole('button', { name: 'Edit check 2', exact: true })
+    .click();
   await remove.focus();
   await remove.press('Enter');
   await expect(edit).toBeFocused();
   expect(writes).toEqual([]);
-  await panel
-    .getByRole('button', { name: 'Save Environment', exact: true })
-    .click();
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(
     panel.getByText('Environment saved.', { exact: true }),
   ).toBeVisible();
@@ -625,7 +636,6 @@ test('check and argument controls retain keyboard focus without saving', async (
   await removeLast.focus();
   await removeLast.press('Enter');
   await expect(addArgument).toBeFocused();
-  await check.getByRole('button', { name: 'Done', exact: true }).click();
   const removeCheck = check.getByRole('button', {
     name: 'Remove check 1',
     exact: true,
@@ -661,9 +671,7 @@ test('Done and Save retain an invalid check editor and focus its required field'
     check.getByRole('button', { name: 'Done', exact: true }),
   ).toBeVisible();
   expect(writes).toEqual([]);
-  await panel
-    .getByRole('button', { name: 'Save Environment', exact: true })
-    .click();
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(name).toBeFocused();
   expect(writes).toEqual([]);
   await name.fill('invalid check');
@@ -688,18 +696,14 @@ test('Done and Save retain an invalid check editor and focus its required field'
       'Review this field before saving.',
     );
   });
-  await panel
-    .getByRole('button', { name: 'Save Environment', exact: true })
-    .click();
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(name).toBeFocused();
   await expect(name).toHaveValue('unit');
   expect(writes).toEqual([]);
   await name.evaluate((element) =>
     (element as HTMLInputElement).setCustomValidity(''),
   );
-  await panel
-    .getByRole('button', { name: 'Save Environment', exact: true })
-    .click();
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(
     panel.getByText('Environment saved.', { exact: true }),
   ).toBeVisible();

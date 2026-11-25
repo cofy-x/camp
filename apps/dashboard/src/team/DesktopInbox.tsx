@@ -3,21 +3,9 @@ import { Button, Palette, PixelIcon, Tabs } from '@cofy-x/camp-platinum';
 import { useTeam } from './TeamContext';
 import { useAccount } from './AuthContext';
 import type { InboxItem } from './api';
-import { inboxItemDetail, inboxItemTitle } from './inboxPresentation';
+import { InboxActivity } from './InboxActivity';
 import { AttentionList } from '../features/attention/AttentionList';
 import type { AttentionItem } from '../features/attention/api';
-
-function activityTime(value: string) {
-  const date = new Date(value);
-  return date.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year:
-      date.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
 
 export function DesktopInbox() {
   const team = useTeam();
@@ -45,7 +33,7 @@ export function DesktopInbox() {
     document.addEventListener('pointerdown', outside, true);
     return () => document.removeEventListener('pointerdown', outside, true);
   }, [open]);
-  const unread = team.inbox.filter((item) => !item.readAt).length;
+  const unread = team.unreadActivity;
   const attentionCount = team.attentionError
     ? '?'
     : (team.attention?.total ?? '…');
@@ -143,106 +131,36 @@ export function DesktopInbox() {
               },
             ]}
           >
-            <div key={view} className="camp-inbox-scroll">
-              {view === 'needs_me' ? (
-                <>
-                  {team.attentionError && (
-                    <p className="app-error" role="alert">
-                      {team.attentionError}{' '}
-                      <Button onClick={team.refresh}>Retry attention</Button>
-                    </p>
-                  )}
-                  {!team.attention && !team.attentionError && (
-                    <p role="status">Loading…</p>
-                  )}
-                  {team.attention && (
-                    <>
-                      {!team.attention.items.length && !team.attentionError && (
-                        <p className="camp-inbox-empty">
-                          Nothing needs your attention.
-                        </p>
-                      )}
-                      <AttentionList
-                        items={team.attention.items}
-                        onOpen={(item) => void openAttention(item)}
-                      />
-                    </>
-                  )}
-                </>
-              ) : (
-                <>
-                  {team.inboxError && (
-                    <p className="app-error" role="alert">
-                      {team.inboxError}{' '}
-                      <Button onClick={team.retryInbox}>Retry Activity</Button>
-                    </p>
-                  )}
-                  {team.inboxLoading &&
-                    !team.inbox.length &&
-                    !team.inboxError && <p role="status">Loading activity…</p>}
-                  {!team.inbox.length &&
-                    !team.inboxLoading &&
-                    !team.inboxError && (
-                      <p className="camp-inbox-empty">No activity yet.</p>
+            {view === 'needs_me' ? (
+              <div className="camp-inbox-scroll">
+                {team.attentionError && (
+                  <p className="app-error" role="alert">
+                    {team.attentionError}{' '}
+                    <Button onClick={team.retryAttention}>
+                      Retry attention
+                    </Button>
+                  </p>
+                )}
+                {!team.attention && !team.attentionError && (
+                  <p role="status">Loading…</p>
+                )}
+                {team.attention && (
+                  <>
+                    {!team.attention.items.length && !team.attentionError && (
+                      <p className="camp-inbox-empty">
+                        Nothing needs your attention.
+                      </p>
                     )}
-                  <ul className="camp-inbox-activity" aria-label="Activity">
-                    {team.inbox.map((item) => (
-                      <li key={item.id}>
-                        <button
-                          className={item.readAt ? '' : 'is-unread'}
-                          onClick={() => void openItem(item)}
-                        >
-                          <PixelIcon
-                            name={
-                              item.reviewId
-                                ? 'checklist'
-                                : item.kind === 'mention'
-                                  ? 'conversation'
-                                  : 'agent'
-                            }
-                            size={24}
-                          />
-                          <span className="camp-inbox-copy">
-                            <strong>{inboxItemTitle(item)}</strong>
-                            {inboxItemDetail(item) && (
-                              <span className="camp-inbox-summary">
-                                {inboxItemDetail(item)}
-                              </span>
-                            )}
-                            <small className="camp-inbox-meta">
-                              <span
-                                className="camp-inbox-room"
-                                title={item.roomName}
-                              >
-                                {item.roomName}
-                              </span>
-                              <span aria-hidden="true">·</span>
-                              <time
-                                dateTime={item.createdAt}
-                                title={new Date(
-                                  item.createdAt,
-                                ).toLocaleString()}
-                                aria-label={new Date(
-                                  item.createdAt,
-                                ).toLocaleString()}
-                              >
-                                {activityTime(item.createdAt)}
-                              </time>
-                            </small>
-                          </span>
-                          {!item.readAt && (
-                            <span
-                              className="camp-inbox-unread"
-                              aria-label="Unread"
-                            />
-                          )}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </div>
+                    <AttentionList
+                      items={team.attention.items}
+                      onOpen={(item) => void openAttention(item)}
+                    />
+                  </>
+                )}
+              </div>
+            ) : (
+              <InboxActivity onOpen={(item) => void openItem(item)} />
+            )}
             {view === 'needs_me' && team.attention?.hasMore && (
               <div className="camp-inbox-actions">
                 <Button onClick={() => void openAttention()}>
@@ -275,7 +193,7 @@ export function DesktopInbox() {
           {user.name}
         </span>
         <span className="camp-inbox-caption">Needs me ({attentionCount})</span>
-        {unread > 0 && (
+        {!!unread && (
           <span className="camp-inbox-unread" aria-label="Unread activity" />
         )}
         <span className="camp-inbox-arrow" aria-hidden="true">

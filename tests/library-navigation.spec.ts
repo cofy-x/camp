@@ -185,7 +185,8 @@ test('Library actions preserve a private document while refreshing and wait for 
   });
   const editor = win.getByLabel('Document content', { exact: true });
   const environment = win.getByRole('region', {
-    name: 'Environment and checks',
+    name: 'Environment',
+    exact: true,
   });
   let release = () => {};
   const held = new Promise<void>((resolve) => {

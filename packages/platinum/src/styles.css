@@ -45,6 +45,17 @@ select {
   font: inherit;
   color: inherit;
 }
+:where(label:not(.p9-checkbox, .p9-radio), legend, summary) {
+  font-family: var(--p9-font);
+  font-weight: 600;
+}
+input,
+textarea,
+.p9-body-text,
+:where(label, summary) :where(small, time) {
+  font-family: var(--p9-body-font);
+  font-weight: 400;
+}
 button {
   cursor: default;
 }
@@ -702,7 +713,7 @@ a {
 .p9-button.p9-default {
   position: relative;
 }
-.p9-button.p9-default::before {
+.p9-button.p9-default:not(:disabled, [aria-disabled='true'])::before {
   content: '';
   position: absolute;
   inset: -5px;
@@ -714,8 +725,54 @@ a {
   outline: 1px dotted var(--p9-highlight);
   outline-offset: -4px;
 }
-.p9-button.p9-default:disabled::before {
-  border-color: #999;
+.p9-button.p9-text-action {
+  min-inline-size: 0;
+  min-block-size: 24px;
+  block-size: auto;
+  max-inline-size: 100%;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--p9-highlight);
+  line-height: 1.4;
+  text-align: start;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.p9-button.p9-text-action:active:not(:disabled) {
+  background: var(--p9-lavender);
+  box-shadow: none;
+  color: var(--p9-highlight);
+}
+.p9-button.p9-text-action:is(:disabled, [aria-disabled='true']) {
+  color: #777;
+  text-decoration: none;
+  text-shadow: none;
+  cursor: default;
+}
+.p9-button.p9-text-action:focus-visible,
+.p9-disclosure > summary:focus-visible {
+  outline: 2px solid var(--p9-highlight);
+  outline-offset: 2px;
+}
+.p9-disclosure > summary {
+  inline-size: fit-content;
+  min-block-size: 24px;
+  max-inline-size: 100%;
+  padding-block: 3px;
+  color: var(--p9-highlight);
+  font: 600 12px/1.5 var(--p9-font);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.p9-disclosure > summary:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .p9-field {
   height: 20px;
@@ -1004,6 +1061,44 @@ a {
   box-shadow:
     inset 1px 1px white,
     inset -1px -1px #bbb;
+}
+.p9-tabs-flat .p9-tab-list {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  padding: 0;
+  border-block-end: 1px solid var(--p9-mid);
+}
+.p9-tabs-flat .p9-tab-list > button {
+  position: static;
+  min-block-size: 32px;
+  margin-block-end: -1px;
+  padding: 4px 6px;
+  border: 0;
+  border-block-end: 2px solid transparent;
+  background: transparent;
+  box-shadow: none;
+  font-weight: 600;
+  cursor: pointer;
+}
+.p9-tabs-flat .p9-tab-list > button:hover:not(:disabled) {
+  background: var(--p9-light);
+}
+.p9-tabs-flat .p9-tab-list > button[aria-selected='true'] {
+  border-block-end-color: var(--p9-highlight);
+  color: var(--p9-highlight);
+}
+.p9-tabs-flat .p9-tab-list > button:disabled {
+  cursor: default;
+}
+.p9-tabs-flat .p9-tab-list > button:focus-visible {
+  outline-offset: -2px;
+}
+.p9-tabs-flat .p9-tab-panel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .p9-status {
   display: flex;

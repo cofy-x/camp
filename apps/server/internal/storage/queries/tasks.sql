@@ -8,6 +8,8 @@ UPDATE collaboration_tasks SET status=?,revision=?,snapshot=?,updated_at=? WHERE
 SELECT snapshot FROM collaboration_tasks WHERE room_id=? ORDER BY created_at,id;
 -- name: ListOpenTasks :many
 SELECT snapshot FROM collaboration_tasks WHERE status NOT IN ('completed','cancelled','interrupted') ORDER BY created_at,id;
+-- name: ListReconcileTaskIDs :many
+SELECT id FROM collaboration_tasks WHERE status NOT IN ('completed','cancelled','interrupted','cancelling') ORDER BY created_at,id;
 -- name: ListTaskRuns :many
 SELECT v.snapshot FROM run_records v WHERE v.id IN (SELECT r.id FROM runs r WHERE json_extract(r.snapshot,'$.taskId')=?) ORDER BY v.created_at,v.id;
 -- name: GetTaskDraftRun :one

@@ -1,12 +1,76 @@
-import { workStatus, type WorkItem } from './api';
+import { workStatus, type CurrentWorkDecision, type WorkItem } from './api';
+
+const activityLabels: Record<string, string> = {
+  create: 'Work created',
+  execute: 'Work started',
+  start: 'Work started',
+  result: 'Result saved',
+  complete: 'Completed',
+  completion_pending: 'Waiting for delivery',
+  completion: 'Completion settings changed',
+  answer: 'Answer received',
+  answer_continue: 'Work continued',
+  wait: 'Waiting',
+  request_judgment: 'Decision needed',
+  stop: 'Work stopped',
+  cancel: 'Work stopped',
+  authorize: 'Allowance updated',
+  allowance_released: 'Unused allowance released',
+  delegate: 'Follow-up changed',
+  evidence: 'Context added',
+  attach: 'Context added',
+  follow: 'Following conversation',
+  unfollow: 'Stopped following',
+  action_result: 'Delivery updated',
+  superseded: 'New context received',
+  ignore: 'Observation recorded',
+};
+
+export function workActivityLabel(kind: string, fallback = 'Work updated') {
+  return Object.hasOwn(activityLabels, kind) ? activityLabels[kind] : fallback;
+}
 
 type WorkQuestionSource = Pick<
   WorkItem,
-  'status' | 'activeTaskId' | 'question' | 'questionKind' | 'execution'
+  | 'status'
+  | 'activeTaskId'
+  | 'question'
+  | 'questionKind'
+  | 'execution'
+  | 'currentDecision'
 >;
 
 type PresentedWork = WorkQuestionSource &
   Pick<WorkItem, 'result' | 'githubDelivery'>;
+
+type WorkSnapshot = Pick<
+  WorkItem,
+  'revision' | 'currentDecision' | 'execution'
+>;
+
+function taskProjection(item: WorkSnapshot) {
+  const decision = item.currentDecision;
+  return decision?.kind === 'task'
+    ? { taskId: decision.taskId, revision: decision.taskRevision }
+    : item.execution;
+}
+
+export function canReplaceWorkSnapshot(
+  current: WorkSnapshot | null,
+  next: WorkSnapshot,
+) {
+  if (!current) return true;
+  if (next.revision !== current.revision)
+    return next.revision > current.revision;
+  const before = taskProjection(current);
+  const after = taskProjection(next);
+  return !(
+    before &&
+    after &&
+    before.taskId === after.taskId &&
+    after.revision < before.revision
+  );
+}
 
 function currentExecution(item: WorkQuestionSource) {
   return item.activeTaskId &&
@@ -18,38 +82,28 @@ function currentExecution(item: WorkQuestionSource) {
 
 export function workItemExecutionError(item: WorkQuestionSource) {
   const execution = item.execution;
-  if (!execution?.error) return '';
+  if (!execution?.error || workItemQuestion(item)) return '';
   if (currentExecution(item)) return execution.error;
   // A final interrupted or cancelled task releases its active link. Its
   // failure still describes unresolved Work until a newer question or decision.
   if (
     !item.activeTaskId &&
     item.status === 'needs_attention' &&
-    !item.question &&
     ['interrupted', 'cancelled'].includes(execution.status)
   )
     return execution.error;
   return '';
 }
 
-type CurrentQuestion =
-  | {
-      kind: 'task';
-      id: string;
-      text: string;
-      options: string[];
-      taskId: string;
-      taskRevision: number;
-    }
-  | { kind: 'judgment' | 'completion'; text: string };
-
-// Execution can include the latest historical task. Select reply targets from
-// the current task and keep earlier questions as evidence.
+// The current projection can explicitly report no decision. Only replies that
+// predate that field need the historical wire fields as a fallback.
 export function workItemQuestion(
   item: WorkQuestionSource,
-): CurrentQuestion | undefined {
+): CurrentWorkDecision | undefined {
   if (['completed', 'cancelled', 'stopping'].includes(item.status))
     return undefined;
+  if (item.currentDecision !== undefined)
+    return item.currentDecision ?? undefined;
   const execution = currentExecution(item);
   if (
     execution?.status === 'waiting_for_person' &&
@@ -97,6 +151,13 @@ export function workItemRecovery(
 }
 
 export function workItemStatus(item: PresentedWork, delivery = true) {
+  const question = workItemQuestion(item);
+  if (question)
+    return {
+      task: 'Needs your answer',
+      judgment: 'Needs your judgment',
+      completion: 'Needs confirmation',
+    }[question.kind];
   if (delivery && item.githubDelivery?.reconcile)
     return 'Delivery not confirmed';
   if (delivery && item.githubDelivery?.status === 'blocked')
@@ -107,7 +168,12 @@ export function workItemStatus(item: PresentedWork, delivery = true) {
     {
       queued: 'Queued',
       running: 'Working',
-      waiting_for_person: 'Needs your answer',
+      waiting_for_person:
+        item.currentDecision === null
+          ? execution.activeRunId
+            ? 'Working'
+            : 'Waiting'
+          : 'Needs your answer',
       needs_attention: 'Needs attention',
       interrupted: 'Interrupted',
       publishing: 'Saving to Room files',
@@ -117,13 +183,14 @@ export function workItemStatus(item: PresentedWork, delivery = true) {
   if (
     item.status === 'open' &&
     !item.activeTaskId &&
-    !workItemQuestion(item) &&
     item.execution?.status === 'completed' &&
     !item.execution.error &&
     item.result?.taskId &&
     item.result.taskId === item.execution.taskId
   )
     return 'Result ready';
+  if (item.currentDecision === null && item.status === 'waiting_for_person')
+    return 'Waiting';
   return workStatus[item.status] ?? item.status;
 }
 

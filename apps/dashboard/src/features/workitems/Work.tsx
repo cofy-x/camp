@@ -16,15 +16,18 @@ import {
   workItemStatus,
 } from './presentation';
 import { AttentionList } from '../attention/AttentionList';
+import { goalTitle } from '../../shared/content/goal-title';
 import './workitems.css';
+import './work-list.css';
 
 export function Work(props: AppWindowProps) {
   const work = useWorkController(props);
   const { selection, inspection, context } = work;
   const index = selection.kind === 'list' && !inspection.taskId;
+  const creating = selection.kind === 'create';
+  const editingDefaults = selection.kind === 'project';
   const sources =
-    selection.kind === 'create' &&
-    Boolean(selection.sourceMessage || selection.sourceEvent);
+    creating && Boolean(selection.sourceMessage || selection.sourceEvent);
   const defaultAgentId =
     work.room?.defaultAgentId ||
     (context?.members.filter((member) => member.enabled).length === 1
@@ -84,7 +87,7 @@ export function Work(props: AppWindowProps) {
           </Button>
         </div>
       </div>
-      {(selection.kind === 'create' || selection.kind === 'project') && (
+      {(creating || editingDefaults) && (
         <div className="app-toolbar work-app-toolbar work-create-toolbar">
           <Button onClick={work.showList}>Back to Work</Button>
           <Select
@@ -109,7 +112,9 @@ export function Work(props: AppWindowProps) {
           </Select>
         </div>
       )}
-      <main className="work-app-body">
+      <main
+        className={`work-app-body${creating ? ' work-create-body' : editingDefaults ? ' work-defaults-body' : ''}`}
+      >
         <section className="work-items" aria-label="Work items">
           {work.actionError && (
             <p className="app-error" role="alert">
@@ -130,7 +135,7 @@ export function Work(props: AppWindowProps) {
             )}
             {!work.listing && !work.error && <p role="status">Loading work…</p>}
             {work.listing && !work.listing.items.length && !work.error && (
-              <div className="camp-empty">
+              <div className="camp-empty work-list-empty">
                 <PixelIcon name="checklist" size={32} />
                 <p>
                   {work.view === 'needs_me'
@@ -148,58 +153,95 @@ export function Work(props: AppWindowProps) {
                 showRoom={!work.roomFilter}
               />
             ) : (
-              <ul className="work-item-list">
-                {work.page?.items.map((item) => (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      className={item.needsYou ? 'needs-you' : ''}
-                      onClick={() => work.selectItem(item)}
-                    >
-                      <span className="work-item-row-title">{item.goal}</span>
-                      <span>
-                        {workItemQuestion(item)?.text ||
-                          workItemRecovery(item)?.message ||
-                          workItemStatus(item)}
-                      </span>
-                      {(!work.roomFilter || item.dueAt) && (
-                        <small className="work-item-row-context">
-                          {!work.roomFilter && item.roomName}
-                          {!work.roomFilter && item.dueAt && ' · '}
-                          {item.dueAt && (
-                            <>
-                              Due{' '}
-                              {item.dueAt.length === 10
-                                ? item.dueAt
-                                : new Date(item.dueAt).toLocaleDateString()}
-                            </>
+              <ul className="work-item-list work-list">
+                {work.page?.items.map((item) => {
+                  const question = workItemQuestion(item);
+                  const title = goalTitle(item.goal);
+                  const status = workItemStatus(item);
+                  const step =
+                    question?.text || workItemRecovery(item)?.message;
+                  const showStep = step && step !== status && step !== title;
+                  const room = work.roomFilter ? '' : item.roomName;
+                  const due = item.dueAt
+                    ? `Due ${item.dueAt.length === 10 ? item.dueAt : new Date(item.dueAt).toLocaleDateString()}`
+                    : '';
+                  const details = [room, due].filter(Boolean).join(' · ');
+                  const id = `work-row-${item.id}`;
+                  return (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        className={item.needsYou ? 'needs-you' : ''}
+                        aria-labelledby={[
+                          `${id}-title`,
+                          `${id}-status`,
+                          showStep && `${id}-step`,
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        aria-describedby={details ? `${id}-context` : undefined}
+                        onClick={() => work.selectItem(item)}
+                      >
+                        <span className="work-list-copy">
+                          <span
+                            className="work-item-row-title"
+                            id={`${id}-title`}
+                          >
+                            {title}
+                          </span>
+                          {showStep && (
+                            <span
+                              className="work-item-row-decision"
+                              id={`${id}-step`}
+                            >
+                              {step}
+                            </span>
                           )}
-                        </small>
-                      )}
-                    </button>
-                  </li>
-                ))}
+                          {details && (
+                            <small
+                              className="work-item-row-context"
+                              id={`${id}-context`}
+                            >
+                              {details}
+                            </small>
+                          )}
+                        </span>
+                        <span className="work-list-status" id={`${id}-status`}>
+                          {status}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
             <div className="app-actions">
               {work.previous.length > 0 && (
-                <Button onClick={work.previousPage}>Previous work</Button>
+                <Button variant="text" onClick={work.previousPage}>
+                  Previous work
+                </Button>
               )}
               {work.listing?.hasMore && (
-                <Button onClick={work.nextPage}>More work</Button>
+                <Button variant="text" onClick={work.nextPage}>
+                  More work
+                </Button>
               )}
             </div>
           </div>
-          {selection.kind === 'project' && selection.roomId && context && (
+          {editingDefaults && !selection.roomId && (
+            <p className="project-settings-placeholder">
+              Choose a Room to edit its Work defaults.
+            </p>
+          )}
+          {editingDefaults && selection.roomId && context && (
             <ProjectSettings
               key={selection.roomId}
               roomId={selection.roomId}
               members={context.members}
               policies={context.policies}
-              desktop={props.desktop}
             />
           )}
-          {selection.kind === 'create' && (
+          {creating && (
             <div className="work-create">
               <WorkItemForm
                 key={`create:${selection.globalDraft ? 'unassigned' : selection.roomId}:${selection.sourceMessage?.id ?? selection.sourceEvent?.id ?? 'manual'}`}

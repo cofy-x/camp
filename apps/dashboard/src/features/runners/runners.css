@@ -140,16 +140,16 @@
   flex-direction: column;
   gap: 10px;
 }
-.camp-runner-first-task {
+.camp-runner-verification {
   display: flex;
   flex-direction: column;
   gap: 12px;
   margin-top: 16px;
 }
-.camp-runner-first-task p {
+.camp-runner-verification p {
   margin: 0;
 }
-.camp-runner-first-task .p9-select {
+.camp-runner-verification .p9-select {
   max-width: 100%;
 }
 .camp-runners-connect-view {
@@ -259,8 +259,8 @@
   }
   .camp-runners-chooser {
     display: block;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--p9-shadow);
+    flex: 0 0 100%;
+    min-width: 0;
   }
   .camp-runners-chooser .p9-select {
     width: 100%;

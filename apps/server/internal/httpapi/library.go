@@ -26,6 +26,10 @@ func (a *API) libraryRoutes(mux *http.ServeMux) {
 		items, err := a.store.ListPublications(r.Context(), r.PathValue("id"), before)
 		a.respond(w, r, map[string]any{"publications": items}, err)
 	})
+	register("GET /api/resources/{id}/publication-requests/{request}", func(w http.ResponseWriter, r *http.Request) {
+		publication, err := a.store.GetPublicationReceipt(r.Context(), r.PathValue("id"), r.PathValue("request"))
+		a.respond(w, r, map[string]any{"publication": publication}, err)
+	})
 	register("GET /api/resources/{id}/patch", func(w http.ResponseWriter, r *http.Request) {
 		if !a.libraryReady(w) {
 			return

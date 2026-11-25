@@ -66,12 +66,12 @@ func (m *Manager) tick(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	tasks, e := m.store.ListOpenTasks(ctx)
+	taskIDs, e := m.store.ListReconcileTaskIDs(ctx)
 	if e != nil {
 		return e
 	}
-	for _, task := range tasks {
-		if e = m.store.ReconcileTask(ctx, task.ID); e != nil {
+	for _, id := range taskIDs {
+		if e = m.store.ReconcileTask(ctx, id); e != nil {
 			return e
 		}
 	}
@@ -132,10 +132,20 @@ func (m *Manager) tick(ctx context.Context) error {
 		return err
 	}
 	for _, run := range queued {
+		if run.RunnerID == "" {
+			// Historical local requests retain their origin. Close a revoked
+			// request from its stored intent without selecting a Runner.
+			if run.CancellationReason != "" {
+				if _, err := m.store.CancelRemoteRun(ctx, run.ID, run.CancellationReason); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		if count >= m.config.Concurrency || m.currentPreparation() != nil {
 			break
 		}
-		if run.RunnerID == "" || !m.IsOnline(run.RunnerID) {
+		if !m.IsOnline(run.RunnerID) {
 			continue
 		}
 		runner, err := m.store.GetRunner(ctx, run.RunnerID)
@@ -149,10 +159,12 @@ func (m *Manager) tick(ctx context.Context) error {
 		}
 		claimed, a, err := m.store.ClaimRemoteRun(ctx, run.ID, run.RunnerID, m.config.LeaseDuration)
 		if err != nil {
-			if errorCode(err) == "runner_upgrade_required" || errorCode(err) == "run_busy" || errorCode(err) == "resource_busy" || errorCode(err) == "run_finished" || errorCode(err) == "agent_unavailable" {
+			switch errorCode(err) {
+			case "runner_upgrade_required", "runner_unavailable", "run_busy", "resource_busy", "run_finished", "agent_unavailable":
 				continue
+			default:
+				return err
 			}
-			return err
 		}
 		if err = m.startPreparation(ctx, claimed, a); err != nil {
 			if ctx.Err() != nil {

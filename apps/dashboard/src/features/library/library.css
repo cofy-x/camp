@@ -42,16 +42,10 @@
   padding: 4px;
 }
 .camp-file-list h2 {
-  display: flex;
-  justify-content: space-between;
   margin: 0 0 4px;
   padding: 5px;
   border-bottom: 1px solid #ccc;
   font: 12px var(--p9-font);
-}
-.camp-file-list h2 span {
-  font: 10px var(--p9-body-font);
-  color: #555;
 }
 .camp-file-list button {
   display: flex;
@@ -559,7 +553,6 @@
   display: block;
   min-width: 0;
   margin: 0 0 14px;
-  font: 12px/1.5 var(--p9-body-font);
 }
 .camp-runner-import input {
   display: block;

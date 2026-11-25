@@ -7,6 +7,7 @@ export interface ReadSnapshot<T> {
   error: string;
   loading: boolean;
   refreshing: boolean;
+  accessDenied?: boolean;
 }
 
 type Entry = {
@@ -168,6 +169,9 @@ export class ReadStore {
           (error.status === 401 || error.status === 403);
         this.publish(entry, {
           data: revoked ? undefined : entry.snapshot.data,
+          ...((revoked || entry.snapshot.accessDenied) && {
+            accessDenied: true,
+          }),
           error:
             error instanceof Error
               ? error.message

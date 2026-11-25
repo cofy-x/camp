@@ -14,11 +14,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/cofy-x/camp/apps/server/internal/collaboration"
+	"github.com/cofy-x/camp/apps/server/internal/remoteruns"
 	"github.com/cofy-x/camp/apps/server/internal/resources"
-	"github.com/cofy-x/camp/apps/server/internal/runs"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -31,7 +30,7 @@ func uploadAPI(t *testing.T) (http.Handler, *storage.Store, storage.Room) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
-	manager, err := runs.New(ctx, store, dir, runs.Config{MaxTokens: 32, MaxSteps: 1, Timeout: time.Second}, nil)
+	manager, err := remoteruns.New(ctx, store, remoteruns.Config{DataDir: dir}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

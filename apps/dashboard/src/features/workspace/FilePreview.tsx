@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
 import type { Reference } from './api';
 import { workspaceApi } from './api';
-import { AssistantContent } from './AssistantContent';
+import { MarkdownContent } from '../../shared/content/MarkdownContent';
 import { readFilePreview, type FilePreviewRead } from './readFilePreview';
 
 // Always load the selected immutable version, never the current resource pointer.
@@ -75,7 +75,7 @@ export function FilePreview({
     >
       <div className="workspace-preview-actions">
         {markdown && content !== null && (
-          <Button type="button" onClick={() => setSource(!source)}>
+          <Button variant="text" onClick={() => setSource(!source)}>
             {source ? 'Show preview' : 'Show source'}
           </Button>
         )}
@@ -85,7 +85,7 @@ export function FilePreview({
           </Button>
         )}
         <a
-          className="p9-button"
+          className="p9-button p9-text-action"
           href={url}
           download={filename}
           aria-label={filename ? `Download ${filename}` : 'Download'}
@@ -111,7 +111,7 @@ export function FilePreview({
         <>
           <div className="workspace-preview-content" tabIndex={0}>
             {markdown && !source ? (
-              <AssistantContent content={content || '(Empty file)'} />
+              <MarkdownContent content={content || '(Empty file)'} />
             ) : (
               <pre>{content || '(Empty file)'}</pre>
             )}

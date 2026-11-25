@@ -9,6 +9,15 @@ import (
 
 func (a *API) reviewRoutes(mux *http.ServeMux) {
 	register := func(route string, h http.HandlerFunc) { mux.HandleFunc(route, a.authorizeRoute(route, h)) }
+	register("GET /api/rooms/{id}/work-items/{workId}/result-reviews", func(w http.ResponseWriter, r *http.Request) {
+		query, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil || len(query) != 2 || len(query["resourceId"]) != 1 || len(query["commit"]) != 1 {
+			writeError(w, 400, "invalid_reference", "Choose one source and one exact Work result version.")
+			return
+		}
+		out, err := a.store.ReadWorkResultReviews(r.Context(), r.PathValue("id"), r.PathValue("workId"), query.Get("resourceId"), query.Get("commit"))
+		a.respond(w, r, out, err)
+	})
 	register("GET /api/reviews", func(w http.ResponseWriter, r *http.Request) {
 		query, err := url.ParseQuery(r.URL.RawQuery)
 		if err != nil {

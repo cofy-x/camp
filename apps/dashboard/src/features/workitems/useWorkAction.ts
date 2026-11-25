@@ -76,13 +76,15 @@ export function useWorkAction({
     view === 'manage'
       ? workSectionIntent(section, savedIntent)
       : view === 'overview'
-        ? hasQuestion && !completionQuestion
-          ? 'answer'
-          : recoveryActive ||
-              values.section ||
-              workManagementForIntent(savedIntent)
-            ? ''
-            : savedIntent
+        ? completionQuestion
+          ? ''
+          : hasQuestion
+            ? 'answer'
+            : recoveryActive ||
+                values.section ||
+                workManagementForIntent(savedIntent)
+              ? ''
+              : savedIntent
         : '';
   const intent =
     !hasQuestion &&
@@ -152,12 +154,17 @@ export function useWorkAction({
   const futureReminder = Date.parse(values.resumeAt ?? '') > Date.now();
 
   const clearDraft = draft.setValue;
+  const readDraft = draft.getValue;
   useEffect(() => {
     const saved = operation.confirmation;
     const action = confirmedWorkAction(saved);
+    if (action === 'complete') {
+      const local = readDraft();
+      if (local && restoreWorkActionDraft(local).intent !== 'complete') return;
+    }
     if (action && action !== 'authorize' && action !== 'unfollow')
       clearDraft(null);
-  }, [operation.confirmation, clearDraft]);
+  }, [operation.confirmation, clearDraft, readDraft]);
 
   function edit(change: Partial<WorkActionDraft>) {
     draft.setValue({

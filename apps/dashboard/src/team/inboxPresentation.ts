@@ -1,3 +1,4 @@
+import { goalTitle } from '../shared/content/goal-title';
 import type { InboxItem } from './api';
 
 const labels: Record<InboxItem['kind'], string> = {
@@ -13,9 +14,14 @@ const labels: Record<InboxItem['kind'], string> = {
 };
 
 export function inboxItemTitle(
-  item: Pick<InboxItem, 'kind' | 'title' | 'reviewTitle'>,
+  item: Pick<
+    InboxItem,
+    'kind' | 'title' | 'reviewTitle' | 'workItemId' | 'taskId'
+  >,
 ) {
-  return item.title?.trim() || item.reviewTitle.trim() || labels[item.kind];
+  const title = item.title?.trim();
+  if (title) return item.workItemId || item.taskId ? goalTitle(title) : title;
+  return item.reviewTitle.trim() || labels[item.kind];
 }
 
 export function inboxItemDetail(item: Pick<InboxItem, 'question' | 'summary'>) {

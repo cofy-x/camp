@@ -11,7 +11,9 @@ async function fixture(page: Page, projected: boolean) {
     `Work history ${randomUUID().slice(0, 8)}`,
   );
   const { user } = await (await page.request.get('/api/auth/status')).json();
-  const goal = 'Build and release the shared notes application.';
+  const title = 'Build and release the shared notes application.';
+  const instructions = 'Review the source checklist before packaging.';
+  const goal = `${title} ${instructions}`;
   const response = await mutate(page, `/rooms/${room.id}/work-items`, {
     requestId: randomUUID(),
     goal,
@@ -115,7 +117,7 @@ async function fixture(page: Page, projected: boolean) {
       : route.fulfill({ json: { tasks } }),
   );
   await page.reload();
-  return { room, root, answer, ordinary, goal };
+  return { room, root, answer, ordinary, title, instructions, goal };
 }
 
 test('derived Work origins stay compact without Task history and retain original source attribution', async ({
@@ -131,6 +133,8 @@ test('derived Work origins stay compact without Task history and retain original
   await expect(events.filter({ hasText: 'Team member' })).toHaveCount(0);
   await expect(events.last()).toContainText('Recorded owner started work');
   await expect(events.first()).not.toContainText('Browser Owner');
+  await expect(events.first()).toContainText(value.title);
+  await expect(events.first()).not.toContainText(value.instructions);
   await expect(
     events.first().getByRole('button', { name: 'Open work', exact: true }),
   ).toHaveCount(1);
@@ -139,6 +143,7 @@ test('derived Work origins stay compact without Task history and retain original
   );
   await expect(ordinary.locator('.workspace-message-avatar')).toBeVisible();
   await expect(ordinary).not.toContainText('started work');
+  await expect(ordinary).toContainText(value.goal);
 
   await workspace(page).screenshot({
     path: info.outputPath('work-origin-events.png'),
@@ -168,7 +173,11 @@ test('derived Work origins stay compact without Task history and retain original
   await expect(origin).toBeFocused();
   await origin.getByRole('button', { name: 'Open work', exact: true }).click();
   await expect(work(page)).toBeVisible();
-  await expect(work(page)).toContainText(value.goal);
+  await expect(
+    work(page).getByRole('heading', { name: value.title }),
+  ).toBeVisible();
+  await work(page).getByText('Full goal', { exact: true }).click();
+  await expect(work(page).getByText(value.goal, { exact: true })).toBeVisible();
 });
 
 test('legacy task lookup requires the exact origin and keeps user inputs as messages', async ({

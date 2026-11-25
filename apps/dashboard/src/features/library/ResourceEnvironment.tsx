@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { Button, Select } from '@cofy-x/camp-platinum';
 import type { Environment, Resource } from '../workspace/api';
 import { workspaceApi } from '../workspace/api';
@@ -12,8 +12,33 @@ import {
   sameEnvironment,
 } from './environmentState';
 import { EnvironmentChecks } from './EnvironmentChecks';
-import { configuredChecks, editableCheck } from './environmentCheckCommands';
+import {
+  configuredChecks,
+  editableCheck,
+  type EditableCheck,
+} from './environmentCheckCommands';
 import './ResourceEnvironment.css';
+
+type EnvironmentKind = NonNullable<Environment['kind']>;
+
+type EnvironmentDraft = {
+  kind: EnvironmentKind | 'none';
+  manager: string;
+  checks: Record<EnvironmentKind, EditableCheck[]>;
+};
+
+function editEnvironment(environment: Environment | null): EnvironmentDraft {
+  const kind = environment?.kind ?? 'none';
+  const checks = (environment?.checks ?? []).map(editableCheck);
+  return {
+    kind,
+    manager: environment?.packageManager ?? 'node',
+    checks: {
+      command: kind === 'command' ? checks : [],
+      node: kind === 'node' ? checks : [],
+    },
+  };
+}
 
 export function EnvironmentEditor({
   resource,
@@ -24,14 +49,13 @@ export function EnvironmentEditor({
   onChange: () => void;
   onClose: () => void;
 }) {
-  const headingId = useId();
-  const [kind, setKind] = useState(resource.environment?.kind ?? 'none');
-  const [manager, setManager] = useState(
-    resource.environment?.packageManager ?? 'node',
+  const scopeId = useId();
+  const back = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => back.current?.focus({ preventScroll: true }), []);
+  const [draft, setDraft] = useState(() =>
+    editEnvironment(resource.environment),
   );
-  const [checks, setChecks] = useState(() =>
-    (resource.environment?.checks ?? []).map(editableCheck),
-  );
+  const { kind, manager } = draft;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -55,24 +79,24 @@ export function EnvironmentEditor({
     kind === 'none'
       ? null
       : {
-          kind: kind as Environment['kind'],
-          checks: configuredChecks(checks),
+          kind,
+          checks: configuredChecks(draft.checks[kind]),
           ...(kind === 'node'
             ? { nodeVersion: '24.16.0', packageManager: manager }
             : {}),
         };
   const unsaved = !sameEnvironment(draftEnvironment, currentEnvironment);
   const saveUnconfirmed = needsRefresh || unconfirmed !== undefined;
-  const saveStatus =
-    pending || saveUnconfirmed
-      ? ''
-      : unsaved
-        ? 'Unsaved changes'
-        : observed.saved
-          ? 'Environment saved.'
-          : '';
+  const canSave = unsaved && !pending && !updatedElsewhere && !saveUnconfirmed;
+  const showScope = unsaved && !updatedElsewhere && !saveUnconfirmed;
+  const saveStatus = showScope
+    ? 'Applies to new work only.'
+    : observed.saved && !unsaved && !pending && !saveUnconfirmed
+      ? 'Environment saved.'
+      : '';
 
-  function changed() {
+  function changeDraft(change: Partial<EnvironmentDraft>) {
+    setDraft((current) => ({ ...current, ...change }));
     editVersion.current++;
     setSnapshot((current) => ({ ...current, saved: false }));
     setError('');
@@ -80,9 +104,7 @@ export function EnvironmentEditor({
   }
 
   function reload() {
-    setKind(currentEnvironment?.kind ?? 'none');
-    setManager(currentEnvironment?.packageManager ?? 'node');
-    setChecks((currentEnvironment?.checks ?? []).map(editableCheck));
+    setDraft(editEnvironment(currentEnvironment));
     setSnapshot((current) => reloadEnvironment(current));
     setError('');
     setNotice('');
@@ -136,13 +158,7 @@ export function EnvironmentEditor({
   }
 
   async function save() {
-    if (
-      updatedElsewhere ||
-      needsRefresh ||
-      unconfirmed !== undefined ||
-      pending
-    )
-      return;
+    if (!canSave) return;
     setError('');
     setNotice('');
     setSnapshot((current) => ({ ...current, saved: false }));
@@ -205,144 +221,166 @@ export function EnvironmentEditor({
   }
 
   return (
-    <section className="library-environment" aria-labelledby={headingId}>
-      <header className="library-environment-heading">
-        <div>
-          <h2 id={headingId}>Environment and checks</h2>
-        </div>
-        <Button disabled={pending} onClick={onClose}>
+    <section className="library-environment" aria-label="Environment">
+      <header className="app-toolbar library-environment-toolbar">
+        <Button ref={back} disabled={pending} onClick={onClose}>
           Back to Files
         </Button>
       </header>
-      <p className="library-environment-description">
-        Applies to future work; queued work keeps its configuration.
-      </p>
-      {updatedElsewhere && (
-        <div className="library-environment-notice" role="status">
-          <p>
-            Saved settings changed. Your edits are still here. Compare the saved
-            configuration with your entries below. Keep your edits to continue
-            reviewing, or reload to replace them.
-          </p>
-          <details open>
-            <summary>Saved Configuration</summary>
-            <pre>{JSON.stringify(currentEnvironment ?? {}, null, 2)}</pre>
-          </details>
-          <div className="library-environment-conflict-actions">
-            <Button
-              disabled={pending || unconfirmed !== undefined}
-              onClick={keepEdits}
-            >
-              Keep My Edits
-            </Button>
-            <Button
-              disabled={pending || unconfirmed !== undefined}
-              onClick={reload}
-            >
-              Reload Saved Settings
-            </Button>
-          </div>
-          <p>
-            {unconfirmed !== undefined
-              ? 'A save outcome is unconfirmed. Check Saved Settings before choosing a conflict action.'
-              : 'Keeping edits does not save them. Review your entries, then choose Save Environment.'}
-          </p>
-        </div>
-      )}
-      {saveUnconfirmed && !updatedElsewhere && (
-        <div className="library-environment-notice">
-          <details open>
-            <summary>Last Known Saved Configuration</summary>
-            <pre>{JSON.stringify(currentEnvironment ?? {}, null, 2)}</pre>
-          </details>
-        </div>
-      )}
       <form
+        className="library-environment-form"
         onSubmit={(event) => {
           event.preventDefault();
           void save();
         }}
       >
-        <fieldset
-          className="app-control-group"
-          aria-label="Environment configuration"
-          disabled={pending || unconfirmed !== undefined}
-        >
-          <Select
-            disabled={pending}
-            label="Environment"
-            value={kind}
-            onChange={(event) => {
-              setKind(event.target.value);
-              setChecks([]);
-              changed();
-            }}
-          >
-            <option value="none">None</option>
-            <option value="command">Commands</option>
-            <option value="node">Node 24.16.0</option>
-          </Select>
-          {kind === 'node' && (
-            <Select
-              disabled={pending}
-              label="Package manager"
-              value={manager}
-              onChange={(event) => {
-                setManager(event.target.value);
-                changed();
-              }}
+        <div className="library-environment-body">
+          <div className="library-environment-sheet">
+            {(updatedElsewhere || saveUnconfirmed) && (
+              <aside className="library-environment-notice">
+                {updatedElsewhere && (
+                  <p role="status">
+                    <strong>Saved settings changed.</strong> Your edits are
+                    still here.
+                  </p>
+                )}
+                <details className="p9-disclosure" open={updatedElsewhere}>
+                  <summary>
+                    {updatedElsewhere
+                      ? 'Saved Configuration'
+                      : 'Last Known Saved Configuration'}
+                  </summary>
+                  <pre>
+                    {currentEnvironment
+                      ? JSON.stringify(currentEnvironment, null, 2)
+                      : 'No environment configured.'}
+                  </pre>
+                </details>
+                {updatedElsewhere && (
+                  <>
+                    <p>
+                      {unconfirmed !== undefined
+                        ? 'Check Saved Settings to confirm the last save.'
+                        : 'Reload replaces your edits with the saved settings.'}
+                    </p>
+                    <div className="library-environment-conflict-actions">
+                      <Button
+                        disabled={pending || unconfirmed !== undefined}
+                        onClick={keepEdits}
+                      >
+                        Keep My Edits
+                      </Button>
+                      <Button
+                        disabled={pending || unconfirmed !== undefined}
+                        onClick={reload}
+                      >
+                        Reload Saved Settings
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </aside>
+            )}
+            <fieldset
+              className="library-environment-fields"
+              aria-label="Environment configuration"
+              disabled={pending || unconfirmed !== undefined}
             >
-              <option value="node">No dependency installation</option>
-              <option value="pnpm@12.11.2">pnpm 12.11.2</option>
-            </Select>
-          )}
-          {kind !== 'none' ? (
-            <EnvironmentChecks
-              checks={checks}
-              kind={kind}
-              manager={manager}
-              onChange={(value) => {
-                setChecks(value);
-                changed();
-              }}
-            />
-          ) : (
-            <p className="library-environment-hint">
-              Checks: Not configured. Agents can still read and edit files.
-            </p>
-          )}
-        </fieldset>
-        {error && (
-          <p className="app-error" role="alert">
-            {error}
-          </p>
-        )}
-        <div className="library-environment-actions">
-          <Button
-            type="submit"
-            disabled={
-              pending ||
-              updatedElsewhere ||
-              needsRefresh ||
-              unconfirmed !== undefined
-            }
-          >
-            {pending ? 'Saving…' : 'Save Environment'}
-          </Button>
-          {saveStatus && <span role="status">{saveStatus}</span>}
-          {notice && !observed.saved && !updatedElsewhere && (
-            <span role="status">{notice}</span>
-          )}
-          {(needsRefresh || unconfirmed !== undefined) && (
-            <Button
-              type="button"
-              disabled={pending}
-              onClick={() => void checkSaved()}
-            >
-              Check Saved Settings
-            </Button>
-          )}
+              <div className="library-environment-runtime">
+                <Select
+                  label="Runtime"
+                  value={kind}
+                  onChange={(event) =>
+                    changeDraft({
+                      kind: event.target.value as EnvironmentDraft['kind'],
+                    })
+                  }
+                >
+                  <option value="none">None</option>
+                  <option value="command">Commands</option>
+                  <option value="node">Node 24.16.0</option>
+                </Select>
+                {kind === 'node' && (
+                  <Select
+                    className="library-package-manager"
+                    label="Package manager"
+                    value={manager}
+                    onChange={(event) =>
+                      changeDraft({ manager: event.target.value })
+                    }
+                  >
+                    <option value="node">No dependency installation</option>
+                    <option value="pnpm@12.11.2">pnpm 12.11.2</option>
+                  </Select>
+                )}
+              </div>
+              {kind !== 'none' ? (
+                <EnvironmentChecks
+                  key={kind}
+                  checks={draft.checks[kind]}
+                  kind={kind}
+                  manager={manager}
+                  onChange={(checks) =>
+                    changeDraft({ checks: { ...draft.checks, [kind]: checks } })
+                  }
+                />
+              ) : (
+                <section
+                  className="library-environment-checks"
+                  aria-label="Checks"
+                >
+                  <h3>Checks</h3>
+                  <p className="library-check-empty">
+                    Checks are off. Agents can still read and edit files.
+                  </p>
+                </section>
+              )}
+            </fieldset>
+          </div>
         </div>
+        <footer className="library-environment-footer">
+          <div className="library-environment-sheet">
+            {error && (
+              <p className="app-error" role="alert">
+                {error}
+              </p>
+            )}
+            {notice && !observed.saved && !updatedElsewhere && (
+              <p className="library-environment-hint" role="status">
+                {notice}
+              </p>
+            )}
+            <div className="library-environment-actions">
+              <p
+                id={scopeId}
+                className="library-environment-hint library-environment-save-text"
+                role="status"
+              >
+                {saveStatus}
+              </p>
+              <div className="library-environment-save-controls">
+                {saveUnconfirmed && (
+                  <Button
+                    type="button"
+                    primary={!pending}
+                    disabled={pending}
+                    onClick={() => void checkSaved()}
+                  >
+                    {pending ? 'Checking…' : 'Check Saved Settings'}
+                  </Button>
+                )}
+                <Button
+                  type="submit"
+                  primary={canSave}
+                  disabled={!canSave}
+                  aria-describedby={showScope ? scopeId : undefined}
+                >
+                  {pending && !saveUnconfirmed ? 'Saving…' : 'Save'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </footer>
       </form>
     </section>
   );

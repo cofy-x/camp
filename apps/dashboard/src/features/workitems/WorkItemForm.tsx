@@ -20,6 +20,7 @@ import {
 } from './creationDraft';
 import type { WorkItem, WorkItemInput } from './api';
 import { utcDateTime } from './workSettings';
+import './new-work.css';
 
 type CreateDraft = Omit<WorkItemInput, 'requestId'> & {
   deadline?: string;
@@ -69,7 +70,6 @@ export function WorkItemForm({
   const recordNoticeId = useId();
   const settingsModeId = useId();
   const revealingInvalid = useRef(false);
-  const [openOptionsRoom, setOpenOptionsRoom] = useState<string>();
   const [githubDestinationRoom, setGitHubDestinationRoom] = useState<string>();
   const [deliveryReady, setDeliveryReady] = useState(false);
   const scope = sourceMessage?.id ?? sourceEvent?.id ?? 'manual';
@@ -122,8 +122,6 @@ export function WorkItemForm({
   const useGitHub =
     Boolean(values.githubDelivery) || githubDestinationRoom === roomId;
   const incompleteGitHub = useGitHub && !values.githubDelivery;
-  const setOptionsOpen = (open: boolean) =>
-    setOpenOptionsRoom(open ? roomId : undefined);
   const participants =
     values.participantAgentIds ??
     suggestedParticipants(members, defaults, defaultAgentId);
@@ -237,7 +235,6 @@ export function WorkItemForm({
         : workDefaultsFields(values),
     });
     setGitHubDestinationRoom(undefined);
-    setOptionsOpen(false);
   }
 
   function customizeWork() {
@@ -247,7 +244,6 @@ export function WorkItemForm({
       customDefaults: undefined,
     });
     setGitHubDestinationRoom(undefined);
-    setOptionsOpen(true);
   }
 
   function setDeliveryDestination(github: boolean) {
@@ -297,13 +293,10 @@ export function WorkItemForm({
         );
         if (!section) return;
         revealingInvalid.current = true;
-        const options =
-          section.closest<HTMLDetailsElement>('.work-item-options');
-        if (options) options.open = true;
         section.open = true;
         requestAnimationFrame(() => {
           revealingInvalid.current = false;
-          if (field.isConnected && section.open && options?.open) field.focus();
+          if (field.isConnected && section.open) field.focus();
         });
       }}
       onSubmit={(event) => {
@@ -319,17 +312,19 @@ export function WorkItemForm({
       )}
       <DraftRecovery draft={draft} preview={(value) => value?.goal ?? ''} />
       <fieldset disabled={disabled}>
-        <label htmlFor={goalId}>What needs to happen?</label>
-        <textarea
-          id={goalId}
-          className="p9-field"
-          rows={3}
-          required
-          maxLength={16000}
-          autoFocus
-          value={values.goal}
-          onChange={(event) => edit({ goal: event.target.value })}
-        />
+        <div className="new-work-goal">
+          <label htmlFor={goalId}>What needs to happen?</label>
+          <textarea
+            id={goalId}
+            className="p9-field"
+            rows={4}
+            required
+            maxLength={16000}
+            autoFocus
+            value={values.goal}
+            onChange={(event) => edit({ goal: event.target.value })}
+          />
+        </div>
         {(sourceMessage || sourceEvent) && (
           <div className="work-item-context">
             <details>
@@ -352,36 +347,26 @@ export function WorkItemForm({
           </div>
         )}
         {roomId && contextReady && (
-          <fieldset
-            className="work-proposal"
-            aria-label="Work authorization"
-            disabled={!defaults}
-          >
+          <fieldset className="work-proposal" disabled={!defaults}>
+            <legend>Execution</legend>
             {project && !staleProject && (
-              <fieldset className="work-default-mode">
-                <legend>Settings for this Work</legend>
-                <div>
-                  <Radio
-                    name={settingsModeId}
-                    label="Use my defaults"
-                    checked={usesProject}
-                    onChange={usePersonalDefaults}
-                  />
-                  <Radio
-                    name={settingsModeId}
-                    label="This Work only"
-                    checked={!usesProject}
-                    onChange={customizeWork}
-                  />
-                </div>
+              <fieldset
+                className="work-default-mode"
+                aria-label="Settings for this Work"
+              >
+                <Radio
+                  name={settingsModeId}
+                  label="Use my defaults"
+                  checked={usesProject}
+                  onChange={usePersonalDefaults}
+                />
+                <Radio
+                  name={settingsModeId}
+                  label="This Work only"
+                  checked={!usesProject}
+                  onChange={customizeWork}
+                />
               </fieldset>
-            )}
-            {values.completionMode !== 'automatic' && (
-              <p className="work-grant-limits">
-                {values.completionMode === 'human'
-                  ? "You'll confirm completion"
-                  : 'Saved completion criteria apply'}
-              </p>
             )}
             <WorkGrant
               members={members}
@@ -397,6 +382,13 @@ export function WorkItemForm({
               onChange={(participantAgentIds) => edit({ participantAgentIds })}
               onFirstChange={(firstAgentId) => edit({ firstAgentId })}
             />
+            {values.completionMode !== 'automatic' && (
+              <p className="work-grant-limits">
+                {values.completionMode === 'human'
+                  ? "You'll confirm completion"
+                  : 'Saved completion criteria apply'}
+              </p>
+            )}
             {blockedStart && (
               <div
                 className="work-execution-notice app-error"
@@ -439,18 +431,6 @@ export function WorkItemForm({
                 Choose a GitHub repository or switch to Room files.
               </p>
             )}
-            <WorkCreationOptions
-              values={values}
-              roomId={roomId}
-              defaults={defaults}
-              delegated={delegated}
-              custom={!usesProject && !staleProject}
-              open={openOptionsRoom === roomId}
-              onOpenChange={setOptionsOpen}
-              useGitHub={useGitHub}
-              onDeliveryDestinationChange={setDeliveryDestination}
-              onChange={edit}
-            />
           </fieldset>
         )}
       </fieldset>
@@ -505,30 +485,46 @@ export function WorkItemForm({
           )}
         </p>
       )}
+      {roomId && contextReady && (
+        <WorkCreationOptions
+          key={roomId}
+          values={values}
+          roomId={roomId}
+          defaults={defaults}
+          delegated={delegated}
+          custom={!usesProject && !staleProject}
+          disabled={disabled || !defaults}
+          useGitHub={useGitHub}
+          onDeliveryDestinationChange={setDeliveryDestination}
+          onChange={edit}
+        />
+      )}
       {operation.feedback}
-      <div className="app-actions work-create-actions">
-        <Button
-          type="submit"
-          primary={!recordingOnly}
-          disabled={!canStart}
-          aria-describedby={recordingOnly ? startNoticeId : undefined}
-        >
-          {operation.busy ? 'Saving…' : 'Start work'}
-        </Button>
-        <Button
-          primary={recordingOnly}
-          disabled={!canRecord}
-          aria-describedby={recordingOnly ? recordNoticeId : undefined}
-          onClick={(event) => {
-            if (event.currentTarget.form?.reportValidity()) create(false);
-          }}
-        >
-          Keep track
-        </Button>
+      <footer className="work-create-actions">
         {recordingOnly && (
           <span id={recordNoticeId}>Records this without running Agents.</span>
         )}
-      </div>
+        <div className="app-actions">
+          <Button
+            primary={recordingOnly}
+            disabled={!canRecord}
+            aria-describedby={recordingOnly ? recordNoticeId : undefined}
+            onClick={(event) => {
+              if (event.currentTarget.form?.reportValidity()) create(false);
+            }}
+          >
+            Keep track
+          </Button>
+          <Button
+            type="submit"
+            primary={!recordingOnly}
+            disabled={!canStart}
+            aria-describedby={recordingOnly ? startNoticeId : undefined}
+          >
+            {operation.busy ? 'Saving…' : 'Start work'}
+          </Button>
+        </div>
+      </footer>
     </form>
   );
 }

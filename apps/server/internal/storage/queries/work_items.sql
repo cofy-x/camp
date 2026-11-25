@@ -1,5 +1,7 @@
 -- name: GetWorkItem :one
 SELECT * FROM work_items WHERE id=?;
+-- name: WorkItemActiveTask :one
+SELECT CAST(coalesce(json_extract(value,'$.activeTaskId'),'') AS TEXT) FROM work_items WHERE id=?;
 -- name: InsertWorkItem :one
 INSERT INTO work_items(id,room_id,owner_user_id,policy_id,status,revision,value,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?,?) RETURNING seq;
 -- name: SaveWorkItem :execrows
@@ -14,6 +16,11 @@ SELECT * FROM work_item_evidence WHERE work_item_id=? ORDER BY created_at,event_
 SELECT * FROM work_item_evidence WHERE work_item_id=? ORDER BY seq LIMIT 1001;
 -- name: WorkDecisions :many
 SELECT * FROM work_item_decisions WHERE work_item_id=? AND seq>? ORDER BY seq DESC LIMIT ?;
+-- name: WorkClosingDecision :one
+SELECT * FROM work_item_decisions WHERE work_item_id=sqlc.arg(work_item_id)
+ AND ((sqlc.arg(status)='completed' AND json_extract(value,'$.kind')='complete')
+ OR (sqlc.arg(status)='cancelled' AND json_extract(value,'$.kind') IN ('stop','cancel')))
+ORDER BY seq DESC LIMIT 1;
 -- name: LegacyWorkRecovery :one
 SELECT d.value AS decision,CAST(coalesce(t.status,'') AS TEXT) AS task_status,
  CAST(coalesce(p.source_id,'') AS TEXT) AS source_id,
@@ -37,6 +44,8 @@ INSERT INTO work_item_decisions(id,work_item_id,value) VALUES(?,?,?);
 SELECT w.task_id,t.status,CAST(coalesce(json_extract(t.snapshot,'$.summary'),'') AS TEXT) AS summary,w.created_at FROM work_item_tasks w JOIN collaboration_tasks t ON t.id=w.task_id WHERE w.work_item_id=? ORDER BY w.created_at DESC,w.task_id LIMIT 21;
 -- name: WorkTimers :many
 SELECT * FROM work_item_timers WHERE work_item_id=? ORDER BY created_at DESC,id LIMIT 21;
+-- name: PendingWorkTimer :one
+SELECT * FROM work_item_timers WHERE work_item_id=? AND status='pending' ORDER BY due_at,id LIMIT 1;
 -- name: WorkActions :many
 SELECT a.*,CAST(coalesce(d.status,a.status) AS TEXT) AS current_status FROM work_item_actions a LEFT JOIN automation_deliveries d ON d.id=a.delivery_id WHERE a.work_item_id=? ORDER BY a.created_at DESC,a.id LIMIT 21;
 -- name: WorkWatches :many

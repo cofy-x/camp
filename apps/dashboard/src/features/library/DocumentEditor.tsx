@@ -1,17 +1,33 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
 import { usePrivateDraft } from '../../team/usePrivateDraft';
-import { libraryApi } from './api';
+import { useAccount } from '../../team/AuthContext';
+import { documentDigest, useLibraryPublication } from './useLibraryPublication';
 import { readTextFile } from './textFile';
 import { registerDraftWriter } from '../../team/draftRegistry';
-import { APIError } from '../../shared/api/http';
-import type { Resource } from '../workspace/api';
+import { workspaceApi, type Resource } from '../workspace/api';
+import { filePreviewByteLimit } from '../workspace/readFilePreview';
 
 interface Draft {
   resourceId: string;
   path: string;
   baseCommit: string;
   content: string;
+}
+
+const encoder = new TextEncoder();
+const encodedDocumentLimit = 2 << 20;
+
+function draftSizeError(value: Draft) {
+  if (encoder.encode(value.content).length > filePreviewByteLimit)
+    return 'Document text exceeds 1 MiB. Shorten it before saving your draft or publishing.';
+  if (encoder.encode(JSON.stringify(value)).length > encodedDocumentLimit)
+    return 'The encoded draft exceeds 2 MiB. Shorten the document before saving.';
+  return '';
+}
+
+function canSaveDraft(value: Draft | null) {
+  return !value || !draftSizeError(value);
 }
 
 export function DocumentEditor({
@@ -29,10 +45,17 @@ export function DocumentEditor({
   onPublished: () => void;
   onClose: () => void;
 }) {
+  const { user } = useAccount();
   const draft = usePrivateDraft<Draft | null>(
     'document',
     `${resource.id}:${path}`,
     null,
+    canSaveDraft,
+  );
+  const publication = useLibraryPublication(
+    user.id,
+    undefined,
+    `${resource.id}:${path}`,
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
@@ -44,10 +67,8 @@ export function DocumentEditor({
     content: string;
     commit: string;
   } | null>(null);
-  const [sharedConflict, setSharedConflict] = useState(false);
-  const [request, setRequest] = useState<{ key: string; id: string } | null>(
-    null,
-  );
+  const sharedConflict =
+    publication.errorCode === 'revision_conflict' && !publication.pending;
   const baseline: Draft = {
     resourceId: resource.id,
     path,
@@ -56,6 +77,7 @@ export function DocumentEditor({
   };
   const value = draft.value ?? baseline;
   const saved = Boolean(published && !draft.value);
+  const sizeError = useMemo(() => draftSizeError(value), [value]);
 
   useEffect(
     () =>
@@ -67,10 +89,9 @@ export function DocumentEditor({
 
   async function compareShared() {
     setPending(true);
+    setError('');
     try {
-      const result = await libraryApi.list();
-      const current = result.resources.find((item) => item.id === resource.id);
-      if (!current) throw new Error('The shared resource is unavailable.');
+      const { resource: current } = await workspaceApi.resource(resource.id);
       const text = await readTextFile(
         resource.id,
         path,
@@ -87,42 +108,101 @@ export function DocumentEditor({
     }
   }
 
+  async function acceptPublication(
+    result: Awaited<ReturnType<typeof publication.check>>,
+    submittedContent?: string,
+  ) {
+    if (!result || result.request.kind !== 'edit') return;
+    const { input } = result.request;
+    const commit = result.publication.commit;
+    const current = draft.getValue();
+    const matching =
+      current?.baseCommit === input.expectedCommit &&
+      (await documentDigest(current.content)) === input.contentDigest;
+    const savedContent =
+      submittedContent ??
+      (matching ? current?.content : undefined) ??
+      (await readTextFile(resource.id, path, commit));
+    const latestDraft = draft.getValue();
+    if (latestDraft?.baseCommit === input.expectedCommit) {
+      if (latestDraft.content === savedContent)
+        draft.setValue(null, { keepSavedOnConflict: true });
+      else draft.setValue({ ...latestDraft, baseCommit: commit });
+    }
+    setPublished({ content: savedContent, commit });
+    setLatest(null);
+    // Finish the revision-checked cleanup before refreshing the draft list.
+    await draft.flush();
+    onPublished();
+  }
+
   async function publish() {
     const submitted = draft.getValue() ?? baseline;
-    if (pending || saved || draft.error) return;
+    if (
+      pending ||
+      saved ||
+      draft.error ||
+      publication.pending ||
+      draftSizeError(submitted)
+    )
+      return;
+    const input = {
+      // The publication hook supplies a UUID of this length.
+      requestId: '00000000-0000-0000-0000-000000000000',
+      expectedCommit: submitted.baseCommit,
+      path,
+      content: submitted.content,
+    };
+    if (encoder.encode(JSON.stringify(input)).length > encodedDocumentLimit) {
+      setError(
+        'The encoded publication exceeds 2 MiB. Shorten the document before publishing.',
+      );
+      return;
+    }
     setPending(true);
     setError('');
-    const key = JSON.stringify(submitted);
-    const requestId = request?.key === key ? request.id : crypto.randomUUID();
-    setRequest({ key, id: requestId });
     try {
-      const result = await libraryApi.save(resource.id, {
-        requestId,
-        expectedCommit: submitted.baseCommit,
-        path,
-        content: submitted.content,
-      });
-      const commit = result.publication.commit;
-      const current = draft.getValue();
-      if (current?.baseCommit === submitted.baseCommit) {
-        if (current.content === submitted.content)
-          draft.setValue(null, { keepSavedOnConflict: true });
-        else draft.setValue({ ...current, baseCommit: commit });
-      }
-      setPublished({ content: submitted.content, commit });
-      setSharedConflict(false);
-      setLatest(null);
-      // Finish the revision-checked cleanup before refreshing the draft list.
-      await draft.flush();
-      onPublished();
+      if (!draft.getValue() && !submitted.content) draft.setValue(submitted);
+      if (!(await draft.flush())) return;
+      const result = await publication.submit(
+        {
+          kind: 'edit',
+          resourceId: resource.id,
+          input: {
+            expectedCommit: submitted.baseCommit,
+            path,
+            contentDigest: await documentDigest(submitted.content),
+          },
+        },
+        submitted.content,
+      );
+      await acceptPublication(result, submitted.content);
     } catch (error) {
-      if (error instanceof APIError && error.status === 409)
-        setSharedConflict(true);
       setError(
         error instanceof Error
           ? error.message
           : 'Could not publish your changes. Your draft is preserved.',
       );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function recoverPublication(action: 'check' | 'retry' | 'cancel') {
+    if (pending || !draft.loaded) return;
+    setPending(true);
+    setError('');
+    try {
+      if (action === 'cancel') await publication.cancelUnsubmitted();
+      else
+        await acceptPublication(
+          await (action === 'retry'
+            ? publication.retry(draft.getValue()?.content)
+            : publication.check()),
+        );
+    } catch {
+      setError('The publication was saved. Return to the preview to open it.');
+      onPublished();
     } finally {
       setPending(false);
     }
@@ -155,6 +235,47 @@ export function DocumentEditor({
           }
         />
       )}
+      {sizeError && (
+        <p className="app-error" role="alert">
+          {sizeError}
+        </p>
+      )}
+      {(publication.pending || publication.error) && (
+        <div className="app-actions">
+          <span role={pending ? 'status' : 'alert'}>
+            {publication.pending &&
+              (pending
+                ? 'Confirming publication… '
+                : 'Publication unconfirmed. ')}
+            {publication.error}
+          </span>
+          {publication.pending && (
+            <Button
+              disabled={pending || !draft.loaded}
+              onClick={() => void recoverPublication('check')}
+            >
+              Check Saved Publication
+            </Button>
+          )}
+          {publication.missing && (
+            <Button
+              disabled={pending || !draft.loaded}
+              onClick={() => void recoverPublication('retry')}
+            >
+              Retry Original Request
+            </Button>
+          )}
+          {publication.canCancelUnsubmitted && (
+            <Button
+              disabled={pending}
+              onClick={() => void recoverPublication('cancel')}
+            >
+              Cancel Unsubmitted Publication
+            </Button>
+          )}
+        </div>
+      )}
+      {publication.notice && <p role="status">{publication.notice}</p>}
       {(error || draft.error) && (
         <p className="app-error" role="alert">
           {error || draft.error}
@@ -206,7 +327,7 @@ export function DocumentEditor({
                 baseCommit: latest.commit,
               });
               setLatest(null);
-              setSharedConflict(false);
+              publication.clearError();
               setError('');
             }}
           >
@@ -243,9 +364,10 @@ export function DocumentEditor({
             !draft.loaded ||
             pending ||
             saved ||
+            Boolean(publication.pending) ||
             Boolean(draft.error) ||
             sharedConflict ||
-            new TextEncoder().encode(value.content).length > 1048576
+            Boolean(sizeError)
           }
           onClick={() => void publish()}
         >

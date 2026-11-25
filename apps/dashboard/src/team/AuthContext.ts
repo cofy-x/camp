@@ -4,6 +4,7 @@ import type { User } from './api';
 export const AuthContext = createContext<{
   user: User;
   signOut: () => Promise<void>;
+  updateMemberRole: (member: User) => void;
 } | null>(null);
 
 export function useAccount() {

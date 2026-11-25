@@ -3,8 +3,9 @@ package collaboration
 import (
 	"context"
 	"errors"
-	"github.com/cofy-x/camp/apps/server/internal/storage"
 	"testing"
+
+	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
 type timelineManagerFixture struct {
@@ -24,6 +25,20 @@ func (m *timelineManagerFixture) GetRunSummary(context.Context, string) (storage
 	m.calls++
 	return storage.RunTimeline{ID: "one"}, nil
 }
+func (m *timelineManagerFixture) ListRoomRuns(context.Context, string) ([]storage.Run, error) {
+	m.calls++
+	return []storage.Run{{ID: "one", Output: "Full output"}, {ID: "two"}}, nil
+}
+
+func TestRoomRunsDelegatesOneFullListRead(t *testing.T) {
+	manager := &timelineManagerFixture{}
+	service := &Service{runs: manager}
+	runs, err := service.ListRoomRuns(t.Context(), "room")
+	if err != nil || len(runs) != 2 || runs[0].Output != "Full output" || manager.calls != 1 || manager.getCalls != 0 {
+		t.Fatal("full Run lists must use the batched reader", runs, manager, err)
+	}
+}
+
 func TestRoomRunTimelineDelegatesOnceWithoutFullRunFanout(t *testing.T) {
 	manager := &timelineManagerFixture{}
 	service := &Service{runs: manager}

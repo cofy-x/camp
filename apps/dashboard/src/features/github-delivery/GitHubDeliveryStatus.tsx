@@ -1,4 +1,5 @@
 import type { WorkOperation } from '../workitems/useWorkItemOperation';
+import { workItemDetailPath } from '../workitems/api';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@cofy-x/camp-platinum';
 import { useReadStore } from '../../shared/reads/useRead';
@@ -151,7 +152,7 @@ export function GitHubDeliveryStatus({
     setError('');
     try {
       await githubDeliveryApi.check(workId, delivery.revision);
-      await reads.refresh(`/work-items/${workId}`);
+      await reads.refresh(workItemDetailPath(workId));
     } catch (error) {
       setError(
         error instanceof Error

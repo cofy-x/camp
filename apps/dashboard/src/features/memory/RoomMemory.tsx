@@ -7,7 +7,8 @@ import { usePrivateDraft } from '../../team/usePrivateDraft';
 import { flushPrivateDrafts } from '../../team/draftRegistry';
 import { useRecordedOperation } from '../../shared/useRecordedOperation';
 import { DraftRecovery } from '../../shared/drafts/DraftRecovery';
-import { EvidenceChooser, EvidenceRecord } from '../workitems/WorkItemEvidence';
+import { EvidenceChooser } from '../workitems/WorkItemEvidence';
+import { EvidenceRecord } from '../workitems/WorkRecord';
 import type { Message } from '../workspace/api';
 import {
   memoryApi,
@@ -218,7 +219,10 @@ function MemoryRecord({
         {!historical && ` · Revision ${visible.revision}`}
       </small>
       {visible.provenance.sourceEventId && (
-        <EvidenceRecord id={visible.provenance.sourceEventId} />
+        <EvidenceRecord
+          key={visible.provenance.sourceEventId}
+          id={visible.provenance.sourceEventId}
+        />
       )}
       {visible.provenance.messageId && (
         <Button
@@ -234,7 +238,7 @@ function MemoryRecord({
       )}
       {visible.provenance.path && (
         <details>
-          <summary>{visible.provenance.path}</summary>
+          <summary className="p9-body-text">{visible.provenance.path}</summary>
           <dl className="automation-facts">
             <dt>File revision</dt>
             <dd>{visible.provenance.commit}</dd>

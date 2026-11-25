@@ -37,6 +37,9 @@ export function GettingReady({
   const connection = component('connection');
   const runtime = component('execution');
   const firstTask = component('first-task');
+  const existingRunner =
+    runtime?.issue === 'runner_unavailable' ||
+    runtime?.issue === 'runner_upgrade_required';
   const next =
     model?.status !== 'ready'
       ? {
@@ -48,33 +51,30 @@ export function GettingReady({
           run: () => onSection('models'),
         }
       : runtime?.status !== 'ready' || !readiness?.ready
-        ? {
-            destination: 'connect',
-            title: 'Connect a Runner',
-            detail: 'Connect a supported Mac or Linux machine for Agent work.',
-            action: 'Connect Runner…',
-            run: () => onRunners(true),
-          }
-        : firstTask?.status !== 'ready'
+        ? existingRunner
           ? {
               destination: 'runners',
-              title: 'Try your first Agent task',
-              detail:
-                'Choose your Runner and run a sample file task. This makes a model request.',
-              action: 'Choose Runner…',
+              title:
+                runtime.issue === 'runner_upgrade_required'
+                  ? 'Update a Runner'
+                  : 'Check your Runners',
+              action: 'Open Runners',
               run: () => onRunners(),
             }
           : {
-              destination: 'workspace',
-              title: 'Start working',
-              detail: 'A native Agent task succeeded previously.',
-              action: 'Start Working',
-              run: onWorkspace,
-            };
-  const issues =
-    readiness?.components.filter(
-      (item) => item.status === 'missing' || item.status === 'error',
-    ) ?? [];
+              destination: 'connect',
+              title: 'Connect a Runner',
+              detail:
+                'Connect a supported Mac or Linux machine for Agent work.',
+              action: 'Connect Runner…',
+              run: () => onRunners(true),
+            }
+        : {
+            destination: 'workspace',
+            title: 'Start working',
+            action: 'Open Workspace',
+            run: onWorkspace,
+          };
   return (
     <section className="camp-getting-ready" aria-label="Getting Ready">
       {error && (
@@ -90,7 +90,7 @@ export function GettingReady({
         <section className="camp-preparation-next" aria-label="Next setup step">
           <div>
             <h3>{next.title}</h3>
-            <p>{next.detail}</p>
+            {next.detail && <p>{next.detail}</p>}
           </div>
           <Button primary onClick={next.run}>
             {next.action}
@@ -157,7 +157,11 @@ export function GettingReady({
         </dl>
       )}
       <div className="camp-preparation-check">
-        {(!readiness || next.destination !== 'workspace') && (
+        {readiness && next.destination === 'workspace' ? (
+          <Button variant="text" onClick={() => onRunners()}>
+            Open Runners
+          </Button>
+        ) : (
           <Button onClick={onWorkspace}>Open Workspace</Button>
         )}
         <Button disabled={loading} onClick={onRefresh}>
@@ -170,10 +174,7 @@ export function GettingReady({
       </div>
       {readiness && (
         <details className="camp-preparation-diagnostics">
-          <summary>
-            Diagnostic details
-            {issues.length ? ` · ${issues.length} unavailable or failed` : ''}
-          </summary>
+          <summary>Diagnostic details</summary>
           {readiness.checkedAt && (
             <p>Status refreshed: {observationTime(readiness.checkedAt)}</p>
           )}

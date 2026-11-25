@@ -140,9 +140,6 @@ func authorizeRunExecution(ctx context.Context, q *sqlgen.Queries, run Run) erro
 	}
 	return runnerAllowsAgent(ctx, q, runner, agent)
 }
-func (s *Store) AuthorizeRunExecution(ctx context.Context, run Run) error {
-	return authorizeRunExecution(ctx, s.queries(), run)
-}
 
 type ExecutionDefaults struct {
 	PersonalRunnerID string `json:"personalRunnerId"`

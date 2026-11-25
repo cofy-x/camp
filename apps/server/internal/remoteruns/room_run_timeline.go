@@ -8,6 +8,23 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
+func (m *Manager) ListRoomRuns(ctx context.Context, room string) ([]storage.Run, error) {
+	items, err := m.store.ListRoomRuns(ctx, room)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		item := &items[i]
+		if item.Status == "queued" {
+			item.WaitingReason, err = m.queueReason(ctx, item.RunnerID, item.TaskID)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	return items, nil
+}
+
 func (m *Manager) GetRunSummary(ctx context.Context, id string) (storage.RunTimeline, error) {
 	item, err := m.store.GetRunSummary(ctx, id)
 	if err == nil && item.Status == "queued" {
@@ -27,26 +44,32 @@ func (m *Manager) queueReason(ctx context.Context, runnerID, taskID string) (str
 		return "Waiting for the assigned runner to connect.", nil
 	}
 	reason := "Waiting for an available execution slot or file writer."
-	if taskID != "" {
-		task, err := m.store.GetTaskState(ctx, taskID)
-		if err != nil {
-			return "", err
-		}
-		if task.InputProtocol == 1 {
-			runner, err := m.store.GetRunner(ctx, runnerID)
-			if err != nil {
-				return "", err
-			}
-			var caps runnerprotocol.Capabilities
-			if err = json.Unmarshal(runner.Capabilities, &caps); err != nil {
-				return "", err
-			}
-			if caps.TaskInputsVersion != 1 {
-				reason = "Update the assigned Runner to process this collaboration's inputs."
-			}
-		}
+	if taskID == "" {
+		return reason, nil
 	}
-	return reason, nil
+	task, err := m.store.GetTaskState(ctx, taskID)
+	if err != nil {
+		return "", err
+	}
+	if task.InputProtocol != 1 && !task.WorkItemCompletionAuthorized {
+		return reason, nil
+	}
+	runner, err := m.store.GetRunner(ctx, runnerID)
+	if err != nil {
+		return "", err
+	}
+	var caps runnerprotocol.Capabilities
+	if err = json.Unmarshal(runner.Capabilities, &caps); err != nil {
+		return "", err
+	}
+	switch {
+	case task.InputProtocol == 1 && caps.TaskInputsVersion != 1:
+		return "Update the assigned Runner to process this collaboration's inputs.", nil
+	case task.WorkItemCompletionAuthorized && caps.WorkItemCompletionVersion != 1:
+		return "Update the assigned Runner to support automatic Work completion.", nil
+	default:
+		return reason, nil
+	}
 }
 func (m *Manager) RoomRunTimeline(ctx context.Context, room, cursor string, limit int) (storage.RoomRunTimelinePage, error) {
 	page, err := m.store.RoomRunTimeline(ctx, room, cursor, limit)

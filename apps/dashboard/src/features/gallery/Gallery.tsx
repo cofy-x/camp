@@ -18,6 +18,7 @@ import './gallery.css';
 
 export function Gallery({ desktop }: AppWindowProps) {
   const [tab, setTab] = useState('controls');
+  const [example, setExample] = useState('details');
   const [checked, setChecked] = useState(true);
   const [pressed, setPressed] = useState(true);
   const [choice, setChoice] = useState('platinum');
@@ -99,13 +100,47 @@ export function Gallery({ desktop }: AppWindowProps) {
                 </Button>
                 <Button disabled>Disabled</Button>
                 <Button
+                  variant="text"
+                  onClick={() => setStatus('Text action opened.')}
+                >
+                  View details
+                </Button>
+                <Button
                   aria-pressed={pressed}
                   onClick={() => setPressed((current) => !current)}
                 >
                   Toggle
                 </Button>
               </div>
-              <Progress label="Progress" value={checked ? 65 : 30} max={100} />
+              <Tabs
+                variant="flat"
+                label="Flat tabs example"
+                value={example}
+                onChange={setExample}
+                tabs={[
+                  {
+                    id: 'details',
+                    label: 'Details',
+                    content: (
+                      <details className="p9-disclosure">
+                        <summary>Additional details</summary>
+                        <p>A single control opens and closes this section.</p>
+                      </details>
+                    ),
+                  },
+                  {
+                    id: 'progress',
+                    label: 'Progress',
+                    content: (
+                      <Progress
+                        label="Progress"
+                        value={checked ? 65 : 30}
+                        max={100}
+                      />
+                    ),
+                  },
+                ]}
+              />
             </div>
           )}
           {tab === 'dialogs' && (

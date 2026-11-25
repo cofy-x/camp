@@ -4,9 +4,8 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
-	"time"
 
-	"github.com/cofy-x/camp/apps/server/internal/runs"
+	"github.com/cofy-x/camp/apps/server/internal/remoteruns"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
 
@@ -19,7 +18,7 @@ func TestFreshDesktopAndRoomsWorkWithoutGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	manager, err := runs.New(ctx, store, dir, runs.Config{MaxTokens: 32, MaxSteps: 2, Timeout: time.Second}, nil)
+	manager, err := remoteruns.New(ctx, store, remoteruns.Config{DataDir: dir}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -42,19 +42,17 @@ func (s *Store) LibraryResources(ctx context.Context) ([]LibraryResource, error)
 	}
 	out := make([]LibraryResource, 0, len(rows))
 	for _, r := range rows {
-		item := LibraryResource{Resource: resourceRow(r)}
-		u, e := s.queries().GetResourceUpload(ctx, r.ID)
-		if e == nil {
-			ref := uploadReference(u, r.CurrentCommit)
+		item := LibraryResource{Resource: resourceRow(sqlgen.Resource{
+			ID: r.ID, Name: r.Name, SourcePath: r.SourcePath, CurrentCommit: r.CurrentCommit,
+			Environment: r.Environment, Revision: r.Revision, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+		})}
+		if r.UploadName != "" {
+			ref := uploadReference(sqlgen.RoomUpload{ResourceID: r.ID, Name: r.UploadName, Size: r.UploadSize, UploadedByUserID: r.UploadedByUserID, CreatedAt: r.UploadedAt}, r.CurrentCommit)
 			item.Source = &ref
 			item.Immutable = true
-			item.Name = u.Name
-		} else if !errors.Is(e, sql.ErrNoRows) {
-			return nil, e
-		} else if imported, err := s.queries().GetResourceSourceImport(ctx, nullableParent(r.ID)); err == nil {
-			item.Source = &Reference{Kind: "source", ResourceID: r.ID, Commit: imported.CommitID, Title: imported.SourceAlias, Origin: "runner", SourceRunnerID: imported.RunnerID, SourceImportID: imported.ID, CreatedAt: imported.CreatedAt}
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return nil, err
+			item.Name = r.UploadName
+		} else if r.ImportID != "" {
+			item.Source = &Reference{Kind: "source", ResourceID: r.ID, Commit: r.ImportCommit, Title: r.ImportAlias, Origin: "runner", SourceRunnerID: r.ImportRunnerID, SourceImportID: r.ImportID, CreatedAt: r.ImportCreatedAt}
 		}
 		out = append(out, item)
 	}
@@ -85,7 +83,7 @@ func publicationRequest(ctx context.Context, q *sqlgen.Queries, id, requestID, h
 	if err != nil {
 		return Publication{}, false, err
 	}
-	if r.RequestHash != hash {
+	if hash != "" && r.RequestHash != hash {
 		return Publication{}, false, problem("request_conflict", "This request ID already belongs to a different save.")
 	}
 	p := publicationRow(r)
@@ -95,6 +93,26 @@ func publicationRequest(ctx context.Context, q *sqlgen.Queries, id, requestID, h
 
 func (s *Store) FindPublication(ctx context.Context, id, requestID, hash string) (Publication, bool, error) {
 	return publicationRequest(ctx, s.queries(), id, requestID, hash)
+}
+
+func (s *Store) GetPublicationReceipt(ctx context.Context, id, requestID string) (out Publication, err error) {
+	if err = ValidateUploadRequestID(requestID); err != nil {
+		return
+	}
+	err = s.readTransaction(ctx, func(tx *sql.Tx) error {
+		q := sqlgen.New(tx)
+		if err := requireActor(ctx, q, false); err != nil {
+			return err
+		}
+		var found bool
+		var err error
+		out, found, err = publicationRequest(ctx, q, id, requestID, "")
+		if err == nil && !found {
+			return missing(sql.ErrNoRows, "The publication receipt")
+		}
+		return err
+	})
+	return
 }
 
 func (s *Store) WorkingResource(ctx context.Context, id string) (Resource, error) {
@@ -147,6 +165,9 @@ func (s *Store) Publish(ctx context.Context, in PublishInput) (Publication, erro
 		if err := q.CreateResourcePublication(ctx, sqlgen.CreateResourcePublicationParams{ID: id, ResourceID: in.ResourceID, PreviousCommit: in.ExpectedCommit, CommitID: in.Commit, AuthorUserID: sql.NullString{String: actor.ID, Valid: true}, Kind: in.Kind, Path: in.Path, ChecksStatus: "not_run", RequestID: in.RequestID, RequestHash: in.RequestHash, CreatedAt: stamp}); err != nil {
 			return err
 		}
+		if err := retirePublicationDraft(ctx, q, actor.ID, in.ResourceID, in.RequestID, stamp); err != nil {
+			return err
+		}
 		r, err := q.GetResourcePublication(ctx, id)
 		if err != nil {
 			return err
@@ -156,4 +177,19 @@ func (s *Store) Publish(ctx context.Context, in PublishInput) (Publication, erro
 		return event(ctx, q, "resource.updated", "", in.ResourceID)
 	})
 	return saved, err
+}
+
+func retirePublicationDraft(ctx context.Context, q *sqlgen.Queries, actorID, resourceID, requestID, stamp string) error {
+	// The editor retains the exact submitted text as an actor-scoped private
+	// draft distinct from editable text. Its recovery copy retires atomically
+	// with the matching publication; the editable draft has its own CAS.
+	key := "library-publication:" + resourceID + ":" + requestID
+	draft, err := q.GetDraft(ctx, sqlgen.GetDraftParams{UserID: actorID, Kind: "document", DraftKey: key})
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && draft.Value == "null") {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return q.SaveDraft(ctx, sqlgen.SaveDraftParams{UserID: actorID, Kind: "document", DraftKey: key, Value: "null", Revision: draft.Revision + 1, UpdatedAt: stamp})
 }

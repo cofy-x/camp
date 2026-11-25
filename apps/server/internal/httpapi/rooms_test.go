@@ -12,8 +12,73 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cofy-x/camp/apps/server/internal/collaboration"
 	"github.com/cofy-x/camp/apps/server/internal/storage"
 )
+
+func TestRoomWriteReceiptsRecoverExactlyAndProtectRenameBase(t *testing.T) {
+	f := newTeamFixture(t)
+	service, err := collaboration.New(t.Context(), f.store, nil, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.api.rooms = service
+	create := map[string]any{"requestId": "same-create", "name": "Planning", "description": "Draft decisions"}
+	createReceipt := "/api/room-requests/same-create"
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "GET", createReceipt, nil), http.StatusNotFound)
+	first := teamRequest(t, f, f.adminCookie, "POST", "/api/rooms", create)
+	requireHTTP(t, first, http.StatusOK)
+	var created struct{ Room storage.Room }
+	if err = json.Unmarshal(first.Body.Bytes(), &created); err != nil || created.Room.ID == "" || created.Room.ResourceID == f.room.ResourceID {
+		t.Fatal(first.Body.String(), err)
+	}
+	for _, replay := range []*httptest.ResponseRecorder{
+		teamRequest(t, f, f.adminCookie, "GET", createReceipt, nil),
+		teamRequest(t, f, f.adminCookie, "POST", "/api/rooms", create),
+	} {
+		requireHTTP(t, replay, http.StatusOK)
+		if replay.Body.String() != first.Body.String() {
+			t.Fatal("create replay changed the original response", replay.Body.String())
+		}
+	}
+	resources, err := f.store.ListResources(t.Context())
+	if err != nil || len(resources) != 2 {
+		t.Fatal("replay allocated another resource", resources, err)
+	}
+	if _, _, err = service.ResourceFiles(t.Context(), created.Room.ResourceID, ""); err != nil {
+		t.Fatal("replayed room lost its original Git resource", err)
+	}
+	requireHTTP(t, teamRequest(t, f, f.memberCookie, "GET", createReceipt, nil), http.StatusNotFound)
+	requireHTTP(t, teamRequest(t, f, nil, "GET", createReceipt, nil), http.StatusUnauthorized)
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "POST", "/api/rooms", map[string]any{"requestId": "same-create", "name": "Changed request"}), http.StatusConflict)
+
+	path := "/api/rooms/" + created.Room.ID
+	rename := map[string]any{"requestId": "planned-rename", "name": "Release Planning", "expectedUpdatedAt": created.Room.UpdatedAt}
+	renamed := teamRequest(t, f, f.adminCookie, "PATCH", path, rename)
+	requireHTTP(t, renamed, http.StatusOK)
+	concurrent := teamRequest(t, f, f.memberCookie, "PATCH", path, map[string]any{"name": "Final Planning"})
+	requireHTTP(t, concurrent, http.StatusOK)
+	for _, replay := range []*httptest.ResponseRecorder{
+		teamRequest(t, f, f.adminCookie, "GET", "/api/room-requests/planned-rename", nil),
+		teamRequest(t, f, f.adminCookie, "PATCH", path, rename),
+	} {
+		requireHTTP(t, replay, http.StatusOK)
+		if replay.Body.String() != renamed.Body.String() {
+			t.Fatal("rename replay changed the original response", replay.Body.String())
+		}
+	}
+	rename["requestId"] = "stale-rename"
+	stale := teamRequest(t, f, f.adminCookie, "PATCH", path, rename)
+	requireHTTP(t, stale, http.StatusConflict)
+	if !strings.Contains(stale.Body.String(), `"revision_conflict"`) {
+		t.Fatal(stale.Body.String())
+	}
+	requireHTTP(t, teamRequest(t, f, f.adminCookie, "GET", "/api/room-requests/stale-rename", nil), http.StatusNotFound)
+	current, err := f.store.GetRoom(t.Context(), created.Room.ID)
+	if err != nil || current.Name != "Final Planning" || current.Description != created.Room.Description || current.ResourceID != created.Room.ResourceID {
+		t.Fatal("stale or replayed rename changed current metadata", current, err)
+	}
+}
 
 type fixtureRoomService struct{ store *storage.Store }
 

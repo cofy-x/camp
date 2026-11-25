@@ -1,9 +1,10 @@
 import { GitHubDeliveryStatus } from '../github-delivery/GitHubDeliveryStatus';
 import { useEffect, useRef, useState } from 'react';
 import { Button, type DesktopAPI, type MenuItem } from '@cofy-x/camp-platinum';
+import { GoalDisclosure } from '../../shared/content/GoalHeading';
+import { goalTitle } from '../../shared/content/goal-title';
 import { useAccount } from '../../team/AuthContext';
 import { useRead } from '../../shared/reads/useRead';
-import { GoalHeading } from '../../shared/content/GoalHeading';
 import type { Agent, WorkspaceStatus } from '../workspace/api';
 import type { AutomationPolicy } from '../automation/api';
 import { Report } from '../workspace/Report';
@@ -12,9 +13,10 @@ import { WorkItemRecords } from './WorkItemRecords';
 import { WorkItemResult } from './WorkItemResult';
 import { WorkItemActions } from './WorkItemActions';
 import { useWorkItemOperation } from './useWorkItemOperation';
-import type { WorkItem } from './api';
+import { workItemDetailPath, type WorkItem } from './api';
 import { confirmedWorkAction, type Pending } from './workRequestRecovery';
 import {
+  canReplaceWorkSnapshot,
   workItemExecutionError,
   workItemOverviewFallback,
   workItemQuestion,
@@ -60,10 +62,9 @@ export function WorkItemDetail({
   onProjectSettings?: () => void;
 }) {
   const { user } = useAccount();
-  const itemRead = useRead<{ item: WorkItem }>(
-    `/work-items/${encodeURIComponent(id)}`,
-    { enabled: active },
-  );
+  const itemRead = useRead<{ item: WorkItem }>(workItemDetailPath(id), {
+    enabled: active,
+  });
   const [acceptedItem, setAcceptedItem] = useState<WorkItem | null>(
     () => itemRead.data?.item ?? null,
   );
@@ -113,7 +114,7 @@ export function WorkItemDetail({
     )
       setView('overview');
     setAcceptedItem((current) =>
-      !current || next.revision >= current.revision ? next : current,
+      canReplaceWorkSnapshot(current, next) ? next : current,
     );
     setRetry((value) => value + 1);
     void itemRead.refresh();
@@ -129,7 +130,7 @@ export function WorkItemDetail({
       return;
     }
     setAcceptedItem((current) =>
-      !current || item.revision >= current.revision ? item : current,
+      canReplaceWorkSnapshot(current, item) ? item : current,
     );
   }, [error, itemRead.data]);
   const owner = item?.ownerUserId === user.id;
@@ -139,6 +140,7 @@ export function WorkItemDetail({
   const selectedView =
     (!editable || closing) && view === 'manage' ? 'overview' : view;
   const question = item && workItemQuestion(item);
+  const title = item ? goalTitle(item.goal) : '';
   const recovery = item && workItemRecovery(item);
   const executionError = item && workItemExecutionError(item);
   const summary = item?.execution?.summary;
@@ -151,7 +153,10 @@ export function WorkItemDetail({
     Boolean(item.githubDelivery.reason) &&
     ['checks', 'review', 'deployment'].includes(item.githubDelivery.stage);
   const showStatus =
-    !question && !inspectDelivery && !(recovery && selectedView === 'overview');
+    selectedView !== 'activity' &&
+    !question &&
+    !inspectDelivery &&
+    !(recovery && selectedView === 'overview');
   const due = item?.dueAt
     ? `Due ${item.dueAt.length === 10 ? item.dueAt : new Date(item.dueAt).toLocaleDateString()}`
     : '';
@@ -178,11 +183,14 @@ export function WorkItemDetail({
     item.result.taskId !== item.activeTaskId,
   );
   const progress =
+    !question &&
     item?.activeTaskId &&
     item.execution?.activeRunId &&
     item.execution.taskId === item.activeTaskId
       ? item.execution
       : null;
+  const workAgent =
+    showStatus && item?.activeTaskId ? execution?.currentAgentName : '';
   const overviewFallback = item
     ? workItemOverviewFallback(item, Boolean(editable))
     : null;
@@ -270,7 +278,7 @@ export function WorkItemDetail({
     executionError?.startsWith('The observed model step limit (')
       ? `This attempt reached its step limit and used all ${item.budget.maxModelRequests} model requests for this Work.`
       : executionError);
-  const recoveryControl = recoveryAction();
+  const recoveryControl = question ? undefined : recoveryAction();
 
   function more(button: HTMLButtonElement) {
     const items: MenuItem[] = [];
@@ -354,7 +362,14 @@ export function WorkItemDetail({
           window.open(delivery.releaseUrl, '_blank', 'noopener,noreferrer');
         },
       });
-    items.push({ label: 'Records…', action: () => setView('records') });
+    if (selectedView !== 'records')
+      items.push({
+        label: 'Records',
+        action: () => {
+          setView('records');
+          backButton.current?.focus();
+        },
+      });
     if (onOpenRoom) items.push({ label: 'Open Room', action: onOpenRoom });
     items.push({
       label: 'Refresh',
@@ -366,6 +381,27 @@ export function WorkItemDetail({
     const rect = button.getBoundingClientRect();
     desktop.contextMenu(items, { x: rect.left, y: rect.bottom });
   }
+
+  const actions = item && (
+    <WorkItemActions
+      key={item.id}
+      item={item}
+      readsActive={active}
+      members={members}
+      policies={policies}
+      contextReady={contextReady}
+      defaultAgentId={defaultAgentId}
+      availability={availability}
+      operation={operation}
+      view={selectedView}
+      onViewChange={setView}
+      managementSection={managementSection}
+      onManage={manage}
+      recoveryActive={Boolean(recovery)}
+      readOnly={!editable || Boolean(closing)}
+    />
+  );
+  const leadWithDecision = Boolean(question && selectedView === 'overview');
 
   return (
     <section aria-label="Work item detail" className="work-item-detail">
@@ -385,7 +421,15 @@ export function WorkItemDetail({
                 selectedView === 'overview' &&
                 recoveryControl?.label === 'View activity'
               ) && (
-                <Button onClick={() => setView('activity')}>Activity</Button>
+                <Button
+                  variant="text"
+                  onClick={() => {
+                    setView('activity');
+                    backButton.current?.focus();
+                  }}
+                >
+                  Activity
+                </Button>
               )}
             <Button
               aria-haspopup="menu"
@@ -414,34 +458,37 @@ export function WorkItemDetail({
       {item && (
         <>
           {operation.feedback}
-          <header className="work-item-heading">
-            <GoalHeading goal={item.goal} />
-            {(showStatus || due || (progress && onViewProgress)) && (
-              <div className="work-item-state">
-                {(showStatus || due) && (
-                  <p>
-                    {showStatus && displayStatus}
-                    {showStatus &&
-                      item.execution?.currentAgentName &&
-                      item.activeTaskId &&
-                      ` · ${item.execution.currentAgentName}`}
-                    {due && (showStatus ? ` · ${due}` : due)}
-                  </p>
-                )}
-                {progress && onViewProgress && (
-                  <Button
-                    onClick={() =>
-                      onViewProgress(progress.taskId, progress.activeRunId)
-                    }
-                  >
-                    View progress
-                  </Button>
+          <div className="work-item-content" aria-label="Work details">
+            {leadWithDecision && actions}
+            <header key="goal" className="work-item-heading">
+              <div className="work-detail-title-line">
+                <h2>{title}</h2>
+                {showStatus && (
+                  <span className="work-detail-status" data-state={item.status}>
+                    {displayStatus}
+                    {workAgent && ` · ${workAgent}`}
+                  </span>
                 )}
               </div>
-            )}
-          </header>
-          <div className="work-item-content" aria-label="Work details">
+              {selectedView !== 'activity' &&
+                (due || (progress && onViewProgress)) && (
+                  <div className="work-item-state">
+                    {due && <p>{due}</p>}
+                    {progress && onViewProgress && (
+                      <Button
+                        variant="text"
+                        onClick={() =>
+                          onViewProgress(progress.taskId, progress.activeRunId)
+                        }
+                      >
+                        View progress
+                      </Button>
+                    )}
+                  </div>
+                )}
+            </header>
             <div
+              key="overview"
               hidden={selectedView !== 'overview'}
               className="work-item-overview"
             >
@@ -509,8 +556,12 @@ export function WorkItemDetail({
                   />
                 )}
               {(!question || question.kind === 'completion') &&
-                !earlierResult && <WorkItemResult item={item} />}
-              {question && !editable && <p>{question.text}</p>}
+                !earlierResult && (
+                  <WorkItemResult
+                    item={item}
+                    active={active && selectedView === 'overview'}
+                  />
+                )}
               {!recovery && overviewFallback && (
                 <div className="work-item-overview-record">
                   <p>
@@ -528,36 +579,20 @@ export function WorkItemDetail({
                 </div>
               )}
             </div>
-            <WorkItemActions
-              key={item.id}
-              item={item}
-              readsActive={active}
-              members={members}
-              policies={policies}
-              contextReady={contextReady}
-              defaultAgentId={defaultAgentId}
-              availability={availability}
-              operation={operation}
-              view={selectedView}
-              onViewChange={setView}
-              managementSection={managementSection}
-              onManage={manage}
-              recoveryActive={Boolean(recovery)}
-              readOnly={!editable || Boolean(closing)}
+            {!leadWithDecision && actions}
+            <GoalDisclosure
+              goal={item.goal}
+              title={title}
+              hidden={selectedView === 'records' || selectedView === 'activity'}
             />
-            <div
-              hidden={selectedView !== 'records'}
-              className="work-item-records"
-            >
-              <WorkItemRecords
-                item={item}
-                active={active && selectedView === 'records'}
-                hasQuestion={Boolean(question)}
-                earlierResult={earlierResult}
-                refreshKey={retry}
-                onOpenTask={onOpenTask}
-              />
-            </div>
+            <WorkItemRecords
+              item={item}
+              active={active && selectedView === 'records'}
+              hasQuestion={Boolean(question)}
+              earlierResult={earlierResult}
+              refreshKey={retry}
+              onOpenTask={onOpenTask}
+            />
             <WorkItemActivity
               itemId={id}
               active={active && selectedView === 'activity'}

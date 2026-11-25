@@ -1,4 +1,4 @@
-import type { WorkRecovery } from '../workitems/api';
+import type { CurrentWorkDecision, WorkRecovery } from '../workitems/api';
 
 export type AttentionKind = 'judgment' | 'review' | 'exception';
 
@@ -13,6 +13,7 @@ export interface AttentionItem {
   status: string;
   reason: string;
   workRecovery?: WorkRecovery;
+  currentDecision?: CurrentWorkDecision;
   priority: number;
   createdAt: string;
   updatedAt: string;

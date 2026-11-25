@@ -9,8 +9,10 @@ function size(bytes?: number) {
 }
 
 export function ConnectRunner({
+  active,
   onConnected,
 }: {
+  active: boolean;
   onConnected: (id: string) => void;
 }) {
   const [name, setName] = useState('');
@@ -30,16 +32,15 @@ export function ConnectRunner({
     Awaited<ReturnType<typeof runnersApi.installation>>
   >(
     `/runner-installation${platform && platform !== 'linux-amd64' ? `?platform=${encodeURIComponent(platform)}` : ''}`,
+    { enabled: active },
   );
   const codesRead = useRead<{ enrollments: EnrollmentRecord[] }>(
     '/runner-enrollments',
+    { enabled: active },
   );
   const enrollments = codesRead.data?.enrollments ?? [];
   const codesError = codesRead.error;
-  const refresh = () => {
-    void installationRead.refresh();
-    void codesRead.refresh();
-  };
+  const refreshCodes = () => void codesRead.refresh();
   useEffect(() => {
     const value = installationRead.data;
     if (!value) return;
@@ -93,7 +94,7 @@ export function ConnectRunner({
         current?.enrollment.id === id ? null : current,
       );
       setNotice('Connection code revoked.');
-      refresh();
+      refreshCodes();
     } catch (error) {
       setError(
         error instanceof Error
@@ -113,14 +114,14 @@ export function ConnectRunner({
     try {
       setEnrollment(await runnersApi.enroll(name.trim()));
       setName('');
-      refresh();
+      refreshCodes();
     } catch (error) {
       setError(
         error instanceof Error
           ? error.message
           : 'Could not create a connection code.',
       );
-      refresh();
+      refreshCodes();
     } finally {
       setPending(false);
     }
@@ -160,6 +161,9 @@ export function ConnectRunner({
             ))}
           </Select>
         </label>
+        {installationRead.loading && !platforms.length && (
+          <p role="status">Loading Runner platforms…</p>
+        )}
         {platform && (
           <p>
             {mac
@@ -171,7 +175,10 @@ export function ConnectRunner({
         )}
         {downloadError ? (
           <p className="app-error" role="alert">
-            {downloadError} <Button onClick={refresh}>Retry Download</Button>
+            {downloadError}{' '}
+            <Button onClick={() => void installationRead.refresh()}>
+              Retry Download
+            </Button>
           </p>
         ) : !platform ? null : !installation ? (
           <p role="status">Checking download…</p>
@@ -285,8 +292,8 @@ export function ConnectRunner({
         {consumed ? (
           <>
             <p role="status">
-              {latest.name} registered. Finish setup and start the Runner on its
-              machine.
+              {latest.name} registered. Finish setup on its machine, then open
+              the Runner to check readiness.
             </p>
             <div className="app-actions">
               <Button
@@ -373,7 +380,7 @@ export function ConnectRunner({
             </p>
             <p role="status">
               Waiting for registration…{' '}
-              <Button onClick={refresh}>Check Connection</Button>
+              <Button onClick={refreshCodes}>Check Connection</Button>
             </p>
           </section>
         ) : (
@@ -423,7 +430,7 @@ export function ConnectRunner({
       {notice && <p role="status">{notice}</p>}
       {codesError && (
         <p className="app-error" role="alert">
-          {codesError} <Button onClick={refresh}>Retry Codes</Button>
+          {codesError} <Button onClick={refreshCodes}>Retry Codes</Button>
         </p>
       )}
       {unused.length > 0 && (

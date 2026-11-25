@@ -39,6 +39,27 @@ func TestTransactionConnectionWaitHonorsCancellation(t *testing.T) {
 	}
 }
 
+func TestCancelledReadTransactionReportsContextAfterRollback(t *testing.T) {
+	s := testStore(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	err := s.readTransaction(ctx, func(tx *sql.Tx) error {
+		cancel()
+		// Force the same ordering as database/sql when its cancellation
+		// goroutine rolls back before the callback returns to Commit.
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			return err
+		}
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled read returned %v, want context cancellation", err)
+	}
+	if err := s.Ping(t.Context()); err != nil {
+		t.Fatal("a cancelled read retained the connection", err)
+	}
+}
+
 func TestReadTransactionKeepsSnapshotWithoutReservingWriter(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "desktop.sqlite")
 	s, err := Open(filename)

@@ -38,11 +38,13 @@ test('Agent editing retains the draft across selection and close, and saves agai
   const title = app.locator('.p9-window-title');
   const editor = app.getByRole('form', { name: 'Agent settings', exact: true });
   const name = editor.getByRole('textbox', { name: 'Name', exact: true });
+  const handle = editor.getByRole('textbox', { name: 'Handle', exact: true });
   const responsibilities = editor.getByRole('textbox', {
     name: 'Responsibilities',
     exact: true,
   });
   const save = editor.getByRole('button', { name: 'Save Agent', exact: true });
+  const scope = 'Changes apply in every Room this Agent joins.';
   const close = app.getByRole('button', {
     name: `Close Edit ${first.name} — Agents`,
     exact: true,
@@ -66,8 +68,22 @@ test('Agent editing retains the draft across selection and close, and saves agai
   await app.getByRole('button', { name: 'Edit Agent…', exact: true }).click();
   await expect(save).toBeInViewport();
   await expect(name).toHaveValue(first.name);
+  await expect(handle).toBeVisible();
+  await expect(handle).toHaveValue(first.handle);
+  await expect(save).toBeDisabled();
+  await expect(editor.getByText(scope, { exact: true })).toHaveCount(0);
+  await name.fill(`${first.name} `);
+  await expect(save).toBeDisabled();
+  await name.press('Enter');
+  await expect(editor).toBeVisible();
   const draft =
     'Keep these local responsibilities while I check another Agent.';
+  await responsibilities.fill(draft);
+  await expect(save).toBeEnabled();
+  await expect(save).toHaveAccessibleDescription(scope);
+  await responsibilities.fill(first.instructions);
+  await expect(save).toBeDisabled();
+  await expect(editor.getByText(scope, { exact: true })).toHaveCount(0);
   await responsibilities.fill(draft);
   await select(other);
   await expect(warning).toBeVisible();
@@ -139,4 +155,37 @@ test('Agent editing retains the draft across selection and close, and saves agai
   await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
   await select(other);
   await expect(title).toHaveText(`${other.name} — Agents`);
+});
+
+test('a short Agent editor scrolls its fields above the save footer', async ({
+  page,
+  isMobile,
+}) => {
+  await page.setViewportSize({ width: isMobile ? 390 : 718, height: 520 });
+  await signIn(page);
+  await openApp(page, 'Agents');
+  const app = page.locator('[data-window-id="agents:main"]');
+  await app.getByRole('button', { name: 'Edit Agent…', exact: true }).click();
+  const editor = app.getByRole('form', { name: 'Agent settings', exact: true });
+  const fields = editor.locator('.workspace-agent-editor-fields');
+  const footer = editor.locator('footer');
+  const save = footer.getByRole('button', { name: 'Save Agent', exact: true });
+  await expect(save).toBeInViewport({ ratio: 1 });
+  const before = (await footer.boundingBox())!;
+
+  const enabled = editor.getByRole('checkbox', {
+    name: 'Enabled',
+    exact: true,
+  });
+  await enabled.scrollIntoViewIfNeeded();
+  await enabled.focus();
+  await expect(enabled).toBeInViewport({ ratio: 1 });
+  await expect(enabled).toBeFocused();
+  expect(await fields.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  const fieldBounds = (await fields.boundingBox())!;
+  expect(fieldBounds.y + fieldBounds.height).toBeLessThanOrEqual(before.y + 1);
+  expect((await footer.boundingBox())!.y).toBeCloseTo(before.y, 0);
+  await expect(save).toBeInViewport({ ratio: 1 });
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(editor).toHaveCount(0);
 });

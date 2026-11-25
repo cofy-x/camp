@@ -22,7 +22,14 @@ func canShowWorkRecovery(w orchestration.WorkItem) bool {
 }
 
 func workFailureRecovery(w orchestration.WorkItem, reason string) orchestration.WorkRecovery {
-	if workExpired(w) || reason == "authorization_expired" {
+	if workExpired(w) {
+		reason = "authorization_expired"
+	}
+	return workRecoveryForReason(reason)
+}
+
+func workRecoveryForReason(reason string) orchestration.WorkRecovery {
+	if reason == "authorization_expired" {
 		return orchestration.WorkRecovery{Kind: orchestration.WorkRecoveryRenewAuthorization, Message: "This Work’s authorization expired."}
 	}
 	switch reason {
@@ -130,13 +137,13 @@ func legacyWorkRecovery(w orchestration.WorkItem, raw, taskStatus, sourceID stri
 		recovery = workTaskRecovery(d.TaskID)
 	case d.Kind == "request_judgment" && d.ActorID == "timer" &&
 		w.Question == d.Reason && strings.HasPrefix(d.EvidenceIDs[0], "deadline:"+w.ID+":"):
-		recovery = workFailureRecovery(w, "authorization_expired")
+		recovery = workRecoveryForReason("authorization_expired")
 	case d.Kind == "request_judgment" && d.ActorID == "intake" &&
 		w.Question == "Review the follow-up before further autonomous work: "+d.Reason:
-		recovery = workFailureRecovery(w, d.Reason)
+		recovery = workRecoveryForReason(d.Reason)
 	case d.Kind == "request_judgment" && d.ActorID == "assessment" && d.EvaluationID != "" &&
 		w.Question == "Review the recorded event assessment: "+d.Reason:
-		recovery = workFailureRecovery(w, d.Reason)
+		recovery = workRecoveryForReason(d.Reason)
 	default:
 		return nil, "", nil
 	}
@@ -146,7 +153,24 @@ func legacyWorkRecovery(w orchestration.WorkItem, raw, taskStatus, sourceID stri
 	return &recovery, d.ActorID, nil
 }
 
+func expiredWorkRecovery(w orchestration.WorkItem) *orchestration.WorkRecovery {
+	if !canShowWorkRecovery(w) || !workExpired(w) {
+		return nil
+	}
+	recovery := workRecoveryForReason("authorization_expired")
+	return &recovery
+}
+
 func currentWorkRecovery(ctx context.Context, q *sqlgen.Queries, w orchestration.WorkItem) (*orchestration.WorkRecovery, string, error) {
+	if recovery := expiredWorkRecovery(w); recovery != nil {
+		return recovery, "", nil
+	}
+	return retainedWorkRecovery(ctx, q, w)
+}
+
+// Renewal can expose an unresolved allowance or rule that predates expiry.
+// Only settling that original recovery may clear the retained intervention.
+func retainedWorkRecovery(ctx context.Context, q *sqlgen.Queries, w orchestration.WorkItem) (*orchestration.WorkRecovery, string, error) {
 	if !canShowWorkRecovery(w) {
 		return nil, "", nil
 	}

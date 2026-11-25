@@ -27,7 +27,6 @@ export function WorkItemHistory<K extends Kind>({
   itemId,
   kind,
   title,
-  initial,
   render,
   active,
   refreshKey,
@@ -35,7 +34,6 @@ export function WorkItemHistory<K extends Kind>({
   itemId: string;
   kind: K;
   title: string;
-  initial: Histories[K];
   render: (item: Histories[K][number]) => ReactNode;
   active: boolean;
   refreshKey: number;
@@ -129,7 +127,7 @@ export function WorkItemHistory<K extends Kind>({
     setNavigation(next);
   }
 
-  const items = page?.items ?? (position.cursor ? [] : initial);
+  const items = page?.items ?? [];
   const timeline = kind === 'timeline';
   return (
     <section
@@ -159,6 +157,7 @@ export function WorkItemHistory<K extends Kind>({
         <nav className="work-history-navigation" aria-label={`${title} pages`}>
           {timeline && position.previous.length > 0 && (
             <Button
+              variant="text"
               onClick={(event) => {
                 void store.refresh(query(''));
                 navigate({ cursor: '', previous: [] }, event.currentTarget);
@@ -168,6 +167,7 @@ export function WorkItemHistory<K extends Kind>({
             </Button>
           )}
           <Button
+            variant="text"
             disabled={!position.previous.length}
             onClick={(event) =>
               navigate(
@@ -182,6 +182,7 @@ export function WorkItemHistory<K extends Kind>({
             {timeline ? 'Newer' : `Previous ${title}`}
           </Button>
           <Button
+            variant="text"
             disabled={!page?.nextCursor}
             onClick={(event) =>
               navigate(

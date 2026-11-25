@@ -1,5 +1,18 @@
 -- name: ListLibraryResources :many
-SELECT * FROM resources ORDER BY updated_at DESC,id;
+SELECT r.*,
+ CAST(COALESCE(u.name,'') AS TEXT) AS upload_name,
+ CAST(COALESCE(u.uploaded_by_user_id,'') AS TEXT) AS uploaded_by_user_id,
+ CAST(COALESCE(u.size,0) AS INTEGER) AS upload_size,
+ CAST(COALESCE(u.created_at,'') AS TEXT) AS uploaded_at,
+ CAST(COALESCE(i.id,'') AS TEXT) AS import_id,
+ CAST(COALESCE(i.runner_id,'') AS TEXT) AS import_runner_id,
+ CAST(COALESCE(i.commit_id,'') AS TEXT) AS import_commit,
+ CAST(COALESCE(i.source_alias,'') AS TEXT) AS import_alias,
+ CAST(COALESCE(i.created_at,'') AS TEXT) AS import_created_at
+FROM resources r
+LEFT JOIN room_uploads u ON u.resource_id=r.id
+LEFT JOIN source_imports i ON i.resource_id=r.id AND i.status='succeeded'
+ORDER BY r.updated_at DESC,r.id;
 
 -- name: CreateResourcePublication :exec
 INSERT INTO resource_publications(id,resource_id,previous_commit,commit_id,author_user_id,run_id,kind,path,checks_status,request_id,request_hash,created_at)

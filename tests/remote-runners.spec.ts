@@ -10,6 +10,7 @@ import type { Agent, Room } from '../apps/dashboard/src/features/workspace/api';
 import {
   createRoom,
   library,
+  mockMemberRole,
   mutate,
   openApp,
   signIn,
@@ -277,6 +278,15 @@ test('Runner navigation separates connection codes from machine details and reta
   page,
 }, info) => {
   await mockRunners(page);
+  const connectionReads: string[] = [];
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (
+      request.method() === 'GET' &&
+      ['/api/runner-installation', '/api/runner-enrollments'].includes(path)
+    )
+      connectionReads.push(path);
+  });
   let enrollments = 0;
   let revoked = false;
   await page.route('**/api/runner-enrollments', async (route) => {
@@ -344,7 +354,9 @@ test('Runner navigation separates connection codes from machine details and reta
   await expect(detail.getByText('Team Notes', { exact: true })).toHaveCount(0);
 
   await expect(
-    detail.getByRole('button', { name: 'Run First Task…', exact: true }),
+    detail.getByRole('button', {
+      name: /^(Verify Runner|Resume Verification)…$/,
+    }),
   ).toHaveCount(0);
   if (['chromium', 'touch'].includes(info.project.name))
     await app.screenshot({ path: info.outputPath('runners-overview.png') });
@@ -380,7 +392,16 @@ test('Runner navigation separates connection codes from machine details and reta
     ),
   ).toBe(false);
 
+  expect(connectionReads).toHaveLength(0);
   const connect = await connectRunner(page);
+  await expect
+    .poll(() => connectionReads)
+    .toEqual(
+      expect.arrayContaining([
+        '/api/runner-installation',
+        '/api/runner-enrollments',
+      ]),
+    );
   await connect
     .getByLabel('Runner name', { exact: true })
     .fill('Second Linux machine');
@@ -763,15 +784,10 @@ test('Runner Access grants only the selected machine and keeps management privat
 }, info) => {
   await mockRunners(page);
   await signIn(page);
-  const status = await (await page.request.get('/api/auth/status')).json();
-  await page.route('**/api/auth/status', (route) =>
-    route.fulfill({
-      json: { ...status, user: { ...status.user, role: 'member' } },
-    }),
-  );
+  const user = await mockMemberRole(page);
   const owned = {
     ...runners[0],
-    ownerUserId: status.user.id,
+    ownerUserId: user.id,
     teamShared: false,
   };
   const other = {
@@ -1057,7 +1073,7 @@ test('Runner onboarding reports observed readiness and explicitly sends the firs
   await signIn(page);
   const room = await createRoom(page, `first-runner-task-${info.project.name}`);
   const { user } = await (await page.request.get('/api/auth/status')).json();
-  const runner = {
+  const runner: Runner = {
     ...runners[0],
     ownerUserId: user.id,
     online: true,
@@ -1133,10 +1149,31 @@ test('Runner onboarding reports observed readiness and explicitly sends the firs
     await app.screenshot({
       path: info.outputPath('runners-overview-native.png'),
     });
-  await readiness
-    .getByRole('button', { name: 'Run First Task…', exact: true })
-    .click();
-  await readiness.getByLabel('Room', { exact: true }).selectOption(room.id);
+  await expect(
+    readiness.getByRole('heading', { name: 'Verification' }),
+  ).toBeVisible();
+  const verify = readiness.getByRole('button', {
+    name: 'Verify Runner…',
+    exact: true,
+  });
+  await verify.press('Enter');
+  const sample = readiness.getByRole('form', {
+    name: 'Runner verification',
+    exact: true,
+  });
+  await expect(
+    app.getByRole('button', { name: 'Connect Runner…', exact: true }),
+  ).not.toHaveClass(/p9-default/);
+  const sampleRoom = sample.getByLabel('Room', { exact: true });
+  await expect(sampleRoom).toBeFocused();
+  expect(requests).toEqual([]);
+  await sample.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(verify).toBeFocused();
+  await verify.click();
+  await sampleRoom.selectOption(room.id);
+  await expect(
+    sample.getByRole('button', { name: 'Run Sample', exact: true }),
+  ).toHaveClass(/p9-default/);
   await expect(readiness).toContainText('Assistant shared with this Room');
   await expect(readiness).toContainText('Uses the Server model');
   if (['chromium', 'touch'].includes(info.project.name))
@@ -1144,28 +1181,31 @@ test('Runner onboarding reports observed readiness and explicitly sends the firs
       path: info.outputPath('runners-first-task.png'),
     });
   await readiness
-    .getByRole('button', { name: 'Run First Task', exact: true })
+    .getByRole('button', { name: 'Run Sample', exact: true })
     .click();
   await expect(readiness.getByRole('alert')).toBeVisible();
   expect(requests.map((item) => item.path)).toEqual(['agent']);
   await page.reload();
   await openApp(page, 'Runners');
   await readiness
-    .getByRole('button', { name: 'Run First Task…', exact: true })
+    .getByRole('button', { name: 'Resume Verification…', exact: true })
     .click();
   await expect(readiness.getByLabel('Room', { exact: true })).toBeDisabled();
   await readiness
-    .getByRole('button', { name: 'Retry First Task', exact: true })
+    .getByRole('button', { name: 'Retry Sample', exact: true })
     .click();
   await expect(readiness.getByRole('alert')).toBeVisible();
   await expect.poll(() => requests.length).toBe(3);
+  runner.firstTaskSucceededAt = '2026-10-28T11:00:00Z';
+  runner.firstTaskRunId = 'recorded-native-work';
   await page.reload();
   await openApp(page, 'Runners');
+  await expect(readiness).toContainText('Verified by completed native work.');
   await readiness
-    .getByRole('button', { name: 'Run First Task…', exact: true })
+    .getByRole('button', { name: 'Resume Verification…', exact: true })
     .click();
   await readiness
-    .getByRole('button', { name: 'Retry First Task', exact: true })
+    .getByRole('button', { name: 'Retry Sample', exact: true })
     .click();
   await expect.poll(() => requests.length).toBe(5);
   expect(requests[4]).toEqual(requests[2]);
@@ -1410,7 +1450,9 @@ test('Mac diagnostics show the reported native adapters without inventing LayerF
   await expect(detail).toContainText('Seatbelt');
   await expect(detail).toContainText('Sealed local capture');
   await expect(detail).not.toContainText('LayerFS');
-  await expect(detail).toContainText('Not yet verified by completed work.');
+  await expect(detail).toContainText(
+    'No verified native work recorded for this Runner.',
+  );
   if (['chromium', 'touch'].includes(info.project.name))
     await runnerApp(page).screenshot({
       path: info.outputPath('runners-mac-diagnostics.png'),
@@ -1440,7 +1482,9 @@ test('checkpoint storage advisories preserve execution readiness and stay read-o
   });
   await openApp(page, 'Runners');
   await selectRunner(page, runner);
-  await expect(runnerDetail(page)).toContainText('Ready for Agent work');
+  await expect(runnerDetail(page)).toContainText(
+    'Verified by completed native work.',
+  );
   if (['chromium', 'touch'].includes(info.project.name))
     await runnerApp(page).screenshot({
       path: info.outputPath('checkpoint-storage-before.png'),
@@ -1467,7 +1511,9 @@ test('checkpoint storage advisories preserve execution readiness and stay read-o
   await expect(storage).toContainText('12.0 GiB');
   await expect(storage).not.toContainText('camp runner');
   await expect(storage).not.toContainText('Retained budget');
-  await expect(runnerDetail(page)).toContainText('Ready for Agent work');
+  await expect(runnerDetail(page)).toContainText(
+    'Verified by completed native work.',
+  );
   await expect(runnerDetail(page)).not.toContainText(
     'Execution needs attention',
   );
@@ -1649,10 +1695,12 @@ async function firstTaskScene(page: Page, name: string) {
 
   async function openSample() {
     const opener = runnerDetail(page).getByRole('button', {
-      name: 'Run First Task…',
+      name: /^(Verify Runner|Resume Verification)…$/,
+    });
+    const form = runnerDetail(page).getByRole('form', {
+      name: 'Runner verification',
       exact: true,
     });
-    const form = runnerDetail(page).locator('form.camp-runner-first-task');
     if (!(await form.isVisible())) await opener.click();
     if (await form.getByLabel('Room', { exact: true }).isEnabled())
       await form.getByLabel('Room', { exact: true }).selectOption(room.id);
@@ -1697,9 +1745,7 @@ test('Late sample preparation cannot share or navigate after switching Runners',
     return route.fulfill({ json: { agent } });
   });
   const form = await scene.openSample();
-  await form
-    .getByRole('button', { name: 'Run First Task', exact: true })
-    .click();
+  await form.getByRole('button', { name: 'Run Sample', exact: true }).click();
   await arrived.promise;
   await selectRunner(page, scene.machines[1]);
   release.release();
@@ -1720,7 +1766,7 @@ test('Late sample preparation cannot share or navigate after switching Runners',
   await selectRunner(page, scene.machines[0]);
   const resumed = await scene.openSample();
   await resumed
-    .getByRole('button', { name: 'Retry First Task', exact: true })
+    .getByRole('button', { name: 'Retry Sample', exact: true })
     .click();
   await expect.poll(() => scene.sends.length).toBe(1);
   expect(scene.agents).toHaveLength(1);
@@ -1743,9 +1789,7 @@ test('Closing a sample preserves an admitted late reply without reopening Worksp
     });
   });
   const form = await scene.openSample();
-  await form
-    .getByRole('button', { name: 'Run First Task', exact: true })
-    .click();
+  await form.getByRole('button', { name: 'Run Sample', exact: true }).click();
   await arrived.promise;
   await form.getByRole('button', { name: 'Back', exact: true }).click();
   release.release();
@@ -1785,9 +1829,7 @@ test('A proven rejected sample can start fresh while an uncertain send keeps its
     });
   });
   let form = await scene.openSample();
-  await form
-    .getByRole('button', { name: 'Run First Task', exact: true })
-    .click();
+  await form.getByRole('button', { name: 'Run Sample', exact: true }).click();
   await expect(runnerDetail(page).getByRole('alert')).toContainText(
     'no longer writable',
   );
@@ -1796,9 +1838,7 @@ test('A proven rejected sample can start fresh while an uncertain send keeps its
     .click();
   await form.getByLabel('Room', { exact: true }).selectOption(scene.room.id);
   stage = 'uncertain';
-  await form
-    .getByRole('button', { name: 'Run First Task', exact: true })
-    .click();
+  await form.getByRole('button', { name: 'Run Sample', exact: true }).click();
   await expect(runnerDetail(page).getByRole('alert')).toBeVisible();
   expect(scene.sends[1].requestId).not.toBe(scene.sends[0].requestId);
   await expect(
@@ -1808,9 +1848,7 @@ test('A proven rejected sample can start fresh while an uncertain send keeps its
   await page.reload();
   await openApp(page, 'Runners');
   form = await scene.openSample();
-  await form
-    .getByRole('button', { name: 'Retry First Task', exact: true })
-    .click();
+  await form.getByRole('button', { name: 'Retry Sample', exact: true }).click();
   await expect(runnerDetail(page).getByRole('alert')).toContainText(
     'no longer writable',
   );
@@ -1834,9 +1872,7 @@ test('A known admitted sample requires an observed terminal Run before a new sam
     `sample-terminal-${info.project.name}`,
   );
   const form = await scene.openSample();
-  await form
-    .getByRole('button', { name: 'Run First Task', exact: true })
-    .click();
+  await form.getByRole('button', { name: 'Run Sample', exact: true }).click();
   await expect.poll(() => scene.sends.length).toBe(1);
   await openApp(page, 'Runners');
   await scene.openSample();
@@ -1934,9 +1970,7 @@ test('Unavailable browser receipt storage blocks sample creation before any writ
       },
     });
   });
-  await form
-    .getByRole('button', { name: 'Run First Task', exact: true })
-    .click();
+  await form.getByRole('button', { name: 'Run Sample', exact: true }).click();
   await expect(runnerDetail(page).getByRole('alert')).toContainText(
     'could not retain this request',
   );
@@ -1972,16 +2006,12 @@ test('An old preparation reply cannot regress a reopened admitted sample receipt
     return route.fulfill({ json: { agent } });
   });
   let form = await scene.openSample();
-  await form
-    .getByRole('button', { name: 'Run First Task', exact: true })
-    .click();
+  await form.getByRole('button', { name: 'Run Sample', exact: true }).click();
   await arrived.promise;
   await selectRunner(page, scene.machines[1]);
   await selectRunner(page, scene.machines[0]);
   form = await scene.openSample();
-  await form
-    .getByRole('button', { name: 'Retry First Task', exact: true })
-    .click();
+  await form.getByRole('button', { name: 'Retry Sample', exact: true }).click();
   await expect.poll(() => scene.sends.length).toBe(1);
   const reply = page.waitForResponse(
     (response) =>
@@ -2029,16 +2059,12 @@ test('An old admitted reply cannot replace an explicitly started newer sample', 
     });
   });
   let form = await scene.openSample();
-  await form
-    .getByRole('button', { name: 'Run First Task', exact: true })
-    .click();
+  await form.getByRole('button', { name: 'Run Sample', exact: true }).click();
   await arrived.promise;
   await selectRunner(page, scene.machines[1]);
   await selectRunner(page, scene.machines[0]);
   form = await scene.openSample();
-  await form
-    .getByRole('button', { name: 'Retry First Task', exact: true })
-    .click();
+  await form.getByRole('button', { name: 'Retry Sample', exact: true }).click();
   await expect.poll(() => scene.sends.length).toBe(2);
   expect(scene.sends[1]).toEqual(scene.sends[0]);
   await openApp(page, 'Runners');

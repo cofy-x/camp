@@ -14,6 +14,10 @@ This contract applies when adding UI reads, live events, histories, rendering or
 
 When replacing an ordinary-view read path, remove its superseded callers and refresh loops. Full or compatibility readers need an explicit remaining owner; normal navigation must not fetch both the old heavy record and its new projection.
 
+The compatibility Room Run list reads full snapshots in one batch and adds live queue explanations only for queued Runs. Dashboard conversation and history use their bounded projections.
+
+Library lists Resources and their display provenance in one query. Private draft metadata starts after the Library list and resumes from its shared read scope when leaving the editor. Shared-version comparison reads the selected Resource directly.
+
 Personal project settings extend the existing one-Room Work defaults read; never add a fetch per Room to the desktop or Work list. Project changes invalidate only matching scoped proposals, while submitted drafts retain their frozen revision. Accepted source ledgers and repair diagnostics are not loaded into list projections.
 
 Work checks Runner access only while proposing a finite execution. Key the advisory read by the Room, selected Agents and completion mode. Goal and instruction editing reuse the accepted result. Relevant route, membership and grant changes revalidate the proposal through the shared read store.
@@ -31,6 +35,8 @@ Complete a slow active read, then perform a needed follow-up when notifications 
 Keep browser queries/commands on HTTP and observations on the shared reconnectable SSE subscription. Capture the startup frontier before domain reads; reconnect from the durable event cursor. Commit notifications before waking readers, and retain durable replay/repair independently of process-local wakeups. Runner control and model traffic retain their separate [execution protocol](architecture.md#remote-execution-and-recovery).
 
 Batch affected identities and invalidate matching reads. A new event or view must update the shared invalidation map and its focused coverage. Pure output activity must not refetch Room conversations, task grants or current business-state summaries. Broad team changes and reconnect/foreground recovery can revalidate more widely; a healthy idle desktop must not periodically reload every open app. Health checks and stream heartbeats are separate from business-list refreshes.
+
+The desktop subscribes to the Activity unread count without loading notice bodies. The Activity tab subscribes only to its displayed page and an explicitly requested destination page. Both reads use the current account, and personal read events do not invalidate another person's caches. Reading a notice still follows successful draft-safe navigation.
 
 When a detail composes a linked object's current state, include the owning detail identity in the durable notification path. A collaboration update carries its linked Work identity so an open Work detail can reflect a pause without interrupting navigation. Verify the change while the detail is already open, including the case where only the linked object's revision changes.
 

@@ -6,10 +6,11 @@ describe('Inbox presentation', () => {
     expect(
       inboxItemTitle({
         kind: 'task_question',
-        title: 'Ship the Room summary',
+        title: 'Ship the Room summary. Use the full pilot notes for evidence.',
         reviewTitle: '',
+        workItemId: 'work-1',
       }),
-    ).toBe('Ship the Room summary');
+    ).toBe('Ship the Room summary.');
     expect(
       inboxItemDetail({
         question: 'Which audience should receive it?',
@@ -31,5 +32,12 @@ describe('Inbox presentation', () => {
     expect(
       inboxItemTitle({ kind: 'review_requested', reviewTitle: 'Launch plan' }),
     ).toBe('Launch plan');
+    expect(
+      inboxItemTitle({
+        kind: 'review_requested',
+        title: 'Launch plan. Wider rollout',
+        reviewTitle: 'Launch plan. Wider rollout',
+      }),
+    ).toBe('Launch plan. Wider rollout');
   });
 });

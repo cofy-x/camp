@@ -362,6 +362,11 @@ func finishRun(ctx context.Context, q *sqlgen.Queries, r Run, summary string, re
 				if e := q.CreateResourcePublication(ctx, sqlgen.CreateResourcePublicationParams{ID: newID(), ResourceID: r.ResourceID, PreviousCommit: r.BaselineCommit, CommitID: r.ResultCommit, AuthorUserID: nullableParent(r.RequestedByUserID), RunID: nullableParent(r.ID), Kind: "agent", ChecksStatus: checks, CreatedAt: r.UpdatedAt}); e != nil {
 					return e
 				}
+				if r.ResultCommit != r.BaselineCommit {
+					if e := event(ctx, q, "resource.updated", "", r.ResourceID); e != nil {
+						return e
+					}
+				}
 			}
 		}
 		if r.Files == nil {

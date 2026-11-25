@@ -310,16 +310,20 @@ export function PixelIcon({
 
 export function Button({
   primary = false,
+  variant = 'raised',
   className = '',
   children,
   onPointerDown,
   onClick,
   ...props
-}: ComponentProps<'button'> & { primary?: boolean }) {
+}: ComponentProps<'button'> & {
+  primary?: boolean;
+  variant?: 'raised' | 'text';
+}) {
   return (
     <button
       type="button"
-      className={`p9-button ${primary ? 'p9-default' : ''} ${className}`}
+      className={`p9-button ${variant === 'text' ? 'p9-text-action' : primary ? 'p9-default' : ''} ${className}`}
       {...props}
       onPointerDown={(event) => {
         // Safari does not focus buttons on pointer activation. Modal openers must
@@ -462,6 +466,7 @@ export function Tabs({
   onChange,
   children,
   label = 'Tabs',
+  variant = 'boxed',
 }: {
   tabs: {
     id: string;
@@ -473,10 +478,11 @@ export function Tabs({
   onChange: (id: string) => void;
   children?: ReactNode;
   label?: string;
+  variant?: 'boxed' | 'flat';
 }) {
   const prefix = useId();
   return (
-    <div className="p9-tabs">
+    <div className={variant === 'flat' ? 'p9-tabs p9-tabs-flat' : 'p9-tabs'}>
       <div
         role="tablist"
         aria-label={label}
@@ -527,6 +533,7 @@ export function Tabs({
         role="tabpanel"
         aria-labelledby={`${prefix}-${value}`}
         className="p9-tab-panel"
+        tabIndex={variant === 'flat' ? 0 : undefined}
       >
         {tabs.find((tab) => tab.id === value)?.content ?? children}
       </div>

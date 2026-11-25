@@ -76,6 +76,30 @@ export interface ReviewListPage {
   nextCursor: string;
 }
 
+export interface WorkResultReviews {
+  canRequest: boolean;
+  currentVersion: boolean;
+  reviews: Record<
+    string,
+    {
+      id: string;
+      status: ReviewStatus;
+      revision: number;
+      nextAction?: 'review' | 'deliver';
+    }
+  >;
+}
+
+export function workResultReviewsPath(
+  roomId: string,
+  workId: string,
+  resourceId: string,
+  commit: string,
+) {
+  const scope = new URLSearchParams({ resourceId, commit });
+  return `/rooms/${encodeURIComponent(roomId)}/work-items/${encodeURIComponent(workId)}/result-reviews?${scope}`;
+}
+
 export interface ReviewActionInput {
   requestId: string;
   revision: number;

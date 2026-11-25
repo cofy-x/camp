@@ -135,6 +135,156 @@ test('Room daily navigation opens work directly and remembers a message with exa
   await expect(draft).toHaveValue('Keep this unfinished discussion draft.');
 });
 
+test('Room creation and rename keep the submitted name through explicit recovery', async ({
+  page,
+}) => {
+  const roomName = `Recovery ${randomUUID()}`;
+  const creates: unknown[] = [];
+  await page.route('**/api/rooms', (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    creates.push(route.request().postDataJSON());
+    if (creates.length > 1) return route.continue();
+    return route.fulfill({
+      status: 503,
+      json: { error: 'Room storage is unavailable.' },
+    });
+  });
+  await openRoomMore(page, 'New Room…');
+  const win = workspace(page);
+  const create = page.getByRole('dialog', { name: 'New Room', exact: true });
+  await create.getByLabel('Room name').fill(roomName);
+  await create
+    .getByRole('button', { name: 'Create Room', exact: true })
+    .click();
+  const recover = win.getByRole('button', {
+    name: 'Edit Room Name…',
+    exact: true,
+  });
+  await expect(win.getByRole('alert')).toContainText('Save not confirmed');
+  expect(creates).toEqual([
+    { name: roomName, description: '', requestId: expect.any(String) },
+  ]);
+  const retry = win.getByRole('button', {
+    name: 'Retry Original Request',
+    exact: true,
+  });
+  await expect(retry).toHaveCount(0);
+  await win
+    .getByRole('button', { name: 'Check Saved Room', exact: true })
+    .click();
+  await expect(win.getByRole('alert')).toContainText('No saved receipt found.');
+  expect(creates).toHaveLength(1);
+  await retry.click();
+  await win
+    .getByRole('button', { name: 'Open Saved Room', exact: true })
+    .click();
+  expect(creates).toEqual([creates[0], creates[0]]);
+  await expect(
+    win.getByLabel(`Message ${roomName}`, { exact: true }),
+  ).toBeVisible();
+
+  const updated = `${roomName} revised`;
+  const names: string[] = [];
+  await page.route('**/api/rooms/*', (route) => {
+    if (route.request().method() !== 'PATCH') return route.continue();
+    names.push(route.request().postDataJSON().name);
+    if (names.length > 1) return route.continue();
+    return route.fulfill({
+      status: 409,
+      json: { code: 'name_conflict', error: 'This name is taken.' },
+    });
+  });
+  await openRoomMore(page, 'Rename Room…');
+  const rename = page.getByRole('dialog', { name: 'Rename Room', exact: true });
+  await rename.getByLabel('Room name').fill(updated);
+  await rename.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(win.getByRole('alert')).toContainText('This name is taken.');
+  await recover.click();
+  await expect(rename.getByLabel('Room name')).toHaveValue(updated);
+  await rename.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(
+    win.getByLabel(`Message ${updated}`, { exact: true }),
+  ).toBeVisible();
+  expect(names).toEqual([updated, updated]);
+});
+
+for (const kind of ['create', 'rename'] as const) {
+  test(`Room ${kind} recovers a committed response after reload without resending`, async ({
+    page,
+  }) => {
+    const before =
+      kind === 'rename'
+        ? await createRoom(page, `Before ${randomUUID()}`)
+        : undefined;
+    const label = kind === 'create' ? 'New Room' : 'Rename Room';
+    const name = `Recovered ${randomUUID()}`;
+    const writes: {
+      requestId: string;
+      expectedUpdatedAt?: string;
+      name: string;
+    }[] = [];
+    const result = '**/api/rooms' + (before ? `/${before.id}` : '');
+    await page.route(result, async (route) => {
+      if (route.request().method() !== (before ? 'PATCH' : 'POST'))
+        return route.continue();
+      writes.push(route.request().postDataJSON());
+      const saved = await route.fetch();
+      expect(saved.ok()).toBe(true);
+      if (kind === 'rename') await route.abort('connectionreset');
+      else
+        await route.fulfill({
+          status: 409,
+          contentType: 'text/plain',
+          body: 'The Room response could not be forwarded.',
+        });
+    });
+    await openRoomMore(page, `${label}…`);
+    const dialog = page.getByRole('dialog', { name: label, exact: true });
+    await dialog.getByLabel('Room name').fill(name);
+    await dialog
+      .getByRole('button', {
+        name: before ? 'Save' : 'Create Room',
+        exact: true,
+      })
+      .click();
+    const win = workspace(page);
+    await expect(win.getByRole('alert')).toContainText(
+      `Save not confirmed for “${name}”`,
+    );
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatchObject({ name, requestId: expect.any(String) });
+    if (before) expect(writes[0].expectedUpdatedAt).toBeTruthy();
+    await errors.get(page)!.reload();
+    await expect(win.getByRole('alert')).toContainText(
+      `Save not confirmed for “${name}”`,
+    );
+    expect(writes).toHaveLength(1);
+    const receipt = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+        `/api/room-requests/${writes[0].requestId}`,
+    );
+    await win
+      .getByRole('button', { name: 'Check Saved Room', exact: true })
+      .click();
+    expect((await receipt).ok()).toBe(true);
+    await expect(
+      win.getByText(`Saved “${name}”.`, { exact: true }),
+    ).toBeVisible();
+    expect(writes).toHaveLength(1);
+    await win
+      .getByRole('button', { name: 'Open Saved Room', exact: true })
+      .click();
+    await expect(
+      win.getByLabel(`Message ${name}`, { exact: true }),
+    ).toBeVisible();
+    const { rooms } = await (await page.request.get('/api/rooms')).json();
+    expect(
+      rooms.filter((room: { name: string }) => room.name === name),
+    ).toHaveLength(1);
+  });
+}
+
 test('Inbox identifies the actual matter and opens it from a linked execution notification', async ({
   page,
 }, info) => {

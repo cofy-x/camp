@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canReplaceWorkSnapshot,
   workItemExecutionError,
   workItemOverviewFallback,
   workItemQuestion,
@@ -157,7 +158,7 @@ describe('work result status', () => {
     {
       name: 'matter question takes precedence over a ready result',
       changes: { question: 'Should we change the release date?' },
-      expected: 'Open',
+      expected: 'Needs your judgment',
     },
     {
       name: 'a historical unanswered question does not hide the accepted result',
@@ -261,6 +262,54 @@ describe('current work question', () => {
         question: 'Which customer?',
       }),
     ).toEqual({ kind: 'judgment', text: 'Which customer?' });
+  });
+
+  it('uses the recorded decision ahead of historical question and execution fields', () => {
+    const item: PresentedWork = {
+      ...waiting,
+      question: 'A prior Work question',
+      currentDecision: {
+        kind: 'completion',
+        text: 'Confirm the saved result.',
+      },
+    };
+    expect(workItemQuestion(item)).toEqual(item.currentDecision);
+    expect(workItemStatus(item)).toBe('Needs confirmation');
+    expect(workItemQuestion({ ...item, status: 'completed' })).toBeUndefined();
+  });
+
+  it('does not revive questions when the current projection reports no decision', () => {
+    const item: PresentedWork = {
+      ...waiting,
+      question: 'A prior Work question',
+      currentDecision: null,
+    };
+    expect(workItemQuestion(item)).toBeUndefined();
+    expect(workItemStatus(item)).toBe('Waiting');
+  });
+
+  it('keeps a newer task decision when a Work receipt has the same Work revision', () => {
+    const before = {
+      revision: 4,
+      execution: { ...waiting.execution!, revision: 10 },
+      currentDecision: null,
+    };
+    const after = {
+      ...before,
+      currentDecision: {
+        kind: 'task' as const,
+        taskId: 'latest-task',
+        taskRevision: 11,
+        id: 'q',
+        text: 'Which date?',
+        options: [],
+      },
+    };
+    expect(canReplaceWorkSnapshot(before, after)).toBe(true);
+    expect(canReplaceWorkSnapshot(after, before)).toBe(false);
+    expect(canReplaceWorkSnapshot(after, { ...before, revision: 5 })).toBe(
+      true,
+    );
   });
 
   it.each<Partial<PresentedWork>>([

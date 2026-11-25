@@ -17,6 +17,11 @@ export interface LibraryResource extends Resource {
   source: Reference | RunnerSourceProvenance | null;
 }
 
+export interface LibraryListing {
+  resources: LibraryResource[];
+  rooms: Room[];
+}
+
 export interface Publication {
   seq: number;
   id: string;
@@ -32,6 +37,19 @@ export interface Publication {
   createdAt: string;
 }
 
+export interface RestoreFilesInput {
+  expectedCommit: string;
+  commit: string;
+}
+
+export interface CopyFileInput {
+  expectedCommit: string;
+  path: string;
+  sourceResourceId: string;
+  sourceCommit: string;
+  sourcePath: string;
+}
+
 const json = (method: string, body: unknown) => ({
   method,
   body: JSON.stringify(body),
@@ -41,10 +59,6 @@ export const libraryApi = {
     `/api/resources/${encodeURIComponent(resourceId)}/archive?commit=${encodeURIComponent(commit)}`,
   patchURL: (resourceId: string, from: string, to: string) =>
     `/api/resources/${encodeURIComponent(resourceId)}/patch?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-  list: (signal?: AbortSignal) =>
-    request<{ resources: LibraryResource[]; rooms: Room[] }>('/library', {
-      signal,
-    }),
   save: (
     resourceId: string,
     value: {
@@ -60,27 +74,19 @@ export const libraryApi = {
     ),
   restore: (
     resourceId: string,
-    expectedCommit: string,
-    commit: string,
-    requestId: string,
+    value: RestoreFilesInput & { requestId: string },
   ) =>
     request<{ resource: Resource; publication: Publication }>(
       `/resources/${encodeURIComponent(resourceId)}/restore`,
-      json('POST', { expectedCommit, commit, requestId }),
+      json('POST', value),
     ),
-  copy: (
-    resourceId: string,
-    value: {
-      requestId: string;
-      expectedCommit: string;
-      path: string;
-      sourceResourceId: string;
-      sourceCommit: string;
-      sourcePath: string;
-    },
-  ) =>
+  copy: (resourceId: string, value: CopyFileInput & { requestId: string }) =>
     request<{ resource: Resource; publication: Publication }>(
       `/resources/${encodeURIComponent(resourceId)}/copy-file`,
       json('POST', value),
+    ),
+  publicationReceipt: (resourceId: string, requestId: string) =>
+    request<{ publication: Publication }>(
+      `/resources/${encodeURIComponent(resourceId)}/publication-requests/${encodeURIComponent(requestId)}`,
     ),
 };

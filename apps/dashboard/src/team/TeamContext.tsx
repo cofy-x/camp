@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { teamApi, type InboxItem, type User } from './api';
+import { teamApi, type User } from './api';
 import { useAccount } from './AuthContext';
 import { flushPrivateDrafts } from './draftRegistry';
 import { useRead, useReadStore } from '../shared/reads/useRead';
@@ -30,6 +30,8 @@ export type NavigationTarget =
       taskId?: string;
       workItemId?: string;
       reviewId?: string;
+      reviewRevision?: number;
+      reviewCommit?: string;
       threadId?: string;
       ruleSourceId?: string;
       reference?: Reference;
@@ -50,6 +52,7 @@ export type NavigationTarget =
       path?: string;
       contextRoomId?: string;
       commit?: string;
+      requestReview?: true;
     }
   | { app: 'agents'; agentId?: string }
   | { app: 'runners'; runnerId?: string; connect?: boolean }
@@ -60,12 +63,10 @@ export type NavigationIntent = NavigationTarget & { revision: number };
 interface TeamState {
   name: string;
   members: User[];
-  inbox: InboxItem[];
-  inboxLoading: boolean;
-  inboxError: string;
-  retryInbox: () => void;
+  unreadActivity: number | undefined;
   attention: AttentionPage | undefined;
   attentionError: string;
+  retryAttention: () => void;
   reads: Record<string, number>;
   connection: 'connecting' | 'connected' | 'offline';
   navigation: NavigationIntent | null;
@@ -97,23 +98,25 @@ export function TeamProvider({
   getActivationRevision: () => number;
   initialCursor: number;
 }) {
-  const { user } = useAccount();
+  const { user, updateMemberRole } = useAccount();
   const store = useReadStore();
   const people = useRead<{ members: User[] }>('/team/members');
   const team = useRead<{ team: { name: string } }>('/team');
-  const activity = useRead<{ items: InboxItem[] }>('/me/inbox');
+  const unread = useRead<{ unread: number }>('/me/inbox/unread');
   const responsibility = useRead<AttentionPage>('/attention?limit=20');
   const reading = useRead<{ reads: { roomId: string; seq: number }[] }>(
     '/me/room-reads',
   );
   const name = team.data?.team.name ?? 'Camp';
   const members = useMemo(() => people.data?.members ?? [], [people.data]);
-  const inbox = useMemo(() => activity.data?.items ?? [], [activity.data]);
-  const inboxLoading = activity.loading;
-  const inboxError = activity.error;
+  useEffect(() => {
+    const current = members.find((member) => member.id === user.id);
+    if (current) updateMemberRole(current);
+  }, [members, user.id, updateMemberRole]);
+  const unreadActivity = unread.data?.unread;
   const attention = responsibility.data;
   const attentionError = responsibility.error;
-  const retryInbox = activity.refresh;
+  const retryAttention = responsibility.refresh;
   const [reads, setReads] = useState<Record<string, number>>({});
   const [navigation, setNavigation] = useState<NavigationIntent | null>(null);
   const navigationRequest = useRef(0);
@@ -209,7 +212,7 @@ export function TeamProvider({
   const readInbox = useCallback(
     async (id: string) => {
       await teamApi.readInbox(id);
-      await store.refresh('/me/inbox');
+      await store.refresh('/me/inbox/unread');
     },
     [store],
   );
@@ -251,12 +254,10 @@ export function TeamProvider({
     () => ({
       name,
       members,
-      inbox,
-      inboxLoading,
-      inboxError,
-      retryInbox,
+      unreadActivity,
       attention,
       attentionError,
+      retryAttention,
       reads,
       connection,
       navigation,
@@ -271,12 +272,10 @@ export function TeamProvider({
     [
       name,
       members,
-      inbox,
-      inboxLoading,
-      inboxError,
-      retryInbox,
+      unreadActivity,
       attention,
       attentionError,
+      retryAttention,
       reads,
       connection,
       navigation,

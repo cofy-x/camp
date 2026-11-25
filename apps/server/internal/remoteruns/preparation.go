@@ -44,7 +44,7 @@ func (m *Manager) buildInput(ctx context.Context, run storage.Run, a storage.Att
 	if err := json.Unmarshal(runner.Capabilities, &capabilities); err != nil {
 		return PreparedInput{}, err
 	}
-	if model.ReasoningEffort != "" && capabilities.ReasoningEffortVersion != 1 {
+	if !runnerSupportsReasoning(model, capabilities.ReasoningEffortVersion) {
 		return PreparedInput{}, problem("runner_unavailable", "Update the assigned Runner to use this reasoning setting.")
 	}
 	if a.Preparation == nil {

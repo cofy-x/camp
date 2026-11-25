@@ -5,7 +5,7 @@ import { isActiveRun, statusLabel, workspaceApi } from './api';
 import type { Message, Reference, RunTimeline } from './api';
 import { newerRun, useRunInspector } from './useRunInspector';
 import { summarizeActivity } from './activity';
-import { AssistantContent } from './AssistantContent';
+import { MarkdownContent } from '../../shared/content/MarkdownContent';
 import { References } from './References';
 import { ResultFiles } from './ResultFiles';
 import { RunDiagnostics } from './RunDiagnostics';
@@ -298,7 +298,7 @@ export function RunInspector({
                     >
                       <summary>Agent reply</summary>
                       {(replyOpened || replyExpanded) && (
-                        <AssistantContent content={reply.content} />
+                        <MarkdownContent content={reply.content} />
                       )}
                     </details>
                   )}
@@ -430,7 +430,7 @@ export function RunInspector({
                   )}
                   {details?.files?.map((file) => (
                     <details className="workspace-file-change" key={file.path}>
-                      <summary>
+                      <summary className="p9-body-text">
                         {file.path} · {file.status}
                       </summary>
                       {run.resultCommit && file.status !== 'deleted' && (
@@ -514,7 +514,7 @@ export function RunInspector({
                         checkResultLabel(check, run),
                       )}
                     >
-                      <summary>
+                      <summary className="p9-body-text">
                         {check.name} · {checkResultLabel(check, run)}
                         {check.exitCode !== null && check.exitCode !== 0
                           ? ` (exit ${check.exitCode})`

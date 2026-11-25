@@ -190,25 +190,6 @@ func (m *Manager) AgentStates(ctx context.Context) (map[string]string, error) {
 	}
 	return states, nil
 }
-func (m *Manager) CancelMatching(ctx context.Context, room, agent string) error {
-	queued, err := m.store.ListQueuedRuns(ctx)
-	if err != nil {
-		return err
-	}
-	active, err := m.store.ListUnfinishedRuns(ctx)
-	if err != nil {
-		return err
-	}
-	for _, run := range append(queued, active...) {
-		if run.AgentID == agent && (room == "" || run.RoomID == room) {
-			if _, err := m.Cancel(ctx, run.ID); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 func (m *Manager) WithResourceWriter(ctx context.Context, id string, apply func() error) error {
 	return m.WithResourceLeaseWriter(ctx, id, func(context.Context) error { return apply() })
 }
@@ -241,6 +222,10 @@ func (m *Manager) MaxConcurrent() int { return m.config.Concurrency }
 func (m *Manager) StorageSettings() configuration.StorageSettings {
 	return configuration.StorageSettings{DataDirectory: m.config.DataDir, Files: "Immutable Git resource versions", Versions: "SQLite publication and review records", Backups: "Stop the server and back up its complete data directory."}
 }
+func runnerSupportsReasoning(model configuration.Model, capabilityVersion int) bool {
+	return model.ReasoningEffort == "" || capabilityVersion == 1
+}
+
 func (m *Manager) Readiness(ctx context.Context) (configuration.Readiness, error) {
 	revision, model := m.models.Snapshot()
 	stamp := time.Now().UTC().Format(time.RFC3339Nano)
@@ -248,45 +233,61 @@ func (m *Manager) Readiness(ctx context.Context) (configuration.Readiness, error
 	if model.APIKey != "" {
 		modelState, modelDetail = "ready", "Model configuration is present; connectivity is reported separately."
 	}
-	runners, err := m.ListRunners(ctx)
+	runners, err := m.listRunners(ctx, model)
 	if err != nil {
 		return configuration.Readiness{}, err
 	}
-	ready := 0
-	upgradeReasoning := 0
+	var ready, registered, upgradeReasoning bool
 	firstTask := configuration.Diagnostic{Status: "unknown", Detail: "No successful native task has been recorded. Installation self-tests and fixture tasks do not verify model-backed native work."}
 	lastSelfTest := ""
 	for _, r := range runners {
-		var c runnerprotocol.Capabilities
-		_ = json.Unmarshal(r.Capabilities, &c)
+		registered = registered || !r.Revoked
+		c := r.capabilities
 		if r.Online && r.Enabled && !r.Revoked && c.Ready {
-			if model.ReasoningEffort != "" && c.ReasoningEffortVersion != 1 {
-				upgradeReasoning++
+			if r.ModelUpgradeRequired {
+				upgradeReasoning = true
 			} else {
-				ready++
+				ready = true
 			}
 			if c.Readiness != nil && c.Readiness.CheckedAt > lastSelfTest {
 				lastSelfTest = c.Readiness.CheckedAt
 			}
 		}
-		for _, observed := range []string{r.FirstTaskSucceededAt, r.EarlierTaskSucceededAt} {
-			if r.Runtime == "native" && observed > firstTask.CheckedAt {
-				firstTask = configuration.Diagnostic{Status: "ready", Detail: "A native task succeeded previously. This is a recorded outcome, not a new model check.", CheckedAt: observed}
-			}
+		if r.Runtime == "native" && r.FirstTaskSucceededAt > firstTask.CheckedAt {
+			firstTask = configuration.Diagnostic{Status: "ready", Detail: "A native task succeeded previously. This is a recorded outcome, not a new model check.", CheckedAt: r.FirstTaskSucceededAt}
 		}
 	}
-	runnerState, runnerDetail := "missing", "Connect an execution machine in Runners."
-	if upgradeReasoning > 0 {
-		runnerDetail = "Update a connected Runner to use the configured reasoning setting."
+	runner := configuration.ReadinessComponent{
+		ID: "execution", Label: "Runner execution reports",
+		Diagnostic: configuration.Diagnostic{Status: "missing", CheckedAt: lastSelfTest},
 	}
-	if ready > 0 {
-		runnerState, runnerDetail = "ready", "Connected Runners report execution ready. Agent routing and access are checked separately when work is submitted."
+	switch {
+	case ready:
+		runner.Status = "ready"
+		runner.Detail = "Connected Runners report execution ready. Agent routing and access are checked separately when work is submitted."
+	case upgradeReasoning:
+		runner.Issue = "runner_upgrade_required"
+		runner.Detail = "Update a connected Runner to use the configured reasoning setting."
+	case registered:
+		runner.Issue = "runner_unavailable"
+		runner.Detail = "No registered Runner is available. Check connectivity, access and local setup in Runners."
+	default:
+		runner.Issue = "runner_not_connected"
+		runner.Detail = "Connect an execution machine in Runners."
 	}
 	connection := m.diagnostics.Get("connection:" + revision)
 	if connection.Status == "" {
 		connection = configuration.Diagnostic{Status: "unknown", Detail: "No model connection has been observed."}
 	}
-	return configuration.Readiness{Ready: ready > 0 && (model.APIKey != "" || m.config.AllowFixture), CheckedAt: stamp, Components: []configuration.ReadinessComponent{{ID: "model", Label: "Model", Diagnostic: configuration.Diagnostic{Status: modelState, Detail: modelDetail, CheckedAt: stamp}}, {ID: "connection", Label: "Model connection", Diagnostic: connection}, {ID: "execution", Label: "Runner execution reports", Diagnostic: configuration.Diagnostic{Status: runnerState, Detail: runnerDetail, CheckedAt: lastSelfTest}}, {ID: "first-task", Label: "Native task", Diagnostic: firstTask}}}, nil
+	return configuration.Readiness{
+		Ready: ready && (model.APIKey != "" || m.config.AllowFixture), CheckedAt: stamp,
+		Components: []configuration.ReadinessComponent{
+			{ID: "model", Label: "Model", Diagnostic: configuration.Diagnostic{Status: modelState, Detail: modelDetail, CheckedAt: stamp}},
+			{ID: "connection", Label: "Model connection", Diagnostic: connection},
+			runner,
+			{ID: "first-task", Label: "Native task", Diagnostic: firstTask},
+		},
+	}, nil
 }
 
 type RunnerView struct {
@@ -296,18 +297,27 @@ type RunnerView struct {
 	FirstTaskSucceededAt   string `json:"firstTaskSucceededAt"`
 	ModelConfigured        bool   `json:"modelConfigured"`
 	ModelCheckedAt         string `json:"modelCheckedAt"`
+	ModelUpgradeRequired   bool   `json:"modelUpgradeRequired,omitempty"`
 	storage.Runner
-	Online bool `json:"online"`
+	Online       bool `json:"online"`
+	capabilities runnerprotocol.Capabilities
 }
 
 func (m *Manager) ListRunners(ctx context.Context) ([]RunnerView, error) {
+	_, model := m.models.Snapshot()
+	return m.listRunners(ctx, model)
+}
+
+func (m *Manager) listRunners(ctx context.Context, model configuration.Model) ([]RunnerView, error) {
 	rows, err := m.store.ListRunners(ctx)
 	out := make([]RunnerView, 0, len(rows))
+	checkedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	for _, r := range rows {
-		view := RunnerView{Runner: r, Online: m.IsOnline(r.ID)}
-		_, model := m.models.Snapshot()
-		view.ModelConfigured = model.APIKey != ""
-		view.ModelCheckedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		view := RunnerView{Runner: r, Online: m.IsOnline(r.ID), ModelConfigured: model.APIKey != "", ModelCheckedAt: checkedAt}
+		if err := json.Unmarshal(r.Capabilities, &view.capabilities); err != nil {
+			view.capabilities = runnerprotocol.Capabilities{}
+		}
+		view.ModelUpgradeRequired = view.capabilities.Ready && !runnerSupportsReasoning(model, view.capabilities.ReasoningEffortVersion)
 		if r.Runtime == "native" {
 			var e error
 			view.FirstTaskRunID, view.FirstTaskSucceededAt, e = m.store.FirstRunnerSuccess(ctx, r.ID)
