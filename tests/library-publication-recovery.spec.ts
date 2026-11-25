@@ -207,7 +207,7 @@ test('an uncertain document publish retries its frozen text after reload and pre
   await workspace(page)
     .getByRole('button', { name: 'Files', exact: true })
     .click();
-  const path = 'publication-draft.md';
+  const path = `publication-draft-${testInfo.project.name}.md`;
   const submitted = 'Original submitted text';
   const subsequent = 'Newer text stays private';
   await newDocument(page, path, submitted);
