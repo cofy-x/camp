@@ -1,11 +1,13 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   renameSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import process from 'node:process';
@@ -75,32 +77,59 @@ if (installed.status !== 0 || installed.stdout.trim() !== nodeVersion) {
   }
 }
 
-const install = spawnSync(
-  'npx',
-  ['--yes', 'pnpm@12.11.2', 'install', '--frozen-lockfile'],
-  {
-    cwd: directory,
-    env: {
-      ...process.env,
-      PATH: `${bin}${delimiter}${process.env.PATH ?? ''}`,
-    },
-    stdio: 'inherit',
-  },
-);
-if (install.error) throw install.error;
-if (install.status !== 0) process.exit(install.status ?? 1);
-const version = spawnSync(
-  node,
-  ['node_modules/@deepseek-ai/dsh/lib/bin.js', '--version'],
-  {
-    cwd: directory,
-    encoding: 'utf8',
-  },
-);
-if (version.error) throw version.error;
-if (version.status !== 0 || version.stdout.trim() !== pin) {
-  throw new Error(
-    `Installed DSH runtime did not report the pinned version ${pin}`,
-  );
+const hash = createHash('sha256');
+for (const input of ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml']) {
+  hash.update(readFileSync(join(directory, input))).update('\0');
 }
+const dependencyKey = `${hash.digest('hex')}\n`;
+const modules = join(directory, 'node_modules');
+const receipt = join(modules, '.camp-dependency-key');
+let previous;
+// pnpm can retain packages from a previous lockfile in its virtual store.
+// Start with a clean store when the inputs change so the bundle contains one
+// dependency tree. Preserve the older install until the replacement is ready.
+if (
+  existsSync(modules) &&
+  (!existsSync(receipt) || readFileSync(receipt, 'utf8') !== dependencyKey)
+) {
+  previous = mkdtempSync(join(nodeRoot, 'previous-dependencies-'));
+  renameSync(modules, join(previous, 'node_modules'));
+}
+
+try {
+  execFileSync(
+    'npx',
+    ['--yes', manifest.packageManager, 'install', '--frozen-lockfile'],
+    {
+      cwd: directory,
+      env: {
+        ...process.env,
+        PATH: `${bin}${delimiter}${process.env.PATH ?? ''}`,
+      },
+      stdio: 'inherit',
+    },
+  );
+  const version = execFileSync(
+    node,
+    ['node_modules/@deepseek-ai/dsh/lib/bin.js', '--version'],
+    {
+      cwd: directory,
+      encoding: 'utf8',
+    },
+  );
+  if (version.trim() !== pin) {
+    throw new Error(
+      `Installed DSH runtime did not report the pinned version ${pin}`,
+    );
+  }
+  writeFileSync(receipt, dependencyKey);
+} catch (error) {
+  if (previous) {
+    rmSync(modules, { recursive: true, force: true });
+    renameSync(join(previous, 'node_modules'), modules);
+    rmSync(previous, { recursive: true, force: true });
+  }
+  throw error;
+}
+if (previous) rmSync(previous, { recursive: true, force: true });
 process.stdout.write(`Camp DSH runtime ${pin} is ready.\n`);

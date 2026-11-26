@@ -11,7 +11,7 @@ make install-dsh
 node tools/dsh-runtime/probe.mjs
 ```
 
-The installer downloads the official Node.js archive for Linux x64 or macOS ARM64 with `curl`, verifies its pinned SHA-256 and extracts the DSH interpreter with `tar`. The Runner package contains this interpreter and its license. The repository toolchain and saved project environments use their original fixed Node binary. Use `make install-dsh` after a source update to refresh the runtime and run the required native build steps listed in [pnpm-workspace.yaml](pnpm-workspace.yaml). Linux needs Bubblewrap, Bash and native platform libraries. The probe requires working PID namespaces. See [installation](../../docs/install.md) for packaged Runner upgrades.
+The installer downloads the official Node.js archive for Linux x64 or macOS ARM64 with `curl`, verifies its pinned SHA-256 and extracts the DSH interpreter with `tar`. The Runner package contains this interpreter and its license. The repository toolchain and saved project environments use their original fixed Node binary. Stop the source Runner before refreshing it with `make install-dsh`. The installer builds a fresh dependency tree when its pinned inputs change and keeps the prior tree until the replacement passes the CLI version check. It allows the native build steps listed in [pnpm-workspace.yaml](pnpm-workspace.yaml). Linux needs Bubblewrap, Bash and native platform libraries. The probe requires working PID namespaces. See [installation](../../docs/install.md) for packaged Runner upgrades.
 
 ## Wire lifecycle
 
