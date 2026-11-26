@@ -49,6 +49,44 @@ test('native/checkpoint workflows have one caller classification and retain expl
   }
 });
 
+test('manual CI has its own concurrency group and platform reuse is confined to main pushes', async () => {
+  const workflow = await readFile(
+    new URL('../.github/workflows/ci.yml', import.meta.url),
+    'utf8',
+  );
+  assert.match(
+    workflow,
+    /concurrency:\n {2}group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.event_name \}\}-\$\{\{ github\.event\.pull_request\.number \|\| github\.ref \}\}/,
+  );
+  const changes = workflowJob(workflow, 'changes');
+  assert.match(
+    changes,
+    /id: prior_platform_checks\n {8}if: \$\{\{ github\.event_name == 'push' && github\.ref == 'refs\/heads\/main' \}\}/,
+  );
+  assert.ok(
+    changes.indexOf('run: node scripts/ci-evidence.mjs') <
+      changes.indexOf('name: validation-plan'),
+  );
+  for (const [job, check] of [
+    ['mac_server', 'server'],
+    ['native', 'native'],
+    ['checkpoint', 'checkpoint'],
+  ]) {
+    assert.ok(
+      changes.includes(
+        `reused_${check}: \${{ steps.prior_platform_checks.outputs.${check} }}`,
+      ),
+    );
+    assert.ok(
+      workflowJob(workflow, job).includes(
+        `needs.changes.outputs.reused_${check} != 'true'`,
+      ),
+    );
+  }
+  for (const job of ['source', 'browser', 'fixture'])
+    assert.doesNotMatch(workflowJob(workflow, job), /reused_/);
+});
+
 test('native recovery retains failure evidence without masking the test exit', async (t) => {
   const workflow = await readFile(
     new URL('../.github/workflows/native-mac.yml', import.meta.url),
@@ -244,6 +282,14 @@ test('release runs complete core regression even after documentation-only main C
   assert.match(
     release,
     /checkpoint_worker_build:[\s\S]+needs: \[preflight, core_validation\]/,
+  );
+  assert.match(
+    workflowJob(release, 'publish'),
+    /needs: \[preflight, build, mac_server, mac_runner\]/,
+  );
+  assert.match(
+    workflowJob(release, 'mac_runner'),
+    /host: \[macos-15, macos-26\]/,
   );
 });
 

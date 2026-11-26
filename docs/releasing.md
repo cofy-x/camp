@@ -6,7 +6,7 @@ This guide owns release assembly, publication gates and evidence. [Installation]
 
 The [Release workflow](../.github/workflows/release.yml) is authoritative for jobs and artifact allowlists:
 
-1. Bind a fixed, unused version to an exact reviewed `main` commit whose Source, Browser and Fixture CI passed. Then execute the reusable CI graph in release mode: complete Linux source, portable Mac source, browser and fixture regression is mandatory even when main CI classified only documentation. The release jobs below own native/package qualification, avoiding a second overlapping native campaign.
+1. Bind a fixed, unused version to the exact reviewed `main` commit. Require completed and successful Source, Browser and Fixture gates from the latest push CI for that commit. Those gates enforce the applicable scope, including documentation-only changes. Release mode runs complete Linux source, portable Mac source, browser and fixture regression. The release jobs below independently qualify the native runtimes and exact packages before publication.
 2. Build/qualify the optional checkpoint image on native Linux ARM64. The Mac builder imports its fixed descriptor and builds the native Runner; it does not run that Linux worker.
 3. Combine matching platform contributions on the privileged Linux builder. Build Linux packages and Server catalogs; verify native recovery, online/offline installation and the Server image.
 4. Verify the exact Server archives on Apple Silicon/Intel Mac and native Runner packages on macOS 15/26 ARM64 before publication.

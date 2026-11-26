@@ -20,13 +20,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   changes:
     name: Change scope
     runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     outputs:
       docs: ${{ steps.scope.outputs.docs }}
       governance: ${{ steps.scope.outputs.governance }}
@@ -35,6 +39,9 @@ jobs:
       server: ${{ steps.scope.outputs.server }}
       native: ${{ steps.scope.outputs.native }}
       checkpoint: ${{ steps.scope.outputs.checkpoint }}
+      reused_server: ${{ steps.prior_platform_checks.outputs.server }}
+      reused_native: ${{ steps.prior_platform_checks.outputs.native }}
+      reused_checkpoint: ${{ steps.prior_platform_checks.outputs.checkpoint }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,6 +56,12 @@ jobs:
         env:
           CAMP_VALIDATION_STAGE: ${{ inputs.validation-stage || 'merge' }}
         run: node scripts/classify-changes.mjs > validation-plan.json
+      - name: Check for prior platform qualification of the merged tree
+        id: prior_platform_checks
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-evidence.mjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: validation-plan
@@ -396,7 +409,7 @@ jobs:
 
   mac_server:
     needs: changes
-    if: ${{ needs.changes.outputs.server == 'true' }}
+    if: ${{ needs.changes.outputs.server == 'true' && needs.changes.outputs.reused_server != 'true' }}
     name: Server / ${{ matrix.platform }}
     runs-on: ${{ matrix.host }}
     timeout-minutes: 30
@@ -460,14 +473,14 @@ jobs:
 
   native:
     needs: changes
-    if: ${{ needs.changes.outputs.native == 'true' }}
+    if: ${{ needs.changes.outputs.native == 'true' && needs.changes.outputs.reused_native != 'true' }}
     uses: ./.github/workflows/native-mac.yml
     with:
       populate_build_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.populate_build_cache || false }}
 
   checkpoint:
     needs: changes
-    if: ${{ needs.changes.outputs.checkpoint == 'true' }}
+    if: ${{ needs.changes.outputs.checkpoint == 'true' && needs.changes.outputs.reused_checkpoint != 'true' }}
     uses: ./.github/workflows/checkpoint-proof.yml
     with:
       populate_build_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.populate_build_cache || false }}

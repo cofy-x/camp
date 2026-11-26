@@ -1,6 +1,6 @@
 // Canonical change policy. The standalone workspace pins a byte-identical copy.
 // No dependencies or machine configuration: callers supply verified Git inputs.
-export const policyVersion = 1;
+export const policyVersion = 2;
 
 export function parseNameStatus(value) {
   if (!value) return [];
@@ -33,6 +33,24 @@ export function documentationPath(name) {
   );
 }
 
+const nativePath =
+  /^(?:apps\/server\/(?:internal\/(?:processowner|seatbelt|nativejob|nativeexecutor|cli|daemon|execution|projectenv|dsh|runnertools|sandboxexec|workspace|releaseinfo|runnerprotocol|remoteruns|storage|resources)|cmd\/camp-sandbox)|tools\/(?:project-runtime|dsh-runtime|seatbelt-runtime|layerfs-worker)|internal\/launcher|tools\/release-archive)\//;
+const nativeScript =
+  /^scripts\/(?:package-|release\.|smoke-bundle\.|qualify-native-mac\.|check-native-packages\.|mac-build-cache\.)/;
+const checkpointPath =
+  /^(?:tools\/(?:layerfs-runtime|project-runtime)\/|scripts\/(?:install-linux-deps|release-docker-socket)\.mjs$)/;
+const sharedBuildFiles = new Set([
+  '.go-version',
+  '.node-version',
+  '.npmrc',
+  'Makefile',
+  'go.mod',
+  'go.sum',
+  'package.json',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
+]);
+
 export function classifyChanges(
   changes,
   { repository = 'camp', uncertain } = {},
@@ -41,54 +59,40 @@ export function classifyChanges(
   const governance = paths.some(
     (p) => /(?:^|\/)AGENTS\.md$/.test(p) || p === 'CONTRIBUTING.md',
   );
-  const docs = paths.length > 0 && paths.every(documentationPath);
+  const codePaths = paths.filter((p) => !documentationPath(p));
+  const docs = paths.length > 0 && codePaths.length === 0;
   const checks = {
     documentation: paths.some(documentationPath),
     source: !docs,
     browser: !docs,
     fixture: !docs,
     server: !docs,
-    native: false,
-    checkpoint: false,
+    native: codePaths.some((p) => nativePath.test(p) || nativeScript.test(p)),
+    checkpoint: codePaths.some((p) => checkpointPath.test(p)),
     workspace: repository === 'workspace' && !docs,
     workflows: paths.some((p) => p.startsWith('.github/')),
   };
   const policy = paths.some(
     (p) =>
       /^\.github\//.test(p) ||
-      /^scripts\/(?:change-policy|classify-changes|validation-gate)(?:\.|-)/.test(
+      /^scripts\/(?:change-policy|classify-changes|ci-evidence|release-preflight|validation-gate)(?:\.|-)/.test(
         p,
       ) ||
       p === 'workspace.json',
   );
-  const native =
-    /^(?:apps\/server\/(?:internal\/(?:processowner|seatbelt|nativejob|nativeexecutor|cli|daemon|execution|projectenv|dsh|runnertools|sandboxexec|workspace|releaseinfo)|cmd\/camp-sandbox)|tools\/(?:project-runtime|dsh-runtime|seatbelt-runtime|layerfs-worker)|internal\/launcher|tools\/release-archive)\//;
-  checks.native =
-    !docs &&
-    paths.some(
-      (p) =>
-        native.test(p) ||
-        /^scripts\/(?:package-|release\.|smoke-bundle\.|qualify-native-mac\.)/.test(
-          p,
-        ) ||
-        p === 'Makefile',
-    );
-  checks.checkpoint =
-    !docs && paths.some((p) => /^tools\/layerfs-runtime\//.test(p));
-  const unknown = paths.some(
+  const sharedBuild = codePaths.some((p) => sharedBuildFiles.has(p));
+  const unknown = codePaths.some(
     (p) =>
-      !documentationPath(p) &&
       !(repository === 'workspace'
         ? /^(?:scripts\/|test\/|bin\/|\.hooks\/|workspace\.json$|\.gitignore$)/.test(
             p,
           )
-        : /^(?:apps\/|packages\/|tools\/|scripts\/|internal\/|examples\/|\.github\/|Formula\/|[^/]+\.(?:go|mod|sum|json|yaml|yml)|Makefile$|Dockerfile$|\.[^/]+$)/.test(
+        : /^(?:apps\/|packages\/|tools\/|scripts\/|tests\/|internal\/|examples\/|\.github\/|Formula\/|[^/]+\.(?:go|mod|sum|json|yaml|yml)|Makefile$|Dockerfile$|\.[^/]+$)/.test(
             p,
           )),
   );
-  const mixed = paths.some(documentationPath) && !docs;
   const full = Boolean(
-    uncertain || policy || paths.length === 0 || unknown || mixed,
+    uncertain || policy || sharedBuild || paths.length === 0 || unknown,
   );
   if (full) {
     for (const key of [
@@ -132,18 +136,16 @@ export function classifyChanges(
       ...(policy
         ? ['Workflow or policy code changed; use complete validation.']
         : []),
-      ...(unknown ? ['Unrecognized paths require complete validation.'] : []),
-      ...(mixed
-        ? ['Mixed documentation/code changes require complete validation.']
+      ...(sharedBuild
+        ? ['Shared build or toolchain inputs changed; use complete validation.']
         : []),
+      ...(unknown ? ['Unrecognized paths require complete validation.'] : []),
       ...(docs ? ['Only recognized documentation paths changed.'] : []),
       ...(governance
         ? ['Instruction/process rules require behavioral review.']
         : []),
       ...(!docs && !full
-        ? [
-            'Code, build, dependency or unrecognized paths require source/integration validation.',
-          ]
+        ? ['Recognized code and test paths select their applicable checks.']
         : []),
     ],
   };

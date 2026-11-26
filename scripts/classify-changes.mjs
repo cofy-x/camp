@@ -76,6 +76,7 @@ if (
     await classifyGit({ root, base, head }),
     process.env.CAMP_VALIDATION_STAGE || 'merge',
   );
+  result.pullRequest = event.pull_request?.number ?? null;
   result.checkedCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
     encoding: 'utf8',
   }).trim();

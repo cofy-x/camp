@@ -44,18 +44,21 @@ test('renames, copies, additions and deletions inspect every original and destin
   assert.equal(changes.length, 4);
   assert.equal(result.documentationOnly, false);
   assert.equal(result.checks.native, true);
-  assert.equal(result.checks.checkpoint, true);
+  assert.equal(result.checks.checkpoint, false);
   assert.equal(
     classifyChanges(parseNameStatus('D\0docs/old.md\0')).documentationOnly,
     true,
   );
 });
-test('mixed, unknown, workflow, classifier and unavailable inputs choose complete checks', () => {
+test('unknown paths, CI rules and shared build inputs choose complete checks', () => {
   for (const paths of [
-    ['README.md', 'apps/dashboard/src/app.ts'],
     ['unrecognized.bin'],
     ['.github/workflows/ci.yml'],
     ['scripts/change-policy.mjs'],
+    ['scripts/ci-evidence.mjs'],
+    ['scripts/release-preflight.mjs'],
+    ['pnpm-lock.yaml'],
+    ['Makefile'],
     [],
   ]) {
     const result = classify(paths);
@@ -77,6 +80,31 @@ test('mixed, unknown, workflow, classifier and unavailable inputs choose complet
     'M\0README.md',
   ])
     assert.throws(() => parseNameStatus(value));
+});
+
+test('browser tests and mixed documentation use the checks selected by code paths', () => {
+  for (const paths of [
+    ['tests/library-publication-recovery.spec.ts'],
+    ['README.md', 'apps/dashboard/src/app.ts'],
+    ['tools/layerfs-runtime/README.md', 'apps/dashboard/src/app.ts'],
+  ]) {
+    const result = classify(paths);
+    assert.equal(result.classification, 'code');
+    assert.equal(result.checks.documentation, paths.length > 1);
+    for (const key of ['source', 'browser', 'fixture'])
+      assert.equal(result.checks[key], true);
+    for (const key of ['native', 'checkpoint'])
+      assert.equal(result.checks[key], false);
+  }
+  const runner = classify([
+    'docs/native-runner.md',
+    'apps/server/internal/remoteruns/manager.go',
+  ]);
+  assert.equal(runner.checks.native, true);
+  assert.equal(runner.checks.checkpoint, false);
+  const runtime = classify(['tools/project-runtime/pnpm-lock.yaml']);
+  assert.equal(runtime.checks.native, true);
+  assert.equal(runtime.checks.checkpoint, true);
 });
 test('source and workspace owners select different checks', () => {
   assert.equal(
