@@ -2,7 +2,7 @@
 
 This independent pnpm workspace pins DSH and its public provider packages in [package.json](package.json) and the [frozen lockfile](pnpm-lock.yaml). The shared harness checkout is read-only reference material, not the production runtime. Use the [repository toolchain](../../CONTRIBUTING.md#development).
 
-Camp uses the published [`0.2.2-rc.5` packages](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.2-rc.5) from upstream revision `9c2670d3bce5275e0d1610272958121af87787bb`. The release series includes Messages thinking-prefix compatibility and session cleanup fixes. Camp's `sdk-minimal` capability catalog is limited to granted file, shell and coordination tools. Model refusals arrive as `CONTENT_REFUSED` and receive a fixed failure message. Runtime fingerprints prevent resuming an incompatible earlier native session while retaining its files and original receipts.
+Camp uses the published [`0.2.3-alpha.2` packages](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.3-alpha.2) from upstream revision `4b399c39a6d1479cd84ca591b4d7c88e24d38a96`. Camp's `sdk-minimal` capability catalog is limited to granted file, shell and coordination tools. Model refusals arrive as `CONTENT_REFUSED` and receive a fixed failure message. Runtime fingerprints include the DSH Node pin, dependency lock and Camp's tool providers. An explicitly authorized continuation can rebuild context after a runtime change while preserving the earlier session files and receipts.
 
 From the Camp root:
 
@@ -11,7 +11,7 @@ make install-dsh
 node tools/dsh-runtime/probe.mjs
 ```
 
-The installer allows only the required native build steps recorded in [pnpm-workspace.yaml](pnpm-workspace.yaml). Linux needs Bubblewrap, Bash and native platform libraries. The probe requires working PID namespaces and fails rather than bypassing isolation. Packaged Runner users install none of these components individually; see [installation](../../docs/install.md).
+The installer downloads the official Node.js archive for Linux x64 or macOS ARM64 with `curl`, verifies its pinned SHA-256 and extracts the DSH interpreter with `tar`. The Runner package contains this interpreter and its license. The repository toolchain and saved project environments use their original fixed Node binary. Stop the source Runner before refreshing it with `make install-dsh`. The installer builds a fresh dependency tree when its pinned inputs change and keeps the prior tree until the replacement passes the CLI version check. It allows the native build steps listed in [pnpm-workspace.yaml](pnpm-workspace.yaml). Linux needs Bubblewrap, Bash and native platform libraries. The probe requires working PID namespaces. See [installation](../../docs/install.md) for packaged Runner upgrades.
 
 ## Wire lifecycle
 

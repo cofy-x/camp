@@ -128,15 +128,15 @@ export function checkDocs(directory) {
     /^pnpm@(\d+\.\d+\.\d+(?:-[\w.-]+)?)(?:\+.*)?$/,
   )?.[1];
   const go = read('go.mod').match(/^go (\d+\.\d+\.\d+)\r?$/m)?.[1];
+  const dshManifest = 'tools/dsh-runtime/package.json';
+  const dsh = json(dshManifest);
   const pins = {
     go: { version: go, owner: 'go.mod' },
     node: { version: read('.node-version').trim(), owner: '.node-version' },
     pnpm: { version: pnpm, owner: 'package.json#packageManager' },
     dsh: {
-      version: json('tools/dsh-runtime/package.json').dependencies[
-        '@deepseek-ai/dsh'
-      ],
-      owner: 'tools/dsh-runtime/package.json',
+      version: dsh.dependencies['@deepseek-ai/dsh'],
+      owner: dshManifest,
     },
   };
   for (const [label, pin] of Object.entries(pins)) {
@@ -154,12 +154,24 @@ export function checkDocs(directory) {
     }
   };
   const dshVersionFile = 'apps/server/internal/dsh/version.go';
+  const dshVersions = read(dshVersionFile);
   compare(
     dshVersionFile,
     1,
     'DSH',
-    read(dshVersionFile).match(/const Version = "([^"]+)"/)?.[1],
+    dshVersions.match(/\bVersion\s*=\s*"([^"]+)"/)?.[1],
     pins.dsh,
+  );
+  const dshNode = { version: dsh.engines?.node, owner: dshManifest };
+  if (!/^\d+\.\d+\.\d+$/.test(dshNode.version)) {
+    throw new Error(`Expected an exact DSH Node version in ${dshManifest}`);
+  }
+  compare(
+    dshVersionFile,
+    1,
+    'DSH Node',
+    dshVersions.match(/\bNodeVersion\s*=\s*"([^"]+)"/)?.[1],
+    dshNode,
   );
   for (const file of markdown) {
     if (file.startsWith('docs/decisions/')) continue;
@@ -181,6 +193,7 @@ export function checkDocs(directory) {
     const pkg = json(file);
     for (const label of ['node', 'pnpm']) {
       if (pkg.engines?.[label] !== undefined) {
+        if (file === dshManifest && label === 'node') continue;
         compare(file, 1, `engines.${label}`, pkg.engines[label], pins[label]);
       }
     }

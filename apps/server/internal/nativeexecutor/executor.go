@@ -178,7 +178,7 @@ func (e *Executor) Execute(ctx context.Context, input Request, emit Emit) (resul
 			err = os.WriteFile(filepath.Join(dir, "runtime.patch.yml"), overlay, 0600)
 		}
 		if err == nil {
-			config := execution.Config{RuntimeDir: e.config.RuntimeDir, NodePath: e.config.NodePath, APIKey: input.ModelToken, BaseURL: input.ModelURL, ReadOnlyProject: input.Access == "read", StateDir: stateDir, RemoteTools: true, ToolEndpoint: tools.Endpoint(), ToolToken: tools.Token(), CAFile: e.config.CAFile}
+			config := execution.Config{RuntimeDir: e.config.RuntimeDir, NodePath: dsh.NodeBinary(e.config.RuntimeDir), APIKey: input.ModelToken, BaseURL: input.ModelURL, ReadOnlyProject: input.Access == "read", StateDir: stateDir, RemoteTools: true, ToolEndpoint: tools.Endpoint(), ToolToken: tools.Token(), CAFile: e.config.CAFile}
 			if coordinator != nil {
 				config.CoordinationEndpoint, config.CoordinationToken = coordinator.endpoint(), coordinator.token
 			}

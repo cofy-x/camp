@@ -1,6 +1,5 @@
 import { Buffer } from 'node:buffer';
 import console from 'node:console';
-import process from 'node:process';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -387,7 +386,7 @@ async function run(access) {
       '/lib64',
       '/lib64',
       '--ro-bind',
-      process.execPath,
+      join(runtime, 'node/bin/node'),
       '/node',
       '--ro-bind',
       runtime,

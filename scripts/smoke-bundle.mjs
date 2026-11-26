@@ -908,10 +908,13 @@ acceptance: try {
     .flatMap(({ stage, phases }) =>
       phases.map((phase) => ({ ...phase, attempt: stage })),
     );
+  const failedPhase = timings.setupPhases.findLast(
+    ({ status }) => status === 'failed' || status === 'cancelled',
+  );
   assert.equal(
     setupCode,
     0,
-    'Runner setup failed; inspect this retained campaign’s private setup attempt logs.',
+    `Runner setup failed${failedPhase ? ` during ${failedPhase.phase}` : ''}. Inspect the retained private setup attempt logs.`,
   );
   assert.ok(
     timings.setupPhases.some(

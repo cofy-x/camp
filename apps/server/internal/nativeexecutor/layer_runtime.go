@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -65,15 +64,9 @@ func openLayerRuntime(ctx context.Context, config Config) (*layerRuntime, error)
 	if len(helper) == 0 {
 		return nil, errors.New("The sandbox helper is empty")
 	}
-	manifestBytes, err := os.ReadFile(filepath.Join(config.RuntimeDir, "node_modules", "@deepseek-ai", "dsh", "package.json"))
+	dshIdentity, err := dsh.RuntimeIdentity(ctx, config.RuntimeDir)
 	if err != nil {
-		return nil, errors.New("Install the pinned DSH runtime before starting this Runner")
-	}
-	var manifest struct {
-		Version string `json:"version"`
-	}
-	if json.Unmarshal(manifestBytes, &manifest) != nil || manifest.Version != dsh.Version {
-		return nil, errors.New("Native execution requires DSH " + dsh.Version)
+		return nil, err
 	}
 	versionCmd := exec.CommandContext(ctx, config.NodePath, "--version")
 	version, err := versionCmd.Output()
@@ -86,17 +79,9 @@ func openLayerRuntime(ctx context.Context, config Config) (*layerRuntime, error)
 	}
 	fingerprintHash := sha256.New()
 	_, _ = fingerprintHash.Write(helper)
-	_, _ = fingerprintHash.Write(manifestBytes)
+	_, _ = fingerprintHash.Write([]byte(dshIdentity))
 	_, _ = fingerprintHash.Write(layerManifest)
 	_, _ = fingerprintHash.Write([]byte("camp-coordination-v1"))
-	for _, module := range []string{"coordination.mjs", "task-inputs.mjs", "discovery.mjs", "filesystem.mjs", "shell.mjs", "transport.mjs"} {
-		contents, readErr := os.ReadFile(filepath.Join(config.RuntimeDir, "camp-tools", module))
-		if readErr != nil {
-			return nil, errors.New("Install the complete Camp DSH tool providers before starting this Runner")
-		}
-		_, _ = fingerprintHash.Write([]byte(module))
-		_, _ = fingerprintHash.Write(contents)
-	}
 	if config.DockerSocket == "" {
 		config.DockerSocket = "/var/run/docker.sock"
 	}

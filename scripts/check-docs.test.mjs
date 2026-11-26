@@ -21,6 +21,7 @@ function checkout(t, extra = {}) {
     }),
     'tools/dsh-runtime/package.json': JSON.stringify({
       dependencies: { '@deepseek-ai/dsh': '0.2.2-rc.1' },
+      engines: { node: '24.22.3' },
     }),
     'tools/project-runtime/package.json': JSON.stringify({
       dependencies: { pnpm: '12.11.2' },
@@ -30,7 +31,7 @@ function checkout(t, extra = {}) {
       pnpm: '12.11.2',
     }),
     'apps/server/internal/dsh/version.go':
-      'package dsh\nconst Version = "0.2.2-rc.1"\n',
+      'package dsh\nconst Version = "0.2.2-rc.1"\nconst NodeVersion = "24.22.3"\n',
     'README.md': '# Guide\n',
     ...extra,
   };
@@ -123,6 +124,8 @@ test('detects stale version claims, shell examples and mismatched runtime pins',
       engines: { node: '22.0.0', pnpm: '11.0.0' },
       packageManager: 'pnpm@11.0.0',
     }),
+    'apps/server/internal/dsh/version.go':
+      'package dsh\nconst Version = "0.2.2-rc.1"\nconst NodeVersion = "24.16.0"\n',
     'tools/layerfs-runtime/pin.json': JSON.stringify({
       node: '22.0.0',
       pnpm: '11.0.0',
@@ -132,12 +135,13 @@ test('detects stale version claims, shell examples and mismatched runtime pins',
     }),
   });
   const { errors } = checkDocs(root);
-  assert.equal(errors.length, 11);
+  assert.equal(errors.length, 12);
   assert.match(
     errors.join('\n'),
     /README.md:1: Go 1.26.0 differs from go.mod \(1.27.3\)/,
   );
   assert.match(errors.join('\n'), /README.md:3: pnpm 11.0.0 differs/);
+  assert.match(errors.join('\n'), /DSH Node 24\.16\.0 differs/);
   assert.match(
     errors.join('\n'),
     /apps\/example\/package.json:1: engines.node 22.0.0 differs/,
