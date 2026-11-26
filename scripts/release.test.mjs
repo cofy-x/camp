@@ -30,15 +30,19 @@ import {
   verifyRunnerInstallationReport,
 } from './release.mjs';
 
-test('Runner packaging checks its staged DSH and provider versions against their pins', async (t) => {
+test('Runner packaging checks its staged DSH, providers and Node against their pins', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'camp-dsh-package-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const dsh = '@deepseek-ai/dsh';
   const tools = '@deepseek-ai/dsh-tools';
   const version = '1.2.3';
+  const node = '24.22.3';
   await writeFile(
     join(directory, 'package.json'),
-    JSON.stringify({ dependencies: { [dsh]: version, [tools]: version } }),
+    JSON.stringify({
+      dependencies: { [dsh]: version, [tools]: version },
+      engines: { node },
+    }),
   );
 
   async function install(name, version) {
@@ -61,6 +65,18 @@ test('Runner packaging checks its staged DSH and provider versions against their
     /requires @deepseek-ai\/dsh-tools .*make install-dsh/,
   );
   await install(tools, version);
+  await assert.rejects(verifyRunnerDSHRuntime(directory), /requires DSH Node/);
+  await mkdir(join(directory, 'node/bin'), { recursive: true });
+  await writeFile(
+    join(directory, 'node/bin/node'),
+    '#!/bin/sh\nprintf "v24.16.0\\n"\n',
+    { mode: 0o700 },
+  );
+  await assert.rejects(verifyRunnerDSHRuntime(directory), /requires DSH Node/);
+  await writeFile(
+    join(directory, 'node/bin/node'),
+    `#!/bin/sh\nprintf "v${node}\\n"\n`,
+  );
   assert.equal(await verifyRunnerDSHRuntime(directory), version);
 });
 

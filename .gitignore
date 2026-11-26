@@ -1,4 +1,5 @@
 node_modules/
+/tools/dsh-runtime/node/
 dist/
 coverage/
 test-results/

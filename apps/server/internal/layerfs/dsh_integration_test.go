@@ -125,7 +125,7 @@ func TestLayerFSDSHIntegration(t *testing.T) {
 		{"bash", map[string]any{"description": "Check isolated files and process cleanup", "command": "set -eu; test \"$(id -u)\" != 0; test -z \"${DEEPSEEK_API_KEY+x}${CAMP_TOOL_TOKEN+x}${CAMP_TOOL_ENDPOINT+x}\"; test ! -e /state; test ! -r /layerfs-store/global/store.sqlite; cat /workspace/deliverables/memo.md; printf 'shell result\\n' > /workspace/shell.txt; setsid sleep 120 >/dev/null 2>&1 & printf 'real-container-command\\n'", "workdir": "/workspace"}},
 		{"search_files", map[string]any{"query": "reviewed"}},
 	}
-	output := nativeDSH(t, ctx, node, dshRuntime, filepath.Join(data, "writer-dsh"), writerTools, false, writeCalls, false)
+	output := nativeDSH(t, ctx, dshRuntime, filepath.Join(data, "writer-dsh"), writerTools, false, writeCalls, false)
 	for _, expected := range []string{"Pinned source evidence.", "real-container-command", "A reviewed brief.", "# Memo"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("Missing real tool output %q:\n%s", expected, output)
@@ -163,7 +163,7 @@ func TestLayerFSDSHIntegration(t *testing.T) {
 		{"bash", map[string]any{"description": "Attempt an unavailable command", "command": "touch forbidden"}},
 		{"read", map[string]any{"file_path": "/etc/passwd"}},
 	}
-	output = nativeDSH(t, ctx, node, dshRuntime, filepath.Join(data, "reader-dsh"), readerTools, true, readCalls, false)
+	output = nativeDSH(t, ctx, dshRuntime, filepath.Join(data, "reader-dsh"), readerTools, true, readCalls, false)
 	if !strings.Contains(output, "The path is outside Camp files.") {
 		t.Fatalf("Forbidden path not rejected: %s", output)
 	}
@@ -195,7 +195,7 @@ func TestLayerFSDSHIntegration(t *testing.T) {
 		started <- fmt.Errorf("Native cancellation command did not start")
 		cancelRun()
 	}()
-	_ = nativeDSH(t, cancelCtx, node, dshRuntime, filepath.Join(data, "cancelled-dsh"), cancelledTools, false, []nativeToolCall{
+	_ = nativeDSH(t, cancelCtx, dshRuntime, filepath.Join(data, "cancelled-dsh"), cancelledTools, false, []nativeToolCall{
 		{"bash", map[string]any{"description": "Wait with a detached child for cancellation", "command": "setsid sleep 120 >/dev/null 2>&1 & echo $! >/tmp/camp-native-child; printf ready >/tmp/camp-native-ready; wait", "timeoutMs": 120000}},
 	}, true)
 	if err := <-started; err != nil {
@@ -217,7 +217,7 @@ func TestLayerFSDSHIntegration(t *testing.T) {
 	t.Log("Real DSH providers, Go capability RPC, LayerFS edits, isolated commands, detached-child cleanup on completion and cancellation, read-only catalog, checkpoint/export and original preservation passed.")
 }
 
-func nativeDSH(t *testing.T, ctx context.Context, node, runtime, directory string, tools *runnertools.Tools, readOnly bool, calls []nativeToolCall, expectCancellation bool) string {
+func nativeDSH(t *testing.T, ctx context.Context, runtime, directory string, tools *runnertools.Tools, readOnly bool, calls []nativeToolCall, expectCancellation bool) string {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(directory, "state"), 0700); err != nil {
 		t.Fatal(err)
@@ -277,7 +277,7 @@ func nativeDSH(t *testing.T, ctx context.Context, node, runtime, directory strin
 		}
 	}))
 	defer model.Close()
-	cmd, err := execution.Command(execution.Config{RuntimeDir: runtime, NodePath: node, StateDir: filepath.Join(directory, "state"), APIKey: "native-keyless-fixture", BaseURL: model.URL, RemoteTools: true, ToolEndpoint: tools.Endpoint(), ToolToken: tools.Token()}, directory, nil, false)
+	cmd, err := execution.Command(execution.Config{RuntimeDir: runtime, NodePath: dsh.NodeBinary(runtime), StateDir: filepath.Join(directory, "state"), APIKey: "native-keyless-fixture", BaseURL: model.URL, RemoteTools: true, ToolEndpoint: tools.Endpoint(), ToolToken: tools.Token()}, directory, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}

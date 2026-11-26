@@ -22,7 +22,7 @@ export const versionPattern =
 export const runnerPlatforms = ['linux-amd64', 'darwin-arm64'];
 
 export async function verifyRunnerDSHRuntime(directory) {
-  const { dependencies } = JSON.parse(
+  const { dependencies, engines } = JSON.parse(
     await readFile(join(directory, 'package.json'), 'utf8'),
   );
   const dsh = dependencies?.['@deepseek-ai/dsh'];
@@ -44,6 +44,15 @@ export async function verifyRunnerDSHRuntime(directory) {
         `Runner packaging requires ${name} ${expected}. Run make install-dsh before packaging.`,
       );
     }
+  }
+  const binary = join(directory, 'node/bin/node');
+  const version = await execute(binary, ['--version'], { env: {} }).catch(
+    () => null,
+  );
+  if (!engines?.node || version?.stdout.trim() !== `v${engines.node}`) {
+    throw new Error(
+      `Runner packaging requires DSH Node ${engines?.node}. Run make install-dsh before packaging.`,
+    );
   }
   return dsh;
 }

@@ -1,4 +1,7 @@
 package dsh
 
-// Version is checked against the pinned public CLI by make check-docs.
-const Version = "0.2.2-rc.5"
+// Version and NodeVersion match the published CLI and its private Node binary.
+const (
+	Version     = "0.2.3-alpha.2"
+	NodeVersion = "24.22.3"
+)

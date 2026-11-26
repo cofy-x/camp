@@ -76,12 +76,9 @@ func openNativeWorkspace(ctx context.Context, config Config) (workspace.Provider
 	if err != nil || len(helper) == 0 {
 		return nil, errors.New("The native process owner is missing")
 	}
-	manifest, err := os.ReadFile(filepath.Join(config.RuntimeDir, "node_modules", "@deepseek-ai", "dsh", "package.json"))
-	var version struct {
-		Version string `json:"version"`
-	}
-	if err != nil || json.Unmarshal(manifest, &version) != nil || version.Version != dsh.Version {
-		return nil, errors.New("Install the pinned DSH " + dsh.Version + " runtime")
+	dshIdentity, err := dsh.RuntimeIdentity(ctx, config.RuntimeDir)
+	if err != nil {
+		return nil, err
 	}
 	output, err := exec.CommandContext(ctx, config.NodePath, "--version").Output()
 	if err != nil || strings.TrimSpace(string(output)) != "v"+projectenv.NodeVersion {
@@ -89,15 +86,8 @@ func openNativeWorkspace(ctx context.Context, config Config) (workspace.Provider
 	}
 	fingerprint := sha256.New()
 	_, _ = fingerprint.Write(helper)
-	_, _ = fingerprint.Write(manifest)
+	_, _ = io.WriteString(fingerprint, dshIdentity)
 	_, _ = io.WriteString(fingerprint, "camp-native-local-v5-state-scope\x00"+config.NodePath)
-	for _, module := range []string{"coordination", "task-inputs", "discovery", "filesystem", "shell", "transport"} {
-		data, err := os.ReadFile(filepath.Join(config.RuntimeDir, "camp-tools", module+".mjs"))
-		if err != nil {
-			return nil, errors.New("Install the complete Camp DSH tool providers")
-		}
-		_, _ = fingerprint.Write(data)
-	}
 	protectedRoot := config.DataDir
 	if config.WorkerDataRoot != "" {
 		protectedRoot, err = filepath.EvalSymlinks(config.WorkerDataRoot)

@@ -181,7 +181,7 @@ async function run(cancel, force = false) {
       '/etc/nsswitch.conf',
       '/etc/nsswitch.conf',
       '--ro-bind',
-      process.execPath,
+      join(runtime, 'node/bin/node'),
       '/node',
       '--ro-bind',
       runtime,

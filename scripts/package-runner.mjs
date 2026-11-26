@@ -67,6 +67,14 @@ try {
     path.join(path.dirname(await realpath(process.execPath)), '../LICENSE'),
     'licenses/Node-LICENSE',
   );
+  await copy(
+    path.join(root, 'tools/dsh-runtime/node/bin/node'),
+    'runtime/dsh-runtime/node/bin/node',
+  );
+  await copy(
+    path.join(root, 'tools/dsh-runtime/node/LICENSE'),
+    'licenses/DSH-Node-LICENSE',
+  );
   for (const name of ['dsh-runtime', 'project-runtime']) {
     const source = path.join(root, 'tools', name);
     for (const entry of await readdir(source, { withFileTypes: true })) {
