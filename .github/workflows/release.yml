@@ -29,6 +29,9 @@ jobs:
     if: ${{ github.repository == 'cofy-x/camp' && (github.ref == 'refs/heads/main' || inputs.validate-only) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
     outputs:
       source: ${{ steps.guard.outputs.source }}
       ci-url: ${{ steps.guard.outputs.ci-url }}
@@ -52,6 +55,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      pull-requests: read
     uses: ./.github/workflows/ci.yml
     with:
       validation-stage: release
