@@ -416,7 +416,7 @@ func TestWorkIntentTypedCompletionConfirmationRetainsExternalEffectGate(t *testi
 		t.Fatal(e)
 	}
 	w, e := s.GetWorkItem(actor, w.ID)
-	if e != nil || w.Status != "waiting_for_person" || w.QuestionKind != orchestration.WorkQuestionCompletion {
+	if e != nil || w.AwaitingDelivery || w.Status != "waiting_for_person" || w.QuestionKind != orchestration.WorkQuestionCompletion {
 		t.Fatal(w, e)
 	}
 	view, e := func() (orchestration.WorkItemSummary, error) {
@@ -428,7 +428,7 @@ func TestWorkIntentTypedCompletionConfirmationRetainsExternalEffectGate(t *testi
 		t.Fatal("frozen summary lost the typed confirmation", view, e)
 	}
 	confirmed, e := s.OperateWorkItem(actor, w.ID, orchestration.WorkItemOperation{RequestID: "confirm-with-pending-effects", Revision: w.Revision, Kind: "complete", Comment: "The requested document is complete."}, Budget{})
-	if e != nil || confirmed.Status != "waiting" || confirmed.QuestionKind != "" || confirmed.Question != "" || !strings.Contains(confirmed.WaitCondition, "receipts") {
+	if e != nil || !confirmed.AwaitingDelivery || confirmed.Status != "waiting" || confirmed.QuestionKind != "" || confirmed.Question != "" || !strings.Contains(confirmed.WaitCondition, "receipts") {
 		t.Fatal("human confirmation claimed an unconfirmed external effect", confirmed, e)
 	}
 	found := false
@@ -453,11 +453,11 @@ func TestWorkIntentTypedCompletionConfirmationRetainsExternalEffectGate(t *testi
 	if e != nil {
 		t.Fatal(e)
 	}
-	if current.Status != "completed" || current.QuestionKind != "" || current.Question != "" {
+	if current.AwaitingDelivery || current.Status != "completed" || current.QuestionKind != "" || current.Question != "" {
 		t.Fatal("confirmed effects required another human confirmation", current)
 	}
 	replayed, e := s.OperateWorkItem(actor, w.ID, orchestration.WorkItemOperation{RequestID: "confirm-with-pending-effects", Revision: w.Revision, Kind: "complete", Comment: "The requested document is complete."}, Budget{})
-	if e != nil || replayed.Status != confirmed.Status || replayed.Revision != confirmed.Revision {
+	if e != nil || !replayed.AwaitingDelivery || replayed.Status != confirmed.Status || replayed.Revision != confirmed.Revision {
 		t.Fatal("current completion rewrote the original operation receipt", replayed, e)
 	}
 }

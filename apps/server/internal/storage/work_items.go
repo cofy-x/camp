@@ -13,16 +13,13 @@ import (
 )
 
 type workItemRecord struct {
-	*orchestration.WorkItem
-	// The projected decision is returned to readers and receipts. The Work and
-	// its active Task retain the underlying business facts in their own records.
-	CurrentDecision             *orchestration.WorkCurrentDecision `json:"currentDecision,omitempty"`
-	RecoveryLimit               string                             `json:"recoveryLimit,omitempty"`
-	ObservedAuthorizationExpiry string                             `json:"observedAuthorizationExpiry,omitempty"`
+	*orchestration.WorkItemState
+	RecoveryLimit               string `json:"recoveryLimit,omitempty"`
+	ObservedAuthorizationExpiry string `json:"observedAuthorizationExpiry,omitempty"`
 }
 
 func workItemRow(row sqlgen.WorkItem) (w orchestration.WorkItem, err error) {
-	record := workItemRecord{WorkItem: &w}
+	record := workItemRecord{WorkItemState: &w.WorkItemState}
 	err = json.Unmarshal([]byte(row.Value), &record)
 	w.RecoveryLimit = record.RecoveryLimit
 	w.ObservedAuthorizationExpiry = record.ObservedAuthorizationExpiry
@@ -41,11 +38,8 @@ func getWorkItem(ctx context.Context, q *sqlgen.Queries, id string) (orchestrati
 }
 
 func workItemSnapshot(w orchestration.WorkItem) ([]byte, error) {
-	w.Evidence, w.Decisions, w.Tasks, w.Timers, w.Actions, w.Watches = nil, nil, nil, nil, nil, nil
-	w.HistoryLimited = false
-	w.Execution, w.Result, w.GitHubDelivery = nil, nil, nil
 	normalizeWorkItem(&w)
-	return json.Marshal(workItemRecord{WorkItem: &w, RecoveryLimit: w.RecoveryLimit, ObservedAuthorizationExpiry: w.ObservedAuthorizationExpiry})
+	return json.Marshal(workItemRecord{WorkItemState: &w.WorkItemState, RecoveryLimit: w.RecoveryLimit, ObservedAuthorizationExpiry: w.ObservedAuthorizationExpiry})
 }
 
 func saveWorkItem(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem) error {
@@ -413,7 +407,7 @@ func insertWorkItem(ctx context.Context, q *sqlgen.Queries, room, owner string, 
 			return w, problem("revision_conflict", "The policy changed before this matter was created.")
 		}
 	}
-	w = orchestration.WorkItem{ID: newID(), ProjectRevision: in.ProjectRevision, RoomID: room, OwnerUserID: owner, PolicyID: in.PolicyID, Goal: in.Goal, CompletionCriteria: in.CompletionCriteria, Status: "open", Revision: 1, Deadline: in.Deadline, Budget: in.Budget, CreatedAt: now(), UpdatedAt: now()}
+	w.WorkItemState = orchestration.WorkItemState{ID: newID(), ProjectRevision: in.ProjectRevision, RoomID: room, OwnerUserID: owner, PolicyID: in.PolicyID, Goal: in.Goal, CompletionCriteria: in.CompletionCriteria, Status: "open", Revision: 1, Deadline: in.Deadline, Budget: in.Budget, CreatedAt: now(), UpdatedAt: now()}
 	w.ExpiresAt, w.DueAt = w.Deadline, in.DueAt
 	w.CompletionMode = in.CompletionMode
 	normalizeWorkItem(&w)

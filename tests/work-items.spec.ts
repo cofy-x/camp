@@ -44,11 +44,14 @@ async function openItems(page: Page) {
   await expect(work(page)).toHaveClass(/is-active/);
 }
 
-async function capture(page: Page, scene: string) {
+async function capture(page: Page, scene: string, includeShort = false) {
   const captures = [];
   for (const [size, viewport] of [
     ['desktop', { width: 1440, height: 900 }],
     ['narrow', { width: 390, height: 844 }],
+    ...(includeShort
+      ? ([['short', { width: 900, height: 480 }]] as const)
+      : []),
   ] as const) {
     await page.setViewportSize(viewport);
     await work(page).evaluate((element) => {
@@ -2211,6 +2214,12 @@ test('completion confirmation is explicit and waits for unresolved external acti
     question: 'The proposal is ready. Confirm that this work is done.',
   });
   const confirms: WorkActionInput[] = [];
+  const historyReads = new Set<string>();
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.startsWith(`/api/work-items/${value.item.id}/history/`))
+      historyReads.add(path.split('/').at(-1)!);
+  });
   await page.route(
     `**/api/work-items/${value.item.id}/actions/complete`,
     (route) => {
@@ -2218,6 +2227,7 @@ test('completion confirmation is explicit and waits for unresolved external acti
       value.setItem({
         revision: 2,
         status: 'waiting',
+        awaitingDelivery: true,
         question: undefined,
         questionKind: undefined,
         waitCondition:
@@ -2225,7 +2235,7 @@ test('completion confirmation is explicit and waits for unresolved external acti
         actions: [
           {
             id: 'pending-comment',
-            kind: 'comment',
+            kind: 'github.comment',
             status: 'unknown',
             body: 'Proposal ready.',
             createdAt: value.item.createdAt,
@@ -2246,23 +2256,45 @@ test('completion confirmation is explicit and waits for unresolved external acti
   await detail(page)
     .getByRole('button', { name: 'Confirm done', exact: true })
     .click();
+  const panel = detail(page);
+  await expect(panel.locator('.work-item-heading')).toContainText(
+    'Awaiting delivery',
+  );
   await expect(
-    detail(page).getByText(
-      'Waiting for confirmed external action delivery receipts.',
-      { exact: true },
-    ),
-  ).toBeVisible();
-  await expect(
-    detail(page)
-      .locator('.work-item-heading')
-      .getByText('Completed', { exact: true }),
+    panel.getByRole('button', { name: /Mark done|Start work|Confirm done/ }),
   ).toHaveCount(0);
+  await capture(page, 'awaiting-delivery', true);
+  expect([...historyReads]).toEqual([]);
+  await panel.getByRole('button', { name: 'View delivery records' }).click();
+  await expect(
+    panel.getByRole('tab', { name: 'Actions', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true');
+  await expect(
+    panel.getByText('Proposal ready.', { exact: true }),
+  ).toBeVisible();
+  expect([...historyReads]).toEqual(['actions']);
+  await panel.getByRole('button', { name: 'Back to item' }).click();
+  await panel.getByRole('button', { name: 'More work actions' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Mark done…' })).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByRole('menuitem', { name: 'Stop following up…' }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await panel.getByRole('button', { name: 'Back to Work' }).click();
+  const row = work(page).getByRole('button', {
+    name: /Prepare the customer proposal.*Awaiting delivery/,
+  });
+  await expect(row).toBeVisible();
+  await row.click();
   expect(confirms).toHaveLength(1);
   expect(confirms[0]).toMatchObject({ revision: 1 });
   expect(confirms[0].content).toBeUndefined();
   value.setItem({
     revision: 3,
     status: 'completed',
+    awaitingDelivery: false,
     waitCondition: undefined,
     actions: [],
   });
@@ -2272,6 +2304,52 @@ test('completion confirmation is explicit and waits for unresolved external acti
       .locator('.work-item-heading')
       .getByText('Completed', { exact: true }),
   ).toBeVisible();
+  expect(errors.errors).toEqual([]);
+});
+
+test('an accepted completion preserves a private note without offering another confirmation', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  const value = await presentation(page, errors.reload, {
+    result: {
+      taskId: 'finished-task',
+      summary: 'The proposal is ready.',
+      resourceId: 'proposal',
+      commit: 'b'.repeat(40),
+      published: true,
+      files: [],
+    },
+  });
+  await value.open();
+  const panel = detail(page);
+  await panel.getByRole('button', { name: 'Mark done…', exact: true }).click();
+  const note = 'I checked the appendix.';
+  const noteField = panel
+    .getByRole('form', { name: 'Next step' })
+    .getByRole('textbox', { name: 'Note (optional)', exact: true });
+  await noteField.fill(note);
+  value.setItem({ revision: 2, status: 'waiting', awaitingDelivery: true });
+  await openWorkAction(page, 'Refresh');
+  await expect(
+    panel.getByRole('status').filter({ hasText: 'Awaiting delivery' }),
+  ).toBeVisible();
+  await expect(
+    panel.getByRole('region', { name: 'Your saved input' }),
+  ).toContainText(note);
+  await expect(panel.getByRole('button', { name: /Mark done/ })).toHaveCount(0);
+  await openWorkAction(page, 'Request changes…');
+  await expect(
+    panel.getByRole('button', { name: 'Start work', exact: true }),
+  ).toBeVisible();
+  await panel.getByRole('button', { name: 'Back to item' }).click();
+  value.setItem({ revision: 3, status: 'open', awaitingDelivery: false });
+  await openWorkAction(page, 'Refresh');
+  await expect(noteField).toHaveValue(note);
+  await expect(
+    panel.getByRole('button', { name: 'Mark done', exact: true }),
+  ).toBeDisabled();
   expect(errors.errors).toEqual([]);
 });
 

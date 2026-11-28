@@ -124,8 +124,8 @@ func reserveWorkContinuation(ctx context.Context, q *sqlgen.Queries, t Collabora
 
 // A task result is new evidence. Only an explicitly authorized completion
 // judgment can close its parent after publication; it never restores a grant.
-func syncWorkItemTask(ctx context.Context, q *sqlgen.Queries, t CollaborationTask) error {
-	if t.WorkItemID == "" || (t.Status != "completed" && t.Status != "cancelled" && t.Status != "interrupted") {
+func recordWorkTaskResult(ctx context.Context, q *sqlgen.Queries, t CollaborationTask) error {
+	if t.WorkItemID == "" {
 		return nil
 	}
 	link, e := q.WorkItemForTask(ctx, t.ID)

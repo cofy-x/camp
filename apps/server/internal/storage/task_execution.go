@@ -126,13 +126,13 @@ func finishTaskRound(ctx context.Context, q *sqlgen.Queries, r Run) error {
 	t.ProcessedInputRevision = max(t.ProcessedInputRevision, r.TaskInputRevision)
 	if t.Status == "cancelling" {
 		if r.Status == "interrupted" {
-			t.Status = "interrupted"
 			t.Error = r.Error
-		} else {
-			t.Status = "cancelled"
-			t.Error = ""
+			return finishTask(ctx, q, &t, "interrupted")
 		}
-	} else if r.Status != "succeeded" {
+		t.Error = ""
+		return finishTask(ctx, q, &t, "cancelled")
+	}
+	if r.Status != "succeeded" {
 		t.Status = "needs_attention"
 		t.Error = r.Error
 		if t.Error == "" {
@@ -183,12 +183,68 @@ func finishTaskRound(ctx context.Context, q *sqlgen.Queries, r Run) error {
 		return e
 	}
 	switch t.Status {
-	case "needs_attention", "interrupted":
-		return taskNotice(ctx, q, t, "task_attention", t.Error)
+	case "needs_attention":
+		return publishTaskNotice(ctx, q, t, "task_attention", t.Error)
 	case "waiting_for_person":
-		return taskNotice(ctx, q, t, "task_question", t.Question.Text)
+		return publishTaskNotice(ctx, q, t, "task_question", t.Question.Text)
 	}
 	return nil
+}
+
+// finishTask commits the terminal result and its effects in the caller's
+// transaction. A final notice can create external deliveries, so it must be
+// published before the parent Work decides whether its completion can settle.
+func finishTask(ctx context.Context, q *sqlgen.Queries, t *CollaborationTask, status string) error {
+	var notice, message string
+	switch status {
+	case "completed":
+		t.PublishedCommit, t.Error = t.CheckpointCommit, ""
+		notice, message = "task_finished", "Collaboration completed. "+t.Summary
+	case "interrupted":
+		notice, message = "task_attention", t.Error
+	case "cancelled":
+	default:
+		return errors.New("invalid terminal collaboration status: " + status)
+	}
+	t.Status = status
+	if err := saveTask(ctx, q, t); err != nil {
+		return err
+	}
+	if notice != "" {
+		if err := publishTaskNotice(ctx, q, *t, notice, message); err != nil {
+			return err
+		}
+	}
+	return recordWorkTaskResult(ctx, q, *t)
+}
+
+// The caller has authorized cancellation for this Task or its owning Work.
+func requestTaskCancellation(ctx context.Context, q *sqlgen.Queries, t *CollaborationTask, taskReason, runReason string) error {
+	if err := q.CloseTaskAutomationSubscriptions(ctx, t.ID); err != nil {
+		return err
+	}
+	if err := q.RetireCancelledAutomationEvents(ctx, t.ID); err != nil {
+		return err
+	}
+	t.Error = taskReason
+	if t.ActiveRunID == "" {
+		return finishTask(ctx, q, t, "cancelled")
+	}
+	// Queued Runs can finish synchronously. Persist the intent before asking
+	// the Run to stop, then return whichever state its cleanup reached.
+	t.Status = "cancelling"
+	if err := saveTask(ctx, q, t); err != nil {
+		return err
+	}
+	run, err := getRun(ctx, q, t.ActiveRunID)
+	if err != nil {
+		return err
+	}
+	if _, err = cancelRemoteRun(ctx, q, run, runReason); err != nil {
+		return err
+	}
+	*t, err = getTask(ctx, q, t.ID)
+	return err
 }
 
 func taskCanReconcile(t CollaborationTask) bool {
@@ -252,7 +308,7 @@ func (s *Store) ReconcileTask(ctx context.Context, id string) error {
 				if e = saveTask(ctx, q, &t); e != nil {
 					return e
 				}
-				return taskNotice(ctx, q, t, "task_attention", t.Error)
+				return publishTaskNotice(ctx, q, t, "task_attention", t.Error)
 			}
 			return nil
 		}
@@ -295,7 +351,7 @@ func (s *Store) ReconcileTask(ctx context.Context, id string) error {
 				if e = saveTask(ctx, q, &t); e != nil {
 					return e
 				}
-				return taskNotice(ctx, q, t, "task_attention", t.Error)
+				return publishTaskNotice(ctx, q, t, "task_attention", t.Error)
 			}
 			n, e := q.PublishResource(ctx, sqlgen.PublishResourceParams{ID: t.ResourceID, CurrentCommit: t.CheckpointCommit, CurrentCommit_2: t.BaseSharedCommit, UpdatedAt: now()})
 			if e != nil {
@@ -324,18 +380,7 @@ func (s *Store) ReconcileTask(ctx context.Context, id string) error {
 				return e
 			}
 		}
-		t.Status = "completed"
-		t.PublishedCommit = t.CheckpointCommit
-		t.Error = ""
-		// Admit authorized final deliveries before the parent checks whether all
-		// effects are confirmed. The notice and accepted result commit together.
-		if e = taskNotice(ctx, q, t, "task_finished", "Collaboration completed. "+t.Summary); e != nil {
-			return e
-		}
-		if e = saveTask(ctx, q, &t); e != nil {
-			return e
-		}
-		return nil
+		return finishTask(ctx, q, &t, "completed")
 	})
 }
 
@@ -379,7 +424,7 @@ func revokeTasks(ctx context.Context, q *sqlgen.Queries, reason string, matches 
 		if e = saveTask(ctx, q, &t); e != nil {
 			return e
 		}
-		if e = taskNotice(ctx, q, t, "task_attention", reason); e != nil {
+		if e = publishTaskNotice(ctx, q, t, "task_attention", reason); e != nil {
 			return e
 		}
 	}

@@ -69,7 +69,7 @@ func validateProjectSettings(ctx context.Context, q *sqlgen.Queries, p orchestra
 		if p.CompletionMode != "automatic" {
 			return problem("invalid_project", "GitHub delivery requires automatic completion.")
 		}
-		if _, _, err = validateGitHubDelivery(ctx, q, orchestration.WorkItem{OwnerUserID: actorID(ctx), Budget: p.Budget}, p.GitHubDelivery); err != nil {
+		if _, _, err = validateGitHubDelivery(ctx, q, actorID(ctx), p.Budget.MaxActions, p.GitHubDelivery); err != nil {
 			return err
 		}
 	}

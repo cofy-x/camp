@@ -85,11 +85,55 @@ func TestAutomaticWorkJudgmentAppliesOnlyAfterPublication(t *testing.T) {
 	}
 }
 
+func TestTaskPublicationRetriesAtomicallyWithItsParentResult(t *testing.T) {
+	s, actor, _, room, writer, _ := taskFixture(t)
+	work := createIntentWork(t, s, actor, room, writer, true)
+	task, err := s.GetTaskState(actor, work.ActiveTaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enableTaskInputs(t, s, task.Participants[0].RunnerID)
+	checkpoint := strings.Repeat("b", 40)
+	finishTaskTestRound(t, s, task, checkpoint, CoordinationIntent{CallID: newID(), Kind: "finish", Summary: "The brief is ready."})
+	if _, err = s.db.Exec(`CREATE TRIGGER reject_result BEFORE INSERT ON work_item_evidence WHEN NEW.kind='task.result'
+		BEGIN SELECT RAISE(ABORT,'injected result failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.ReconcileTask(ctx, task.ID); err == nil || !strings.Contains(err.Error(), "injected result failure") {
+		t.Fatalf("expected result recording to fail, got %v", err)
+	}
+	task, err = s.GetTaskState(actor, task.ID)
+	if err != nil || task.Status != "publishing" || task.PublishedCommit != "" {
+		t.Fatal("failed settlement left a terminal task", task.Status, task.PublishedCommit, err)
+	}
+	resource, err := s.queries().GetResource(ctx, task.ResourceID)
+	if err != nil || resource.CurrentCommit != task.BaseSharedCommit {
+		t.Fatal("failed settlement changed the shared file version", resource.CurrentCommit, err)
+	}
+	assertScalar(t, s, "SELECT count(*) FROM inbox WHERE kind='task_finished'", 0)
+	assertScalar(t, s, "SELECT count(*) FROM work_item_decisions WHERE json_extract(value,'$.kind')='allowance_released'", 0)
+	if _, err = s.db.Exec("DROP TRIGGER reject_result"); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err = s.ReconcileTask(ctx, task.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resource, err = s.queries().GetResource(ctx, task.ResourceID)
+	if err != nil || resource.CurrentCommit != checkpoint {
+		t.Fatal("retry did not publish the accepted checkpoint", resource.CurrentCommit, err)
+	}
+	assertScalar(t, s, "SELECT count(*) FROM inbox WHERE kind='task_finished'", 1)
+	assertScalar(t, s, "SELECT count(*) FROM work_item_evidence WHERE kind='task.result'", 1)
+	assertScalar(t, s, "SELECT count(*) FROM work_item_decisions WHERE json_extract(value,'$.kind')='allowance_released'", 1)
+}
+
 func TestAutomaticWorkWaitsForEveryReceiptWithoutReplayingOrOverwritingJudgment(t *testing.T) {
 	for _, change := range []string{"none", "human-wait", "context", "expiry"} {
 		t.Run(change, func(t *testing.T) {
 			s, actor, w, task, _ := workActionFixtureWithMode(t, "automatic")
-			if w.Status != "waiting" || w.PendingCompletion == nil {
+			if w.Status != "waiting" || w.PendingCompletion == nil || !w.AwaitingDelivery {
 				t.Fatal("completion ignored queued final deliveries", w)
 			}
 			claimed := []orchestration.Delivery{}
@@ -112,9 +156,22 @@ func TestAutomaticWorkWaitsForEveryReceiptWithoutReplayingOrOverwritingJudgment(
 					t.Fatal(err)
 				}
 			}
+			assertWaiting := func(want bool) {
+				t.Helper()
+				current, err := s.GetCurrentWorkItem(actor, w.ID)
+				if err != nil || current.AwaitingDelivery != want {
+					t.Fatalf("current awaitingDelivery = %t, want %t, err = %v", current.AwaitingDelivery, want, err)
+				}
+				page, err := s.ListWorkItems(actor, WorkListOptions{View: "all", RoomID: w.RoomID})
+				if err != nil || len(page.Items) != 1 || page.Items[0].ID != w.ID || page.Items[0].AwaitingDelivery != want {
+					t.Fatal("Work list disagreed with current detail", page.Items, err)
+				}
+			}
+			assertWaiting(change == "none")
 			for index := range claimed {
 				completeTestWorkAction(t, s, &claimed[index], "sent", int64(700+index))
 				if index == 0 {
+					assertWaiting(change == "none")
 					current, _ := s.GetWorkItem(actor, w.ID)
 					if current.Status == "completed" {
 						t.Fatal("the first receipt closed a two-destination matter")
@@ -125,6 +182,7 @@ func TestAutomaticWorkWaitsForEveryReceiptWithoutReplayingOrOverwritingJudgment(
 			if err != nil {
 				t.Fatal(err)
 			}
+			assertWaiting(false)
 			if change == "none" {
 				if current.Status != "completed" || current.PendingCompletion != nil {
 					t.Fatal(current)

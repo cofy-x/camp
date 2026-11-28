@@ -448,32 +448,7 @@ func stopWorkItem(ctx context.Context, q *sqlgen.Queries, w orchestration.WorkIt
 		if e = workManager(ctx, q, w); e != nil {
 			return w, e
 		}
-		if e = q.CloseTaskAutomationSubscriptions(ctx, t.ID); e != nil {
-			return w, e
-		}
-		if e = q.RetireCancelledAutomationEvents(ctx, t.ID); e != nil {
-			return w, e
-		}
-		t.Status, t.Error = "cancelling", "Stopped with its parent matter."
-		if e = saveTask(ctx, q, &t); e != nil {
-			return w, e
-		}
-		if t.ActiveRunID != "" {
-			r, e := getRun(ctx, q, t.ActiveRunID)
-			if e != nil {
-				return w, e
-			}
-			if _, e = cancelRemoteRun(ctx, q, r, reason); e != nil {
-				return w, e
-			}
-			t, e = getTask(ctx, q, t.ID)
-			if e != nil {
-				return w, e
-			}
-		} else {
-			t.Status = "cancelled"
-		}
-		if e = saveTask(ctx, q, &t); e != nil {
+		if e = requestTaskCancellation(ctx, q, &t, "Stopped with its parent matter.", reason); e != nil {
 			return w, e
 		}
 		if e = recordTaskAdmission(ctx, q, t, orchestration.TaskCancel, orchestration.RequestRef{Scope: "work-item:" + w.ID, ID: request, Hash: hash}, t.OriginMessageID); e != nil {

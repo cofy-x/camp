@@ -1,18 +1,13 @@
 package orchestration
 
-// WorkItem owns a matter across finite execution grants. Its state and evidence
-// never constitute an execution capability.
-type WorkItem struct {
-	CurrentDecision             *WorkCurrentDecision   `json:"currentDecision"`
+// WorkItemState holds the durable facts about a matter across finite execution grants.
+type WorkItemState struct {
 	ProjectRevision             int64                  `json:"projectRevision,omitempty"`
-	GitHubDelivery              *GitHubDelivery        `json:"githubDelivery,omitempty"`
 	QuestionKind                WorkQuestionKind       `json:"questionKind,omitempty"`
 	WorkRecovery                *WorkRecovery          `json:"workRecovery,omitempty"`
 	RecoveryLimit               string                 `json:"-"`
 	ObservedAuthorizationExpiry string                 `json:"-"`
 	StopRequested               bool                   `json:"stopRequested,omitempty"`
-	Execution                   *WorkExecution         `json:"execution,omitempty"`
-	Result                      *WorkResult            `json:"result,omitempty"`
 	CompletionMode              string                 `json:"completionMode"`
 	PendingCompletion           *PendingWorkCompletion `json:"pendingCompletion,omitempty"`
 	DueAt                       string                 `json:"dueAt,omitempty"`
@@ -34,15 +29,26 @@ type WorkItem struct {
 	Deadline                    string                 `json:"deadline"`
 	Budget                      WorkBudget             `json:"budget"`
 	Usage                       WorkUsage              `json:"usage"`
-	Evidence                    []WorkEvidence         `json:"evidence"`
-	Decisions                   []WorkDecision         `json:"decisions"`
-	Tasks                       []WorkTask             `json:"tasks"`
-	Timers                      []WorkTimer            `json:"timers"`
-	Actions                     []WorkAction           `json:"actions"`
-	Watches                     []WorkWatch            `json:"watches"`
-	HistoryLimited              bool                   `json:"historyLimited,omitempty"`
 	CreatedAt                   string                 `json:"createdAt"`
 	UpdatedAt                   string                 `json:"updatedAt"`
+}
+
+// WorkItem adds the current view and bounded history returned to readers.
+// A mutation receipt freezes this view at the accepted revision.
+type WorkItem struct {
+	WorkItemState
+	AwaitingDelivery bool                 `json:"awaitingDelivery,omitempty"`
+	CurrentDecision  *WorkCurrentDecision `json:"currentDecision"`
+	GitHubDelivery   *GitHubDelivery      `json:"githubDelivery,omitempty"`
+	Execution        *WorkExecution       `json:"execution,omitempty"`
+	Result           *WorkResult          `json:"result,omitempty"`
+	Evidence         []WorkEvidence       `json:"evidence"`
+	Decisions        []WorkDecision       `json:"decisions"`
+	Tasks            []WorkTask           `json:"tasks"`
+	Timers           []WorkTimer          `json:"timers"`
+	Actions          []WorkAction         `json:"actions"`
+	Watches          []WorkWatch          `json:"watches"`
+	HistoryLimited   bool                 `json:"historyLimited,omitempty"`
 }
 
 type WorkRecoveryKind string

@@ -87,8 +87,9 @@ export function useWorkAction({
               : savedIntent
         : '';
   const intent =
-    !hasQuestion &&
-    (selectedIntent === 'answer' || selectedIntent === 'answer_continue')
+    (item.awaitingDelivery && selectedIntent === 'complete') ||
+    (!hasQuestion &&
+      (selectedIntent === 'answer' || selectedIntent === 'answer_continue'))
       ? ''
       : selectedIntent;
   const content = values.content ?? '';

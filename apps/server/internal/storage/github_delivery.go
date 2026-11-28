@@ -56,12 +56,12 @@ func populateGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestra
 	w.GitHubDelivery = &d
 	return nil
 }
-func validateGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w orchestration.WorkItem, spec *orchestration.GitHubDeliverySpec) (orchestration.GitHubRepository, int, error) {
+func validateGitHubDelivery(ctx context.Context, q *sqlgen.Queries, ownerID string, remainingActions int, spec *orchestration.GitHubDeliverySpec) (orchestration.GitHubRepository, int, error) {
 	row, e := q.GitHubRepository(ctx, spec.ConnectionID)
 	if e != nil {
 		return orchestration.GitHubRepository{}, 0, missing(e, "The repository connection")
 	}
-	if row.OwnerUserID != w.OwnerUserID || row.OwnerUserID != actorID(ctx) || row.Enabled == 0 {
+	if row.OwnerUserID != ownerID || row.OwnerUserID != actorID(ctx) || row.Enabled == 0 {
 		return orchestration.GitHubRepository{}, 0, problem("forbidden", "Choose your own enabled repository connection.")
 	}
 	if row.Revision != spec.ConnectionRevision {
@@ -99,7 +99,7 @@ func validateGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w orchestrat
 	if spec.WaitForDeployment && connection.DeploymentWorkflowID < 1 {
 		return orchestration.GitHubRepository{}, 0, problem("invalid_delivery", "Configure the deployment workflow first.")
 	}
-	if w.Usage.Actions+effects > w.Budget.MaxActions {
+	if effects > remainingActions {
 		return orchestration.GitHubRepository{}, 0, problem("work_budget_exhausted", "The delivery exceeds this matter's finite external action allowance.")
 	}
 	if spec.MaxRepairs < 0 || spec.MaxRepairs > 3 || (spec.MaxRepairs > 0 && spec.Mode == "pr") {
@@ -118,7 +118,7 @@ func authorizeGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestr
 	if w.CompletionMode != "automatic" {
 		return problem("invalid_delivery", "GitHub delivery needs automatic completion.")
 	}
-	connection, effects, e := validateGitHubDelivery(ctx, q, *w, spec)
+	connection, effects, e := validateGitHubDelivery(ctx, q, w.OwnerUserID, w.Budget.MaxActions-w.Usage.Actions, spec)
 	if e != nil {
 		return e
 	}
@@ -330,7 +330,7 @@ func (s *Store) ClaimGitHubDelivery(ctx context.Context) (out *GitHubDeliveryCla
 					}
 					continue
 				}
-				current, e := pendingWorkCompletionCurrent(ctx, q, &w)
+				current, e := validatePendingWorkCompletion(ctx, q, &w)
 				if e != nil {
 					return e
 				}
@@ -406,7 +406,7 @@ func (s *Store) CompleteGitHubDelivery(ctx context.Context, id string, revision 
 		if e != nil {
 			return e
 		}
-		current, e := pendingWorkCompletionCurrent(ctx, q, &w)
+		current, e := validatePendingWorkCompletion(ctx, q, &w)
 		if e != nil {
 			return e
 		}
@@ -464,23 +464,8 @@ func (s *Store) CompleteGitHubDelivery(ctx context.Context, id string, revision 
 		if e = insertWorkFact(ctx, q, &w, ev); e != nil {
 			return e
 		}
-		if d.Status == "succeeded" {
-			proposal := w.PendingCompletion
-			completed, e := finalizeWorkItem(ctx, q, &w, proposal.Reason, true)
-			if e != nil {
-				return e
-			}
-			if completed {
-				w.PendingCompletion = nil
-				if e = appendWorkDecision(ctx, q, w, orchestration.WorkDecision{Kind: "complete", Reason: proposal.Reason, ActorKind: "system", ActorID: "confirmed-receipts", TaskID: proposal.TaskID, EvidenceIDs: []string{id}}); e != nil {
-					return e
-				}
-			}
-		}
-		if w.PendingCompletion != nil {
-			if e = advanceWorkCompletionFrontier(ctx, q, &w); e != nil {
-				return e
-			}
+		if e = settleWorkCompletionReceipt(ctx, q, &w, id, d.Status == "succeeded"); e != nil {
+			return e
 		}
 		return saveWorkItem(ctx, q, &w)
 	})
@@ -519,7 +504,7 @@ func (s *Store) CheckGitHubDelivery(ctx context.Context, workID string, revision
 		if w.PendingCompletion != nil && !w.StopRequested && !workTerminal(w) {
 			originalStatus := w.Status
 			w.Status = "waiting"
-			current, e := pendingWorkCompletionCurrent(ctx, q, &w)
+			current, e := validatePendingWorkCompletion(ctx, q, &w)
 			if e != nil {
 				return e
 			}
@@ -594,7 +579,7 @@ func retryGitHubDelivery(ctx context.Context, q *sqlgen.Queries, w *orchestratio
 		return e
 	}
 	w.Status = "waiting"
-	current, e := pendingWorkCompletionCurrent(ctx, q, w)
+	current, e := validatePendingWorkCompletion(ctx, q, w)
 	if e != nil {
 		return e
 	}

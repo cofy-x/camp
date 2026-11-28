@@ -201,9 +201,9 @@ func attentionWorkDecision(row sqlgen.AttentionPageRow) (*orchestration.WorkCurr
 	if row.Source != "work_item" || row.Kind != "judgment" {
 		return nil, nil
 	}
-	w := orchestration.WorkItem{
+	w := orchestration.WorkItem{WorkItemState: orchestration.WorkItemState{
 		Status: row.Status, Question: row.DecisionQuestion, QuestionKind: orchestration.WorkQuestionKind(row.DecisionQuestionKind), ActiveTaskID: row.DecisionActiveTaskID,
-	}
+	}}
 	if row.DecisionExecution != "" {
 		if err := json.Unmarshal([]byte(row.DecisionExecution), &w.Execution); err != nil {
 			return nil, err
@@ -213,7 +213,7 @@ func attentionWorkDecision(row sqlgen.AttentionPageRow) (*orchestration.WorkCurr
 }
 
 func attentionWorkRecovery(row sqlgen.AttentionPageRow) (*orchestration.WorkRecovery, error) {
-	w := orchestration.WorkItem{ID: row.WorkItemID, Status: row.Status, Question: row.WorkQuestion, Deadline: row.WorkDeadline}
+	w := orchestration.WorkItem{WorkItemState: orchestration.WorkItemState{ID: row.WorkItemID, Status: row.Status, Question: row.WorkQuestion, Deadline: row.WorkDeadline}}
 	if row.WorkDeadline != "" {
 		if recovery := expiredWorkRecovery(w); recovery != nil {
 			return recovery, nil

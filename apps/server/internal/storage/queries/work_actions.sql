@@ -19,3 +19,8 @@ WHERE a.work_item_id=? AND a.kind='github.comment' AND a.delivery_id<>'' AND (
   AND EXISTS(SELECT 1 FROM json_each(d.value,'$.attempts') attempt WHERE json_extract(attempt.value,'$.outcome') IN ('unknown','sending'))
  )
 );
+-- name: WorkCompletionFrontier :one
+SELECT u.enabled AS owner_enabled,
+  CAST(coalesce((SELECT max(e.seq) FROM work_item_evidence e WHERE e.work_item_id=sqlc.arg(work_item_id)),0) AS INTEGER) AS evidence_through,
+  CAST(coalesce((SELECT max(d.seq) FROM work_item_decisions d WHERE d.work_item_id=sqlc.arg(work_item_id)),0) AS INTEGER) AS decisions_through
+FROM users u WHERE u.id=sqlc.arg(owner_user_id);

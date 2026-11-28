@@ -51,14 +51,11 @@ func workActionFixtureWithMode(t *testing.T, mode string, criteria ...string) (*
 			return err
 		}
 		// Exercise the durable terminal-task owner without a native/model call.
-		task.Status, task.ActiveRunID, task.ActiveAttemptID, task.Summary = "completed", "", "", "The document is ready."
+		task.ActiveRunID, task.ActiveAttemptID, task.Summary = "", "", "The document is ready."
 		if mode == "automatic" {
 			task.WorkItemCompletion = &WorkItemCompletion{CriteriaMet: true, Reason: "The saved document meets the criteria; its configured delivery receipts must settle."}
 		}
-		if err := queueAutomationTaskNotice(ctx, q, task, "task_finished", task.Summary); err != nil {
-			return err
-		}
-		if err := saveTask(ctx, q, &task); err != nil {
+		if err := finishTask(ctx, q, &task, "completed"); err != nil {
 			return err
 		}
 		// This test begins after the task-result assessment and follows Actions.
@@ -123,7 +120,7 @@ func TestWorkActionResultsFreezeReceiptsAndReassessBeforeCompletion(t *testing.T
 	var pending bool
 	if err = s.readTransaction(ctx, func(tx *sql.Tx) error {
 		var e error
-		pending, e = workCompletionPending(ctx, sqlgen.New(tx), w)
+		pending, e = hasUnsettledWorkDeliveries(ctx, sqlgen.New(tx), w.ID)
 		return e
 	}); err != nil || !pending {
 		t.Fatal("partial delivery allowed completion", pending, err)

@@ -18,7 +18,7 @@ The compatibility Room Run list reads full snapshots in one batch and adds live 
 
 Library lists Resources and their display provenance in one query. Private draft metadata starts after the Library list and resumes from its shared read scope when leaving the editor. Shared-version comparison reads the selected Resource directly.
 
-Personal project settings extend the existing one-Room Work defaults read; never add a fetch per Room to the desktop or Work list. Project changes invalidate only matching scoped proposals, while submitted drafts retain their frozen revision. Accepted source ledgers and repair diagnostics are not loaded into list projections.
+Personal project settings extend the existing one-Room Work defaults read; never add a fetch per Room to the desktop or Work list. Project changes invalidate only matching scoped proposals, while submitted drafts retain their frozen revision. Accepted source ledgers and repair diagnostics are not loaded into list projections. Work list and detail reads check a retained completion using the owner and the latest indexed evidence and decision sequence for that matter. Ordinary items skip this lookup.
 
 Work checks Runner access only while proposing a finite execution. Key the advisory read by the Room, selected Agents and completion mode. Goal and instruction editing reuse the accepted result. Relevant route, membership and grant changes revalidate the proposal through the shared read store.
 

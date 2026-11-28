@@ -191,6 +191,7 @@ export function WorkItemActions({
       {!readOnly &&
         view === 'overview' &&
         !recoveryActive &&
+        !item.awaitingDelivery &&
         !intent &&
         !hasQuestion &&
         item.status !== 'stopping' && (
@@ -553,6 +554,10 @@ export function WorkItemActions({
       )}
       {draft.value &&
         (readOnly ||
+          (item.awaitingDelivery &&
+            savedIntent === 'complete' &&
+            comment &&
+            (view === 'overview' || section === 'complete')) ||
           (view === 'overview' &&
             (!hasQuestion || completionQuestion) &&
             content &&
