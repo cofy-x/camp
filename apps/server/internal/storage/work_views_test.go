@@ -12,6 +12,36 @@ import (
 	"github.com/cofy-x/camp/apps/server/internal/storage/internal/sqlgen"
 )
 
+func TestWorkSnapshotSeparatesSavedStateFromOriginalResponse(t *testing.T) {
+	// Older snapshots included empty history fields. A retained response can
+	// also contain the view as it looked when the command was accepted.
+	legacy := `{"goal":"Deliver the brief","deadline":"2028-01-01T00:00:00Z","evidence":null,"actions":[],"execution":{"taskId":"previous"},"currentDecision":null}`
+	w, err := workItemRow(sqlgen.WorkItem{ID: "matter", Status: "waiting", Revision: 2, Value: legacy})
+	if err != nil || w.Goal != "Deliver the brief" || w.ExpiresAt != "2028-01-01T00:00:00Z" || w.Execution != nil {
+		t.Fatal(w, err)
+	}
+	w.CompletionWait = orchestration.WorkWaitForDelivery
+	w.Result = &orchestration.WorkResult{TaskID: "original"}
+	w.HistoryLimited = true
+	raw, err := workItemSnapshot(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"completionWait", "execution", "result", "currentDecision", "githubDelivery", "historyLimited", "evidence", "decisions", "tasks", "timers", "actions", "watches"} {
+		if _, exists := fields[key]; exists {
+			t.Fatalf("display field %q entered the durable Work state", key)
+		}
+	}
+	receipt, err := readWorkReceipt(legacy)
+	if err != nil || receipt.Execution == nil || receipt.Execution.TaskID != "previous" || receipt.CompletionWait != "" {
+		t.Fatal("legacy receipt lost its original view", receipt, err)
+	}
+}
+
 func TestWorkCurrentDecisionSharesQuestionAndCompletionAcrossReads(t *testing.T) {
 	s, owner, teammate, room, writer, _ := taskFixture(t)
 	work, err := s.CreateWorkItem(owner, room.ID, orchestration.WorkItemInput{

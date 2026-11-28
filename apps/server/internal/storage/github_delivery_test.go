@@ -68,6 +68,30 @@ func completeDeliveryStage(t *testing.T, s *Store, claim *GitHubDeliveryClaim, s
 		t.Fatal("receipt replay did not resolve a lost database response", e)
 	}
 }
+func TestConfirmedWorkStillNeedsAResultBeforeGitHubDelivery(t *testing.T) {
+	s, actor, previous, repo := deliveryFixture(t)
+	tracked, err := s.CreateWorkItem(actor, previous.RoomID, orchestration.WorkItemInput{
+		RequestID: newID(), Goal: "Track another release", CompletionMode: "automatic",
+		GitHubDelivery: &orchestration.GitHubDeliverySpec{ConnectionID: repo.ID, ConnectionRevision: repo.Revision, BaseBranch: "main", Mode: "pr"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirmed := decideTestWork(t, s, actor, tracked, orchestration.WorkItemOperation{Kind: "complete"})
+	if confirmed.Status != "waiting" || confirmed.PendingCompletion == nil || confirmed.GitHubDelivery == nil || confirmed.GitHubDelivery.Status != "waiting_result" || confirmed.CompletionWait != orchestration.WorkWaitForResult {
+		t.Fatal("Work advertised a receipt before a result could be delivered", confirmed)
+	}
+	page, err := s.ListWorkItems(actor, WorkListOptions{View: "all", RoomID: tracked.RoomID})
+	if err != nil || len(page.Items) != 2 || page.Items[0].ID != tracked.ID || page.Items[0].CompletionWait != orchestration.WorkWaitForResult || page.Items[1].CompletionWait != orchestration.WorkWaitForDelivery {
+		t.Fatal("Work list confused a configured delivery and a queued delivery", page, err)
+	}
+	agentID := previous.GitHubDelivery.FirstAgentID
+	started := decideTestWork(t, s, actor, confirmed, orchestration.WorkItemOperation{Kind: "execute", ParticipantAgentIDs: []string{agentID}, FirstAgentID: agentID})
+	if started.ActiveTaskID == "" || started.PendingCompletion != nil || started.CompletionWait != "" {
+		t.Fatal("an explicit execution grant must start work and supersede its earlier acceptance", started)
+	}
+}
+
 func TestGitHubDeliveryCompletesOnlyAfterEveryConfirmedEffect(t *testing.T) {
 	s, actor, w, _ := deliveryFixture(t)
 	for _, stage := range []string{"branch", "pull_request", "checks", "merge", "release"} {

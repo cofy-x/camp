@@ -30,6 +30,8 @@ const actionLabels = {
 
 export function WorkItemRecords({
   item,
+  category,
+  onCategoryChange,
   active,
   earlierResult,
   hasQuestion,
@@ -37,17 +39,18 @@ export function WorkItemRecords({
   onOpenTask,
 }: {
   item: WorkItem;
+  category: string;
+  onCategoryChange: (category: string) => void;
   active: boolean;
   earlierResult: boolean;
   hasQuestion: boolean;
   refreshKey: number;
   onOpenTask: (id: string) => void;
 }) {
-  const [history, setHistory] = useState('decisions');
   const [filesOpen, setFilesOpen] = useState(false);
   const hasEarlierFiles = (hasQuestion || earlierResult) && item.result;
-  const contextActive = active && history === 'evidence';
-  const remindersActive = active && history === 'timers';
+  const contextActive = active && category === 'evidence';
+  const remindersActive = active && category === 'timers';
 
   function executionAction(taskId?: string) {
     return (
@@ -69,14 +72,14 @@ export function WorkItemRecords({
       <Tabs
         label="Record categories"
         tabs={tabs}
-        value={history}
-        onChange={setHistory}
+        value={category}
+        onChange={onCategoryChange}
         variant="flat"
       >
         <WorkItemHistory
           itemId={item.id}
           kind="decisions"
-          active={active && history === 'decisions'}
+          active={active && category === 'decisions'}
           title={categories.decisions}
           refreshKey={refreshKey}
           render={(decision) => {
@@ -132,7 +135,7 @@ export function WorkItemRecords({
         <WorkItemHistory
           itemId={item.id}
           kind="tasks"
-          active={active && history === 'tasks'}
+          active={active && category === 'tasks'}
           title={categories.tasks}
           refreshKey={refreshKey}
           render={(task) => (
@@ -175,7 +178,7 @@ export function WorkItemRecords({
         <WorkItemHistory
           itemId={item.id}
           kind="actions"
-          active={active && history === 'actions'}
+          active={active && category === 'actions'}
           title={categories.actions}
           refreshKey={refreshKey}
           render={(action) => (

@@ -74,6 +74,7 @@ export function WorkItemDetail({
   const item = error && !itemRead.data ? null : acceptedItem;
   const [retry, setRetry] = useState(0);
   const backButton = useRef<HTMLButtonElement>(null);
+  const [recordCategory, setRecordCategory] = useState('decisions');
   const [viewSelection, setViewSelection] = useState({
     request: initialRequest,
     view: 'overview',
@@ -194,6 +195,12 @@ export function WorkItemDetail({
   const overviewFallback = item
     ? workItemOverviewFallback(item, Boolean(editable))
     : null;
+
+  function openRecords(category?: string) {
+    if (category) setRecordCategory(category);
+    setView('records');
+    backButton.current?.focus();
+  }
 
   function manage(section: string) {
     setViewSelection({ request: initialRequest, view: 'manage', section });
@@ -326,6 +333,7 @@ export function WorkItemDetail({
           action: () => manage('changes'),
         });
       if (
+        !item.completionWait &&
         question?.kind !== 'completion' &&
         (!item.result || item.completionMode !== 'human')
       )
@@ -365,10 +373,7 @@ export function WorkItemDetail({
     if (selectedView !== 'records')
       items.push({
         label: 'Records',
-        action: () => {
-          setView('records');
-          backButton.current?.focus();
-        },
+        action: () => openRecords(),
       });
     if (onOpenRoom) items.push({ label: 'Open Room', action: onOpenRoom });
     items.push({
@@ -464,7 +469,11 @@ export function WorkItemDetail({
               <div className="work-detail-title-line">
                 <h2>{title}</h2>
                 {showStatus && (
-                  <span className="work-detail-status" data-state={item.status}>
+                  <span
+                    className="work-detail-status"
+                    data-state={item.status}
+                    role="status"
+                  >
                     {displayStatus}
                     {workAgent && ` · ${workAgent}`}
                   </span>
@@ -517,13 +526,25 @@ export function WorkItemDetail({
                   )}
                 </div>
               )}
-              {!question && !item.githubDelivery && item.waitCondition && (
-                <p className="work-item-wait">
-                  {item.waitCondition}
-                  {waitingTimer &&
-                    ` · ${item.policyId ? 'Follow-up' : 'Reminder'} ${stamp(waitingTimer.dueAt)}`}
-                </p>
-              )}
+              {item.completionWait === 'delivery' &&
+                (!item.githubDelivery ||
+                  ['succeeded', 'stopped'].includes(
+                    item.githubDelivery.status,
+                  )) && (
+                  <Button variant="text" onClick={() => openRecords('actions')}>
+                    View delivery records
+                  </Button>
+                )}
+              {!question &&
+                !item.githubDelivery &&
+                !item.completionWait &&
+                item.waitCondition && (
+                  <p className="work-item-wait">
+                    {item.waitCondition}
+                    {waitingTimer &&
+                      ` · ${item.policyId ? 'Follow-up' : 'Reminder'} ${stamp(waitingTimer.dueAt)}`}
+                  </p>
+                )}
               {!question && summary && summary !== item.result?.summary && (
                 <Report
                   content={summary}
@@ -587,6 +608,8 @@ export function WorkItemDetail({
             />
             <WorkItemRecords
               item={item}
+              category={recordCategory}
+              onCategoryChange={setRecordCategory}
               active={active && selectedView === 'records'}
               hasQuestion={Boolean(question)}
               earlierResult={earlierResult}

@@ -10,7 +10,7 @@ import type { WorkOperation } from './useWorkItemOperation';
 import type { WorkItem } from './api';
 import { workDeliveryActive } from './presentation';
 import { useWorkAction } from './useWorkAction';
-import { legacyWorkIntent } from './workActionDraft';
+import { legacyWorkIntent, workActionDraftPreview } from './workActionDraft';
 
 export function WorkItemActions({
   item,
@@ -113,6 +113,7 @@ export function WorkItemActions({
     recoveryActive,
     readOnly,
   });
+  const savedInput = workActionDraftPreview(draft.value);
   const editingAllowance =
     view === 'manage' && ['allowance', 'model-allowance'].includes(section);
   return (
@@ -127,12 +128,7 @@ export function WorkItemActions({
         !(readOnly && (draft.value || allowanceDraft))
       }
     >
-      <DraftRecovery
-        draft={draft}
-        preview={(value) =>
-          value?.content ?? value?.comment ?? value?.reason ?? ''
-        }
-      />
+      <DraftRecovery draft={draft} preview={workActionDraftPreview} />
       {view === 'overview' && question && (
         <section
           className="work-item-question"
@@ -191,6 +187,7 @@ export function WorkItemActions({
       {!readOnly &&
         view === 'overview' &&
         !recoveryActive &&
+        item.completionWait !== 'delivery' &&
         !intent &&
         !hasQuestion &&
         item.status !== 'stopping' && (
@@ -204,15 +201,18 @@ export function WorkItemActions({
                 Start work…
               </Button>
             )}
-            {!active && item.result && item.completionMode === 'human' && (
-              <Button
-                primary
-                disabled={disabled}
-                onClick={() => choose('complete')}
-              >
-                Mark done…
-              </Button>
-            )}
+            {!active &&
+              item.result &&
+              !item.completionWait &&
+              item.completionMode === 'human' && (
+                <Button
+                  primary
+                  disabled={disabled}
+                  onClick={() => choose('complete')}
+                >
+                  Mark done…
+                </Button>
+              )}
           </div>
         )}
       {!readOnly && intent && (
@@ -551,8 +551,12 @@ export function WorkItemActions({
           </div>
         </form>
       )}
-      {draft.value &&
+      {savedInput &&
         (readOnly ||
+          (item.completionWait &&
+            savedIntent === 'complete' &&
+            comment &&
+            (view === 'overview' || section === 'complete')) ||
           (view === 'overview' &&
             (!hasQuestion || completionQuestion) &&
             content &&
@@ -560,13 +564,7 @@ export function WorkItemActions({
               savedIntent === 'answer_continue'))) && (
           <section aria-label="Your saved input">
             <p>Your saved input</p>
-            <pre>
-              {values.content ||
-                comment ||
-                values.waitCondition ||
-                values.question ||
-                (values.evidenceIds ?? []).join('\n')}
-            </pre>
+            <pre>{savedInput}</pre>
           </section>
         )}
       {(allowanceProblem || (readOnly && allowanceDraft)) &&

@@ -148,6 +148,14 @@ test('recording opens the confirmed Work while its detail refreshes', async ({
 test('starting opens queued progress from the confirmed receipt before reading detail', async ({
   page,
 }, info) => {
+  // Workspace reads this shared status as soon as the desktop opens.
+  await page.route('**/api/workspace/status', async (route) => {
+    const response = await route.fetch();
+    return route.fulfill({
+      response,
+      json: { ...(await response.json()), available: true, reason: '' },
+    });
+  });
   await signIn(page);
   const room = await createRoom(
     page,
@@ -178,9 +186,6 @@ test('starting opens queued progress from the confirmed receipt before reading d
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route('**/api/workspace/status', (route) =>
-    route.fulfill({ json: { available: true } }),
-  );
   await page.route(`**/api/rooms/${room.id}/work-execution?*`, (route) =>
     route.fulfill({ json: {} }),
   );

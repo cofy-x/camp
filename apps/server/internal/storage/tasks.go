@@ -100,9 +100,6 @@ func saveTask(ctx context.Context, q *sqlgen.Queries, t *CollaborationTask) erro
 	if err = q.SaveTask(ctx, sqlgen.SaveTaskParams{ID: t.ID, Status: t.Status, Revision: t.Revision, Snapshot: string(raw), UpdatedAt: t.UpdatedAt}); err != nil {
 		return err
 	}
-	if err = syncWorkItemTask(ctx, q, *t); err != nil {
-		return err
-	}
 	return event(ctx, q, "task.updated", t.RoomID, t.ID)
 }
 func taskReceipt(ctx context.Context, q *sqlgen.Queries, scope, request string, in any) (CollaborationTask, bool, string, error) {
@@ -503,37 +500,16 @@ func (s *Store) operateTask(ctx context.Context, id, action string, in TaskOpera
 			if e = taskManage(ctx, q, out); e != nil {
 				return e
 			}
-			if e = q.CloseTaskAutomationSubscriptions(ctx, out.ID); e != nil {
+			if e = requestTaskCancellation(ctx, q, &out, "Cancellation requested.", "Collaboration cancelled by its requester or an administrator."); e != nil {
 				return e
-			}
-			if e = q.RetireCancelledAutomationEvents(ctx, out.ID); e != nil {
-				return e
-			}
-			out.Status = "cancelling"
-			out.Error = "Cancellation requested."
-			if e = saveTask(ctx, q, &out); e != nil {
-				return e
-			}
-			if out.ActiveRunID != "" {
-				r, e := getRun(ctx, q, out.ActiveRunID)
-				if e != nil {
-					return e
-				}
-				if _, e = cancelRemoteRun(ctx, q, r, "Collaboration cancelled by its requester or an administrator."); e != nil {
-					return e
-				}
-				out, e = getTask(ctx, q, id)
-				if e != nil {
-					return e
-				}
-			} else {
-				out.Status = "cancelled"
 			}
 		default:
 			return problem("invalid_task", "Unknown collaboration operation.")
 		}
-		if e = saveTask(ctx, q, &out); e != nil {
-			return e
+		if action != "cancel" {
+			if e = saveTask(ctx, q, &out); e != nil {
+				return e
+			}
 		}
 		if e = recordTaskAdmission(ctx, q, out, orchestration.Kind("task."+action), orchestration.RequestRef{Scope: scope, ID: in.RequestID, Hash: hash}, messageID); e != nil {
 			return e
@@ -574,7 +550,10 @@ func addTaskInput(ctx context.Context, q *sqlgen.Queries, t *CollaborationTask, 
 	t.InputBytes += int64(len(content))
 	return input.MessageID, nil
 }
-func taskNotice(ctx context.Context, q *sqlgen.Queries, t CollaborationTask, kind, text string) error {
+
+// publishTaskNotice records the Room and Inbox messages and admits any authorized
+// external deliveries for this transition in the same transaction.
+func publishTaskNotice(ctx context.Context, q *sqlgen.Queries, t CollaborationTask, kind, text string) error {
 	seq, e := q.NextMessageSequence(ctx, t.RoomID)
 	if e != nil {
 		return e

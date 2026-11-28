@@ -122,6 +122,31 @@ func (q *Queries) WorkActionSummaries(ctx context.Context, workItemID string) ([
 	return items, nil
 }
 
+const workCompletionFrontier = `-- name: WorkCompletionFrontier :one
+SELECT u.enabled AS owner_enabled,
+  CAST(coalesce((SELECT max(e.seq) FROM work_item_evidence e WHERE e.work_item_id=?1),0) AS INTEGER) AS evidence_through,
+  CAST(coalesce((SELECT max(d.seq) FROM work_item_decisions d WHERE d.work_item_id=?1),0) AS INTEGER) AS decisions_through
+FROM users u WHERE u.id=?2
+`
+
+type WorkCompletionFrontierParams struct {
+	WorkItemID  string
+	OwnerUserID string
+}
+
+type WorkCompletionFrontierRow struct {
+	OwnerEnabled     bool
+	EvidenceThrough  int64
+	DecisionsThrough int64
+}
+
+func (q *Queries) WorkCompletionFrontier(ctx context.Context, arg WorkCompletionFrontierParams) (WorkCompletionFrontierRow, error) {
+	row := q.db.QueryRowContext(ctx, workCompletionFrontier, arg.WorkItemID, arg.OwnerUserID)
+	var i WorkCompletionFrontierRow
+	err := row.Scan(&i.OwnerEnabled, &i.EvidenceThrough, &i.DecisionsThrough)
+	return i, err
+}
+
 const workPendingActions = `-- name: WorkPendingActions :one
 SELECT CAST(count(*) AS INTEGER) FROM work_item_actions a
 LEFT JOIN automation_deliveries d ON d.id=a.delivery_id

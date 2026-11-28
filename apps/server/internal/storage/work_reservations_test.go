@@ -125,7 +125,7 @@ func TestWorkReservationMigrationPreservesChargedUsageTasksAndReceipts(t *testin
 	if err != nil || w.Usage.ModelRequests != 5 || w.Usage.ReservedModelRequests != 5 {
 		t.Fatal("migration changed charged usage or retained unspendable capacity", w.Usage, err)
 	}
-	if err = s.transaction(ctx, func(tx *sql.Tx) error { return syncWorkItemTask(ctx, sqlgen.New(tx), task) }); err != nil {
+	if err = s.transaction(ctx, func(tx *sql.Tx) error { return recordWorkTaskResult(ctx, sqlgen.New(tx), task) }); err != nil {
 		t.Fatal(err)
 	}
 	w, _ = s.GetWorkItem(actor, w.ID)

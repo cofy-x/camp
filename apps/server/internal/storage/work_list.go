@@ -16,6 +16,7 @@ const workListPageBytes = 320 << 10
 
 // WorkListItem contains current navigation facts, never a grant or audit history.
 type WorkListItem struct {
+	CompletionWait  orchestration.WorkCompletionWait   `json:"completionWait,omitempty"`
 	CurrentDecision *orchestration.WorkCurrentDecision `json:"currentDecision"`
 	GitHubDelivery  *orchestration.GitHubDelivery      `json:"githubDelivery,omitempty"`
 	Seq             int64                              `json:"seq"`
@@ -156,7 +157,7 @@ func (s *Store) ListWorkItems(ctx context.Context, options WorkListOptions) (out
 			if err = populateWorkView(ctx, q, &item); err != nil {
 				return err
 			}
-			out.Items = append(out.Items, WorkListItem{CurrentDecision: item.CurrentDecision, GitHubDelivery: item.GitHubDelivery, Seq: item.Seq, ID: item.ID, RoomID: item.RoomID, RoomName: row.RoomName, OwnerUserID: item.OwnerUserID, Goal: item.Goal, Status: item.Status, Revision: item.Revision, DueAt: item.DueAt, Question: item.Question, QuestionKind: item.QuestionKind, WorkRecovery: item.WorkRecovery, ActiveTaskID: item.ActiveTaskID, Execution: item.Execution, Result: item.Result, NeedsYou: row.NeedsYou == 1, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt})
+			out.Items = append(out.Items, WorkListItem{CompletionWait: item.CompletionWait, CurrentDecision: item.CurrentDecision, GitHubDelivery: item.GitHubDelivery, Seq: item.Seq, ID: item.ID, RoomID: item.RoomID, RoomName: row.RoomName, OwnerUserID: item.OwnerUserID, Goal: item.Goal, Status: item.Status, Revision: item.Revision, DueAt: item.DueAt, Question: item.Question, QuestionKind: item.QuestionKind, WorkRecovery: item.WorkRecovery, ActiveTaskID: item.ActiveTaskID, Execution: item.Execution, Result: item.Result, NeedsYou: row.NeedsYou == 1, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt})
 			encoded, err := json.Marshal(out)
 			if err != nil {
 				return err

@@ -71,7 +71,7 @@ func recordWorkActionResult(ctx context.Context, q *sqlgen.Queries, d orchestrat
 	if err != nil {
 		return err
 	}
-	pendingCompletion, err := pendingWorkCompletionCurrent(ctx, q, &w)
+	pendingCompletion, err := validatePendingWorkCompletion(ctx, q, &w)
 	if err != nil {
 		return err
 	}
@@ -117,23 +117,8 @@ func recordWorkActionResult(ctx context.Context, q *sqlgen.Queries, d orchestrat
 		}
 	}
 	if pendingCompletion {
-		if confirmed {
-			proposal := w.PendingCompletion
-			completed, err := finalizeWorkItem(ctx, q, &w, proposal.Reason, true)
-			if err != nil {
-				return err
-			}
-			if completed {
-				w.PendingCompletion = nil
-				if err = appendWorkDecision(ctx, q, w, orchestration.WorkDecision{Kind: "complete", Reason: proposal.Reason, ActorKind: "system", ActorID: "confirmed-receipts", TaskID: proposal.TaskID, EvidenceIDs: []string{id}}); err != nil {
-					return err
-				}
-			}
-		}
-		if w.PendingCompletion != nil {
-			if err = advanceWorkCompletionFrontier(ctx, q, &w); err != nil {
-				return err
-			}
+		if err = settleWorkCompletionReceipt(ctx, q, &w, id, confirmed); err != nil {
+			return err
 		}
 	}
 	return saveWorkItem(ctx, q, &w)
@@ -199,59 +184,4 @@ func candidateWorkSummary(ctx context.Context, q *sqlgen.Queries, w orchestratio
 		summary.RecentDecisions = append(summary.RecentDecisions, decision)
 	}
 	return summary, nil
-}
-
-func workCompletionPending(ctx context.Context, q *sqlgen.Queries, w orchestration.WorkItem) (bool, error) {
-	count, err := q.WorkPendingActions(ctx, w.ID)
-	if err != nil {
-		return false, err
-	}
-	deliveries, err := q.GitHubDeliveryUnsettled(ctx, w.ID)
-	return count > 0 || deliveries > 0, err
-}
-
-// Completion remains a decision about the matter, with confirmed effects as a
-// deterministic precondition. Human and model callers share this rule. Callers
-// persist w and record whether completion succeeded or waits for action receipts.
-func completeWorkItem(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem, reason string) (bool, error) {
-	return finalizeWorkItem(ctx, q, w, reason, false)
-}
-
-// accepted is used only by receipt handling after the retained judgment's
-// evidence/decision frontiers and current owner have been revalidated.
-func finalizeWorkItem(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem, reason string, accepted bool) (bool, error) {
-	current, err := getWorkItem(ctx, q, w.ID)
-	if err != nil {
-		return false, err
-	}
-	if current.Revision != w.Revision {
-		return false, problem("revision_conflict", "The matter changed before completion.")
-	}
-	if workTerminal(current) {
-		return false, problem("work_item_finished", "This matter has already finished.")
-	}
-	if w.ActiveTaskID != "" {
-		return false, problem("task_busy", "Finish or cancel the active collaboration before completing its matter.")
-	}
-	if _, human := UserFromContext(ctx); !accepted && !human && (w.CompletionMode == "human" || w.CompletionCriteria == "") {
-		return false, requestWorkCompletionConfirmation(ctx, q, w)
-	}
-	pending, err := workCompletionPending(ctx, q, *w)
-	if err != nil {
-		return false, err
-	}
-	w.Question = ""
-	w.QuestionKind = ""
-	if err = q.CancelWorkTimers(ctx, w.ID); err != nil {
-		return false, err
-	}
-	if pending {
-		w.Status, w.WaitCondition = "waiting", "Waiting for confirmed external action delivery receipts."
-		return false, nil
-	}
-	w.Status, w.WaitCondition = "completed", ""
-	if err = workNotice(ctx, q, w, "work_item_finished", reason); err != nil {
-		return false, err
-	}
-	return true, nil
 }

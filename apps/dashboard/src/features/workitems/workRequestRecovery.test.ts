@@ -7,6 +7,7 @@ import {
 } from './workRequestRecovery';
 import {
   restoreWorkActionDraft,
+  workActionDraftPreview,
   workManagementForIntent,
 } from './workActionDraft';
 
@@ -46,6 +47,19 @@ describe('retained Work requests', () => {
     await submitRetainedWorkRequest(request);
     expect(decide).toHaveBeenCalledWith('matter', request.body);
     expect(confirmedWorkAction(request)).toBe('complete');
+  });
+
+  it('previews the completion note when an earlier private answer is still saved', () => {
+    const saved = {
+      revision: 3,
+      kind: 'complete',
+      reason: 'I checked the appendix.',
+      content: 'Previous answer',
+    };
+    expect(workActionDraftPreview(saved)).toBe(saved.reason);
+    expect(
+      workActionDraftPreview({ ...saved, intent: 'complete', comment: '' }),
+    ).toBe('');
   });
 
   it('retains authored input in older private drafts without promoting execution', () => {

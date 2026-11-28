@@ -41,7 +41,7 @@ type WorkQuestionSource = Pick<
 >;
 
 type PresentedWork = WorkQuestionSource &
-  Pick<WorkItem, 'result' | 'githubDelivery'>;
+  Pick<WorkItem, 'result' | 'githubDelivery' | 'completionWait'>;
 
 type WorkSnapshot = Pick<
   WorkItem,
@@ -162,6 +162,8 @@ export function workItemStatus(item: PresentedWork, delivery = true) {
     return 'Delivery not confirmed';
   if (delivery && item.githubDelivery?.status === 'blocked')
     return 'Delivery needs attention';
+  if (item.completionWait === 'work_result') return 'Awaiting work result';
+  if (item.completionWait === 'delivery') return 'Awaiting delivery';
   const execution = currentExecution(item);
   const executionStatus =
     execution &&

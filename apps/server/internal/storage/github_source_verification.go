@@ -137,7 +137,7 @@ func verifyGitHubRuleDelivery(ctx context.Context, q *sqlgen.Queries, p orchestr
 	}
 	// A rule-created matter uses the rule budget, independently of the
 	// personal project defaults used by validateProjectSettings.
-	repo, _, err := validateGitHubDelivery(ctx, q, orchestration.WorkItem{OwnerUserID: p.OwnerUserID, Budget: p.ItemBudget}, settings.GitHubDelivery)
+	repo, _, err := validateGitHubDelivery(ctx, q, p.OwnerUserID, p.ItemBudget.MaxActions, settings.GitHubDelivery)
 	if issue, e := githubVerificationIssue(err); e != nil || issue != nil {
 		d.State, d.Issue = "blocked", issue
 		return d, e
