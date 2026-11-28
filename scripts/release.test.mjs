@@ -505,11 +505,8 @@ test('public upgrade baselines retain separate evidence and strict protocol gate
 });
 
 test('both full package upgrade profiles bind protocol facts, provenance and recovery checks', async () => {
-  const {
-    runnerUpgradeProfiles,
-    verifyRunnerUpgrade,
-    verifyPreviousRunnerUpgrade,
-  } = await import('./upgrade.mjs');
+  const { runnerUpgradeProfiles, verifyRunnerUpgrade } =
+    await import('./upgrade.mjs');
   const descriptor = {
     version: 'v0.1.0-alpha.16',
     sourceCommit: 'a'.repeat(40),
@@ -545,8 +542,6 @@ test('both full package upgrade profiles bind protocol facts, provenance and rec
     const verify = (value) =>
       verifyRunnerUpgrade(value, descriptor, 'linux-amd64', mode);
     verify(report);
-    if (mode === 'previous-upgrade')
-      verifyPreviousRunnerUpgrade(report, descriptor, 'linux-amd64');
     for (const field of [
       ...checks,
       'unsupportedInputProtocolQueued',

@@ -1,5 +1,5 @@
-// Package runinput builds bounded model context and immutable evidence for
-// remote execution and the local execution regression harness.
+// Package runinput prepares bounded model context and immutable file references
+// for Runner execution.
 package runinput
 
 import (

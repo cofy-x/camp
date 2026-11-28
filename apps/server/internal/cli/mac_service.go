@@ -34,25 +34,17 @@ type macService struct {
 	arguments                         []string
 	otherDomains                      []string
 	command                           func(context.Context, ...string) error
-	loaded                            func(context.Context, string) bool
 	lookup                            func(context.Context, string) (bool, error)
 }
 
-// Legacy boolean probes remain a test adapter. Production constructors always
-// supply lookup so failed inspection cannot look like an absent service.
 func (s macService) isLoaded(ctx context.Context, target string) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	var loaded bool
-	var err error
-	if s.lookup != nil {
-		loaded, err = s.lookup(ctx, target)
-	} else if s.loaded != nil {
-		loaded = s.loaded(ctx, target)
-	} else {
+	if s.lookup == nil {
 		return false, errors.New("Service lookup is unavailable")
 	}
+	loaded, err := s.lookup(ctx, target)
 	if failure := ctx.Err(); failure != nil {
 		return false, failure
 	}

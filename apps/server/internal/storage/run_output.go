@@ -136,33 +136,3 @@ func AppendOutputTail(old, addition string) string {
 	}
 	return runOutputMarker + strings.ToValidUTF8(text[len(text)-(MaxRunOutputSize-len(runOutputMarker)-3):], "�")
 }
-
-type RunStreamUpdate struct {
-	Status    string
-	UpdatedAt string
-}
-
-// RecordRunOutput is the local executor's activity write. Finite state changes
-// and terminal results retain their existing full validation/write owners.
-func (s *Store) RecordRunOutput(ctx context.Context, id, kind, eventText, output string) (out RunStreamUpdate, err error) {
-	err = s.transaction(ctx, func(tx *sql.Tx) error {
-		q := sqlgen.New(tx)
-		state, err := q.GetRunStreamIdentity(ctx, id)
-		if err != nil {
-			return missing(err, "The run")
-		}
-		if runTerminal(state.Status) {
-			return problem("run_finished", "This run has already finished.")
-		}
-		if _, err = appendRunEvent(ctx, q, id, kind, eventText); err != nil {
-			return err
-		}
-		stamp := now()
-		if err = appendRunOutput(ctx, q, id, output, stamp); err != nil {
-			return err
-		}
-		out = RunStreamUpdate{Status: state.Status, UpdatedAt: stamp}
-		return event(ctx, q, "run.activity", state.RoomID, id)
-	})
-	return out, err
-}
