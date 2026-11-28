@@ -46,6 +46,9 @@ func currentWorkItemDetails(ctx context.Context, q *sqlgen.Queries, w orchestrat
 // saved-result Run. Original inputs, instructions, output and file bytes remain
 // behind their explicit detail readers.
 func populateWorkView(ctx context.Context, q *sqlgen.Queries, w *orchestration.WorkItem) error {
+	if err := populateGitHubDelivery(ctx, q, w); err != nil {
+		return err
+	}
 	// Validation can retire a superseded judgment. A read only projects whether
 	// it still applies, keeping the original Work state available to the caller.
 	candidate := *w
@@ -53,11 +56,14 @@ func populateWorkView(ctx context.Context, q *sqlgen.Queries, w *orchestration.W
 	if err != nil {
 		return err
 	}
-	w.AwaitingDelivery = awaiting
-	w.Result = nil
-	if err := populateGitHubDelivery(ctx, q, w); err != nil {
-		return err
+	w.CompletionWait = ""
+	if awaiting {
+		w.CompletionWait = orchestration.WorkWaitForDelivery
+		if w.GitHubDelivery != nil && w.GitHubDelivery.Status == "waiting_result" {
+			w.CompletionWait = orchestration.WorkWaitForResult
+		}
 	}
+	w.Result = nil
 	if err := populateWorkRecovery(ctx, q, w); err != nil {
 		return err
 	}

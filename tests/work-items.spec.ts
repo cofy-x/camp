@@ -2227,7 +2227,7 @@ test('completion confirmation is explicit and waits for unresolved external acti
       value.setItem({
         revision: 2,
         status: 'waiting',
-        awaitingDelivery: true,
+        completionWait: 'delivery',
         question: undefined,
         questionKind: undefined,
         waitCondition:
@@ -2293,8 +2293,40 @@ test('completion confirmation is explicit and waits for unresolved external acti
   expect(confirms[0].content).toBeUndefined();
   value.setItem({
     revision: 3,
+    githubDelivery: {
+      id: 'code-delivery',
+      revision: 2,
+      repository: 'example/notes',
+      stage: 'result',
+      status: 'blocked',
+      spec: {
+        connectionId: 'connection',
+        connectionRevision: 1,
+        baseBranch: 'main',
+        mode: 'pr',
+      },
+    },
+  });
+  await openWorkAction(page, 'Refresh');
+  await expect(
+    panel.getByRole('button', { name: 'View delivery records' }),
+  ).toHaveCount(0);
+  value.setItem({
+    revision: 4,
+    githubDelivery: {
+      ...value.item.githubDelivery!,
+      revision: 3,
+      status: 'stopped',
+    },
+  });
+  await openWorkAction(page, 'Refresh');
+  await expect(
+    panel.getByRole('button', { name: 'View delivery records' }),
+  ).toBeVisible();
+  value.setItem({
+    revision: 5,
     status: 'completed',
-    awaitingDelivery: false,
+    completionWait: undefined,
     waitCondition: undefined,
     actions: [],
   });
@@ -2307,12 +2339,56 @@ test('completion confirmation is explicit and waits for unresolved external acti
   expect(errors.errors).toEqual([]);
 });
 
+test('GitHub delivery waiting for its first result keeps Start work available', async ({
+  page,
+  browserName,
+}) => {
+  const errors = watchPageErrors(page, browserName);
+  const value = await presentation(page, errors.reload, {
+    completionMode: 'automatic',
+    status: 'waiting',
+    completionWait: 'work_result',
+    githubDelivery: {
+      id: 'configured',
+      revision: 1,
+      repository: 'example/notes',
+      stage: 'result',
+      status: 'waiting_result',
+      spec: {
+        connectionId: 'connection',
+        connectionRevision: 1,
+        baseBranch: 'main',
+        mode: 'pr',
+      },
+    },
+  });
+  await value.open();
+  const panel = detail(page);
+  await expect(panel.getByRole('status')).toHaveText('Awaiting work result');
+  await capture(page, 'awaiting-work-result', true);
+  await expect(
+    panel.getByRole('button', { name: 'Start work…', exact: true }),
+  ).toBeVisible();
+  await panel.getByRole('button', { name: 'More work actions' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Mark done…' })).toHaveCount(
+    0,
+  );
+  await page.keyboard.press('Escape');
+  await panel.getByRole('button', { name: 'Start work…', exact: true }).click();
+  await expect(
+    panel.getByRole('button', { name: 'Start work', exact: true }),
+  ).toBeVisible();
+  expect(errors.errors).toEqual([]);
+});
+
 test('an accepted completion preserves a private note without offering another confirmation', async ({
   page,
   browserName,
 }) => {
   const errors = watchPageErrors(page, browserName);
   const value = await presentation(page, errors.reload, {
+    status: 'waiting_for_person',
+    question: 'Who reviewed the appendix?',
     result: {
       taskId: 'finished-task',
       summary: 'The proposal is ready.',
@@ -2324,13 +2400,18 @@ test('an accepted completion preserves a private note without offering another c
   });
   await value.open();
   const panel = detail(page);
+  await panel
+    .getByRole('textbox', { name: 'Your answer' })
+    .fill('An earlier private answer');
+  value.setItem({ revision: 2, status: 'open', question: undefined });
+  await openWorkAction(page, 'Refresh');
   await panel.getByRole('button', { name: 'Mark done…', exact: true }).click();
   const note = 'I checked the appendix.';
   const noteField = panel
     .getByRole('form', { name: 'Next step' })
     .getByRole('textbox', { name: 'Note (optional)', exact: true });
   await noteField.fill(note);
-  value.setItem({ revision: 2, status: 'waiting', awaitingDelivery: true });
+  value.setItem({ revision: 3, status: 'waiting', completionWait: 'delivery' });
   await openWorkAction(page, 'Refresh');
   await expect(
     panel.getByRole('status').filter({ hasText: 'Awaiting delivery' }),
@@ -2344,7 +2425,7 @@ test('an accepted completion preserves a private note without offering another c
     panel.getByRole('button', { name: 'Start work', exact: true }),
   ).toBeVisible();
   await panel.getByRole('button', { name: 'Back to item' }).click();
-  value.setItem({ revision: 3, status: 'open', awaitingDelivery: false });
+  value.setItem({ revision: 4, status: 'open', completionWait: undefined });
   await openWorkAction(page, 'Refresh');
   await expect(noteField).toHaveValue(note);
   await expect(

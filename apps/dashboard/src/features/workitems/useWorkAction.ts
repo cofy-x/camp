@@ -87,7 +87,7 @@ export function useWorkAction({
               : savedIntent
         : '';
   const intent =
-    (item.awaitingDelivery && selectedIntent === 'complete') ||
+    (item.completionWait && selectedIntent === 'complete') ||
     (!hasQuestion &&
       (selectedIntent === 'answer' || selectedIntent === 'answer_continue'))
       ? ''

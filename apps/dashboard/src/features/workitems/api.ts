@@ -38,7 +38,7 @@ export type CurrentWorkDecision =
   | { kind: 'judgment' | 'completion'; text: string };
 
 export interface WorkItem {
-  awaitingDelivery?: boolean;
+  completionWait?: 'work_result' | 'delivery';
   projectRevision?: number;
   githubDelivery?: GitHubDelivery;
   seq: number;
@@ -260,7 +260,7 @@ export interface WorkItemOperation {
 
 export type WorkListItem = Pick<
   WorkItem,
-  | 'awaitingDelivery'
+  | 'completionWait'
   | 'currentDecision'
   | 'githubDelivery'
   | 'workRecovery'

@@ -33,22 +33,29 @@ type WorkItemState struct {
 	UpdatedAt                   string                 `json:"updatedAt"`
 }
 
+type WorkCompletionWait string
+
+const (
+	WorkWaitForResult   WorkCompletionWait = "work_result"
+	WorkWaitForDelivery WorkCompletionWait = "delivery"
+)
+
 // WorkItem adds the current view and bounded history returned to readers.
 // A mutation receipt freezes this view at the accepted revision.
 type WorkItem struct {
 	WorkItemState
-	AwaitingDelivery bool                 `json:"awaitingDelivery,omitempty"`
-	CurrentDecision  *WorkCurrentDecision `json:"currentDecision"`
-	GitHubDelivery   *GitHubDelivery      `json:"githubDelivery,omitempty"`
-	Execution        *WorkExecution       `json:"execution,omitempty"`
-	Result           *WorkResult          `json:"result,omitempty"`
-	Evidence         []WorkEvidence       `json:"evidence"`
-	Decisions        []WorkDecision       `json:"decisions"`
-	Tasks            []WorkTask           `json:"tasks"`
-	Timers           []WorkTimer          `json:"timers"`
-	Actions          []WorkAction         `json:"actions"`
-	Watches          []WorkWatch          `json:"watches"`
-	HistoryLimited   bool                 `json:"historyLimited,omitempty"`
+	CompletionWait  WorkCompletionWait   `json:"completionWait,omitempty"`
+	CurrentDecision *WorkCurrentDecision `json:"currentDecision"`
+	GitHubDelivery  *GitHubDelivery      `json:"githubDelivery,omitempty"`
+	Execution       *WorkExecution       `json:"execution,omitempty"`
+	Result          *WorkResult          `json:"result,omitempty"`
+	Evidence        []WorkEvidence       `json:"evidence"`
+	Decisions       []WorkDecision       `json:"decisions"`
+	Tasks           []WorkTask           `json:"tasks"`
+	Timers          []WorkTimer          `json:"timers"`
+	Actions         []WorkAction         `json:"actions"`
+	Watches         []WorkWatch          `json:"watches"`
+	HistoryLimited  bool                 `json:"historyLimited,omitempty"`
 }
 
 type WorkRecoveryKind string

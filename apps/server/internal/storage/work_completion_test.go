@@ -133,7 +133,7 @@ func TestAutomaticWorkWaitsForEveryReceiptWithoutReplayingOrOverwritingJudgment(
 	for _, change := range []string{"none", "human-wait", "context", "expiry"} {
 		t.Run(change, func(t *testing.T) {
 			s, actor, w, task, _ := workActionFixtureWithMode(t, "automatic")
-			if w.Status != "waiting" || w.PendingCompletion == nil || !w.AwaitingDelivery {
+			if w.Status != "waiting" || w.PendingCompletion == nil || w.CompletionWait != orchestration.WorkWaitForDelivery {
 				t.Fatal("completion ignored queued final deliveries", w)
 			}
 			claimed := []orchestration.Delivery{}
@@ -156,22 +156,26 @@ func TestAutomaticWorkWaitsForEveryReceiptWithoutReplayingOrOverwritingJudgment(
 					t.Fatal(err)
 				}
 			}
-			assertWaiting := func(want bool) {
+			assertWait := func(want orchestration.WorkCompletionWait) {
 				t.Helper()
 				current, err := s.GetCurrentWorkItem(actor, w.ID)
-				if err != nil || current.AwaitingDelivery != want {
-					t.Fatalf("current awaitingDelivery = %t, want %t, err = %v", current.AwaitingDelivery, want, err)
+				if err != nil || current.CompletionWait != want {
+					t.Fatalf("current completionWait = %q, want %q, err = %v", current.CompletionWait, want, err)
 				}
 				page, err := s.ListWorkItems(actor, WorkListOptions{View: "all", RoomID: w.RoomID})
-				if err != nil || len(page.Items) != 1 || page.Items[0].ID != w.ID || page.Items[0].AwaitingDelivery != want {
+				if err != nil || len(page.Items) != 1 || page.Items[0].ID != w.ID || page.Items[0].CompletionWait != want {
 					t.Fatal("Work list disagreed with current detail", page.Items, err)
 				}
 			}
-			assertWaiting(change == "none")
+			var wait orchestration.WorkCompletionWait
+			if change == "none" {
+				wait = orchestration.WorkWaitForDelivery
+			}
+			assertWait(wait)
 			for index := range claimed {
 				completeTestWorkAction(t, s, &claimed[index], "sent", int64(700+index))
 				if index == 0 {
-					assertWaiting(change == "none")
+					assertWait(wait)
 					current, _ := s.GetWorkItem(actor, w.ID)
 					if current.Status == "completed" {
 						t.Fatal("the first receipt closed a two-destination matter")
@@ -182,7 +186,7 @@ func TestAutomaticWorkWaitsForEveryReceiptWithoutReplayingOrOverwritingJudgment(
 			if err != nil {
 				t.Fatal(err)
 			}
-			assertWaiting(false)
+			assertWait("")
 			if change == "none" {
 				if current.Status != "completed" || current.PendingCompletion != nil {
 					t.Fatal(current)

@@ -333,7 +333,7 @@ export function WorkItemDetail({
           action: () => manage('changes'),
         });
       if (
-        !item.awaitingDelivery &&
+        !item.completionWait &&
         question?.kind !== 'completion' &&
         (!item.result || item.completionMode !== 'human')
       )
@@ -526,16 +526,18 @@ export function WorkItemDetail({
                   )}
                 </div>
               )}
-              {item.awaitingDelivery &&
+              {item.completionWait === 'delivery' &&
                 (!item.githubDelivery ||
-                  item.githubDelivery.status === 'succeeded') && (
+                  ['succeeded', 'stopped'].includes(
+                    item.githubDelivery.status,
+                  )) && (
                   <Button variant="text" onClick={() => openRecords('actions')}>
                     View delivery records
                   </Button>
                 )}
               {!question &&
                 !item.githubDelivery &&
-                !item.awaitingDelivery &&
+                !item.completionWait &&
                 item.waitCondition && (
                   <p className="work-item-wait">
                     {item.waitCondition}

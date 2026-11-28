@@ -20,7 +20,7 @@ func TestWorkSnapshotSeparatesSavedStateFromOriginalResponse(t *testing.T) {
 	if err != nil || w.Goal != "Deliver the brief" || w.ExpiresAt != "2028-01-01T00:00:00Z" || w.Execution != nil {
 		t.Fatal(w, err)
 	}
-	w.AwaitingDelivery = true
+	w.CompletionWait = orchestration.WorkWaitForDelivery
 	w.Result = &orchestration.WorkResult{TaskID: "original"}
 	w.HistoryLimited = true
 	raw, err := workItemSnapshot(w)
@@ -31,13 +31,13 @@ func TestWorkSnapshotSeparatesSavedStateFromOriginalResponse(t *testing.T) {
 	if err = json.Unmarshal(raw, &fields); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"awaitingDelivery", "execution", "result", "currentDecision", "githubDelivery", "historyLimited", "evidence", "decisions", "tasks", "timers", "actions", "watches"} {
+	for _, key := range []string{"completionWait", "execution", "result", "currentDecision", "githubDelivery", "historyLimited", "evidence", "decisions", "tasks", "timers", "actions", "watches"} {
 		if _, exists := fields[key]; exists {
 			t.Fatalf("display field %q entered the durable Work state", key)
 		}
 	}
 	receipt, err := readWorkReceipt(legacy)
-	if err != nil || receipt.Execution == nil || receipt.Execution.TaskID != "previous" || receipt.AwaitingDelivery {
+	if err != nil || receipt.Execution == nil || receipt.Execution.TaskID != "previous" || receipt.CompletionWait != "" {
 		t.Fatal("legacy receipt lost its original view", receipt, err)
 	}
 }

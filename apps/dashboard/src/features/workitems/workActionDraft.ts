@@ -66,3 +66,16 @@ export function restoreWorkActionDraft(
     comment: value.comment ?? value.reason,
   };
 }
+
+export function workActionDraftPreview(value: WorkActionDraft | null) {
+  if (!value) return '';
+  const draft = restoreWorkActionDraft(value);
+  if (draft.intent === 'complete') return draft.comment ?? '';
+  return (
+    draft.content ||
+    draft.comment ||
+    draft.waitCondition ||
+    draft.question ||
+    (draft.evidenceIds ?? []).join('\n')
+  );
+}
