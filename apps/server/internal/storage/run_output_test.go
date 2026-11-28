@@ -50,25 +50,3 @@ func TestOutputChunksMatchTheExistingTailWithoutRewritingFrozenRun(t *testing.T)
 		t.Fatal("projection size differs from exact output")
 	}
 }
-
-func TestLocalOutputWritesActivityAndKeepsOriginalEvents(t *testing.T) {
-	s, room, _ := roomFixture(t)
-	sent := sendRoom(t, s, room, "local-stream")
-	before, _ := s.queries().WorkspaceEventCursor(ctx)
-	update, err := s.RecordRunOutput(ctx, sent.Runs[0].ID, "assistant", "Original event", "Original visible output")
-	if err != nil {
-		t.Fatal(err)
-	}
-	run, err := s.GetRun(ctx, sent.Runs[0].ID)
-	if err != nil || run.Output != "Original visible output" || run.UpdatedAt != update.UpdatedAt {
-		t.Fatal(run, err)
-	}
-	events, err := s.ListRunEvents(ctx, run.ID, 0)
-	if err != nil || len(events) != 1 || events[0].Text != "Original event" {
-		t.Fatal(events, err)
-	}
-	notices, err := s.ListWorkspaceEvents(ctx, before)
-	if err != nil || len(notices) != 1 || notices[0].Type != "run.activity" {
-		t.Fatal(notices, err)
-	}
-}

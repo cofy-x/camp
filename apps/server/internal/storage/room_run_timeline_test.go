@@ -137,33 +137,29 @@ func TestRunSummaryKeepsHeavyOriginalsLazyAndEventsUseOnlyIdentity(t *testing.T)
 	_, err = s.ListRunEvents(ctx, "missing", 0)
 	requireCode(t, err, "not_found")
 }
-func TestRoomRunTimelineReboundsOverlayWithoutSkippingRows(t *testing.T) {
+func TestRoomRunTimelineBoundsQueueReasonsWithoutSkippingRows(t *testing.T) {
 	s, room, _ := roomFixture(t)
-	for index := 0; index < 20; index++ {
-		sendRoom(t, s, room, fmt.Sprintf("large-%d", index))
+	sendRoom(t, s, room, "first-queued")
+	sendRoom(t, s, room, "second-queued")
+	page, err := s.RoomRunTimeline(ctx, room.ID, "", 2)
+	if err != nil || len(page.Items) != 2 || page.NextCursor != "" {
+		t.Fatal("expected both queued runs on one page", err)
 	}
-	page, err := s.RoomRunTimeline(ctx, room.ID, "", 20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	original := append([]RunTimeline(nil), page.Items...)
+	secondID := page.Items[1].ID
+	// Each queue reason fits on its own, but together they force a page break.
 	for index := range page.Items {
-		page.Items[index].Error = strings.Repeat("x", MaxRunErrorSize)
-		page.Items[index].FileCount = 20
-		for file := 0; file < 20; file++ {
-			page.Items[index].Files = append(page.Items[index].Files, RunTimelineFile{Path: fmt.Sprintf("%s-%d.txt", strings.Repeat("p", 900), file), Status: "added"})
-		}
+		page.Items[index].WaitingReason = strings.Repeat("w", RoomRunTimelineBytes/2)
 	}
 	if err = page.Bound(); err != nil {
 		t.Fatal(err)
 	}
-	encoded, _ := json.Marshal(page)
-	if len(encoded)+1 > RoomRunTimelineBytes || len(page.Items) >= 20 || page.NextCursor == "" {
-		t.Fatal("overlay escaped bound", len(page.Items))
+	encoded, err := json.Marshal(page)
+	if err != nil || len(encoded)+1 > RoomRunTimelineBytes || len(page.Items) != 1 || page.NextCursor == "" {
+		t.Fatal("queue reasons exceeded the page bound", len(page.Items), err)
 	}
-	next, err := s.RoomRunTimeline(ctx, room.ID, page.NextCursor, 20)
-	if err != nil || len(page.Items)+len(next.Items) != len(original) || next.Items[0].ID != original[len(page.Items)].ID {
-		t.Fatal("rebinding skipped rows", err)
+	next, err := s.RoomRunTimeline(ctx, room.ID, page.NextCursor, 2)
+	if err != nil || len(next.Items) != 1 || next.Items[0].ID != secondID || next.NextCursor != "" {
+		t.Fatal("the cursor skipped the second queued run", err)
 	}
 }
 
@@ -192,10 +188,8 @@ func TestRoomRunTimelineMalformedChecksAndOversizedPreviewStaySafe(t *testing.T)
 	if len(data)+1 > RoomRunTimelineBytes {
 		t.Fatal("oversized file preview escaped bound")
 	}
-	projected := ProjectRunTimeline(run)
-	for _, check := range projected.Checks {
-		if check.Status == "passed" {
-			t.Fatal("overlay claimed malformed evidence passed")
-		}
+	summary, err := s.GetRunSummary(ctx, run.ID)
+	if err != nil || !reflect.DeepEqual(summary, item) {
+		t.Fatal("single summary lost the timeline's malformed-check or file-preview bounds", summary, err)
 	}
 }

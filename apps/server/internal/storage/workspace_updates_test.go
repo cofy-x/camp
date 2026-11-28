@@ -469,6 +469,10 @@ func TestAttemptLogsNotifyActivityWithoutChangingRoomActivity(t *testing.T) {
 		t.Fatal(err)
 	}
 	room, _ = s.GetRoom(ctx, room.ID)
+	if _, err := s.db.Exec(`CREATE TRIGGER protect_frozen_run BEFORE UPDATE OF snapshot ON runs
+		BEGIN SELECT RAISE(ABORT, 'Attempt events must not rewrite the frozen Run'); END`); err != nil {
+		t.Fatal(err)
+	}
 	if replayed, err := s.RecordAttemptEvent(ctx, runner.ID, attempt.ID, 1, "assistant", "Original reply.", strings.Repeat("1", 64)); err != nil || replayed {
 		t.Fatal(replayed, err)
 	}
@@ -483,6 +487,10 @@ func TestAttemptLogsNotifyActivityWithoutChangingRoomActivity(t *testing.T) {
 	saved, err := s.GetRun(ctx, run.ID)
 	if err != nil || saved.Output != "Original reply." || saved.Status != run.Status {
 		t.Fatal(saved, err)
+	}
+	progress, err := s.queries().GetRunProgress(ctx, run.ID)
+	if err != nil || saved.UpdatedAt != progress.UpdatedAt {
+		t.Fatal("Run timestamp does not match the accepted output", saved.UpdatedAt, progress.UpdatedAt, err)
 	}
 	if replayed, err := s.RecordAttemptEvent(ctx, runner.ID, attempt.ID, 1, "assistant", "Original reply.", strings.Repeat("1", 64)); err != nil || !replayed {
 		t.Fatal(replayed, err)

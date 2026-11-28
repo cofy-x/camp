@@ -128,7 +128,7 @@ func TestServerServiceSharesLifecycleWithoutRunnerIdentity(t *testing.T) {
 	}
 	var commands [][]string
 	active := false
-	manager := macService{role: "server", domain: "gui/501", directory: directory, loginDirectory: t.TempDir(), arguments: []string{"service", "run", "--data-dir", directory}, loaded: func(context.Context, string) bool { return active }, command: func(_ context.Context, args ...string) error {
+	manager := macService{role: "server", domain: "gui/501", directory: directory, loginDirectory: t.TempDir(), arguments: []string{"service", "run", "--data-dir", directory}, lookup: func(context.Context, string) (bool, error) { return active, nil }, command: func(_ context.Context, args ...string) error {
 		commands = append(commands, args)
 		if args[0] == "bootstrap" {
 			active = true
@@ -178,7 +178,7 @@ func TestRejectedServerInstallationPreservesSettingsAndAllowsValidRetry(t *testi
 	if err = os.Chmod(directory, 0700); err != nil {
 		t.Fatal(err)
 	}
-	manager := macService{role: "server", directory: directory, domain: "gui/501", loginDirectory: t.TempDir(), arguments: []string{"service", "run", "--data-dir", directory}, loaded: func(context.Context, string) bool { return false }, command: func(context.Context, ...string) error {
+	manager := macService{role: "server", directory: directory, domain: "gui/501", loginDirectory: t.TempDir(), arguments: []string{"service", "run", "--data-dir", directory}, lookup: func(context.Context, string) (bool, error) { return false, nil }, command: func(context.Context, ...string) error {
 		t.Fatal("Installation unexpectedly started service")
 		return nil
 	}}
@@ -229,6 +229,7 @@ func TestRejectedServerInstallationPreservesSettingsAndAllowsValidRetry(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	lookup := manager.lookup
 	manager.lookup = func(context.Context, string) (bool, error) { return false, errors.New("uncertain service lookup") }
 	if err = installServerService(context.Background(), manager, next, "/private/new-camp"); err == nil {
 		t.Fatal("Uncertain lookup changed service settings")
@@ -238,7 +239,7 @@ func TestRejectedServerInstallationPreservesSettingsAndAllowsValidRetry(t *testi
 	if !bytes.Equal(beforeConfig, afterConfig) || !bytes.Equal(beforePlist, afterPlist) {
 		t.Fatal("Uncertain lookup changed previous settings")
 	}
-	manager.lookup = nil
+	manager.lookup = lookup
 	if err = installServerService(context.Background(), manager, next, "/private/new-camp"); err != nil {
 		t.Fatal("Rejected attempt prevented a valid retry", err)
 	}

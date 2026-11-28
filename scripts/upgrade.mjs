@@ -213,7 +213,3 @@ export function verifyRunnerUpgrade(report, descriptor, platform, mode) {
   assert.equal(report.model.paid, false);
   assert.equal(report.model.requests, 5);
 }
-
-export function verifyPreviousRunnerUpgrade(report, descriptor, platform) {
-  verifyRunnerUpgrade(report, descriptor, platform, 'previous-upgrade');
-}

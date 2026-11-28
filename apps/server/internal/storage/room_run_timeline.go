@@ -87,8 +87,8 @@ func timelineCursor(position roomRunTimelineCursor, last RunTimeline) string {
 	return base64.RawURLEncoding.EncodeToString(data)
 }
 
-// Bound reapplies the wire bound after a Manager overlays a retained terminal
-// result or current queue reason. The next cursor never skips a removed row.
+// Bound enforces the wire limit on stored summaries and after the Manager adds
+// current queue reasons. The next cursor never skips a removed row.
 func (page *RoomRunTimelinePage) Bound() error {
 	more := page.more || page.NextCursor != ""
 	all := page.Items
@@ -184,36 +184,6 @@ func (s *Store) RoomRunTimeline(ctx context.Context, room, cursor string, limit 
 	}
 	err = page.Bound()
 	return page, err
-}
-
-// ProjectRunTimeline applies the same whitelist to an in-memory terminal result.
-func ProjectRunTimeline(run Run) RunTimeline {
-	out := RunTimeline{ID: run.ID, RoomID: run.RoomID, ThreadRootID: run.ThreadRootID, OriginMessageID: run.OriginMessageID, AgentID: run.AgentID, ResourceID: run.ResourceID, TaskID: run.TaskID, RunnerID: run.RunnerID, RunnerName: run.RunnerName, Status: run.Status, CreatedAt: run.CreatedAt, UpdatedAt: run.UpdatedAt, FinishedAt: run.FinishedAt, SessionMode: run.SessionMode, SessionGeneration: run.SessionGeneration, WaitingReason: run.WaitingReason, Error: run.Error, ResultCommit: run.ResultCommit, Published: run.Published, ChecksDeferred: run.ChecksDeferred, TestExitCode: run.TestExitCode, AgentSnapshot: RunTimelineAgent{ID: run.AgentSnapshot.ID, Name: run.AgentSnapshot.Name, Avatar: run.AgentSnapshot.Avatar, Access: run.AgentSnapshot.Access}, Checks: []RunTimelineCheck{}, Files: []RunTimelineFile{}, FileCount: len(run.Files), FilesLimited: len(run.Files) > 20}
-	if string(run.Environment) != "null" && len(run.Environment) > 0 {
-		var environment RunTimelineEnvironment
-		if json.Unmarshal(run.Environment, &environment) == nil {
-			if environment.Checks == nil {
-				environment.Checks = []RunTimelineCheckName{}
-			}
-			out.Environment = &environment
-		}
-	}
-	if err := json.Unmarshal(run.Checks, &out.Checks); err != nil && len(run.Checks) > 0 {
-		out.Checks = []RunTimelineCheck{{Status: "incomplete"}}
-	}
-	if out.Checks == nil {
-		out.Checks = []RunTimelineCheck{}
-	}
-	if out.AgentSnapshot.ID == "" {
-		out.AgentSnapshot.ID = run.AgentID
-	}
-	for index, file := range run.Files {
-		if index == 20 {
-			break
-		}
-		out.Files = append(out.Files, RunTimelineFile{Path: file.Path, Status: file.Status})
-	}
-	return out
 }
 
 // BoundRunSummary applies the same exact-file preview bound to one Run.
